@@ -10,5 +10,22 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json"
-  }
+  },
+  "keywords": [
+    "menu",
+    "dropdown",
+    "context-menu",
+    "headless",
+    "core",
+    "engine",
+    "framework-agnostic",
+    "ui-core",
+    "accessibility",
+    "aria",
+    "keyboard-navigation",
+    "state-machine",
+    "positioning",
+    "mouse-prediction"
+  ]
+
 }

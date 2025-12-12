@@ -1,6 +1,6 @@
 {
   "name": "@affino/menu-vue",
-  "version": "1.0.0-alpha.0",
+  "version": "1.0.0-alpha.1",
   "description": "Vue adapter for @affino/menu-core",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
@@ -13,5 +13,22 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json"
-  }
+  },
+  "keywords": [
+    "vue",
+    "vue3",
+    "menu",
+    "dropdown",
+    "context-menu",
+    "headless",
+    "ui",
+    "component",
+    "accessibility",
+    "aria",
+    "keyboard",
+    "submenu",
+    "design-system",
+    "radix",
+    "headless-ui"
+  ]
 }
