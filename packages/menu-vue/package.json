@@ -1,0 +1,20 @@
+{
+  "name": "@affino/menu-vue",
+  "version": "1.0.0",
+  "description": "Vue adapter for @affino/menu-core",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "peerDependencies": {
+    "vue": "^3.3.0"
+  },
+  "dependencies": {
+    "@affino/menu-core": "workspace:*"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  }
+}
