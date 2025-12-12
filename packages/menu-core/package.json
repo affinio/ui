@@ -1,7 +1,7 @@
 {
   "name": "@affino/menu-core",
-  "version": "1.0.0-alpha.0",
-  "description": "Headless menu engine for Affino UI",
+  "version": "1.0.0-alpha.1",
+  "description": "Framework-agnostic headless menu engine with smart mouse prediction, keyboard navigation, and nested submenus",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
   "types": "dist/index.d.ts",

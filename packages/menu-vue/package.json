@@ -1,7 +1,7 @@
 {
   "name": "@affino/menu-vue",
   "version": "1.0.0-alpha.1",
-  "description": "Vue adapter for @affino/menu-core",
+  "description": "Headless Vue 3 menu components with smart mouse prediction and full keyboard accessibility",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
   "types": "dist/index.d.ts",
