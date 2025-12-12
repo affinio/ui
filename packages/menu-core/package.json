@@ -1,0 +1,14 @@
+{
+  "name": "@affino/menu-core",
+  "version": "1.0.0",
+  "description": "Headless menu engine for Affino UI",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  }
+}
