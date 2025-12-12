@@ -1,16 +1,29 @@
 {
   "name": "@affino/menu-vue",
-  "version": "1.0.0-alpha.1",
+  "version": "1.0.0-alpha.2",
+  "type": "module",
   "description": "Headless Vue 3 menu components with smart mouse prediction and full keyboard accessibility",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+
   "main": "dist/index.js",
-  "module": "dist/index.mjs",
   "types": "dist/index.d.ts",
+
   "files": [
     "dist"
   ],
   "peerDependencies": {
     "vue": "^3.3.0"
   },
+
+  "dependencies": {
+    "@affino/menu-core": "workspace:^"
+  },
+
   "scripts": {
     "build": "tsc -p tsconfig.json"
   },

@@ -1,16 +1,30 @@
 {
   "name": "@affino/menu-core",
-  "version": "1.0.0-alpha.1",
+  "version": "1.0.0-alpha.2",
+  "type": "module",
+
   "description": "Framework-agnostic headless menu engine with smart mouse prediction, keyboard navigation, and nested submenus",
+
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+
   "main": "dist/index.js",
-  "module": "dist/index.mjs",
   "types": "dist/index.d.ts",
+
   "files": [
     "dist"
   ],
+
+  "sideEffects": false,
+
   "scripts": {
     "build": "tsc -p tsconfig.json"
   },
+
   "keywords": [
     "menu",
     "dropdown",
@@ -25,7 +39,11 @@
     "keyboard-navigation",
     "state-machine",
     "positioning",
-    "mouse-prediction"
+    "mouse-prediction",
+    "submenu",
+    "intent",
+    "floating-ui",
+    "radix",
+    "headless-ui"
   ]
-
 }
