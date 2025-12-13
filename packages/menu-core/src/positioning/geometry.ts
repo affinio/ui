@@ -1,4 +1,4 @@
-import type { Alignment, Rect } from "../Types"
+import type { Alignment, Rect } from "../types"
 
 export type Axis = "x" | "y"
 

@@ -1,6 +1,7 @@
 {
   "name": "@affino/menu-core",
   "version": "1.0.0-alpha.2",
+  "author": "Anton Pavlov <pavlov@myyahho.com>",
   "type": "module",
 
   "description": "Framework-agnostic headless menu engine with smart mouse prediction, keyboard navigation, and nested submenus",
@@ -25,6 +26,13 @@
     "build": "tsc -p tsconfig.json"
   },
 
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/affinio/affinio.git"
+  },
+
+  "homepage": "https://ui.unitlab.io",
+
   "keywords": [
     "menu",
     "dropdown",
@@ -45,5 +53,6 @@
     "floating-ui",
     "radix",
     "headless-ui"
-  ]
+  ],
+  "license": "MIT"
 }

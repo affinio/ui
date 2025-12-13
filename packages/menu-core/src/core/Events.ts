@@ -1,4 +1,4 @@
-import type { MenuCallbacks, PositionResult } from "../Types"
+import type { MenuCallbacks, PositionResult } from "../types"
 
 /**
  * Thin facade over the public callback bag that guarantees consistent ordering of emitted

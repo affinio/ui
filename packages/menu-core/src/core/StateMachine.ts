@@ -1,4 +1,4 @@
-import type { MenuState } from "../Types"
+import type { MenuState } from "../types"
 
 export interface HighlightChange {
   changed: boolean

@@ -4,7 +4,7 @@ import type {
   MousePredictionDebugPayload,
   Point,
   Rect,
-} from "../Types"
+} from "../types"
 import { center, dotProduct, magnitude, subtract } from "./helpers"
 
 const DEFAULT_CONFIG: Required<MousePredictionConfig> = {

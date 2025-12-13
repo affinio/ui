@@ -1,4 +1,4 @@
-import type { MenuOptions } from "../Types"
+import type { MenuOptions } from "../types"
 
 export type TimerHandle = ReturnType<typeof setTimeout> | null
 

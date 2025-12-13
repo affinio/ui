@@ -8,7 +8,7 @@ import type {
   PointerEventLike,
   Rect,
   TriggerProps,
-} from "../Types"
+} from "../types"
 import type { MenuTreeState } from "./MenuTree"
 
 export interface SubmenuOptions extends MenuOptions {

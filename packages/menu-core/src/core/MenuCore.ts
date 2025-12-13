@@ -10,7 +10,7 @@ import type {
   Rect,
   Subscription,
   TriggerProps,
-} from "../Types"
+} from "../types"
 import type { HighlightChange } from "./StateMachine"
 import { ItemRegistry } from "./ItemRegistry"
 import { MenuEvents } from "./Events"
