@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { useMenuProvider } from "./context"
+import { useMenuProvider } from "../context"
 import UiMenuBaseContent from "./UiMenuBaseContent.vue"
 
 const provider = useMenuProvider()

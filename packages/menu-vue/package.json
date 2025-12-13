@@ -1,32 +1,33 @@
 {
   "name": "@affino/menu-vue",
   "version": "1.0.0-alpha.2",
+  "author": "Anton Pavlov <pavlov@myyahho.com>",
   "type": "module",
   "description": "Headless Vue 3 menu components with smart mouse prediction and full keyboard accessibility",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
-    }
-  },
-
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
-
   "files": [
     "dist"
   ],
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./styles.css": "./dist/styles.css"
+  },
   "peerDependencies": {
+    "@affino/menu-core": "^1.0.0-alpha.2",
     "vue": "^3.3.0"
   },
-
-  "dependencies": {
-    "@affino/menu-core": "workspace:^"
-  },
-
   "scripts": {
-    "build": "tsc -p tsconfig.json"
+    "clean": "rm -rf dist",
+    "build": "pnpm run clean && vite build && pnpm run build:types",
+    "build:types": "vue-tsc -p tsconfig.build.json"
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/affinio/affinio.git"
+  },
+  "homepage": "https://ui.unitlab.io",
   "keywords": [
     "vue",
     "vue3",
@@ -43,5 +44,9 @@
     "design-system",
     "radix",
     "headless-ui"
-  ]
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^25.0.1"
+  }
 }

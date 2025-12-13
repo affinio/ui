@@ -1,19 +1,18 @@
 <script setup lang="ts">
-import { useMenuProvider } from "./context"
+import { useMenuProvider } from "../context"
 import UiMenuBaseTrigger from "./UiMenuBaseTrigger.vue"
 
-const props = defineProps<{ asChild?: boolean; trigger?: "click" | "contextmenu" | "both" }>()
-
+const props = defineProps<{ asChild?: boolean }>()
 const provider = useMenuProvider()
 </script>
 
 <template>
   <UiMenuBaseTrigger
     :provider="provider"
-    variant="menu"
+    variant="submenu"
     :as-child="props.asChild"
-    :trigger-mode="props.trigger"
-    component-label="UiMenuTrigger"
+    component-label="UiSubMenuTrigger"
+    show-arrow
   >
     <slot />
   </UiMenuBaseTrigger>

@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { Teleport, computed, nextTick, onBeforeUnmount, onMounted, ref, watch, useAttrs } from "vue"
 import type { PositionResult } from "@affino/menu-core"
-import type { MenuProviderValue } from "./context"
-import { useMenuPointerHandlers } from "./useMenuPointerHandlers"
-import { useMenuFocus } from "./useMenuFocus"
-import { useMenuPositioning } from "./useMenuPositioning"
-import { toRect } from "./dom"
-import { useSubmenuBridge } from "./useSubmenuBridge"
+import type { MenuProviderValue } from "../context"
+import { useMenuPointerHandlers } from "../useMenuPointerHandlers"
+import { useMenuFocus } from "../useMenuFocus"
+import { useMenuPositioning } from "../useMenuPositioning"
+import { toRect } from "../dom"
+import { useSubmenuBridge } from "../useSubmenuBridge"
 
 const props = defineProps<{
   provider: MenuProviderValue

@@ -2,11 +2,11 @@
 import { computed, onBeforeUnmount, ref, watch } from "vue"
 import type { ComponentPublicInstance, ComputedRef } from "vue"
 import type { ItemProps, TriggerProps } from "@affino/menu-core"
-import type { MenuController } from "./useMenuController"
-import type { MenuProviderValue, SubmenuProviderValue } from "./context"
-import AsChildRenderer from "./useAsChild"
-import { useMenuPointerHandlers } from "./useMenuPointerHandlers"
-import { useSubmenuBridge } from "./useSubmenuBridge"
+import type { MenuController } from "../useMenuController"
+import type { MenuProviderValue, SubmenuProviderValue } from "../context"
+import AsChildRenderer from "../useAsChild"
+import { useMenuPointerHandlers } from "../useMenuPointerHandlers"
+import { useSubmenuBridge } from "../useSubmenuBridge"
 
 const stopPropagationKeys = new Set(["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Home", "End", "Enter", " ", "Space"])
 

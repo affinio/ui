@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { MenuCallbacks, MenuOptions } from "@affino/menu-core"
-import { provideMenuProvider } from "./context"
-import { useMenuController } from "./useMenuController"
+import { provideMenuProvider } from "../context"
+import { useMenuController } from "../useMenuController"
 
 const props = defineProps<{ options?: MenuOptions; callbacks?: MenuCallbacks }>()
 

@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from "vue"
 import type { ComponentPublicInstance } from "vue"
-import type { MenuController } from "./useMenuController"
-import { useMenuProvider, useOptionalSubmenuProvider } from "./context"
-import { uid } from "./id"
-import AsChildRenderer from "./useAsChild"
+import type { MenuController } from "../useMenuController"
+import { useMenuProvider, useOptionalSubmenuProvider } from "../context"
+import { uid } from "../id"
+import AsChildRenderer from "../useAsChild"
 
 const stopPropagationKeys = new Set(["ArrowDown", "ArrowUp", "Home", "End", "Enter", " ", "Space"])
 
