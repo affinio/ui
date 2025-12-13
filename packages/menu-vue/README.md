@@ -76,10 +76,16 @@ Docs → [./docs/index.md](./docs/index.md)
 ## Getting Started
 
 1. `npm install @affino/menu-vue`
-2. Wrap your trigger + content with `<UiMenu>` / `<UiMenuTrigger>` / `<UiMenuContent>`
-3. Spread controller props onto your DOM via `asChild` when customizing
-4. Add nested `<UiSubMenu>` components for multi-level trees (level 3+ supported)
-5. Dive deeper in [docs/getting-started.md](./docs/getting-started.md)
+2. Import your global CSS followed by the menu styles in your app entry (usually `main.ts`) so the design tokens are available everywhere:
+
+```ts
+import '@affino/menu-vue/styles.css'
+```
+
+3. Wrap your trigger + content with `<UiMenu>` / `<UiMenuTrigger>` / `<UiMenuContent>`
+4. Spread controller props onto your DOM via `asChild` when customizing
+5. Add nested `<UiSubMenu>` components for multi-level trees (level 3+ supported)
+6. Dive deeper in [docs/getting-started.md](./docs/getting-started.md)
 
 ## FAQ
 
