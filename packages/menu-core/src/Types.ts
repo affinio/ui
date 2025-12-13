@@ -44,8 +44,9 @@ export interface MousePredictionDebugPayload {
   target: Rect
   origin: Rect
   headingScore: number
-  insideVertical: boolean
-  horizontalProgress: number
+  orientation: "horizontal" | "vertical"
+  withinCorridor: boolean
+  forwardProgress: number
 }
 
 export type MousePredictionDebugCallback = (payload: MousePredictionDebugPayload) => void

@@ -7,6 +7,8 @@ import type {
 } from "../types"
 import { center, dotProduct, magnitude, subtract } from "./helpers"
 
+type Orientation = "horizontal" | "vertical"
+
 const DEFAULT_CONFIG: Required<MousePredictionConfig> = {
   history: 8,
   verticalTolerance: 48,
@@ -61,37 +63,131 @@ export class MousePrediction {
       return false
     }
 
+    const originCenter = center(origin)
     const targetCenter = center(target)
     const toTarget = subtract(targetCenter, last)
     const targetMagnitude = magnitude(toTarget)
     const headingScore = targetMagnitude === 0 ? 1 : dotProduct(movement, toTarget) / (movementMagnitude * targetMagnitude)
 
-    const opensRight = target.x >= origin.x + origin.width
-    const horizontalProgress = opensRight
-      ? last.x - origin.x - origin.width
-      : origin.x - last.x
+    const orientation = determineOrientation(target, origin)
+    const horizontalDirection = determineDirection("horizontal", target, origin, targetCenter, originCenter)
+    const verticalDirection = determineDirection("vertical", target, origin, targetCenter, originCenter)
 
-    const insideVertical =
-      last.y >= target.y - this.config.verticalTolerance &&
-      last.y <= target.y + target.height + this.config.verticalTolerance
+    const withinCorridor = isWithinCorridor({
+      orientation,
+      point: last,
+      target,
+      origin,
+      tolerance: this.config.verticalTolerance,
+    })
 
-    const driftBias = Math.abs(movement.x) > Math.abs(movement.y) * this.config.driftBias
+    const forwardProgress = computeForwardProgress({
+      orientation,
+      point: last,
+      origin,
+      horizontalDirection,
+      verticalDirection,
+    })
+
+    const driftBias = appliesDriftBias({
+      orientation,
+      movement,
+      driftBias: this.config.driftBias,
+    })
     const headingSatisfied = headingScore > this.config.headingThreshold
-    const horizontalSatisfied = horizontalProgress >= -this.config.horizontalThreshold
+    const progressSatisfied = forwardProgress >= -this.config.horizontalThreshold
 
-    const result = insideVertical && (headingSatisfied || horizontalSatisfied || driftBias)
+    const result = withinCorridor && (headingSatisfied || progressSatisfied || driftBias)
 
     this.debugListener?.({
       points: [...this.points],
       target,
       origin,
       headingScore,
-      insideVertical,
-      horizontalProgress,
+      orientation,
+      withinCorridor,
+      forwardProgress,
     } satisfies MousePredictionDebugPayload)
 
     return result
   }
+}
+
+function determineOrientation(target: Rect, origin: Rect): Orientation {
+  const opensRight = target.x >= origin.x + origin.width
+  const opensLeft = target.x + target.width <= origin.x
+  if (opensRight || opensLeft) {
+    return "horizontal"
+  }
+
+  const opensDown = target.y >= origin.y + origin.height
+  const opensUp = target.y + target.height <= origin.y
+  if (opensDown || opensUp) {
+    return "vertical"
+  }
+
+  const originCenter = center(origin)
+  const targetCenter = center(target)
+  return Math.abs(targetCenter.x - originCenter.x) >= Math.abs(targetCenter.y - originCenter.y) ? "horizontal" : "vertical"
+}
+
+function determineDirection(
+  axis: Orientation,
+  target: Rect,
+  origin: Rect,
+  targetCenter: Point,
+  originCenter: Point,
+): 1 | -1 {
+  if (axis === "horizontal") {
+    if (target.x >= origin.x + origin.width) return 1
+    if (target.x + target.width <= origin.x) return -1
+    return targetCenter.x >= originCenter.x ? 1 : -1
+  }
+  if (target.y >= origin.y + origin.height) return 1
+  if (target.y + target.height <= origin.y) return -1
+  return targetCenter.y >= originCenter.y ? 1 : -1
+}
+
+function isWithinCorridor(args: {
+  orientation: Orientation
+  point: Point
+  target: Rect
+  origin: Rect
+  tolerance: number
+}) {
+  const { orientation, point, target, origin, tolerance } = args
+  if (orientation === "horizontal") {
+    const minY = Math.min(origin.y, target.y) - tolerance
+    const maxY = Math.max(origin.y + origin.height, target.y + target.height) + tolerance
+    return point.y >= minY && point.y <= maxY
+  }
+  const minX = Math.min(origin.x, target.x) - tolerance
+  const maxX = Math.max(origin.x + origin.width, target.x + target.width) + tolerance
+  return point.x >= minX && point.x <= maxX
+}
+
+function computeForwardProgress(args: {
+  orientation: Orientation
+  point: Point
+  origin: Rect
+  horizontalDirection: 1 | -1
+  verticalDirection: 1 | -1
+}) {
+  const { orientation, point, origin, horizontalDirection, verticalDirection } = args
+  if (orientation === "horizontal") {
+    return horizontalDirection === 1
+      ? point.x - origin.x - origin.width
+      : origin.x - point.x
+  }
+  return verticalDirection === 1 ? point.y - origin.y - origin.height : origin.y - point.y
+}
+
+function appliesDriftBias(args: { orientation: Orientation; movement: Point; driftBias: number }) {
+  const { orientation, movement, driftBias } = args
+  if (orientation === "horizontal") {
+    return Math.abs(movement.x) > Math.abs(movement.y) * driftBias
+  }
+  return Math.abs(movement.y) > Math.abs(movement.x) * driftBias
 }
 
 export function predictMouseDirection(
