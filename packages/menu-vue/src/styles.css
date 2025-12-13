@@ -123,6 +123,19 @@
   outline: none;
 }
 
+.ui-menu-item,
+.ui-submenu-trigger {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.ui-menu-item:focus,
+.ui-menu-item:focus-visible,
+.ui-submenu-trigger:focus,
+.ui-submenu-trigger:focus-visible {
+  outline: none;
+}
+
 .ui-submenu-trigger:hover,
 .ui-submenu-trigger:focus,
 .ui-submenu-trigger:focus-visible {
