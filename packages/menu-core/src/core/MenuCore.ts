@@ -7,6 +7,7 @@ import type {
   MenuState,
   MenuSubscriber,
   PanelProps,
+  PointerEventLike,
   Rect,
   Subscription,
   TriggerProps,
@@ -182,8 +183,17 @@ export class MenuCore {
       "aria-haspopup": "menu",
       "aria-expanded": this.stateMachine.snapshot.open,
       "aria-controls": `${this.id}-panel`,
-      onPointerEnter: () => this.timers.scheduleOpen(() => this.open("pointer")),
-      onPointerLeave: () => this.timers.scheduleClose(() => this.close("pointer")),
+      onPointerEnter: () => {
+        this.cancelPendingClose()
+        this.timers.scheduleOpen(() => this.open("pointer"))
+      },
+      onPointerLeave: (event) => {
+        if (this.shouldIgnorePointerLeave(event)) {
+          this.cancelPendingClose()
+          return
+        }
+        this.timers.scheduleClose(() => this.close("pointer"))
+      },
       onClick: () => this.toggle(),
       onKeyDown: this.handleTriggerKeydown,
     }
@@ -196,8 +206,14 @@ export class MenuCore {
       tabIndex: -1,
       "aria-labelledby": `${this.id}-trigger`,
       onKeyDown: this.handlePanelKeydown,
-      onPointerEnter: () => this.timers.cancelClose(),
-      onPointerLeave: () => this.timers.scheduleClose(() => this.close("pointer")),
+      onPointerEnter: () => this.cancelPendingClose(),
+      onPointerLeave: (event) => {
+        if (this.shouldIgnorePointerLeave(event)) {
+          this.cancelPendingClose()
+          return
+        }
+        this.timers.scheduleClose(() => this.close("pointer"))
+      },
     }
   }
 
@@ -279,6 +295,23 @@ export class MenuCore {
 
   protected shouldBlockPointerHighlight(targetId: string) {
     return Boolean(this.pointerHighlightLock && this.pointerHighlightLock.id !== targetId)
+  }
+
+  protected shouldIgnorePointerLeave(event?: PointerEventLike) {
+    const meta = event?.meta
+    if (!meta) {
+      return false
+    }
+    if (meta.isWithinTree) {
+      return true
+    }
+    if (meta.enteredChildPanel) {
+      return true
+    }
+    if (meta.isInsidePanel) {
+      return true
+    }
+    return false
   }
 
   protected emitState() {

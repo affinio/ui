@@ -1,6 +1,6 @@
 import { onBeforeUnmount, watch } from "vue"
 import type { ComputedRef } from "vue"
-import type { PanelProps, PointerEventLike, PointerMeta, TriggerProps } from "@affino/menu-core"
+import type { PanelProps, PointerMeta, TriggerProps } from "@affino/menu-core"
 import { toPointerPayload } from "./pointer"
 import type { MenuProviderValue, SubmenuProviderValue } from "./context"
 
@@ -47,6 +47,7 @@ export function useMenuPointerHandlers(provider: MenuProviderValue): PointerHand
         isInsidePanel: false,
         enteredChildPanel: false,
         relatedTargetId: null,
+        isWithinTree: false,
       }
     }
     const relation = resolveMenuRelation(related)
@@ -55,6 +56,7 @@ export function useMenuPointerHandlers(provider: MenuProviderValue): PointerHand
       isInsidePanel: provider.controller.panelRef.value?.contains(related) ?? false,
       enteredChildPanel: isSameTree ? isDescendant(relation.menuId, provider) : false,
       relatedTargetId: related.id || null,
+      isWithinTree: isSameTree,
     }
   }
 
