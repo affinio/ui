@@ -20,12 +20,12 @@
   },
   "devDependencies": {
     "@affino/menu-core": "workspace:^",
-    "@testing-library/vue": "workspace:^",
-    "@vitejs/plugin-vue": "workspace:^",
-    "@vitest/coverage-v8": "workspace:^",
-    "@vue/test-utils": "workspace:^",
-    "jsdom": "workspace:^",
-    "vitest": "workspace:^"
+    "@testing-library/vue": "^8.1.0",
+    "@vitejs/plugin-vue": "^6.0.3",
+    "@vitest/coverage-v8": "^4.0.15",
+    "@vue/test-utils": "^2.4.6",
+    "jsdom": "^27.3.0",
+    "vitest": "^4.0.15"
   },
   "scripts": {
     "clean": "rm -rf dist",
