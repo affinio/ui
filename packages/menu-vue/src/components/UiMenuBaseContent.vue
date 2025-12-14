@@ -81,7 +81,11 @@ watch(
       props.provider.controller.panelRef.value = root.value
       playOpenAnimation()
       refreshGeometry()
-      focus.focusFirst()
+      if (props.variant === "submenu") {
+        focus.focusFirst()
+      } else {
+        root.value?.focus({ preventScroll: true })
+      }
     } else {
       if (props.provider.controller.panelRef.value === root.value) {
         props.provider.controller.panelRef.value = null
