@@ -1,6 +1,6 @@
 # Menu Vue Docs
 
-The `@workspace/menu-vue` package gives you accessible, headless Vue 3 building blocks for dropdowns, context menus, and multilevel navigation. This directory collects every deep dive that no longer fits in the marketing-focused README.
+The `@affino/menu-vue` package gives you accessible, headless Vue 3 building blocks for dropdowns, context menus, and multilevel navigation. This directory collects every deep dive that no longer fits in the marketing-focused README.
 
 ## Quick Links
 
@@ -25,8 +25,8 @@ Use this adapter when you need any combination of the following:
 
 | Package | Purpose |
 | --- | --- |
-| `@workspace/menu-core` | Framework-agnostic state machine, pointer heuristics, and controller utilities written in TypeScript. |
-| `@workspace/menu-vue` | Vue 3 adapter that exposes renderless components plus Vue-friendly controller helpers. |
+| `@affino/menu-core` | Framework-agnostic state machine, pointer heuristics, and controller utilities written in TypeScript. |
+| `@affino/menu-vue` | Vue 3 adapter that exposes renderless components plus Vue-friendly controller helpers. |
 
 The Vue adapter is intentionally thin so you can study the core package when you need lower level primitives.
 

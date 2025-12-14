@@ -1,6 +1,6 @@
 # Getting Started
 
-Follow this guide to install `@workspace/menu-vue`, render your first dropdown, and understand the minimum CSS/TypeScript setup.
+Follow this guide to install `@affino/menu-vue`, render your first dropdown, and understand the minimum CSS/TypeScript setup.
 
 ## Prerequisites
 
@@ -11,13 +11,13 @@ Follow this guide to install `@workspace/menu-vue`, render your first dropdown, 
 ## Installation
 
 ```bash
-npm install @workspace/menu-vue
+npm install @affino/menu-vue
 # or
-pnpm add @workspace/menu-vue
-yarn add @workspace/menu-vue
+pnpm add @affino/menu-vue
+yarn add @affino/menu-vue
 ```
 
-The package depends on `@workspace/menu-core`, which is pulled in automatically.
+The package depends on `@affino/menu-core`, which is pulled in automatically.
 
 ## Basic dropdown
 
@@ -29,7 +29,7 @@ import {
   UiMenuContent,
   UiMenuItem,
   UiMenuSeparator,
-} from '@workspace/menu-vue'
+} from '@affino/menu-vue'
 
 const actions = [
   { label: 'Rename', shortcut: 'F2' },
@@ -91,7 +91,10 @@ Submenus subscribe to the same tree as root menus, so keyboard focus and pointer
 ## Context menus
 
 ```vue
-<UiMenu trigger="contextmenu">
+<UiMenu>
+  <UiMenuTrigger asChild trigger="contextmenu">
+    <button class="MenuButton">Right click me</button>
+  </UiMenuTrigger>
   <UiMenuContent class="MenuPanel">
     <UiMenuItem asChild @select="() => console.log('Refresh')">
       <button class="MenuItem">Refresh data</button>
@@ -100,8 +103,8 @@ Submenus subscribe to the same tree as root menus, so keyboard focus and pointer
 </UiMenu>
 ```
 
-- Pass `trigger="contextmenu"` to react to right-click events.
-- You can also skip the DOM trigger entirely and use the controller API. See [Context menu guide](./guide/context-menu.md).
+- Pass `trigger="contextmenu"` to `UiMenuTrigger` to react to right-click events (leave it off for regular clicks).
+- You can also skip a visible trigger by grabbing the menu controller from a template ref (`const controller = menuRef.value?.controller`) and calling `controller.setAnchor({ x, y, width: 0, height: 0 })` followed by `controller.open('pointer')`. See the [Context menu guide](./guide/context-menu.md) for the complete example.
 
 ## SSR and Nuxt
 

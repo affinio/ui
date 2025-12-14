@@ -1,6 +1,6 @@
 # Menu Vue Docs
 
-Everything in this folder feeds the long-form documentation for `@workspace/menu-vue`. Start with [index.md](./index.md) if you want an overview of packages and architecture.
+Everything in this folder feeds the long-form documentation for `@affino/menu-vue`. Start with [index.md](./index.md) if you want an overview of packages and architecture.
 
 ## Guides
 

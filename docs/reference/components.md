@@ -1,65 +1,61 @@
 # Component Reference
 
-Renderless components forward ARIA attributes, keyboard handlers, and data-state markers. Every component accepts `class`, `style`, and `asChild` unless noted.
+Renderless components forward ARIA attributes, keyboard handlers, and `data-state` markers. Every component accepts `class`, `style`, and `asChild` unless noted.
 
-## Core components
+## Exported components
 
-| Component | Purpose | Key props | Emits |
-| --- | --- | --- | --- |
-| `UiMenu` | Root provider that manages a menu channel. | `options`: partial of `MenuOptions`; `trigger`: `'click' | 'hover' | 'contextmenu'`; `dir`: `'ltr' | 'rtl'`. | `update:open`, `open`, `close`. |
-| `UiMenuTrigger` | Toggles the root menu. | `disabled`; `asChild`. | `click`, `pointerenter` via DOM. |
-| `UiMenuContent` | Wraps the floating panel. | `side`, `align`, `collisionPadding`, `loop`. | `openAutoFocus`, `closeAutoFocus`. |
-| `UiMenuItem` | Selectable row. | `value` (required when using controller), `disabled`, `asChild`. | `select`, `pointermove`, `pointerleave`. |
-| `UiMenuSeparator` | Visual separator. | - | - |
-
-## Submenu components
-
-| Component | Purpose | Notes |
+| Component | Purpose | Key props & notes |
 | --- | --- | --- |
-| `UiSubMenu` | Provides context for a nested tree. Wraps trigger + content. |
-| `UiSubMenuTrigger` | Button or item that opens the nested content. Mirrors `UiMenuItem` props. |
-| `UiSubMenuContent` | Floating panel for the nested tree. Accepts the same positioning props as `UiMenuContent`. |
-
-## Utility components
-
-| Component | Description |
-| --- | --- |
-| `UiMenuLabel` | Renders static text with the correct `role="menuitem"` semantics for grouped headings. |
-| `UiMenuGroup` | Wraps related items and handles `aria-labelledby`. |
-| `UiMenuArrow` | Optional arrow element whose position updates with the panel. |
+| `UiMenu` | Root provider that creates a `MenuController` instance and exposes it via `ref`. | `options?: MenuOptions`, `callbacks?: MenuCallbacks`. Grab the controller with `const controller = menuRef.value?.controller` for programmatic control. |
+| `UiMenuTrigger` | Button that opens/closes the nearest menu. | `trigger?: 'click' \| 'contextmenu' \| 'both'` (defaults to `click` for root menus, `both` for submenus), `asChild?: boolean`. Automatically wires ARIA attributes. |
+| `UiMenuContent` | Floating panel rendered inside a `Teleport` (defaults to `body`). | Accepts regular HTML attributes for classes, styles, etc. `data-state`, `data-side`, and `data-motion` are applied for animation hooks. |
+| `UiMenuItem` | Selectable row. | `id?: string` (auto-generated when omitted), `disabled?: boolean`, `danger?: boolean`, `asChild?: boolean`. Emits `select` with `{ id, controller }`. |
+| `UiMenuSeparator` | Visual separator with `role="separator"`. | No props. |
+| `UiMenuLabel` | Static text helper rendered with `role="presentation"`. | No props. |
+| `UiSubMenu` | Provides nested menu context. | `id?: string`, `options?: MenuOptions`, `callbacks?: MenuCallbacks`. Creates a submenu controller linked to the parent menu. |
+| `UiSubMenuTrigger` | Item that opens the nested submenu. | `asChild?: boolean`. Always shows an arrow glyph by default. |
+| `UiSubMenuContent` | Floating panel for nested menus. | Shares the same attributes/teleport behavior as `UiMenuContent` and inherits mouse prediction from the parent chain.
 
 ## Events
 
-All events bubble through the component instance and also fire on the underlying DOM node when you use `asChild`.
+`UiMenuItem` emits a single `select` event. The payload contains the resolved `id` and the controller so you can run imperative logic:
 
-| Event | Payload | Fired when |
-| --- | --- | --- |
-| `select` | `{ value?: string | number | symbol }` | A menu item is activated via keyboard or pointer. |
-| `highlight-change` | `{ id: string | null }` | Focus/highlight moves to a different item. |
-| `update:open` | `boolean` | Controlled open state changes on `UiMenu`. |
-| `open` / `close` | `void` | The menu is opened or closed for any reason. |
+```vue
+<UiMenuItem @select="({ id, controller }) => controller.select(id)">
+	...
+</UiMenuItem>
+```
+
+Open/close/highlight notifications are surfaced through the `callbacks` prop on `UiMenu`/`UiSubMenu` (`onOpen`, `onClose`, `onSelect`, `onHighlight`, `onPositionChange`). Use those callbacks or watch `controller.state` when you need lifecycle hooks.
 
 ## Data attributes
 
-Every component exposes `data-state` and `data-disabled` flags so you can style transitions without JS:
+Use the auto-applied attributes to style hover/animation states without extra JavaScript:
+
+- `data-state="open" | "closed"` on panels and triggers.
+- `data-motion="from-top" | ...` describing the calculated placement.
+- `data-state="highlighted"` and `aria-disabled="true"` on items.
+- `data-ui-menu-id`, `data-ui-root-menu-id`, and `data-ui-menu-trigger` for debugging or analytics.
+
+Example:
 
 ```css
-.MenuItem[data-state="open"] { background: var(--menu-accent); }
-.MenuItem[data-disabled="true"] { opacity: 0.4; pointer-events: none; }
+.MenuItem[data-state="highlighted"] { background: var(--menu-accent); }
+.UiMenuContent[data-state="closed"] { opacity: 0; transform: translateY(-4px); }
 ```
 
 ## Types
 
-Type definitions live in `dist/types`. Popular ones include:
+Type definitions ship with the package:
 
-- `MenuOptions` - configure pointer heuristics, delays, and positioner behavior.
-- `MenuController` - shape returned by `useMenuController`.
-- `MenuItemProps` - generics for strongly typed value payloads.
+- `MenuOptions` – configure open/close delays, pointer prediction, and looping behavior.
+- `MenuCallbacks` – hook into lifecycle events without touching DOM refs.
+- `MenuController` – the object returned by `useMenuController` and exposed via `<UiMenu ref>`.
 
 Import them directly:
 
 ```ts
-import type { MenuController, MenuOptions } from '@workspace/menu-vue'
+import type { MenuController, MenuOptions, MenuCallbacks } from '@affino/menu-vue'
 ```
 
-See the [controller reference](./controller.md) for imperative helpers.
+See the [controller reference](./controller.md) for more on the imperative surface.

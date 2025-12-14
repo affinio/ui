@@ -1,84 +1,122 @@
 # Controller API
 
-`useMenuController()` exposes an imperative surface for cases where template syntax is not enough: command palettes, global keyboard shortcuts, or integrating context menus with data grids.
+`MenuController` is the imperative surface behind every `<UiMenu>`. Use it for command palettes, custom shortcuts, and context menus that open at the pointer.
 
-```ts
-import { useMenuController } from '@workspace/menu-vue'
+You get a controller in two ways:
 
-const controller = useMenuController()
+1. Grab it from a template ref:
+
+```vue
+<script setup lang="ts">
+import { ref } from 'vue'
+import { UiMenu } from '@affino/menu-vue'
+
+const menuRef = ref<InstanceType<typeof UiMenu> | null>(null)
+
+const openMenu = () => menuRef.value?.controller.open('programmatic')
+</script>
+
+<template>
+  <UiMenu ref="menuRef">
+    ...
+  </UiMenu>
+</template>
 ```
 
-## Snapshot
-
-The controller carries a readonly `snapshot` ref:
+2. Create one manually when you need a headless setup:
 
 ```ts
-watchEffect(() => {
-  console.log(controller.snapshot.value.openPath)
-})
+import { useMenuController } from '@affino/menu-vue'
+
+const controller = useMenuController({ kind: 'root', options: { closeOnSelect: false } })
 ```
 
-`openPath` lists the IDs of open menus, `highlightedId` tracks the active item, and `items` contains metadata for every registered node.
+`useMenu()` returns the same trio (`core`, `state`, `controller`) if you want the helper that `<UiMenu>` uses internally.
+
+## State
+
+`controller.state` is a `ShallowRef<MenuState>` containing `{ open: boolean, activeItemId: string | null }`:
+
+```ts
+watch(
+  () => controller.state.value,
+  (next) => {
+    console.log('open?', next.open, 'focused item', next.activeItemId)
+  },
+  { immediate: true }
+)
+```
+
+Use the `callbacks` prop on `<UiMenu>`/`<UiSubMenu>` if you prefer event-style hooks (`onOpen`, `onClose`, `onSelect`, `onHighlight`, `onPositionChange`).
 
 ## Methods
 
 | Method | Signature | Description |
 | --- | --- | --- |
-| `open` | `(id: string) => void` | Opens a menu or submenu by ID (usually the `value` prop). |
-| `close` | `(id?: string) => void` | Closes a specific branch or the entire tree when omitted. |
-| `highlight` | `(id: string | null) => void` | Manually move focus/highlight. Pass `null` to clear. |
-| `select` | `(id: string) => void` | Trigger the `select` flow as if the user activated the item. |
-| `setOptions` | `(options: Partial<MenuOptions>) => void` | Update delays, prediction, and positioning at runtime. |
+| `open` | `(reason?: 'pointer' \| 'keyboard' \| 'programmatic') => void` | Opens the menu. Reason is optional metadata for analytics / callbacks. |
+| `close` | `(reason?: 'pointer' \| 'keyboard' \| 'programmatic') => void` | Closes the menu and clears highlight when needed. |
+| `toggle` | `() => void` | Convenience wrapper around `open`/`close`. |
+| `highlight` | `(id: string | null) => void` | Manually move focus to a known item ID (set `null` to clear). |
+| `select` | `(id: string) => void` | Fire the selection flow as if the user activated the item. Honors `closeOnSelect`. |
+| `setAnchor` | `(rect: Rect | null) => void` | Override the anchor geometry. Pass `{ x, y, width: 0, height: 0 }` for pointer-driven menus. |
+| `recordPointer` | `(point: { x: number; y: number }) => void` | Submenu-only helper used for mouse prediction. |
+| `setTriggerRect` / `setPanelRect` | `(rect: Rect | null) => void` | Submenu helpers that sync geometry with the parent chain. |
+| `dispose` | `() => void` | Tears down subscriptions when you create controllers manually.
+
+Every controller also exposes `triggerRef`, `panelRef`, and `anchorRef` so you can plug into positioning or focus logic.
 
 ## Programmatic context menus
 
-Combine the controller with pointer coordinates to show a context menu without a visible trigger:
+Combine the controller with pointer coordinates to open without a visible trigger (expanded from the [guide](../guide/context-menu.md)):
 
 ```vue
 <script setup lang="ts">
-import { useMenuController } from '@workspace/menu-vue'
+import { ref } from 'vue'
+import { UiMenu, UiMenuContent, UiMenuItem } from '@affino/menu-vue'
 
-const controller = useMenuController()
+const contextRef = ref<InstanceType<typeof UiMenu> | null>(null)
 
-const onContextMenu = (event: MouseEvent) => {
+const showContextMenu = (event: MouseEvent) => {
   event.preventDefault()
-  controller.open('root')
-  controller.setOptions({ anchorPoint: { x: event.clientX, y: event.clientY } })
+  const controller = contextRef.value?.controller
+  if (!controller) return
+  controller.setAnchor({ x: event.clientX, y: event.clientY, width: 0, height: 0 })
+  controller.open('pointer')
+}
+
+const hideContextMenu = () => {
+  const controller = contextRef.value?.controller
+  controller?.close('pointer')
+  controller?.setAnchor(null)
 }
 </script>
 
 <template>
-  <div class="Canvas" @contextmenu="onContextMenu">
-    <!-- The UiMenu lives elsewhere and reads the same controller -->
+  <div class="Canvas" @contextmenu="showContextMenu" @pointerdown="hideContextMenu">
+    <UiMenu ref="contextRef">
+      <UiMenuContent class="MenuPanel">
+        <UiMenuItem asChild id="refresh" @select="refresh">
+          <button class="MenuItem">Refresh data</button>
+        </UiMenuItem>
+      </UiMenuContent>
+    </UiMenu>
   </div>
 </template>
 ```
 
-## Controlled open state
-
-You can control `UiMenu` like any other Vue component:
-
-```vue
-<UiMenu v-model:open="isOpen" :options="{ mousePrediction: false }">
-  ...
-</UiMenu>
-```
-
-Pair controlled state with the controller when you need external stores to drive the menu.
-
 ## Debug helpers
 
-- `controller.log()` (dev only) prints the tree to the console.
-- Inspect `controller.snapshot.value.items[id].rect` to see the last measured DOMRect for positioning issues.
-- Use Vue Devtools to inspect the `MenuProvider` component when validating nested structures.
+- Inspect `controller.state.value` to confirm whether a menu thinks it is open/highlighted.
+- Pass `callbacks.onHighlight`/`onOpen` to `<UiMenu>` for lightweight logging.
+- When you create controllers manually, call `controller.core.subscribe(...)` if you need lower-level snapshots; remember to unsubscribe.
 
 ## Global shortcuts
 
-Register keyboard shortcuts that trigger menu items even when the menu is closed:
+Register keyboard shortcuts that trigger menu items even when the panel is closed (call inside the menu subtree so the hook can read the provider):
 
 ```vue
 <script setup lang="ts">
-import { useMenuShortcuts } from '@workspace/menu-vue'
+import { useMenuShortcuts } from '@affino/menu-vue'
 
 useMenuShortcuts({
   rename: 'F2',
@@ -88,6 +126,4 @@ useMenuShortcuts({
 </script>
 ```
 
-The helper ignores inputs, textareas, and contenteditable regions so forms stay usable. Provide menu item IDs as keys and shortcut strings as values in the `Ctrl+Shift+P` format.
-
-More real-world flows live in the [guides](../guide/context-menu.md).
+The helper ignores inputs, textareas, and contenteditable regions so forms stay usable. Provide menu item IDs as keys and shortcut strings as values (e.g. `Ctrl+Shift+P`).
