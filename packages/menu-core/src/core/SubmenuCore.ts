@@ -36,6 +36,7 @@ export class SubmenuCore extends MenuCore {
   }
 
   override destroy() {
+    this.parent.releasePointerHighlightHold(this.parentItemId)
     this.releaseTree?.()
     this.releaseTree = null
     this.predictor.clear()
@@ -44,6 +45,7 @@ export class SubmenuCore extends MenuCore {
 
   override close(reason: "pointer" | "keyboard" | "programmatic" = "programmatic") {
     this.predictor.clear()
+    this.parent.releasePointerHighlightHold(this.parentItemId)
     super.close(reason)
   }
 
@@ -76,6 +78,7 @@ export class SubmenuCore extends MenuCore {
       },
       onPointerLeave: (event) => {
         if (this.shouldHoldPointer(event)) return
+        this.parent.releasePointerHighlightHold(this.parentItemId)
         this.timers.scheduleClose(() => this.close("pointer"))
       },
       onClick: (event) => {
@@ -95,9 +98,11 @@ export class SubmenuCore extends MenuCore {
         props.onPointerEnter?.(event)
         this.recordPointerFromEvent(event)
         this.keepChainOpen()
+        this.parent.releasePointerHighlightHold(this.parentItemId)
       },
       onPointerLeave: (event) => {
         if (this.shouldHoldPointer(event)) return
+        this.parent.releasePointerHighlightHold(this.parentItemId)
         props.onPointerLeave?.(event)
       },
     }
@@ -124,12 +129,18 @@ export class SubmenuCore extends MenuCore {
 
   private shouldHoldPointer(event?: PointerEventLike): boolean {
     this.recordPointerFromEvent(event)
-    if (event?.meta?.isInsidePanel || event?.meta?.enteredChildPanel) {
+    if (event?.meta?.isInsidePanel) {
       this.keepChainOpen()
+      return true
+    }
+    if (event?.meta?.enteredChildPanel) {
+      this.keepChainOpen()
+      this.parent.holdPointerHighlight(this.parentItemId)
       return true
     }
     if (this.triggerRect && this.panelRect && this.predictor.isMovingToward(this.panelRect, this.triggerRect)) {
       this.keepChainOpen()
+      this.parent.holdPointerHighlight(this.parentItemId)
       return true
     }
     return false

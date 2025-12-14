@@ -41,6 +41,7 @@ export class MenuCore {
   protected readonly events: MenuEvents
   protected readonly tree: MenuTree
   protected autoHighlightOnOpen = false
+  private pointerHighlightLock: { id: string; timer: ReturnType<typeof setTimeout> | null } | null = null
 
   constructor(options: MenuOptions = {}, callbacks: MenuCallbacks = {}, tree?: MenuTree, parentLink?: { parentId: string; parentItemId: string | null }) {
     const resolvedId = options.id ?? `menu-${++idCounter}`
@@ -68,6 +69,7 @@ export class MenuCore {
     this.subscribers.clear()
     this.timers.clearAll()
     this.tree.unregister(this.id)
+    this.releasePointerHighlightHold()
   }
 
   getSnapshot(): MenuState {
@@ -209,7 +211,10 @@ export class MenuCore {
       "aria-disabled": disabled ? true : undefined,
       "data-state": highlighted ? "highlighted" : "idle",
       onPointerEnter: () => {
-        if (!disabled) {
+        if (this.pointerHighlightLock && this.pointerHighlightLock.id !== id) {
+          this.releasePointerHighlightHold()
+        }
+        if (!disabled && !this.shouldBlockPointerHighlight(id)) {
           this.highlight(id)
         }
       },
@@ -245,6 +250,35 @@ export class MenuCore {
     if (this.handleHighlightChange(change)) {
       this.emitState()
     }
+  }
+
+  holdPointerHighlight(itemId: string, duration = this.options.closeDelay) {
+    if (this.stateMachine.snapshot.activeItemId !== itemId) {
+      return
+    }
+    if (this.pointerHighlightLock?.id === itemId) {
+      return
+    }
+    this.releasePointerHighlightHold()
+    const timer = duration > 0 ? setTimeout(() => {
+      if (this.pointerHighlightLock?.id === itemId) {
+        this.pointerHighlightLock = null
+      }
+    }, duration) : null
+    this.pointerHighlightLock = { id: itemId, timer }
+  }
+
+  releasePointerHighlightHold(itemId?: string) {
+    if (!this.pointerHighlightLock) return
+    if (itemId && this.pointerHighlightLock.id !== itemId) return
+    if (this.pointerHighlightLock.timer) {
+      clearTimeout(this.pointerHighlightLock.timer)
+    }
+    this.pointerHighlightLock = null
+  }
+
+  protected shouldBlockPointerHighlight(targetId: string) {
+    return Boolean(this.pointerHighlightLock && this.pointerHighlightLock.id !== targetId)
   }
 
   protected emitState() {

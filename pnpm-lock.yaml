@@ -26,6 +26,9 @@ importers:
 
   demo-vue:
     dependencies:
+      '@affino/menu-core':
+        specifier: workspace:*
+        version: link:../packages/menu-core
       '@affino/menu-vue':
         specifier: workspace:*
         version: link:../packages/menu-vue
@@ -98,17 +101,15 @@ importers:
 
   packages/menu-vue:
     dependencies:
-      '@affino/menu-core':
-        specifier: ^1.0.0-alpha.2
-        version: 1.0.0-alpha.2
       vue:
         specifier: ^3.3.0
         version: 3.5.25(typescript@5.9.3)
+    devDependencies:
+      '@affino/menu-core':
+        specifier: workspace:^
+        version: link:../menu-core
 
 packages:
-
-  '@affino/menu-core@1.0.0-alpha.2':
-    resolution: {integrity: sha512-iLeryXMR3jkBhgYv+Eedg0h+R3+SCI0M+JhmRt+Pc0ATFE7PkgzMF6wzsk3WziKVCTfE+2hM18zvW7pOVEQAtA==}
 
   '@babel/code-frame@7.27.1':
     resolution: {integrity: sha512-cjQ7ZlQ0Mv3b47hABuTevyTuYN4i+loJKGeV9flcCgIK37cCXRh+L1bd3iBHlynerhQ7BhCkn2BPbQUL+rGqFg==}
@@ -1831,8 +1832,6 @@ packages:
     engines: {node: '>=10'}
 
 snapshots:
-
-  '@affino/menu-core@1.0.0-alpha.2': {}
 
   '@babel/code-frame@7.27.1':
     dependencies:

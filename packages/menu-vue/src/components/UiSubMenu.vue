@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import type { MenuCallbacks, MenuOptions } from "@affino/menu-core"
+import type { MenuCallbacks, MenuOptions, SubmenuCore } from "@affino/menu-core"
 import { provideMenuProvider, provideSubmenuProvider, useMenuProvider } from "../context"
 import { uid } from "../id"
 import { useMenuController } from "../useMenuController"
+import { usePointerRecorder } from "../usePointerRecorder"
 
 const props = defineProps<{ id?: string; options?: MenuOptions; callbacks?: MenuCallbacks }>()
 
@@ -27,6 +28,8 @@ provideSubmenuProvider({
   parent: parentProvider,
   child: provider,
 })
+
+usePointerRecorder(controller.core as SubmenuCore)
 
 defineExpose({ controller })
 </script>

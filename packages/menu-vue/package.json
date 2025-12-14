@@ -18,6 +18,9 @@
     "@affino/menu-core": "^1.0.0-alpha.2",
     "vue": "^3.3.0"
   },
+  "devDependencies": {
+    "@affino/menu-core": "workspace:^"
+  },
   "scripts": {
     "clean": "rm -rf dist",
     "build": "pnpm run clean && vite build && pnpm run build:types",
