@@ -78,6 +78,7 @@ export interface PointerMeta {
   enteredChildPanel?: boolean
   relatedTargetId?: string | null
   isWithinTree?: boolean
+  relatedMenuId?: string | null
 }
 
 export interface PointerEventLike {

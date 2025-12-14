@@ -19,12 +19,19 @@
     "vue": "^3.3.0"
   },
   "devDependencies": {
-    "@affino/menu-core": "workspace:^"
+    "@affino/menu-core": "workspace:^",
+    "@testing-library/vue": "workspace:^",
+    "@vitejs/plugin-vue": "workspace:^",
+    "@vitest/coverage-v8": "workspace:^",
+    "@vue/test-utils": "workspace:^",
+    "jsdom": "workspace:^",
+    "vitest": "workspace:^"
   },
   "scripts": {
     "clean": "rm -rf dist",
     "build": "pnpm run clean && vite build && pnpm run build:types",
-    "build:types": "vue-tsc -p tsconfig.build.json"
+    "build:types": "vue-tsc -p tsconfig.build.json",
+    "test": "vitest run"
   },
   "repository": {
     "type": "git",

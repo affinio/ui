@@ -183,8 +183,8 @@ export class MenuCore {
       "aria-haspopup": "menu",
       "aria-expanded": this.stateMachine.snapshot.open,
       "aria-controls": `${this.id}-panel`,
-      onPointerEnter: () => {
-        this.cancelPendingClose()
+      onPointerEnter: (event) => {
+        this.handlePointerEnter(event)
         this.timers.scheduleOpen(() => this.open("pointer"))
       },
       onPointerLeave: (event) => {
@@ -206,7 +206,7 @@ export class MenuCore {
       tabIndex: -1,
       "aria-labelledby": `${this.id}-trigger`,
       onKeyDown: this.handlePanelKeydown,
-      onPointerEnter: () => this.cancelPendingClose(),
+      onPointerEnter: (event) => this.handlePointerEnter(event),
       onPointerLeave: (event) => {
         if (this.shouldIgnorePointerLeave(event)) {
           this.cancelPendingClose()
@@ -295,6 +295,14 @@ export class MenuCore {
 
   protected shouldBlockPointerHighlight(targetId: string) {
     return Boolean(this.pointerHighlightLock && this.pointerHighlightLock.id !== targetId)
+  }
+
+  protected handlePointerEnter(event?: PointerEventLike) {
+    if (event?.meta?.isWithinTree) {
+      this.cancelPendingClose()
+      return
+    }
+    this.timers.cancelClose()
   }
 
   protected shouldIgnorePointerLeave(event?: PointerEventLike) {

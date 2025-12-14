@@ -129,7 +129,21 @@ export class SubmenuCore extends MenuCore {
 
   private shouldHoldPointer(event?: PointerEventLike): boolean {
     this.recordPointerFromEvent(event)
-    if (event?.meta?.isInsidePanel) {
+    const movingWithinTree = Boolean(event?.meta?.isWithinTree)
+    const movingWithinParent = Boolean(
+      movingWithinTree &&
+      event?.meta?.relatedMenuId === this.parent.id &&
+      !event.meta?.enteredChildPanel
+    )
+    const leavingToSibling = Boolean(
+      movingWithinTree &&
+      !event?.meta?.enteredChildPanel &&
+      !event?.meta?.isInsidePanel
+    )
+    if (movingWithinParent || leavingToSibling) {
+      return false
+    }
+    if (event?.meta?.isInsidePanel && event.meta.relatedMenuId === this.id) {
       this.keepChainOpen()
       return true
     }

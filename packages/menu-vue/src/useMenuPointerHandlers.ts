@@ -48,15 +48,20 @@ export function useMenuPointerHandlers(provider: MenuProviderValue): PointerHand
         enteredChildPanel: false,
         relatedTargetId: null,
         isWithinTree: false,
+        relatedMenuId: null,
       }
     }
     const relation = resolveMenuRelation(related)
     const isSameTree = relation.rootId === provider.rootId
+    const relatedMenuId = relation.kind === "trigger"
+      ? relation.parentMenuId ?? relation.menuId
+      : relation.menuId
     return {
       isInsidePanel: provider.controller.panelRef.value?.contains(related) ?? false,
       enteredChildPanel: isSameTree ? isDescendant(relation.menuId, provider) : false,
       relatedTargetId: related.id || null,
       isWithinTree: isSameTree,
+      relatedMenuId,
     }
   }
 
@@ -117,22 +122,28 @@ export function useMenuPointerHandlers(provider: MenuProviderValue): PointerHand
   return api
 }
 
+type RelationKind = "panel" | "trigger" | null
+
 function resolveMenuRelation(element: HTMLElement | null) {
   const panel = element?.closest<HTMLElement>("[data-ui-menu-panel='true']")
   if (panel) {
     return {
+      kind: "panel" as RelationKind,
       menuId: panel.getAttribute("data-ui-menu-id"),
       rootId: panel.getAttribute("data-ui-root-menu-id"),
+      parentMenuId: panel.getAttribute("data-ui-parent-menu-id"),
     }
   }
   const trigger = element?.closest<HTMLElement>("[data-ui-menu-trigger='true']")
   if (trigger) {
     return {
+      kind: "trigger" as RelationKind,
       menuId: trigger.getAttribute("data-ui-menu-id"),
       rootId: trigger.getAttribute("data-ui-root-menu-id"),
+      parentMenuId: trigger.getAttribute("data-ui-parent-menu-id"),
     }
   }
-  return { menuId: null, rootId: null }
+  return { kind: null as RelationKind, menuId: null, rootId: null, parentMenuId: null }
 }
 
 function isDescendant(menuId: string | null, provider: MenuProviderValue) {

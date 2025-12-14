@@ -91,6 +91,7 @@ const triggerProps = computed(() => ({
   "data-ui-menu-trigger": "true",
   "data-ui-menu-id": targetController.id,
   "data-ui-root-menu-id": props.provider.rootId,
+  "data-ui-parent-menu-id": parentController?.id ?? null,
   onPointerenter: props.variant === "submenu" ? eventHandlers.handlePointerEnter : undefined,
   onPointerleave: props.variant === "submenu" ? eventHandlers.handlePointerLeave : undefined,
   onClick: props.variant === "menu" ? (openOnClick.value ? eventHandlers.handleClick : undefined) : eventHandlers.handleClick,

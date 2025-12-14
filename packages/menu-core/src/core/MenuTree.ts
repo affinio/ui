@@ -84,6 +84,9 @@ export class MenuTree {
         return
       }
     }
+    if (!this.activePath.includes(menuId)) {
+      return
+    }
     this.activePath = this.buildPath(menuId)
     this.emit()
   }
