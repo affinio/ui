@@ -25,7 +25,11 @@ export class SubmenuCore extends MenuCore {
   private releaseTree: (() => void) | null = null
 
   constructor(parent: MenuCore, options: SubmenuOptions, callbacks: MenuCallbacks = {}) {
-    super(options, callbacks, parent.getTree(), {
+    const resolvedOptions: SubmenuOptions = {
+      ...options,
+      closeOnSelect: options.closeOnSelect ?? parent.isCloseOnSelectEnabled(),
+    }
+    super(resolvedOptions, callbacks, parent.getTree(), {
       parentId: parent.id,
       parentItemId: options.parentItemId,
     })
@@ -59,6 +63,15 @@ export class SubmenuCore extends MenuCore {
 
   recordPointer(point: { x: number; y: number }) {
     this.predictor.push(point)
+  }
+
+  override select(id: string) {
+    const shouldCascade = this.options.closeOnSelect
+    super.select(id)
+    if (!shouldCascade) {
+      return
+    }
+    this.closeAncestorChain()
   }
 
   override getTriggerProps(): TriggerProps {
@@ -124,6 +137,17 @@ export class SubmenuCore extends MenuCore {
     const isActive = state.activePath.includes(this.id)
     if ((!isOpen || !isActive) && this.getSnapshot().open) {
       super.close("programmatic")
+    }
+  }
+
+  private closeAncestorChain() {
+    let current: MenuCore | null = this.parent
+    while (current) {
+      if (!current.isCloseOnSelectEnabled()) {
+        break
+      }
+      current.close("programmatic")
+      current = current instanceof SubmenuCore ? current.parent : null
     }
   }
 

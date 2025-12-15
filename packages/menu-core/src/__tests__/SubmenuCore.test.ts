@@ -1,11 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { MenuCore } from "../core/MenuCore"
-import { SubmenuCore } from "../core/SubmenuCore"
+import { SubmenuCore, type SubmenuOptions } from "../core/SubmenuCore"
+import type { MenuOptions } from "../types"
 
-const setupMenus = () => {
-  const parent = new MenuCore({ id: "parent", openDelay: 0, closeDelay: 0 })
+const setupMenus = (overrides?: { parent?: Partial<MenuOptions>; submenu?: Partial<SubmenuOptions> }) => {
+  const parent = new MenuCore({ id: "parent", openDelay: 0, closeDelay: 0, ...overrides?.parent })
   parent.registerItem("parent-item")
-  const submenu = new SubmenuCore(parent, { id: "child", parentItemId: "parent-item", openDelay: 0, closeDelay: 0 })
+  const submenu = new SubmenuCore(parent, {
+    id: "child",
+    parentItemId: "parent-item",
+    openDelay: 0,
+    closeDelay: 0,
+    ...overrides?.submenu,
+  })
   submenu.registerItem("child-item")
   return { parent, submenu }
 }
@@ -57,5 +64,29 @@ describe("SubmenuCore", () => {
 
     expect(holdSpy).toHaveBeenCalledWith("parent-item")
     expect(releaseSpy).not.toHaveBeenCalled()
+  })
+
+  it("closes ancestor menus when selecting an item", () => {
+    const { parent, submenu } = setupMenus()
+    parent.open("programmatic")
+    parent.highlight("parent-item")
+    submenu.open("programmatic")
+
+    submenu.select("child-item")
+
+    expect(submenu.getSnapshot().open).toBe(false)
+    expect(parent.getSnapshot().open).toBe(false)
+  })
+
+  it("respects closeOnSelect = false in the hierarchy", () => {
+    const { parent, submenu } = setupMenus({ parent: { closeOnSelect: false } })
+    parent.open("programmatic")
+    parent.highlight("parent-item")
+    submenu.open("programmatic")
+
+    submenu.select("child-item")
+
+    expect(submenu.getSnapshot().open).toBe(true)
+    expect(parent.getSnapshot().open).toBe(true)
   })
 })

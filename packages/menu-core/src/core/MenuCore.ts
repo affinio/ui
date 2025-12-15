@@ -261,6 +261,10 @@ export class MenuCore {
     this.timers.cancelClose()
   }
 
+  isCloseOnSelectEnabled() {
+    return this.options.closeOnSelect
+  }
+
   protected ensureInitialHighlight() {
     const change = this.stateMachine.ensureInitialHighlight(this.registry.getEnabledItemIds())
     if (this.handleHighlightChange(change)) {

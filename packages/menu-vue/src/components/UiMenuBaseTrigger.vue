@@ -9,6 +9,8 @@ import { useMenuPointerHandlers } from "../useMenuPointerHandlers"
 import { useSubmenuBridge } from "../useSubmenuBridge"
 
 const stopPropagationKeys = new Set(["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Home", "End", "Enter", " ", "Space"])
+const LONG_PRESS_DELAY_MS = 450
+const LONG_PRESS_MOVE_TOLERANCE_PX = 12
 
 type TriggerMode = "click" | "contextmenu" | "both"
 
@@ -94,6 +96,10 @@ const triggerProps = computed(() => ({
   "data-ui-parent-menu-id": parentController?.id ?? null,
   onPointerenter: props.variant === "submenu" ? eventHandlers.handlePointerEnter : undefined,
   onPointerleave: props.variant === "submenu" ? eventHandlers.handlePointerLeave : undefined,
+  onPointerdown: props.variant === "menu" ? eventHandlers.handlePointerDown : undefined,
+  onPointerup: props.variant === "menu" ? eventHandlers.handlePointerUp : undefined,
+  onPointercancel: props.variant === "menu" ? eventHandlers.handlePointerCancel : undefined,
+  onPointermove: props.variant === "menu" ? eventHandlers.handlePointerMove : undefined,
   onClick: props.variant === "menu" ? (openOnClick.value ? eventHandlers.handleClick : undefined) : eventHandlers.handleClick,
   onContextmenu: props.variant === "menu" ? (openOnContext.value ? eventHandlers.handleContextMenu : undefined) : undefined,
   onKeydown: eventHandlers.handleKeydown,
@@ -191,10 +197,42 @@ function createTriggerEventHandlers(options: {
   submenuBridge: SubmenuProviderValue | null
 }) {
   const ancestorBridge = options.submenuBridge?.parentSubmenu ?? null
+  let longPressTimer: ReturnType<typeof setTimeout> | null = null
+  let longPressOrigin: { x: number; y: number } | null = null
 
   const resetAnchor = () => options.provider.controller.setAnchor(null)
   const setAnchorFromEvent = (event: MouseEvent) => {
     options.provider.controller.setAnchor({ x: event.clientX, y: event.clientY, width: 0, height: 0 })
+  }
+
+  const shouldHandleLongPress = (event: PointerEvent) =>
+    options.variant === "menu" && options.openOnContext.value && event.pointerType === "touch"
+
+  const clearLongPress = () => {
+    if (longPressTimer) {
+      clearTimeout(longPressTimer)
+      longPressTimer = null
+    }
+    longPressOrigin = null
+  }
+
+  const scheduleLongPress = (event: PointerEvent) => {
+    clearLongPress()
+    longPressOrigin = { x: event.clientX, y: event.clientY }
+    longPressTimer = setTimeout(() => {
+      longPressTimer = null
+      longPressOrigin = null
+      handleContextMenu(event)
+    }, LONG_PRESS_DELAY_MS)
+  }
+
+  const cancelIfPointerMoved = (event: PointerEvent) => {
+    if (!longPressOrigin) return
+    const dx = event.clientX - longPressOrigin.x
+    const dy = event.clientY - longPressOrigin.y
+    if (dx * dx + dy * dy > LONG_PRESS_MOVE_TOLERANCE_PX * LONG_PRESS_MOVE_TOLERANCE_PX) {
+      clearLongPress()
+    }
   }
 
   const handleClick = (event: MouseEvent) => {
@@ -266,12 +304,41 @@ function createTriggerEventHandlers(options: {
     options.pointer.onPointerLeave(event)
   }
 
+  const handlePointerDown = (event: PointerEvent) => {
+    if (!shouldHandleLongPress(event)) {
+      clearLongPress()
+      return
+    }
+    event.preventDefault()
+    scheduleLongPress(event)
+  }
+
+  const handlePointerMove = (event: PointerEvent) => {
+    if (!shouldHandleLongPress(event)) return
+    cancelIfPointerMoved(event)
+  }
+
+  const handlePointerUp = (event: PointerEvent) => {
+    if (shouldHandleLongPress(event)) {
+      cancelIfPointerMoved(event)
+    }
+    clearLongPress()
+  }
+
+  const handlePointerCancel = () => {
+    clearLongPress()
+  }
+
   return {
     handleClick,
     handleContextMenu,
     handleKeydown,
     handlePointerEnter,
     handlePointerLeave,
+    handlePointerDown,
+    handlePointerMove,
+    handlePointerUp,
+    handlePointerCancel,
   }
 }
 </script>
