@@ -1,6 +1,6 @@
 # Component Reference
 
-Renderless components forward ARIA attributes, keyboard handlers, and `data-state` markers. Every component accepts `class`, `style`, and `asChild` unless noted.
+Renderless components forward ARIA attributes, keyboard handlers, and `data-state` markers. Every component accepts `class`, `style`, and `asChild` unless noted. The API surface is identical in Vue and React; only the event syntax changes (`@select` in Vue vs `onSelect` in React).
 
 ## Exported components
 
@@ -9,7 +9,7 @@ Renderless components forward ARIA attributes, keyboard handlers, and `data-stat
 | `UiMenu` | Root provider that creates a `MenuController` instance and exposes it via `ref`. | `options?: MenuOptions`, `callbacks?: MenuCallbacks`. Grab the controller with `const controller = menuRef.value?.controller` for programmatic control. |
 | `UiMenuTrigger` | Button that opens/closes the nearest menu. | `trigger?: 'click' \| 'contextmenu' \| 'both'` (defaults to `click` for root menus, `both` for submenus), `asChild?: boolean`. Automatically wires ARIA attributes. |
 | `UiMenuContent` | Floating panel rendered inside a `Teleport` (defaults to `body`). | Accepts regular HTML attributes for classes, styles, etc. `data-state`, `data-side`, and `data-motion` are applied for animation hooks. |
-| `UiMenuItem` | Selectable row. | `id?: string` (auto-generated when omitted), `disabled?: boolean`, `danger?: boolean`, `asChild?: boolean`. Emits `select` with `{ id, controller }`. |
+| `UiMenuItem` | Selectable row. | `id?: string` (auto-generated when omitted), `disabled?: boolean`, `danger?: boolean`, `asChild?: boolean`. Vue emits a `select` event, React exposes an `onSelect` callback with `{ id, controller }`. |
 | `UiMenuSeparator` | Visual separator with `role="separator"`. | No props. |
 | `UiMenuLabel` | Static text helper rendered with `role="presentation"`. | No props. |
 | `UiSubMenu` | Provides nested menu context. | `id?: string`, `options?: MenuOptions`, `callbacks?: MenuCallbacks`. Creates a submenu controller linked to the parent menu. |
@@ -18,11 +18,17 @@ Renderless components forward ARIA attributes, keyboard handlers, and `data-stat
 
 ## Events
 
-`UiMenuItem` emits a single `select` event. The payload contains the resolved `id` and the controller so you can run imperative logic:
+`UiMenuItem` emits a single `select` event (Vue) or invokes the `onSelect` prop (React). The payload contains the resolved `id` and the controller so you can run imperative logic:
 
 ```vue
 <UiMenuItem @select="({ id, controller }) => controller.select(id)">
 	...
+</UiMenuItem>
+```
+
+```tsx
+<UiMenuItem onSelect={({ id, controller }) => controller.select(id)}>
+  ...
 </UiMenuItem>
 ```
 
@@ -56,6 +62,8 @@ Import them directly:
 
 ```ts
 import type { MenuController, MenuOptions, MenuCallbacks } from '@affino/menu-vue'
+// or
+import type { MenuController, MenuOptions, MenuCallbacks } from '@affino/menu-react'
 ```
 
 See the [controller reference](./controller.md) for more on the imperative surface.

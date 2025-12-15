@@ -279,7 +279,7 @@ const menu = new MenuCore({
 })
 ```
 
-�� See [docs/mouse-prediction.md](./docs/mouse-prediction.md) for detailed explanation of each parameter.
+See [docs/mouse-prediction.md](./docs/core/mouse-prediction.md) for detailed explanation of each parameter.
 
 ### Nested Submenus
 

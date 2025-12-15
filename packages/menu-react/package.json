@@ -1,0 +1,67 @@
+{
+  "name": "@affino/menu-react",
+  "version": "1.0.0-alpha.6",
+  "author": "Anton Pavlov <pavlov@myyahho.com>",
+  "type": "module",
+  "description": "Headless React menu components powered by @affino/menu-core",
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./styles.css": "./dist/styles.css"
+  },
+  "peerDependencies": {
+    "@affino/menu-core": "^1.0.0-alpha.4",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@affino/menu-core": "workspace:^",
+    "@testing-library/dom": "^10.0.0",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.0.0",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.2",
+    "@vitejs/plugin-react": "^4.3.4",
+    "@vitest/coverage-v8": "^4.0.15",
+    "jsdom": "^27.3.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "typescript": "^5.9.3",
+    "vite": "^7.2.7",
+    "vitest": "^4.0.15"
+  },
+  "scripts": {
+    "clean": "rm -rf dist",
+    "build": "pnpm run clean && vite build && pnpm run build:types",
+    "build:types": "tsc -p tsconfig.build.json",
+    "test": "vitest run"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/affinio/affinio.git"
+  },
+  "homepage": "https://ui.unitlab.io",
+  "keywords": [
+    "react",
+    "menu",
+    "dropdown",
+    "context-menu",
+    "headless",
+    "ui",
+    "component",
+    "accessibility",
+    "aria",
+    "keyboard",
+    "submenu",
+    "design-system",
+    "radix",
+    "headless-ui"
+  ],
+  "license": "MIT"
+}

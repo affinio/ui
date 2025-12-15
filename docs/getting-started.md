@@ -1,25 +1,36 @@
 # Getting Started
 
-Follow this guide to install `@affino/menu-vue`, render your first dropdown, and understand the minimum CSS/TypeScript setup.
+Follow this guide to install the Vue and React adapters, render your first dropdown, and understand the CSS/TypeScript setup they expect.
 
 ## Prerequisites
 
-- Vue 3.4 or newer with `<script setup>` or Composition API.
-- TypeScript 5+ if you want editor type inference (plain JavaScript works too).
-- A bundler that supports ES2020 modules (Vite, Nuxt 3, Vue CLI 5, etc.).
+- Vue 3.4+ or React 18+ (both adapters rely on modern JSX/Composition APIs).
+- TypeScript 5+ for first-class editor types (plain JavaScript also works).
+- A bundler that understands ES2020 modules (Vite, Nuxt 3, Next.js 14, etc.).
 
 ## Installation
 
+### Vue 3
+
 ```bash
-npm install @affino/menu-vue
-# or
 pnpm add @affino/menu-vue
-yarn add @affino/menu-vue
+# npm install @affino/menu-vue
+# yarn add @affino/menu-vue
 ```
 
-The package depends on `@affino/menu-core`, which is pulled in automatically.
+### React 18
 
-## Basic dropdown
+```bash
+pnpm add @affino/menu-react
+# npm install @affino/menu-react
+# yarn add @affino/menu-react
+```
+
+Both adapters automatically pull in `@affino/menu-core`, so there is nothing else to configure.
+
+## Minimal dropdown
+
+### Vue 3 example
 
 ```vue
 <script setup lang="ts">
@@ -64,31 +75,84 @@ const actions = [
 </template>
 ```
 
+### React 18 example
+
+```tsx
+import {
+  UiMenu,
+  UiMenuTrigger,
+  UiMenuContent,
+  UiMenuItem,
+  UiMenuSeparator,
+} from "@affino/menu-react"
+
+const actions = [
+  { label: "Rename", shortcut: "F2" },
+  { label: "Duplicate", shortcut: "Cmd+D" },
+]
+
+export function ActionsMenu() {
+  return (
+    <UiMenu>
+      <UiMenuTrigger asChild>
+        <button className="MenuButton">File</button>
+      </UiMenuTrigger>
+
+      <UiMenuContent className="MenuPanel">
+        {actions.map((action) => (
+          <UiMenuItem key={action.label} asChild onSelect={() => console.log(action.label)}>
+            <button className="MenuItem">
+              <span>{action.label}</span>
+              <span className="Shortcut">{action.shortcut}</span>
+            </button>
+          </UiMenuItem>
+        ))}
+        <UiMenuSeparator className="MenuSeparator" />
+        <UiMenuItem asChild onSelect={() => console.log("Delete")}>
+          <button className="MenuItem destructive">Delete</button>
+        </UiMenuItem>
+      </UiMenuContent>
+    </UiMenu>
+  )
+}
+```
+
 ### Styling
 
-The components render plain DOM nodes. Add any CSS solution you like; the snippet above assumes utility classes. Ship CSS variables (e.g. `--menu-bg`, `--menu-radius`) if you want consumers to restyle the primitives.
+Both adapters render plain DOM. Bring any styling solution you want—Tailwind, UnoCSS, vanilla CSS, or tokens. The included stylesheet only declares CSS variables so the demos look nice; you can fully replace it.
 
 ## Submenus
 
-```vue
+Nested menus share the same state tree, so keyboard focus and pointer intent carry over automatically.
+
+```tsx
+import {
+  UiSubMenu,
+  UiSubMenuTrigger,
+  UiSubMenuContent,
+  UiMenuItem,
+} from "@affino/menu-react"
+
 <UiSubMenu>
   <UiSubMenuTrigger asChild>
-    <button class="MenuItem">Share ></button>
+    <button className="MenuItem">Share &gt;</button>
   </UiSubMenuTrigger>
-  <UiSubMenuContent class="MenuPanel">
-    <UiMenuItem asChild @select="() => console.log('Copy link')">
-      <button class="MenuItem">Copy link</button>
+  <UiSubMenuContent className="MenuPanel">
+    <UiMenuItem asChild onSelect={() => console.log("Copy link")}>
+      <button className="MenuItem">Copy link</button>
     </UiMenuItem>
-    <UiMenuItem asChild @select="() => console.log('Email')">
-      <button class="MenuItem">Send email</button>
+    <UiMenuItem asChild onSelect={() => console.log("Email") }>
+      <button className="MenuItem">Send email</button>
     </UiMenuItem>
   </UiSubMenuContent>
 </UiSubMenu>
 ```
 
-Submenus subscribe to the same tree as root menus, so keyboard focus and pointer intent carry over automatically.
+The Vue version swaps `onSelect` for `@select`, but the structure stays the same.
 
 ## Context menus
+
+### Vue 3
 
 ```vue
 <UiMenu>
@@ -103,12 +167,28 @@ Submenus subscribe to the same tree as root menus, so keyboard focus and pointer
 </UiMenu>
 ```
 
-- Pass `trigger="contextmenu"` to `UiMenuTrigger` to react to right-click events (leave it off for regular clicks).
-- You can also skip a visible trigger by grabbing the menu controller from a template ref (`const controller = menuRef.value?.controller`) and calling `controller.setAnchor({ x, y, width: 0, height: 0 })` followed by `controller.open('pointer')`. See the [Context menu guide](./guide/context-menu.md) for the complete example.
+### React 18
 
-## SSR and Nuxt
+```tsx
+<UiMenu>
+  <UiMenuTrigger trigger="contextmenu" asChild>
+    <button className="MenuButton">Right click me</button>
+  </UiMenuTrigger>
+  <UiMenuContent className="MenuPanel">
+    <UiMenuItem asChild onSelect={() => console.log("Refresh") }>
+      <button className="MenuItem">Refresh data</button>
+    </UiMenuItem>
+  </UiMenuContent>
+</UiMenu>
+```
 
-The components render safely on the server because all DOM-only logic runs inside `onMounted`. No special Nuxt plugin is required. If you defer menu creation to client-only routes, wrap calls with `if (import.meta.env.SSR) return` just like any other interactive component.
+- `trigger="contextmenu"` reacts to right-click events; omit it for regular clicks or keyboard triggers.
+- Prefer controller access (`menuRef.value?.controller` in Vue or `useMenuController()` in React) when you need to open the menu programmatically at pointer coordinates. See the [context menu guide](./guide/context-menu.md) for deeper patterns.
+
+## SSR notes
+
+- **Vue** – Components render safely during SSR because DOM-only logic lives inside `onMounted`. Nuxt 3 works without extra plugins.
+- **React** – Hooks are compatible with Next.js 14+/app router. The adapters wait for `window` before touching pointer APIs, so hydration stays clean.
 
 ## Next steps
 

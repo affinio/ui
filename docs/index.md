@@ -1,6 +1,6 @@
-# Menu Vue Docs
+# Menu Adapter Docs
 
-The `@affino/menu-vue` package gives you accessible, headless Vue 3 building blocks for dropdowns, context menus, and multilevel navigation. This directory collects every deep dive that no longer fits in the marketing-focused README.
+The `@affino/menu-vue` package gives you accessible, headless Vue 3 building blocks for dropdowns, context menus, and multilevel navigation. The brand-new `@affino/menu-react` adapter mirrors the same controller surface for React 18 while reusing the shared `@affino/menu-core` state machines. This directory collects every deep dive that no longer fits in the marketing-focused README.
 
 ## Quick Links
 
@@ -27,6 +27,7 @@ Use this adapter when you need any combination of the following:
 | --- | --- |
 | `@affino/menu-core` | Framework-agnostic state machine, pointer heuristics, and controller utilities written in TypeScript. |
 | `@affino/menu-vue` | Vue 3 adapter that exposes renderless components plus Vue-friendly controller helpers. |
+| `@affino/menu-react` | React 18 adapter with the same controller APIs, pointer heuristics, and `asChild` composition pattern. |
 
 The Vue adapter is intentionally thin so you can study the core package when you need lower level primitives.
 

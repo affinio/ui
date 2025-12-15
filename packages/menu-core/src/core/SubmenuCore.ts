@@ -11,6 +11,11 @@ import type {
 } from "../types"
 import type { MenuTreeState } from "./MenuTree"
 
+const isDebugMenuEnabled = () => (
+  (typeof process !== "undefined" && Boolean(process.env?.DEBUG_MENU)) ||
+  (typeof globalThis !== "undefined" && Boolean((globalThis as Record<string, unknown>).__MENU_DEBUG__))
+)
+
 export interface SubmenuOptions extends MenuOptions {
   parentItemId: string
 }
@@ -190,6 +195,10 @@ export class SubmenuCore extends MenuCore {
   }
 
   private handleNestedTriggerKeydown(event: KeyboardEvent) {
+    if (isDebugMenuEnabled()) {
+      // eslint-disable-next-line no-console
+      console.log("submenu core keydown", event.key)
+    }
     if (event.key === "ArrowRight" || event.key === "Enter" || event.key === " ") {
       event.preventDefault()
       this.open("keyboard")

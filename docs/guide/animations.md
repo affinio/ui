@@ -1,6 +1,6 @@
 # Animation Hooks
 
-`@affino/menu-vue` keeps the DOM bare so you can bring your own motion system. Every panel element now exposes a few attributes you can target in CSS (or any animation library):
+`@affino/menu-vue` and `@affino/menu-react` keep the DOM bare so you can bring your own motion system. Every panel element exposes the same attributes you can target in CSS (or any animation library):
 
 - `data-state="open" | "closed"`
 - `data-side="top" | "bottom" | "left" | "right"`

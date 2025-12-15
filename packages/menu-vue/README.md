@@ -60,18 +60,18 @@ Docs → [./docs/index.md](./docs/index.md)
 
 ## Feature Comparison Table
 
-| Feature | @affino/menu-vue | Headless UI | Radix Vue | Naive UI |
-|---------|---------------------|-------------|-----------|----------|
-| Smart mouse prediction | ✅ | ❌ | ❌ | ❌ |
-| Unlimited nested submenus | ✅ | ❌ | ✅ | ✅ |
-| Auto positioning | ✅ | ❌ | ✅ | ✅ |
-| `asChild` pattern | ✅ | ✅ | ✅ | ❌ |
-| Framework-agnostic core | ✅ | ❌ | ❌ | ❌ |
-| Context + click menus | ✅ | ⚠️ limited | ✅ | ✅ |
-| Programmatic controller | ✅ | ❌ | ✅ | ⚠️ limited |
-| Bundle size (min+gzip) | ~8 KB | ~12 KB | ~15 KB | ~45 KB |
-| Virtualization ready | ✅ | ❌ | ⚠️ manual | ⚠️ manual |
-| TypeScript coverage | 100% | partial | 100% | partial |
+| Feature | @affino/menu-vue |
+|---------|---------------------|
+| Smart mouse prediction | ✅ |
+| Unlimited nested submenus | ✅ |
+| Auto positioning | ✅ |
+| `asChild` pattern | ✅ |
+| Framework-agnostic core | ✅ |
+| Context + click menus | ✅ |
+| Programmatic controller | ✅ |
+| Bundle size (min+gzip) | ~8 KB |
+| Virtualization ready | ✅ |
+| TypeScript coverage | 100% |
 
 ## Getting Started
 

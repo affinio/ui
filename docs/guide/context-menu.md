@@ -1,6 +1,6 @@
 # Context Menu Guide
 
-Context menus behave like native right-click menus but stay inside Vue's reactivity system. You can rely on triggers, open the menu programmatically, or mix both.
+Context menus behave like native right-click menus but stay inside your framework's reactivity system. You can rely on triggers, open the menu programmatically, or mix both. The snippets below use Vue syntax; React users can translate `@select` to `onSelect` and `v-model` style bindings to hooks (see the React example in [getting-started](../getting-started.md)).
 
 ## Right-click trigger
 

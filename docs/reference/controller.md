@@ -1,10 +1,10 @@
 # Controller API
 
-`MenuController` is the imperative surface behind every `<UiMenu>`. Use it for command palettes, custom shortcuts, and context menus that open at the pointer.
+`MenuController` is the imperative surface behind every `<UiMenu>`. Use it for command palettes, custom shortcuts, and context menus that open at the pointer—regardless of whether you use the Vue or React adapter.
 
 You get a controller in two ways:
 
-1. Grab it from a template ref:
+1. Grab it from a template ref (Vue):
 
 ```vue
 <script setup lang="ts">
@@ -23,7 +23,7 @@ const openMenu = () => menuRef.value?.controller.open('programmatic')
 </template>
 ```
 
-2. Create one manually when you need a headless setup:
+2. Create one manually when you need a headless setup (works in both frameworks):
 
 ```ts
 import { useMenuController } from '@affino/menu-vue'
@@ -31,7 +31,13 @@ import { useMenuController } from '@affino/menu-vue'
 const controller = useMenuController({ kind: 'root', options: { closeOnSelect: false } })
 ```
 
-`useMenu()` returns the same trio (`core`, `state`, `controller`) if you want the helper that `<UiMenu>` uses internally.
+```tsx
+import { useMenuController } from "@affino/menu-react"
+
+const controller = useMenuController({ kind: "root", options: { closeOnSelect: false } })
+```
+
+`useMenu()` returns the same trio (`core`, `state`, `controller`) if you want the helper that `<UiMenu>` uses internally. In React the helper lives in `@affino/menu-react` as well.
 
 ## State
 
@@ -124,6 +130,16 @@ useMenuShortcuts({
   delete: 'Delete',
 })
 </script>
+```
+
+```tsx
+import { useMenuShortcuts } from "@affino/menu-react"
+
+useMenuShortcuts({
+  rename: "F2",
+  duplicate: "Meta+D",
+  delete: "Delete",
+})
 ```
 
 The helper ignores inputs, textareas, and contenteditable regions so forms stay usable. Provide menu item IDs as keys and shortcut strings as values (e.g. `Ctrl+Shift+P`).
