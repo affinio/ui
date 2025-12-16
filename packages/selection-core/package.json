@@ -1,7 +1,7 @@
 {
   "name": "@affino/selection-core",
-  "version": "0.1.0-alpha.1",
-  "author": "Affino UI",
+  "version": "1.0.0-alpha.0",
+  "author": "Anton Pavlov <pavlov@myyahho.com>",
   "type": "module",
   "description": "Framework-agnostic table selection primitives for grids and spreadsheets",
   "exports": {

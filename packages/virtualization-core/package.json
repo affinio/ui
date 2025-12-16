@@ -1,7 +1,7 @@
 {
   "name": "@affino/virtualization-core",
-  "version": "0.1.0-alpha.1",
-  "author": "Affino UI",
+  "version": "1.0.0-alpha.0",
+  "author": "Anton Pavlov <pavlov@myyahho.com>",
   "type": "module",
   "description": "Headless virtualization math for grids and scrolling surfaces",
   "exports": {
