@@ -4,6 +4,17 @@
 
 A framework-agnostic, type-safe menu/dropdown core engine with intelligent mouse prediction, nested submenu support, and comprehensive accessibility features.
 
+## The Problem It Solves
+
+Building accessible, nested dropdown menus is hard:
+
+- **Mouse prediction** — Users moving diagonally toward a submenu accidentally trigger other items
+- **Framework lock-in** — Most libraries tie you to React, Vue, or specific UI frameworks  
+- **Accessibility** — Proper ARIA attributes, keyboard navigation, and focus management require expertise
+- **Bundle size** — Dragging in full component libraries for just a menu
+
+**@affino/menu-core** solves this by providing **just the behavior logic** in ~8KB. You control the HTML and CSS, we handle the complex interaction patterns.
+
 ## Architecture Overview
 
 ```
@@ -49,6 +60,29 @@ Most menu libraries mix logic and UI, tying you to a specific framework. This pa
 
 Libraries like Radix, HeadlessUI, and Mantine are framework-specific. **This is pure TypeScript logic** — bring your own UI.
 
+### Key features
+
+| Feature | @affino/menu-core |
+|---------|------------------|
+| **Framework** | Any (headless) |
+| **Bundle Size** | ~8KB |
+| **Mouse Prediction** | ✅ Built-in |
+| **Nested Submenus** | ✅ Unlimited |
+| **Custom Renderers** | ✅ Canvas/GL/etc |
+| **Bring Your CSS** | ✅ 100% control |
+| **TypeScript** | ✅ Full |
+
+**Use this when:**
+- You need framework flexibility (or plan to migrate frameworks)
+- Bundle size matters (mobile-first, performance budgets)
+- You want diagonal mouse prediction (better UX for nested menus)
+- You're building custom renderers (game engines, canvas apps, terminal UIs)
+
+**Use alternatives when:**
+- You're all-in on React and want pre-styled components (Radix, Mantine)
+- You prefer component libraries over headless logic (Mantine, Ant Design)
+- You need zero configuration and don't mind framework lock-in
+
 ## Performance
 
 - ✅ **Event-driven updates** — Core emits updates only when state actually changes
@@ -87,41 +121,50 @@ yarn add @affino/menu-core
 
 ## Quick Start
 
-### Minimal Working Example (Vanilla JS)
+### Three Steps to a Working Menu
 
+**HTML:**
+```html
+<button id="menu-trigger">Open Menu</button>
+<div id="menu-panel" hidden>
+  <div data-item="save">Save</div>
+  <div data-item="export">Export</div>
+  <div data-item="delete">Delete</div>
+</div>
+```
+
+**JavaScript:**
 ```javascript
 import { MenuCore } from '@affino/menu-core'
 
-// Create menu instance
 const menu = new MenuCore()
-
-// Get DOM elements
 const trigger = document.querySelector('#menu-trigger')
 const panel = document.querySelector('#menu-panel')
-const items = panel.querySelectorAll('[data-item]')
 
-// Bind trigger
-Object.assign(trigger, menu.getTriggerProps())
+// 1. Connect the trigger button
 trigger.addEventListener('click', () => menu.toggle())
 
-// Bind panel
-Object.assign(panel, menu.getPanelProps())
-
-// Register and bind items
-items.forEach(item => {
-  const itemId = item.dataset.item
-  menu.registerItem(itemId)
-  Object.assign(item, menu.getItemProps(itemId))
-  item.addEventListener('click', () => menu.select(itemId))
+// 2. Register menu items
+panel.querySelectorAll('[data-item]').forEach(item => {
+  const id = item.dataset.item
+  menu.registerItem(id)
+  item.addEventListener('click', () => {
+    console.log('Selected:', id)
+    menu.select(id)
+  })
 })
 
-// React to state changes
+// 3. Show/hide the panel
 menu.subscribe(state => {
-  panel.style.display = state.open ? 'block' : 'none'
+  panel.hidden = !state.open
 })
 ```
 
-**No framework required!** This is pure JavaScript with DOM manipulation.
+**That's it!** Three clear steps, no framework required. The core handles:
+- ✅ Keyboard navigation (arrows, enter, escape)
+- ✅ ARIA attributes for screen readers  
+- ✅ Focus management
+- ✅ Open/close coordination
 
 ### Full Example with Options
 
@@ -169,10 +212,15 @@ menu.destroy()
 
 ## Live Examples
 
-- 🚀 [Vanilla JS Demo](https://codesandbox.io/s/menu-core-vanilla) — Pure JavaScript implementation
-- 🎨 [Vue 3 Demo](../menu-vue) — Using `@affino/menu-vue` adapter
-- ⚛️ React Demo — Coming soon
-- 💚 Svelte Demo — Coming soon
+**Try it yourself in under 30 seconds:**
+
+- 🚀 **[Vanilla JS Demo →](https://codesandbox.io/p/sandbox/menu-core-vanilla-j98x8z)**  
+  Pure JavaScript — no build step, no framework
+  
+- 🎨 **Vue 3 Adapter →** Install `@affino/menu-vue` for ready-made Vue components
+
+- ⚛️ **React Adapter →** Install `@affino/menu-react` for ready-made React hooks
+
 
 ## Adapter Guide
 
@@ -223,8 +271,6 @@ menu.subscribe(state => {
 })
 ```
 
-See [`@affino/menu-vue`](../menu-vue) for a complete Vue 3 adapter implementation.
-
 ---
 
 ## Core Concepts
@@ -262,24 +308,31 @@ const itemProps = menu.getItemProps('item-id')
 
 ### Mouse Prediction
 
-Predicts when users are moving toward a submenu to prevent accidental closes.
+**The Problem:**  
+When users move their cursor diagonally toward a submenu, they briefly hover over other menu items. Without prediction, this closes the submenu they're trying to reach—super frustrating!
 
-**Default configuration works well for most cases.** For advanced tuning:
+**The Solution:**  
+The core tracks mouse movement and intelligently keeps submenus open when it detects diagonal motion toward them. Inspired by Amazon's mega menus and Stripe's navigation.
 
 ```typescript
+// The defaults work great for 90% of cases:
+const menu = new MenuCore() // ✅ Just works!
+
+// Need to tune for trackpads or dense menus?
 const menu = new MenuCore({
   mousePrediction: {
-    history: 3,              // Track last 3 pointer positions
-    verticalTolerance: 20,   // Allow 20px vertical drift
-    headingThreshold: 0.3,   // Minimum directional confidence
-    horizontalThreshold: 5,  // Min 5px horizontal progress
-    samplingOffset: 2,       // Compare positions 2 steps apart
-    driftBias: 0.8           // Forgiveness for vertical drift
+    verticalTolerance: 30,    // More forgiving diagonal movement
+    headingThreshold: 0.2     // Less strict direction checking
   }
 })
 ```
 
-See [docs/mouse-prediction.md](./docs/core/mouse-prediction.md) for detailed explanation of each parameter.
+**When to adjust:**
+- Trackpad users → Increase `verticalTolerance` (30-40px)
+- Very dense menus → Lower `headingThreshold` (0.1-0.2)
+- High-precision mice → Keep defaults
+
+📖 Full tuning guide: [docs/mouse-prediction.md](./docs/core/mouse-prediction.md)
 
 ### Nested Submenus
 
@@ -566,6 +619,65 @@ import type {
 - TypeScript 5.0+
 - No polyfills required for core functionality
 
+## Troubleshooting
+
+### Menu doesn't close when clicking outside
+
+**Problem:** The core doesn't automatically handle click-outside detection.  
+**Solution:** Add this to your adapter:
+
+```javascript
+document.addEventListener('click', (e) => {
+  if (!panel.contains(e.target) && !trigger.contains(e.target)) {
+    menu.close('programmatic')
+  }
+})
+```
+
+### Keyboard navigation not working
+
+**Problem:** Forgot to apply `getPanelProps()` to the menu container.  
+**Solution:** The panel needs `role="menu"` and keyboard event handlers:
+
+```javascript
+const panelProps = menu.getPanelProps()
+Object.assign(panel, panelProps)
+```
+
+### Menu position is wrong with CSS transforms
+
+**Problem:** `getBoundingClientRect()` returns viewport coordinates, but transforms affect positioning.  
+**Solution:** Pass custom viewport dimensions or adjust for transform scale:
+
+```javascript
+const position = menu.computePosition(triggerRect, panelRect, {
+  viewportWidth: window.innerWidth / scale,
+  viewportHeight: window.innerHeight / scale
+})
+```
+
+### Submenu closes too quickly
+
+**Problem:** Default `closeDelay` is too short for your use case.  
+**Solution:** Increase the delay:
+
+```javascript
+const submenu = new SubmenuCore(parent, {
+  closeDelay: 300  // Wait 300ms before closing (default: 150ms)
+})
+```
+
+### TypeScript errors with props
+
+**Problem:** Spreading props onto elements with strict types.  
+**Solution:** Cast or use type assertions:
+
+```typescript
+const props = menu.getTriggerProps()
+Object.assign(trigger as any, props)
+// Or: {...props as React.ButtonHTMLAttributes<HTMLButtonElement>}
+```
+
 ## Contributing
 
 Feedback and contributions are welcome! This project is in beta and we're actively seeking:
@@ -582,6 +694,5 @@ MIT
 ---
 
 **Related Packages:**
-- [`@affino/menu-vue`](../menu-vue) — Vue 3 components built on this core
-- React adapter — Coming soon
-- Svelte adapter — Coming soon
+- [`@affino/menu-vue`] — Vue 3 components built on this core
+- [`@affino/menu-react`] — React components built on this core
