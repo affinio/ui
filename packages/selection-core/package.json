@@ -1,6 +1,6 @@
 {
   "name": "@affino/selection-core",
-  "version": "1.0.0-alpha.0",
+  "version": "1.0.0-alpha.1",
   "author": "Anton Pavlov <pavlov@myyahho.com>",
   "type": "module",
   "description": "Framework-agnostic table selection primitives for grids and spreadsheets",
@@ -26,8 +26,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/affino/affino.git"
+    "url": "https://github.com/affinio/affinio/tree/main/packages/selection-core"
   },
+  "homepage": "https://ui.unitlab.io",
+
   "license": "MIT",
   "keywords": [
     "selection",

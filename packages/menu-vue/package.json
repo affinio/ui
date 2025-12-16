@@ -1,6 +1,6 @@
 {
   "name": "@affino/menu-vue",
-  "version": "1.0.0-alpha.8",
+  "version": "1.0.0-alpha.9",
   "author": "Anton Pavlov <pavlov@myyahho.com>",
   "type": "module",
   "description": "Headless Vue 3 menu components with smart mouse prediction and full keyboard accessibility",
@@ -15,7 +15,7 @@
     "./styles.css": "./dist/styles.css"
   },
   "peerDependencies": {
-    "@affino/menu-core": "^1.0.0-alpha.6",
+    "@affino/menu-core": "^1.0.0-alpha.7",
     "vue": "^3.3.0"
   },
   "devDependencies": {
@@ -35,7 +35,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/affinio/affinio.git"
+    "url": "https://github.com/affinio/affinio/tree/main/packages/menu-vue"
   },
   "homepage": "https://ui.unitlab.io",
   "keywords": [
