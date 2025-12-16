@@ -1,6 +1,6 @@
 # Mouse Prediction Deep Dive
 
-The mouse prediction system prevents accidental submenu closures when users move their cursor diagonally toward a submenu. This is a critical UX feature for multi-level menus.
+The mouse prediction system prevents accidental submenu closures when users move their cursor diagonally toward a submenu. This behavioral guardrail keeps multi-level menus stable without making them feel sticky or slow.
 
 ## The Problem
 
@@ -22,263 +22,166 @@ If the user moves their mouse diagonally from "Edit" toward the submenu, they'll
 
 ## The Solution
 
-The prediction algorithm tracks mouse movement and determines if the user is **heading toward** the currently open submenu, even if they temporarily hover over other menu items.
+The implementation uses an **intent-gating model** rather than a single score. It samples recent pointer positions, checks whether the pointer is still inside a tolerance corridor, and evaluates three independent intent signals. The submenu is kept alive only when the corridor gate passes and at least one of the intent gates is satisfied. The system intentionally prefers false negatives over false positives so that unsure motion falls back to normal hover behavior.
+
+## Intent Gates
+
+The boolean expression below is the exact decision rule:
+
+```
+withinCorridor && (headingSatisfied || progressSatisfied || driftBiasSatisfied)
+```
+
+Each gate has a very specific responsibility:
+
+- **withinCorridor** – Ensures the latest pointer position stays inside the tolerance band spanning the trigger and submenu. If this fails, prediction immediately turns off.
+- **headingSatisfied** – Uses a dot product between the movement vector and the target vector. It fires only when the pointer's heading exceeds `headingThreshold`.
+- **progressSatisfied** – Measures forward progress along the axis between the trigger and submenu. It allows limited backward drift based on `horizontalThreshold` but otherwise demands continued advancement.
+- **driftBiasSatisfied** – Acts as a fallback when the pointer motion strongly favors the submenu axis. It compares axis-relative movement magnitudes using `driftBias` and does not reuse the heading or progress calculations.
+
+There is **no combined score** and there are **no weights** between the gates. Each signal either passes or fails, and the final intent is a straight boolean evaluation.
 
 ## Configuration Parameters
 
-### `history: number` (default: `3`)
+All knobs map directly to one of the gates above. Defaults reflect the production implementation and should only be changed after testing with real pointer data.
 
-Number of recent pointer positions to track.
+### `history: number` (default: `8`)
 
-- **Higher values** (4-5): More stable prediction, slower to react to direction changes
-- **Lower values** (2-3): More reactive, but can be jittery
-- **Recommended**: `3` for most use cases
+Maximum number of pointer samples kept in the circular buffer. A longer history provides more stable vectors for the corridor and heading checks, while a shorter history reacts faster to direction changes. Memory and CPU cost stay constant regardless of the size because the buffer is fixed.
 
-```typescript
-// Track last 5 positions for very stable prediction
-mousePrediction: { history: 5 }
-```
+### `verticalTolerance: number` (default: `48`)
 
-### `verticalTolerance: number` (default: `20`)
-
-Maximum vertical drift (in pixels) allowed while still considering horizontal movement valid.
-
-Users rarely move in perfectly straight lines. This parameter allows some "wiggle room" for natural mouse movement.
-
-```typescript
-// Allow 30px of vertical drift
-mousePrediction: { verticalTolerance: 30 }
-```
-
-**Use cases:**
-- Increase for trackpad users (less precise)
-- Decrease for very precise positioning requirements
-
-### `headingThreshold: number` (default: `0.3`)
-
-Minimum confidence score (0-1) required to consider the user as "heading toward" the submenu.
-
-This is calculated based on:
-- Horizontal progress toward the target
-- Vertical drift penalty
-- Direction consistency
-
-```typescript
-// Require 50% confidence (stricter)
-mousePrediction: { headingThreshold: 0.5 }
-
-// Allow 10% confidence (more lenient)
-mousePrediction: { headingThreshold: 0.1 }
-```
-
-**Tuning guide:**
-- **Higher** (0.4-0.6): User must move more directly toward submenu
-- **Lower** (0.1-0.2): More forgiving, but may prevent some menu closures
-- **Recommended**: `0.3` balances precision and UX
-
-### `horizontalThreshold: number` (default: `5`)
-
-Minimum horizontal progress (in pixels) required to consider movement intentional.
-
-Prevents micro-movements from triggering prediction.
-
-```typescript
-// Require at least 10px horizontal movement
-mousePrediction: { horizontalThreshold: 10 }
-```
-
-**Use cases:**
-- Increase for high-DPI displays
-- Decrease for very sensitive tracking
+Thickness, in pixels, of the corridor that surrounds the trigger and submenu rectangle. The corridor gate treats any pointer position outside this band as an immediate exit condition. Larger tolerances keep menus open when users move across bumpy terrain (e.g., laptop trackpads). Smaller tolerances tighten the corridor so only very direct motion is preserved.
 
 ### `samplingOffset: number` (default: `2`)
 
-How many positions back in history to compare against current position.
+Number of samples the predictor jumps back when it builds the movement vector. Instead of comparing the most recent two samples, it compares `points[last]` and `points[last - offset]`. Higher offsets suppress jitter and generate smoother heading vectors; lower offsets make the heading gate respond faster to new intent. The offset must always be less than `history`.
 
-Instead of comparing consecutive positions, we skip some positions to get a clearer direction signal.
+### `headingThreshold: number` (default: `0.2`)
 
-```typescript
-// Compare current position to 3 positions back
-mousePrediction: { samplingOffset: 3 }
-```
+Minimum dot-product value required for `headingSatisfied`. The dot product operates on normalized vectors and therefore produces values in the `[-1, 1]` range. A higher threshold requires the pointer to move more directly toward the submenu. Lower thresholds allow broader diagonals to pass. This check looks only at direction; it does not consider distance or progress.
 
-**How it works:**
-```
-History: [p0, p1, p2, p3, p4]  (p4 = current)
-Offset 1: Compare p4 vs p3
-Offset 2: Compare p4 vs p2  ← default
-Offset 3: Compare p4 vs p1
-```
+### `horizontalThreshold: number` (default: `6`)
 
-**Tuning guide:**
-- **Higher offset**: Smoother, ignores small jitters
-- **Lower offset**: More reactive to direction changes
-- Must be less than `history`
+Allowance, in pixels, for backward motion along the axis. The `progressSatisfied` gate passes when the forward progress value is greater than or equal to `-horizontalThreshold`. That means users can drift slightly toward the parent item without losing the submenu. Increasing this value makes the system more forgiving; decreasing it demands steady forward movement.
 
-### `driftBias: number` (default: `0.8`)
+### `driftBias: number` (default: `0.4`)
 
-Weight applied to forgive vertical drift in the scoring calculation.
-
-Higher values make the algorithm more forgiving of vertical movement.
-
-```typescript
-// Very forgiving (90% bias)
-mousePrediction: { driftBias: 0.9 }
-
-// Strict (50% bias)
-mousePrediction: { driftBias: 0.5 }
-```
-
-**Internal calculation:**
-```typescript
-const driftPenalty = Math.abs(dy) / verticalTolerance
-const score = (horizProgress * driftBias) - (driftPenalty * (1 - driftBias))
-```
+Axis-dominance ratio used by the fallback gate. For a horizontal submenu, `driftBiasSatisfied` checks whether `|dx| > |dy| * driftBias`. In vertical layouts the axes are swapped. This gate does **not** blend into the heading score—it simply ensures that strong axis-dominant motion can keep the submenu alive even if the dot product is inconclusive. Higher values make it harder for this gate to pass, because the dominant axis must strongly outweigh the perpendicular component.
 
 ## Algorithm Flow
 
 ```
-1. Record pointer position
-   ↓
-2. Collect last N positions (history)
-   ↓
-3. Compare current vs (current - samplingOffset)
-   ↓
-4. Calculate horizontal progress toward target
-   ↓
-5. Calculate vertical drift penalty
-   ↓
-6. Compute weighted score:
-   score = (horizProgress × driftBias) - (drift × (1 - driftBias))
-   ↓
-7. Is score > headingThreshold?
-   ├─ YES → User is heading toward submenu
-   │         (Keep submenu open, ignore other hovers)
-   └─ NO → User changed direction
-            (Allow normal menu hover behavior)
+1. Record pointer point (with timestamp) and keep only the newest `history` entries.
+2. If fewer than two samples exist, exit early (no prediction).
+3. Determine the menu orientation (horizontal or vertical) and the direction of travel (left/right or up/down).
+4. Build the corridor using `verticalTolerance` and check `withinCorridor`. If it fails, return false immediately.
+5. Compute the heading vector using `samplingOffset`, normalize it, and evaluate `headingSatisfied` against `headingThreshold`.
+6. Measure forward progress along the orientation axis and evaluate `progressSatisfied` using `horizontalThreshold`.
+7. Compare axis-aligned movement magnitudes to evaluate `driftBiasSatisfied`.
+8. Return the boolean result of `withinCorridor && (headingSatisfied || progressSatisfied || driftBiasSatisfied)`.
 ```
 
+This order mirrors the implementation: the corridor gate acts as a guard clause, and the three intent gates are short-circuited together. When none of the gates pass, the algorithm reports "not heading" and allows the menu system to process the hover normally.
+
 ## Practical Examples
+
+Illustrative configurations below show how the gates interact for different UX targets. They do **not** change library defaults.
 
 ### Conservative (stable, less aggressive)
 
 ```typescript
 mousePrediction: {
-  history: 5,
-  verticalTolerance: 30,
-  headingThreshold: 0.4,
-  horizontalThreshold: 8,
-  samplingOffset: 3,
-  driftBias: 0.9
+   history: 10,
+   verticalTolerance: 56,
+   headingThreshold: 0.35,
+   horizontalThreshold: 8,
+   samplingOffset: 3,
+   driftBias: 0.6,
 }
 ```
 
-Best for:
-- Trackpad users
-- Complex nested menus
-- Users with less precise input
+Higher tolerances and thresholds keep the submenu active only when the pointer follows a very deliberate path. This is useful for dense enterprise menus or teams supporting large external trackpads.
 
 ### Aggressive (reactive, precise)
 
 ```typescript
 mousePrediction: {
-  history: 2,
-  verticalTolerance: 15,
-  headingThreshold: 0.2,
-  horizontalThreshold: 3,
-  samplingOffset: 1,
-  driftBias: 0.6
+   history: 5,
+   verticalTolerance: 32,
+   headingThreshold: 0.15,
+   horizontalThreshold: 4,
+   samplingOffset: 1,
+   driftBias: 0.3,
 }
 ```
 
-Best for:
-- Mouse users
-- Simple menus
-- Users with precise input
-- Fast interaction patterns
+Short history and low offsets let the heading gate adapt quickly. Lower thresholds keep menus alive even when users cut corners, which suits gaming mice or kiosk hardware where movements are confident.
 
-### Balanced (recommended default)
+### Balanced (matches shipping defaults)
 
 ```typescript
 mousePrediction: {
-  history: 3,
-  verticalTolerance: 20,
-  headingThreshold: 0.3,
-  horizontalThreshold: 5,
-  samplingOffset: 2,
-  driftBias: 0.8
+   history: 8,
+   verticalTolerance: 48,
+   headingThreshold: 0.2,
+   horizontalThreshold: 6,
+   samplingOffset: 2,
+   driftBias: 0.4,
 }
 ```
 
-Works well for:
-- Most use cases
-- Mixed input devices
-- General-purpose menus
+These values prioritize reliability over aggressiveness: the corridor gate is moderately generous, the heading gate looks for a clear diagonal, progress allows for small setbacks, and the drift bias only kicks in when the pointer strongly prefers the submenu axis.
 
 ## Debugging
 
-Enable debug logging to visualize prediction:
+Enable debug output to inspect each gate:
 
 ```typescript
-const submenu = new SubmenuCore(parent, options)
+const prediction = new MousePrediction(config)
 
-// Log each prediction check
-submenu.recordPointer = function(point) {
-  const result = this.isPredictingTowardTarget(point)
-  console.log({
-    point,
-    isHeading: result,
-    history: this.pointerHistory
-  })
-  return result
-}
+   console.table({
+      heading: payload.headingScore,
+      withinCorridor: payload.withinCorridor,
+      forwardProgress: payload.forwardProgress,
+   })
+})
 ```
+
+The callback mirrors the implementation payload, which includes raw points, the target/origin rectangles, and the evaluated metrics. Logging these values during manual testing quickly reveals whether a missed prediction failed the corridor gate or one of the intent gates.
 
 ## When to Disable
 
-Some scenarios don't need mouse prediction:
+Mouse prediction is optional. Disable or soften it when:
+
+- Your menus never spawn nested submenus.
+- The menu opens strictly on click/tap and you already debounce pointer motion.
+- The UI targets touch hardware exclusively.
+- The surface is so small that diagonal pointer travel is unlikely.
 
 ```typescript
-// Disable entirely
 mousePrediction: null
 
-// Or use minimal prediction
-mousePrediction: {
-  headingThreshold: 0.9  // Almost never triggers
-}
+// or make the heading gate extremely strict
+mousePrediction: { headingThreshold: 0.95 }
 ```
-
-**Disable when:**
-- No nested submenus
-- Touch-only interfaces
-- Menu opens on click (not hover)
-- Performance is critical and menus are simple
 
 ## Performance Considerations
 
-Mouse prediction runs on every `pointermove` event. Performance impact is minimal:
+Prediction runs on every `pointermove` event. The cost stays low because:
 
-- **O(1)** - Fixed-size history buffer
-- **~0.01ms** - Typical execution time per check
-- **No DOM access** - Pure coordinate math
-- **No allocations** - Reuses array slots
+- Buffer maintenance is O(1) thanks to the capped `history` size.
+- Math consists of simple vector operations (dot product, subtraction, magnitude).
+- No DOM calls or allocations occur inside the hot path.
+- Typical execution averages well under 0.05 ms, even on integrated GPUs.
 
-For 60 FPS mouse tracking:
-- Frame budget: 16.67ms
-- Prediction cost: ~0.01ms
-- **Overhead: 0.06%** of frame time
-
-Safe to use even in performance-critical applications.
+That margin leaves ample headroom inside a 16.67 ms frame budget, so the guard can remain enabled even in complex menu systems.
 
 ## Related Patterns
 
-This technique is inspired by:
-- **Amazon's mega menu** - Original popularization of the pattern
-- **Stripe's navigation** - Refined implementation
-- **GitHub's dropdown menus** - Modern application
-
-Academic reference: [Triangle of Tolerance](https://www.smashingmagazine.com/2023/08/better-context-menus-safe-triangles/) - UX pattern for menu navigation.
+The corridor-and-gates approach builds on patterns popularized by mega menus at Amazon, Stripe, and GitHub, as well as UX guidance like the [Triangle of Tolerance](https://www.smashingmagazine.com/2023/08/better-context-menus-safe-triangles/). The implementation here is deliberately conservative, mirroring those production systems’ preference for false negatives.
 
 ---
 
-**Need help tuning?** Start with defaults, then adjust based on user feedback. The algorithm is designed to be "good enough" out of the box for 90% of use cases.
+Future maintainers should treat this README as the contract between docs and code. If the implementation changes, update the gate descriptions and parameter notes here before shipping.
+  headingThreshold: 0.2,
