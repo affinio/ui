@@ -1,0 +1,38 @@
+{
+  "name": "@affino/virtualization-core",
+  "version": "0.1.0-alpha.1",
+  "author": "Affino UI",
+  "type": "module",
+  "description": "Headless virtualization math for grids and scrolling surfaces",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/affino/affino.git"
+  },
+  "license": "MIT",
+  "keywords": [
+    "virtualization",
+    "table",
+    "grid",
+    "headless"
+  ],
+  "devDependencies": {
+    "@vitest/coverage-v8": "^4.0.15",
+    "vitest": "^4.0.15"
+  }
+}
