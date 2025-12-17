@@ -1,7 +1,7 @@
 {
   "name": "@affino/menu-core",
-  "version": "1.0.0-alpha.7",
-  "author": "Anton Pavlov <pavlov@myyahho.com>",
+  "version": "1.0.0-alpha.8",
+  "author": "Anton Pavlov <a.pavlov@affino.dev>",
   "type": "module",
 
   "description": "Framework-agnostic headless menu engine with smart mouse prediction, keyboard navigation, and nested submenus",
@@ -32,7 +32,7 @@
     "url": "https://github.com/affinio/affinio/tree/main/packages/menu-core"
   },
 
-  "homepage": "https://ui.unitlab.io",
+  "homepage": "https://affino.dev",
 
   "keywords": [
     "menu",
@@ -56,6 +56,7 @@
     "headless-ui"
   ],
   "license": "MIT",
+  
   "devDependencies": {
     "@vitest/coverage-v8": "^4.0.15",
     "vitest": "^4.0.15"

@@ -1,7 +1,7 @@
 {
   "name": "@affino/menu-react",
-  "version": "1.0.0-alpha.2",
-  "author": "Anton Pavlov <pavlov@myyahho.com>",
+  "version": "1.0.0-alpha.3",
+  "author": "Anton Pavlov <a.pavlov@affino.dev>",
   "type": "module",
   "description": "Headless React menu components powered by @affino/menu-core",
   "files": [
@@ -15,7 +15,7 @@
     "./styles.css": "./dist/styles.css"
   },
   "peerDependencies": {
-    "@affino/menu-core": "^1.0.0-alpha.7",
+    "@affino/menu-core": "^1.0.0-alpha.8",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },
@@ -46,7 +46,7 @@
     "type": "git",
     "url": "https://github.com/affinio/affinio/tree/main/packages/menu-react"
   },
-  "homepage": "https://ui.unitlab.io",
+  "homepage": "https://affino.dev",
   "keywords": [
     "react",
     "menu",

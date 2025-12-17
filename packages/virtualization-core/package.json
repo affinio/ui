@@ -1,9 +1,9 @@
 {
   "name": "@affino/virtualization-core",
-  "version": "1.0.0-alpha.1",
-  "author": "Anton Pavlov <pavlov@myyahho.com>",
+  "version": "1.0.0-alpha.2",
+  "author": "Anton Pavlov <a.pavlov@affino.dev>",
   "type": "module",
-  "description": "Headless virtualization math for grids and scrolling surfaces",
+  "description": "Framework-agnostic headless virtualization math for grids and scrolling surfaces",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -22,9 +22,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/affinio/affinio/tree/main/packages/selection-core"
+    "url": "https://github.com/affinio/affinio/tree/main/packages/virtualization-core"
   },
-  "homepage": "https://ui.unitlab.io",
+
+  "homepage": "https://affino.dev",
+
   "license": "MIT",
   "keywords": [
     "virtualization",
