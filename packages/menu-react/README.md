@@ -1,4 +1,3 @@
-````markdown
 # @affino/menu-react
 
 > React's most precise headless menu system — deterministic controllers, diagonal pointer intent, and zero styling opinions.
@@ -72,4 +71,3 @@ import "@affino/menu-react/styles.css"
 ## License
 
 MIT © affino OSS
-````
