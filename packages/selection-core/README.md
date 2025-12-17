@@ -41,7 +41,7 @@ const result = selectSingleCell({
 store.applyResult(result)
 ```
 
-See the `/demo-vue` selection page (`/selection`) for an interactive example of clicking,
+See the `/demo-vue` selection page `https://www.affino.dev` for an interactive example of clicking,
 shift-extending, meta toggling, and drag selection powered by `@affino/selection-core`.
 
 Adapters for Vue/React live alongside the demo code and translate pointer/keyboard

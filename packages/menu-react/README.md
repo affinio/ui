@@ -55,6 +55,12 @@ import "@affino/menu-react/styles.css"
 4. Nest `<UiSubMenu>` components for infinite submenu depth.
 5. Use the supplied hooks (`useMenu`, `useMenuShortcuts`) to drive programmatic flows.
 
+## Live Examples
+
+**Try it yourself in under 30 seconds:**
+
+- 🚀 **[Demos →](https://affino.dev)**
+
 ## FAQ
 
 - **Does it work with Next.js / SSR?** Yes — everything renders on the server, hydrates on the client, and pointer-only features no-op until `window` exists.

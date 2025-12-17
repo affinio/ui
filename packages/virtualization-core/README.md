@@ -63,5 +63,5 @@ const visibleItems = items.slice(state.startIndex, state.endIndex)
 Framework adapters provide the `strategy` and translate DOM scroll events into
 pure math inputs so this package can stay deterministic and testable.
 
-See `/demo-vue` → `/one-grid` for a live example that streams scroll offsets into the
+See `/demo-vue` → `https://www.affino.dev` for a live example that streams scroll offsets into the
 virtualizer and visualizes overscan, pool size, and render budgets in real time.

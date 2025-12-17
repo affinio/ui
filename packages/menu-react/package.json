@@ -1,6 +1,6 @@
 {
   "name": "@affino/menu-react",
-  "version": "1.0.0-alpha.3",
+  "version": "1.0.0-alpha.4",
   "author": "Anton Pavlov <a.pavlov@affino.dev>",
   "type": "module",
   "description": "Headless React menu components powered by @affino/menu-core",

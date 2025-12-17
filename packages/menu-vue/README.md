@@ -87,6 +87,14 @@ import '@affino/menu-vue/styles.css'
 5. Add nested `<UiSubMenu>` components for multi-level trees (level 3+ supported)
 6. Dive deeper in [docs/getting-started.md](./docs/getting-started.md)
 
+
+## Live Examples
+
+**Try it yourself in under 30 seconds:**
+
+- 🚀 **[Demos →](https://affino.dev)**
+
+
 ## FAQ
 
 - **Does it work with Nuxt / SSR?** Yes. Components render on the server and hydrate with zero config.

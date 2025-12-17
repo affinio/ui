@@ -1,6 +1,6 @@
 {
   "name": "@affino/virtualization-core",
-  "version": "1.0.0-alpha.2",
+  "version": "1.0.0-alpha.3",
   "author": "Anton Pavlov <a.pavlov@affino.dev>",
   "type": "module",
   "description": "Framework-agnostic headless virtualization math for grids and scrolling surfaces",
