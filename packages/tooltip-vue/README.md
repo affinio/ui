@@ -1,20 +1,98 @@
 # @affino/tooltip-vue
 
-Vue composables that wrap `@affino/tooltip-core` so you can wire triggers and floating content without duplicating controller logic.
+Renderless Vue 3 helpers that wrap `@affino/tooltip-core`. Keep your own DOM/markup and let the controller manage timers, ARIA wiring, and hover/focus semantics.
+
+## Installation
 
 ```bash
 pnpm add @affino/tooltip-vue
+# or
+npm install @affino/tooltip-vue
 ```
 
-## Usage
+## Basic usage
 
-```ts
+```vue
+<script setup lang="ts">
 import { useTooltipController } from "@affino/tooltip-vue"
 
-const controller = useTooltipController({ id: "field-help" })
-
+const controller = useTooltipController({ id: "sla-tooltip", openDelay: 120 })
 const triggerProps = controller.getTriggerProps()
 const tooltipProps = controller.getTooltipProps()
+</script>
+
+<template>
+	<button class="Trigger" v-bind="triggerProps">
+		Inspect SLA
+	</button>
+
+	<transition name="fade">
+		<div v-if="controller.state.value.open" class="Tooltip" v-bind="tooltipProps">
+			<p>Always-on support across 11 regions.</p>
+		</div>
+	</transition>
+</template>
 ```
 
-Bind the returned props onto your Vue template via `v-bind` and watch `controller.state.value` for declarative updates.
+The props already include lowercase `onpointerenter/onpointerleave` handlers so they work directly with `v-bind`.
+
+## Positioning (recommended)
+
+Most layouts can rely on the built-in floating adapter, which wires `TooltipCore.computePosition()` to Vue refs:
+
+```vue
+<script setup lang="ts">
+import { useTooltipController, useFloatingTooltip } from "@affino/tooltip-vue"
+
+const controller = useTooltipController({ id: "sla-tooltip" })
+const floating = useFloatingTooltip(controller, {
+	placement: "top",
+	align: "center",
+	gutter: 12,
+})
+</script>
+
+<template>
+	<button ref="floating.triggerRef" v-bind="controller.getTriggerProps()">
+		Inspect SLA
+	</button>
+
+	<div
+		v-if="controller.state.value.open"
+		ref="floating.tooltipRef"
+		class="Tooltip"
+		v-bind="controller.getTooltipProps()"
+		:style="floating.tooltipStyle"
+	>
+		<p>Always-on support across 11 regions.</p>
+	</div>
+</template>
+```
+
+The helper exposes `triggerRef`, `tooltipRef`, `tooltipStyle`, and `updatePosition()` so you can react to custom
+layout changes (portals, drawers, etc.).
+
+## Controller API
+
+| Method | Description |
+| --- | --- |
+| `controller.state` | `ShallowRef<TooltipState>` updated whenever the surface opens or closes. |
+| `controller.getTriggerProps()` | Returns id/ARIA/pointer/focus handlers for any trigger element. |
+| `controller.getTooltipProps()` | Returns attributes for the floating surface, including `data-state`. |
+| `controller.open(reason?)` / `close(reason?)` / `toggle()` | Imperative controls for advanced flows. |
+| `controller.dispose()` | Tears down timers + subscriptions (auto-called when the component unmounts).
+
+## Working with forms
+
+Tooltips often decorate input labels. Blend focus-driven logic with pointer helpers:
+
+```vue
+<label class="FieldLabel">
+	Work email
+	<button type="button" class="Help" v-bind="triggerProps">?</button>
+</label>
+
+<input @focus="controller.open('keyboard')" @blur="controller.close('keyboard')" />
+```
+
+Because the controller reuses `@affino/surface-core`, its timers match menus and other floating primitives in the Affino stack.

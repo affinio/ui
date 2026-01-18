@@ -9,7 +9,13 @@ import type {
   Subscription,
 } from "@affino/surface-core"
 
-export type { EventHandler, PointerEventLike, Subscription, SurfaceReason } from "@affino/surface-core"
+export type {
+  EventHandler,
+  PointerEventLike,
+  Subscription,
+  SurfaceReason,
+  PositionOptions,
+} from "@affino/surface-core"
 
 export interface TooltipCallbacks extends SurfaceCallbacks {}
 
