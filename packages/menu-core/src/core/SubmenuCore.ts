@@ -40,7 +40,7 @@ export class SubmenuCore extends MenuCore {
     })
     this.parent = parent
     this.parentItemId = options.parentItemId
-    this.predictor = new MousePrediction(this.options.mousePrediction)
+    this.predictor = new MousePrediction(this.menuOptions.mousePrediction)
     this.releaseTree = this.tree.subscribe(this.id, (state) => this.syncWithTree(state))
   }
 
@@ -71,7 +71,7 @@ export class SubmenuCore extends MenuCore {
   }
 
   override select(id: string) {
-    const shouldCascade = this.options.closeOnSelect
+    const shouldCascade = this.menuOptions.closeOnSelect
     super.select(id)
     if (!shouldCascade) {
       return

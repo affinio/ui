@@ -1,64 +1,52 @@
-import { computePosition } from "../positioning/computePosition"
+import { SurfaceCore } from "@affino/surface-core"
+import type { PointerEventLike, SurfaceReason, SurfaceState } from "@affino/surface-core"
 import type {
   EventHandler,
   ItemProps,
   MenuCallbacks,
   MenuOptions,
   MenuState,
-  MenuSubscriber,
   PanelProps,
-  PointerEventLike,
-  Rect,
-  Subscription,
   TriggerProps,
+  MousePredictionConfig,
 } from "../types"
 import type { HighlightChange } from "./StateMachine"
 import { ItemRegistry } from "./ItemRegistry"
 import { MenuEvents } from "./Events"
 import { MenuStateMachine } from "./StateMachine"
-import { MenuTimers } from "./Timers"
 import { MenuTree } from "./MenuTree"
 
-let idCounter = 0
-
-interface NormalizedOptions extends Required<MenuOptions> {}
-
-const DEFAULT_OPTIONS: NormalizedOptions = {
-  id: "",
-  openDelay: 80,
-  closeDelay: 150,
-  closeOnSelect: true,
-  loopFocus: true,
-  mousePrediction: {},
+interface NormalizedMenuOptions {
+  closeOnSelect: boolean
+  loopFocus: boolean
+  mousePrediction: MousePredictionConfig
 }
 
-export class MenuCore {
-  readonly id: string
-  protected readonly options: NormalizedOptions
-  protected readonly subscribers = new Set<MenuSubscriber>()
+interface ParentLink {
+  parentId: string
+  parentItemId: string | null
+}
+export class MenuCore extends SurfaceCore<MenuState, MenuCallbacks> {
   protected readonly registry = new ItemRegistry()
-  protected readonly timers: MenuTimers
-  protected readonly stateMachine: MenuStateMachine
-  protected readonly events: MenuEvents
+  protected readonly selectionMachine: MenuStateMachine
   protected readonly tree: MenuTree
+  protected readonly menuOptions: NormalizedMenuOptions
+  private readonly menuEvents: MenuEvents
   protected autoHighlightOnOpen = false
   private pointerHighlightLock: { id: string; timer: ReturnType<typeof setTimeout> | null } | null = null
 
-  constructor(options: MenuOptions = {}, callbacks: MenuCallbacks = {}, tree?: MenuTree, parentLink?: { parentId: string; parentItemId: string | null }) {
-    const resolvedId = options.id ?? `menu-${++idCounter}`
-    this.id = resolvedId
-    this.options = {
-      ...DEFAULT_OPTIONS,
-      ...options,
-      id: resolvedId,
+  constructor(options: MenuOptions = {}, callbacks: MenuCallbacks = {}, tree?: MenuTree, parentLink?: ParentLink) {
+    super(options, callbacks)
+    this.menuOptions = {
+      closeOnSelect: options.closeOnSelect ?? true,
+      loopFocus: options.loopFocus ?? true,
       mousePrediction: options.mousePrediction ?? {},
     }
-    this.events = new MenuEvents(this.id, callbacks)
-    this.stateMachine = new MenuStateMachine({
-      loopFocus: this.options.loopFocus,
-      closeOnSelect: this.options.closeOnSelect,
+    this.menuEvents = new MenuEvents(this.id, callbacks)
+    this.selectionMachine = new MenuStateMachine({
+      loopFocus: this.menuOptions.loopFocus,
+      closeOnSelect: this.menuOptions.closeOnSelect,
     })
-    this.timers = new MenuTimers({ openDelay: this.options.openDelay, closeDelay: this.options.closeDelay })
     const existingTree = Boolean(tree)
     this.tree = tree ?? new MenuTree(this.id)
     if (existingTree || parentLink) {
@@ -66,72 +54,32 @@ export class MenuCore {
     }
   }
 
-  destroy() {
-    this.subscribers.clear()
-    this.timers.clearAll()
+  override destroy() {
     this.tree.unregister(this.id)
     this.releasePointerHighlightHold()
+    super.destroy()
   }
 
-  getSnapshot(): MenuState {
-    return this.stateMachine.snapshot
-  }
-
-  subscribe(listener: MenuSubscriber): Subscription {
-    this.subscribers.add(listener)
-    listener(this.getSnapshot())
+  protected override composeState(surface: SurfaceState): MenuState {
     return {
-      unsubscribe: () => {
-        this.subscribers.delete(listener)
-      },
+      ...surface,
+      activeItemId: this.selectionMachine.snapshot.activeItemId,
     }
   }
 
-  open(reason: "pointer" | "keyboard" | "programmatic" = "programmatic") {
-    const result = this.stateMachine.open()
-    if (!result.changed) return
-    this.timers.cancelClose()
+  protected override onOpened(_reason: SurfaceReason) {
     this.tree.updateOpenState(this.id, true)
-    this.events.emitOpen()
     if (this.autoHighlightOnOpen) {
       this.ensureInitialHighlight()
     }
-    this.emitState()
   }
 
-  close(reason: "pointer" | "keyboard" | "programmatic" = "programmatic") {
-    const before = this.stateMachine.snapshot.activeItemId
-    const result = this.stateMachine.close()
-    if (!result.changed) return
-    this.timers.cancelOpen()
+  protected override onClosed(_reason: SurfaceReason) {
+    const before = this.selectionMachine.snapshot.activeItemId
     this.tree.updateOpenState(this.id, false)
-    this.events.emitClose()
-    const after = this.stateMachine.snapshot.activeItemId
-    if (before !== after) {
-      this.handleHighlightChange({ changed: true, previous: before, current: after })
-    }
-    this.emitState()
-  }
-
-  toggle() {
-    const before = this.stateMachine.snapshot.activeItemId
-    const result = this.stateMachine.toggle()
-    if (result.changed) {
-      if (result.state.open) {
-        this.tree.updateOpenState(this.id, true)
-        this.events.emitOpen()
-        if (this.autoHighlightOnOpen) {
-          this.ensureInitialHighlight()
-        }
-      } else {
-        this.tree.updateOpenState(this.id, false)
-        this.events.emitClose()
-        const after = this.stateMachine.snapshot.activeItemId
-        if (before !== after) {
-          this.handleHighlightChange({ changed: true, previous: before, current: after })
-        }
-      }
-      this.emitState()
+    this.selectionMachine.reset()
+    if (before !== null) {
+      this.handleHighlightChange({ changed: true, previous: before, current: null })
     }
   }
 
@@ -139,13 +87,13 @@ export class MenuCore {
     const disabled = Boolean(options.disabled)
     const allowUpdate = this.registry.has(id)
     this.registry.register(id, disabled, allowUpdate)
-    const change = this.stateMachine.handleItemsChanged(this.registry.getEnabledItemIds())
+    const change = this.selectionMachine.handleItemsChanged(this.registry.getEnabledItemIds(), this.surfaceState.open)
     if (this.handleHighlightChange(change)) {
       this.emitState()
     }
     return () => {
       this.registry.unregister(id)
-      const invalidation = this.stateMachine.handleItemsChanged(this.registry.getEnabledItemIds())
+      const invalidation = this.selectionMachine.handleItemsChanged(this.registry.getEnabledItemIds(), this.surfaceState.open)
       if (this.handleHighlightChange(invalidation)) {
         this.emitState()
       }
@@ -153,23 +101,23 @@ export class MenuCore {
   }
 
   highlight(id: string | null) {
-    const change = this.stateMachine.highlight(id, this.registry.getEnabledItemIds())
+    const change = this.selectionMachine.highlight(id, this.registry.getEnabledItemIds())
     if (this.handleHighlightChange(change)) {
       this.emitState()
     }
   }
 
   moveFocus(delta: 1 | -1) {
-    const change = this.stateMachine.moveFocus(delta, this.registry.getEnabledItemIds())
+    const change = this.selectionMachine.moveFocus(delta, this.registry.getEnabledItemIds())
     if (this.handleHighlightChange(change)) {
       this.emitState()
     }
   }
 
   select(id: string) {
-    const { accepted, shouldClose } = this.stateMachine.handleSelection()
+    const { accepted, shouldClose } = this.selectionMachine.handleSelection(this.surfaceState.open)
     if (!accepted) return
-    this.events.emitSelect(id)
+    this.menuEvents.emitSelect(id)
     if (shouldClose) {
       this.close("programmatic")
     }
@@ -181,19 +129,13 @@ export class MenuCore {
       role: "button",
       tabIndex: 0,
       "aria-haspopup": "menu",
-      "aria-expanded": this.stateMachine.snapshot.open,
+      "aria-expanded": this.surfaceState.open,
       "aria-controls": `${this.id}-panel`,
       onPointerEnter: (event) => {
         this.handlePointerEnter(event)
         this.timers.scheduleOpen(() => this.open("pointer"))
       },
-      onPointerLeave: (event) => {
-        if (this.shouldIgnorePointerLeave(event)) {
-          this.cancelPendingClose()
-          return
-        }
-        this.timers.scheduleClose(() => this.close("pointer"))
-      },
+      onPointerLeave: (event) => this.handlePointerLeave(event),
       onClick: () => this.toggle(),
       onKeyDown: this.handleTriggerKeydown,
     }
@@ -207,18 +149,12 @@ export class MenuCore {
       "aria-labelledby": `${this.id}-trigger`,
       onKeyDown: this.handlePanelKeydown,
       onPointerEnter: (event) => this.handlePointerEnter(event),
-      onPointerLeave: (event) => {
-        if (this.shouldIgnorePointerLeave(event)) {
-          this.cancelPendingClose()
-          return
-        }
-        this.timers.scheduleClose(() => this.close("pointer"))
-      },
+      onPointerLeave: (event) => this.handlePointerLeave(event),
     }
   }
 
   getItemProps(id: string): ItemProps {
-    const highlighted = this.stateMachine.snapshot.activeItemId === id
+    const highlighted = this.selectionMachine.snapshot.activeItemId === id
     const disabled = this.registry.isDisabled(id)
     return {
       id,
@@ -245,35 +181,24 @@ export class MenuCore {
     }
   }
 
-  computePosition(anchor: Rect, panel: Rect, options = {}) {
-    const position = computePosition(anchor, panel, options)
-    this.events.emitPosition(position)
-    return position
-  }
-
   /** Shared tree instance for nested menus. */
   getTree(): MenuTree {
     return this.tree
   }
 
-  /** Exposed so children can keep the chain open while interacting. */
-  cancelPendingClose() {
-    this.timers.cancelClose()
-  }
-
   isCloseOnSelectEnabled() {
-    return this.options.closeOnSelect
+    return this.menuOptions.closeOnSelect
   }
 
   protected ensureInitialHighlight() {
-    const change = this.stateMachine.ensureInitialHighlight(this.registry.getEnabledItemIds())
+    const change = this.selectionMachine.ensureInitialHighlight(this.registry.getEnabledItemIds(), this.surfaceState.open)
     if (this.handleHighlightChange(change)) {
       this.emitState()
     }
   }
 
   holdPointerHighlight(itemId: string, duration = this.options.closeDelay) {
-    if (this.stateMachine.snapshot.activeItemId !== itemId) {
+    if (this.selectionMachine.snapshot.activeItemId !== itemId) {
       return
     }
     if (this.pointerHighlightLock?.id === itemId) {
@@ -301,7 +226,7 @@ export class MenuCore {
     return Boolean(this.pointerHighlightLock && this.pointerHighlightLock.id !== targetId)
   }
 
-  protected handlePointerEnter(event?: PointerEventLike) {
+  protected override handlePointerEnter(event?: PointerEventLike) {
     if (event?.meta?.isWithinTree) {
       this.cancelPendingClose()
       return
@@ -309,7 +234,7 @@ export class MenuCore {
     this.timers.cancelClose()
   }
 
-  protected shouldIgnorePointerLeave(event?: PointerEventLike) {
+  protected override shouldIgnorePointerLeave(event?: PointerEventLike) {
     const meta = event?.meta
     if (!meta) {
       return false
@@ -326,14 +251,9 @@ export class MenuCore {
     return false
   }
 
-  protected emitState() {
-    const snapshot = this.getSnapshot()
-    this.subscribers.forEach((subscriber) => subscriber(snapshot))
-  }
-
   protected handleHighlightChange(change: HighlightChange) {
     if (!change.changed) return false
-    this.events.emitHighlight(change.current)
+    this.menuEvents.emitHighlight(change.current)
     this.tree.updateHighlight(this.id, change.current)
     return true
   }
@@ -400,7 +320,7 @@ export class MenuCore {
     }
 
     if (event.key === "Enter" || event.key === " ") {
-      const active = this.stateMachine.snapshot.activeItemId
+      const active = this.selectionMachine.snapshot.activeItemId
       if (active) {
         event.preventDefault()
         this.select(active)

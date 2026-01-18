@@ -1,65 +1,43 @@
 {
-  "name": "@affino/menu-core",
-  "version": "1.0.0-alpha.8",
+  "name": "@affino/tooltip-core",
+  "version": "0.1.0-alpha.1",
   "author": "Anton Pavlov <a.pavlov@affino.dev>",
   "type": "module",
-
-  "description": "Framework-agnostic headless menu engine with smart mouse prediction, keyboard navigation, and nested submenus",
-
+  "description": "Headless tooltip controller powered by @affino/surface-core",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     }
   },
-
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-
   "files": [
     "dist"
   ],
-
   "sideEffects": false,
-  "dependencies": {
-    "@affino/surface-core": "workspace:^"
-  },
-
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run"
   },
-
   "repository": {
     "type": "git",
-    "url": "https://github.com/affinio/affinio/tree/main/packages/menu-core"
+    "url": "https://github.com/affinio/affinio/tree/main/packages/tooltip-core"
   },
-
   "homepage": "https://affino.dev",
-
   "keywords": [
-    "menu",
-    "dropdown",
-    "context-menu",
+    "tooltip",
+    "surface",
     "headless",
-    "core",
-    "engine",
-    "framework-agnostic",
     "ui-core",
     "accessibility",
     "aria",
-    "keyboard-navigation",
-    "state-machine",
-    "positioning",
-    "mouse-prediction",
-    "submenu",
-    "intent",
-    "floating-ui",
-    "radix",
-    "headless-ui"
+    "popover"
   ],
   "license": "MIT",
-  
+  "dependencies": {
+    "@affino/surface-core": "workspace:^"
+  },
   "devDependencies": {
     "@vitest/coverage-v8": "^4.0.15",
     "vitest": "^4.0.15"

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { computePosition } from "../positioning/computePosition"
+import { computePosition } from "@affino/surface-core"
 import type { Rect } from "../types"
 
 describe("computePosition", () => {

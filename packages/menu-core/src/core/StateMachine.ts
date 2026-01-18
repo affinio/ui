@@ -6,120 +6,91 @@ export interface HighlightChange {
   current: string | null
 }
 
-export interface StateChange {
-  changed: boolean
-  state: MenuState
-}
-
-/**
- * Pure state machine that encapsulates the rules for opening, closing, highlighting and moving
- * focus inside a menu. The class never touches timers, callbacks or DOM — calling code provides
- * the necessary context (enabled item ids, command reason, etc.) and receives immutable snapshots
- * describing the new state.
- */
 export class MenuStateMachine {
-  private state: MenuState = { open: false, activeItemId: null }
+  private activeItemId: string | null = null
   private pendingInitialHighlight = false
 
   constructor(private readonly options: { loopFocus: boolean; closeOnSelect: boolean }) {}
 
-  get snapshot(): MenuState {
-    return { ...this.state }
+  get snapshot(): Pick<MenuState, "activeItemId"> {
+    return { activeItemId: this.activeItemId }
   }
 
-  open(): StateChange {
-    if (this.state.open) {
-      return { changed: false, state: this.snapshot }
-    }
-    this.state = { ...this.state, open: true }
-    return { changed: true, state: this.snapshot }
-  }
-
-  close(): StateChange {
-    if (!this.state.open && this.state.activeItemId === null) {
-      return { changed: false, state: this.snapshot }
-    }
+  reset() {
     this.pendingInitialHighlight = false
-    this.state = { open: false, activeItemId: null }
-    return { changed: true, state: this.snapshot }
-  }
-
-  toggle(): StateChange {
-    return this.state.open ? this.close() : this.open()
+    this.activeItemId = null
   }
 
   highlight(id: string | null, enabledItemIds: readonly string[]): HighlightChange {
     if (id && !enabledItemIds.includes(id)) {
-      return { changed: false, previous: this.state.activeItemId, current: this.state.activeItemId }
+      return { changed: false, previous: this.activeItemId, current: this.activeItemId }
     }
     return this.applyHighlight(id)
   }
 
   moveFocus(delta: 1 | -1, enabledItemIds: readonly string[]): HighlightChange {
     if (!enabledItemIds.length) {
-      return { changed: false, previous: this.state.activeItemId, current: this.state.activeItemId }
+      return { changed: false, previous: this.activeItemId, current: this.activeItemId }
     }
 
-    const currentIndex = this.state.activeItemId
-      ? enabledItemIds.indexOf(this.state.activeItemId)
-      : -1
+    const currentIndex = this.activeItemId ? enabledItemIds.indexOf(this.activeItemId) : -1
 
     let nextIndex = currentIndex
     for (let i = 0; i < enabledItemIds.length; i += 1) {
       nextIndex = nextIndex + delta
       if (nextIndex >= enabledItemIds.length) {
         if (!this.options.loopFocus) {
-          return { changed: false, previous: this.state.activeItemId, current: this.state.activeItemId }
+          return { changed: false, previous: this.activeItemId, current: this.activeItemId }
         }
         nextIndex = 0
       }
       if (nextIndex < 0) {
         if (!this.options.loopFocus) {
-          return { changed: false, previous: this.state.activeItemId, current: this.state.activeItemId }
+          return { changed: false, previous: this.activeItemId, current: this.activeItemId }
         }
         nextIndex = enabledItemIds.length - 1
       }
       return this.applyHighlight(enabledItemIds[nextIndex])
     }
 
-    return { changed: false, previous: this.state.activeItemId, current: this.state.activeItemId }
+    return { changed: false, previous: this.activeItemId, current: this.activeItemId }
   }
 
-  ensureInitialHighlight(enabledItemIds: readonly string[]): HighlightChange {
-    if (!this.state.open || this.state.activeItemId) {
-      return { changed: false, previous: this.state.activeItemId, current: this.state.activeItemId }
+  ensureInitialHighlight(enabledItemIds: readonly string[], isOpen: boolean): HighlightChange {
+    if (!isOpen || this.activeItemId) {
+      return { changed: false, previous: this.activeItemId, current: this.activeItemId }
     }
     if (!enabledItemIds.length) {
       this.pendingInitialHighlight = true
-      return { changed: false, previous: this.state.activeItemId, current: this.state.activeItemId }
+      return { changed: false, previous: this.activeItemId, current: this.activeItemId }
     }
     this.pendingInitialHighlight = false
     return this.applyHighlight(enabledItemIds[0])
   }
 
-  handleItemsChanged(enabledItemIds: readonly string[]): HighlightChange {
-    if (this.state.activeItemId && !enabledItemIds.includes(this.state.activeItemId)) {
+  handleItemsChanged(enabledItemIds: readonly string[], isOpen: boolean): HighlightChange {
+    if (this.activeItemId && !enabledItemIds.includes(this.activeItemId)) {
       return this.applyHighlight(null)
     }
     if (this.pendingInitialHighlight) {
-      return this.ensureInitialHighlight(enabledItemIds)
+      return this.ensureInitialHighlight(enabledItemIds, isOpen)
     }
-    return { changed: false, previous: this.state.activeItemId, current: this.state.activeItemId }
+    return { changed: false, previous: this.activeItemId, current: this.activeItemId }
   }
 
-  handleSelection(): { accepted: boolean; shouldClose: boolean } {
-    if (!this.state.open) {
+  handleSelection(isOpen: boolean): { accepted: boolean; shouldClose: boolean } {
+    if (!isOpen) {
       return { accepted: false, shouldClose: false }
     }
     return { accepted: true, shouldClose: this.options.closeOnSelect }
   }
 
   private applyHighlight(target: string | null): HighlightChange {
-    if (this.state.activeItemId === target) {
-      return { changed: false, previous: this.state.activeItemId, current: this.state.activeItemId }
+    if (this.activeItemId === target) {
+      return { changed: false, previous: this.activeItemId, current: this.activeItemId }
     }
-    const previous = this.state.activeItemId
-    this.state = { ...this.state, activeItemId: target }
+    const previous = this.activeItemId
+    this.activeItemId = target
     return { changed: true, previous, current: target }
   }
 }

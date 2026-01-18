@@ -4,6 +4,8 @@
 
 A framework-agnostic, type-safe menu/dropdown core engine with intelligent mouse prediction, nested submenu support, and comprehensive accessibility features.
 
+> Built on `@affino/surface-core`, the shared interaction kernel that now also powers tooltips.
+
 ## The Problem It Solves
 
 Building accessible, nested dropdown menus is hard:

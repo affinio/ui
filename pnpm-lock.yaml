@@ -56,6 +56,9 @@ importers:
       '@affino/selection-core':
         specifier: workspace:*
         version: link:../packages/selection-core
+      '@affino/tooltip-vue':
+        specifier: workspace:*
+        version: link:../packages/tooltip-vue
       '@affino/virtualization-core':
         specifier: workspace:*
         version: link:../packages/virtualization-core
@@ -155,6 +158,10 @@ importers:
         version: 3.5.25(typescript@5.9.3)
 
   packages/menu-core:
+    dependencies:
+      '@affino/surface-core':
+        specifier: workspace:^
+        version: link:../surface-core
     devDependencies:
       '@vitest/coverage-v8':
         specifier: ^4.0.15
@@ -247,6 +254,38 @@ importers:
       vitest:
         specifier: ^4.0.15
         version: 4.0.15(@types/node@24.10.4)(jiti@2.6.1)(jsdom@27.3.0(postcss@8.5.6))(lightningcss@1.30.2)
+
+  packages/surface-core:
+    devDependencies:
+      '@vitest/coverage-v8':
+        specifier: ^4.0.15
+        version: 4.0.15(vitest@4.0.15(@types/node@24.10.4)(jiti@2.6.1)(jsdom@27.3.0(postcss@8.5.6))(lightningcss@1.30.2))
+      vitest:
+        specifier: ^4.0.15
+        version: 4.0.15(@types/node@24.10.4)(jiti@2.6.1)(jsdom@27.3.0(postcss@8.5.6))(lightningcss@1.30.2)
+
+  packages/tooltip-core:
+    dependencies:
+      '@affino/surface-core':
+        specifier: workspace:^
+        version: link:../surface-core
+    devDependencies:
+      '@vitest/coverage-v8':
+        specifier: ^4.0.15
+        version: 4.0.15(vitest@4.0.15(@types/node@24.10.4)(jiti@2.6.1)(jsdom@27.3.0(postcss@8.5.6))(lightningcss@1.30.2))
+      vitest:
+        specifier: ^4.0.15
+        version: 4.0.15(@types/node@24.10.4)(jiti@2.6.1)(jsdom@27.3.0(postcss@8.5.6))(lightningcss@1.30.2)
+
+  packages/tooltip-vue:
+    dependencies:
+      '@affino/tooltip-core':
+        specifier: workspace:^
+        version: link:../tooltip-core
+    devDependencies:
+      vue:
+        specifier: ^3.3.0
+        version: 3.5.25(typescript@5.9.3)
 
   packages/virtualization-core:
     devDependencies:

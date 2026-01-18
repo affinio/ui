@@ -1,34 +1,27 @@
-export interface Point {
-  x: number
-  y: number
-  time?: number
-}
+import type {
+  EventHandler,
+  PointerEventLike,
+  PositionOptions,
+  PositionResult,
+  Rect,
+  SurfaceCallbacks,
+  SurfaceOptions,
+  SurfaceState,
+  SurfaceSubscriber,
+} from "@affino/surface-core"
 
-export interface Rect {
-  x: number
-  y: number
-  width: number
-  height: number
-}
-
-export type Placement = "left" | "right" | "top" | "bottom" | "auto"
-export type Alignment = "start" | "center" | "end" | "auto"
-
-export interface PositionOptions {
-  gutter?: number
-  viewportPadding?: number
-  placement?: Placement
-  align?: Alignment
-  viewportWidth?: number
-  viewportHeight?: number
-}
-
-export interface PositionResult {
-  left: number
-  top: number
-  placement: Exclude<Placement, "auto">
-  align: Exclude<Alignment, "auto">
-}
+export type {
+  Point,
+  Rect,
+  Placement,
+  Alignment,
+  PositionOptions,
+  PositionResult,
+  PointerMeta,
+  PointerEventLike,
+  EventHandler,
+  Subscription,
+} from "@affino/surface-core"
 
 export interface MousePredictionConfig {
   history?: number
@@ -51,44 +44,20 @@ export interface MousePredictionDebugPayload {
 
 export type MousePredictionDebugCallback = (payload: MousePredictionDebugPayload) => void
 
-export interface MenuCallbacks {
-  onOpen?: (menuId: string) => void
-  onClose?: (menuId: string) => void
+export interface MenuCallbacks extends SurfaceCallbacks {
   onSelect?: (itemId: string, menuId: string) => void
   onHighlight?: (itemId: string | null, menuId: string) => void
-  onPositionChange?: (menuId: string, position: PositionResult) => void
 }
 
-export interface MenuOptions {
-  id?: string
-  openDelay?: number
-  closeDelay?: number
+export interface MenuOptions extends SurfaceOptions {
   closeOnSelect?: boolean
   loopFocus?: boolean
   mousePrediction?: MousePredictionConfig
 }
 
-export interface MenuState {
-  open: boolean
+export interface MenuState extends SurfaceState {
   activeItemId: string | null
 }
-
-export interface PointerMeta {
-  isInsidePanel?: boolean
-  enteredChildPanel?: boolean
-  relatedTargetId?: string | null
-  isWithinTree?: boolean
-  relatedMenuId?: string | null
-}
-
-export interface PointerEventLike {
-  clientX?: number
-  clientY?: number
-  meta?: PointerMeta
-  preventDefault?: () => void
-}
-
-export type EventHandler<E = unknown> = (event: E) => void
 
 export interface TriggerProps {
   id: string
@@ -124,8 +93,4 @@ export interface ItemProps {
   onKeyDown?: EventHandler<KeyboardEvent>
 }
 
-export interface Subscription {
-  unsubscribe: () => void
-}
-
-export type MenuSubscriber = (state: MenuState) => void
+export type MenuSubscriber = SurfaceSubscriber<MenuState>

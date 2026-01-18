@@ -1,0 +1,46 @@
+{
+  "name": "@affino/tooltip-vue",
+  "version": "0.1.0-alpha.1",
+  "author": "Anton Pavlov <a.pavlov@affino.dev>",
+  "type": "module",
+  "description": "Vue 3 composables for the @affino/tooltip-core controller",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "peerDependencies": {
+    "vue": "^3.3.0"
+  },
+  "dependencies": {
+    "@affino/tooltip-core": "workspace:^"
+  },
+  "devDependencies": {
+    "vue": "^3.3.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/affinio/affinio/tree/main/packages/tooltip-vue"
+  },
+  "homepage": "https://affino.dev",
+  "keywords": [
+    "vue",
+    "tooltip",
+    "headless",
+    "ui",
+    "surface",
+    "controller"
+  ],
+  "license": "MIT"
+}
