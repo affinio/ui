@@ -1,6 +1,6 @@
 {
   "name": "@affino/menu-vue",
-  "version": "1.0.0-alpha.11",
+  "version": "1.0.0-alpha.12",
   "author": "Anton Pavlov <a.pavlov@affino.dev>",
   "type": "module",
   "description": "Headless Vue 3 menu components with smart mouse prediction and full keyboard accessibility",
@@ -15,7 +15,7 @@
     "./styles.css": "./dist/styles.css"
   },
   "peerDependencies": {
-    "@affino/menu-core": "^1.0.0-alpha.8",
+    "@affino/menu-core": "^1.0.0-alpha.9",
     "vue": "^3.3.0"
   },
   "devDependencies": {

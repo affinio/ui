@@ -1,6 +1,7 @@
 import type {
   EventHandler,
   PointerEventLike,
+  Point,
   PositionOptions,
   PositionResult,
   Rect,
