@@ -24,8 +24,7 @@ export function createDialogFocusOrchestrator(
     activate: () => {
       if (!isBrowser()) return
       previousActive = getActiveElement()
-      const target = resolveElement(options.initialFocus) ?? resolveElement(options.dialog)
-      focusElement(target)
+      focusWithRetry(() => resolveElement(options.initialFocus) ?? resolveElement(options.dialog))
     },
     deactivate: () => {
       if (!isBrowser()) return
@@ -51,12 +50,23 @@ function resolveElement(source?: MaybeElementAccessor): HTMLElement | null {
   return source ?? null
 }
 
-function focusElement(element: HTMLElement | null | undefined): void {
-  if (!element) return
+function focusWithRetry(resolveTarget: () => HTMLElement | null, attempts = 3): void {
+  if (!attempts) return
+  const target = resolveTarget()
+  if (focusElement(target)) {
+    return
+  }
   if (!isBrowser()) return
-  if (typeof element.focus !== "function") return
-  if ("isConnected" in element && !element.isConnected) return
+  queueMicrotask(() => focusWithRetry(resolveTarget, attempts - 1))
+}
+
+function focusElement(element: HTMLElement | null | undefined): boolean {
+  if (!element) return false
+  if (!isBrowser()) return false
+  if (typeof element.focus !== "function") return false
+  if ("isConnected" in element && !element.isConnected) return false
   element.focus({ preventScroll: true })
+  return true
 }
 
 function getActiveElement(): HTMLElement | null {

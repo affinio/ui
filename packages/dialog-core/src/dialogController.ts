@@ -1,4 +1,4 @@
-import {
+import type {
   CloseGuard,
   CloseGuardDecision,
   CloseRequestOptions,
@@ -19,7 +19,8 @@ import {
   OverlayRegistration,
   OverlayRegistrar,
 } from "./types.js"
-import { createOverlayInteractionMatrix, OverlayInteractionMatrix } from "./overlay/interactionMatrix.js"
+import { createOverlayInteractionMatrix } from "./overlay/interactionMatrix.js"
+import type { OverlayInteractionMatrix } from "./overlay/interactionMatrix.js"
 
 const DEFAULT_PENDING_MESSAGE = "Dialog close pending"
 

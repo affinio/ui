@@ -44,6 +44,9 @@ importers:
 
   demo-vue:
     dependencies:
+      '@affino/dialog-vue':
+        specifier: workspace:*
+        version: link:../packages/dialog-vue
       '@affino/menu-core':
         specifier: workspace:*
         version: link:../packages/menu-core

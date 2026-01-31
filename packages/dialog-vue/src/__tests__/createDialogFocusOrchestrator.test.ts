@@ -49,4 +49,26 @@ describe("createDialogFocusOrchestrator", () => {
     trigger.remove()
     dialog.remove()
   })
+
+  it("retries focusing when the dialog element is mounted asynchronously", async () => {
+    const trigger = appendFocusable("button")
+    trigger.focus()
+
+    let dialog: HTMLElement | null = null
+    const orchestrator = createDialogFocusOrchestrator({
+      dialog: () => dialog,
+    })
+
+    orchestrator.activate({ reason: "programmatic" })
+    expect(document.activeElement).toBe(trigger)
+
+    dialog = appendFocusable("div")
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(document.activeElement).toBe(dialog)
+
+    trigger.remove()
+    dialog.remove()
+  })
 })
