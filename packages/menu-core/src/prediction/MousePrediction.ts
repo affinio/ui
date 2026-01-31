@@ -54,8 +54,14 @@ export class MousePrediction {
     }
 
     const last = this.points[this.points.length - 1]
+    if (!last) {
+      return false
+    }
     const sampleIndex = Math.max(0, this.points.length - 1 - this.config.samplingOffset)
     const sample = this.points[sampleIndex]
+    if (!sample) {
+      return false
+    }
 
     const movement = subtract(last, sample)
     const movementMagnitude = magnitude(movement)

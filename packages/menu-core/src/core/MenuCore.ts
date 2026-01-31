@@ -277,7 +277,8 @@ export class MenuCore extends SurfaceCore<MenuState, MenuCallbacks> {
       this.open("keyboard")
       const enabled = this.registry.getEnabledItemIds()
       if (enabled.length) {
-        this.highlight(enabled[enabled.length - 1])
+        const last = enabled[enabled.length - 1] ?? null
+        this.highlight(last)
       }
     }
   }
@@ -305,7 +306,8 @@ export class MenuCore extends SurfaceCore<MenuState, MenuCallbacks> {
       event.preventDefault()
       const enabled = this.registry.getEnabledItemIds()
       if (enabled.length) {
-        this.highlight(enabled[0])
+        const first = enabled[0] ?? null
+        this.highlight(first)
       }
       return
     }
@@ -314,7 +316,8 @@ export class MenuCore extends SurfaceCore<MenuState, MenuCallbacks> {
       event.preventDefault()
       const enabled = this.registry.getEnabledItemIds()
       if (enabled.length) {
-        this.highlight(enabled[enabled.length - 1])
+        const last = enabled[enabled.length - 1] ?? null
+        this.highlight(last)
       }
       return
     }

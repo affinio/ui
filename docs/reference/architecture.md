@@ -36,10 +36,17 @@ The adapters (`@affino/menu-vue` and `@affino/menu-react`) stay small by leaning
 
 Tooltips reuse the same `SurfaceCore` but skip tree coordination and selection entirely, which keeps their controllers lean while guaranteeing identical hover/focus semantics. The `useTooltipController` composable simply subscribes to `TooltipCore` and exposes trigger/content props you can spread onto Vue templates today.
 
+### Layering + overlay hosts
+
+- Menus and tooltips teleport into overlay hosts created by `ensureOverlayHost`. By default menus render inside `#affino-menu-host` while tooltips target `#affino-tooltip-host`, so you never fight with random stacking contexts.
+- `useFloatingTooltip` accepts both `teleportTo` (selector/HTMLElement) and a new `zIndex` option. Use them when a tooltip needs to live inside a modal/drawer container without falling behind scroll locks.
+- Call `floating.updatePosition()` (or the promise the hook returns) whenever your modal animates so the inline styles continue to match the anchor geometry.
+
 ## Debugging tips
 
 - Log the controller: `const controller = useMenuController(); watchEffect(() => console.table(controller.snapshot.value.items))`.
 - Use the `data-state` attributes attached to triggers and content to confirm whether a menu thinks it is open.
 - In dev builds the core warns when duplicate IDs are registered; ensure you pass stable `value` props to every `UiMenuItem`.
+- Enable verbose tracing via `DEBUG_MENU=1` (build-time env) or by setting `window.__MENU_DEBUG__ = true` in the devtools console. The adapters forward those flags so you can watch pointer prediction, focus shifts, and positioning decisions in real time.
 
 See also the [component reference](./components.md) and [controller API](./controller.md) for hands-on examples.

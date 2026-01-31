@@ -17,7 +17,12 @@ export function useMenuFocus(panelRef: MutableRefObject<HTMLElement | null>) {
       focusFallback()
       return
     }
-    items[0].focus()
+    const first = items[0]
+    if (first) {
+      first.focus()
+      return
+    }
+    focusFallback()
   }, [])
 
   const focusLast = useCallback(() => {
@@ -26,7 +31,12 @@ export function useMenuFocus(panelRef: MutableRefObject<HTMLElement | null>) {
       focusFallback()
       return
     }
-    items[items.length - 1].focus()
+    const last = items[items.length - 1]
+    if (last) {
+      last.focus()
+      return
+    }
+    focusFallback()
   }, [])
 
   return {

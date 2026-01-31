@@ -11,11 +11,7 @@ import { AsChild } from "./AsChild"
 import { useMenuPointerHandlers } from "../useMenuPointerHandlers"
 import { useSubmenuBridge } from "../useSubmenuBridge"
 import type { MenuController } from "../useMenuController"
-
-const isDebugMenuEnabled = () => (
-  (typeof process !== "undefined" && Boolean(process.env?.DEBUG_MENU)) ||
-  (typeof globalThis !== "undefined" && Boolean((globalThis as Record<string, unknown>).__MENU_DEBUG__))
-)
+import { isDebugMenuEnabled } from "../debugEnv"
 
 const stopPropagationKeys = new Set(["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Home", "End", "Enter", " ", "Space"])
 const LONG_PRESS_DELAY_MS = 450

@@ -50,7 +50,11 @@ export class MenuStateMachine {
         }
         nextIndex = enabledItemIds.length - 1
       }
-      return this.applyHighlight(enabledItemIds[nextIndex])
+      const nextId = enabledItemIds[nextIndex]
+      if (nextId == null) {
+        continue
+      }
+      return this.applyHighlight(nextId)
     }
 
     return { changed: false, previous: this.activeItemId, current: this.activeItemId }
@@ -65,7 +69,8 @@ export class MenuStateMachine {
       return { changed: false, previous: this.activeItemId, current: this.activeItemId }
     }
     this.pendingInitialHighlight = false
-    return this.applyHighlight(enabledItemIds[0])
+    const firstId = enabledItemIds[0] ?? null
+    return this.applyHighlight(firstId)
   }
 
   handleItemsChanged(enabledItemIds: readonly string[], isOpen: boolean): HighlightChange {

@@ -11,5 +11,8 @@
       "@affino/dialog-core": ["../dialog-core/src/index.ts"]
     }
   },
-  "include": ["src"]
+  "include": ["src"],
+  "references": [
+    { "path": "../dialog-core" }
+  ]
 }

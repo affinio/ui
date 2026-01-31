@@ -5,6 +5,14 @@
     "declaration": true,
     "emitDeclarationOnly": true,
     "outDir": "dist",
-    "stripInternal": true
+    "stripInternal": true,
+    "rootDir": "src",
+    "baseUrl": ".",
+    "paths": {
+      "@affino/menu-core": ["../menu-core/dist/index"],
+      "@affino/menu-core/*": ["../menu-core/dist/*"],
+      "@affino/surface-core": ["../surface-core/dist/index"],
+      "@affino/surface-core/*": ["../surface-core/dist/*"]
+    }
   }
 }

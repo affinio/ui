@@ -2,13 +2,10 @@ import { useCallback, useEffect, useRef } from "react"
 import type { Alignment, Placement, PositionResult, Rect } from "@affino/menu-core"
 import type { MenuController } from "./useMenuController"
 import { assignPanelPosition, toRect } from "./dom"
+import { isDebugMenuEnabled } from "./debugEnv"
 
 const isBrowser = typeof window !== "undefined"
 
-const isDebugMenuEnabled = () => (
-  (typeof process !== "undefined" && Boolean(process.env?.DEBUG_MENU)) ||
-  (typeof globalThis !== "undefined" && Boolean((globalThis as Record<string, unknown>).__MENU_DEBUG__))
-)
 
 interface PositioningOptions {
   afterUpdate?: (position: PositionResult) => void

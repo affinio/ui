@@ -11,8 +11,16 @@ import type {
 } from "../types"
 import type { MenuTreeState } from "./MenuTree"
 
+function getProcessEnv() {
+  if (typeof globalThis === "undefined") {
+    return undefined
+  }
+  const candidate = (globalThis as { process?: { env?: Record<string, unknown> } }).process
+  return candidate?.env as Record<string, unknown> | undefined
+}
+
 const isDebugMenuEnabled = () => (
-  (typeof process !== "undefined" && Boolean(process.env?.DEBUG_MENU)) ||
+  Boolean(getProcessEnv()?.DEBUG_MENU) ||
   (typeof globalThis !== "undefined" && Boolean((globalThis as Record<string, unknown>).__MENU_DEBUG__))
 )
 

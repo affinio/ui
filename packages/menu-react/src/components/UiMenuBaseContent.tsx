@@ -14,11 +14,9 @@ import { useMenuFocus } from "../useMenuFocus"
 import { useMenuPositioning } from "../useMenuPositioning"
 import { toRect } from "../dom"
 import { useSubmenuBridge } from "../useSubmenuBridge"
+import { isDebugMenuEnabled } from "../debugEnv"
 
-const DEBUG_MENU = (
-  (typeof process !== "undefined" && Boolean(process.env?.DEBUG_MENU)) ||
-  (typeof globalThis !== "undefined" && Boolean((globalThis as Record<string, unknown>).__MENU_DEBUG__))
-)
+const DEBUG_MENU = isDebugMenuEnabled()
 
 interface UiMenuBaseContentProps extends PropsWithChildren<HTMLAttributes<HTMLDivElement>> {
   provider: MenuProviderValue

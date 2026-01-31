@@ -1,4 +1,5 @@
-import { defineConfig, UserConfig } from "vitest/config"
+import { defineConfig } from "vitest/config"
+import type { UserConfig } from "vite"
 import { createWorkspaceAliases } from "./workspace-aliases"
 
 export function createWorkspaceVitestConfig(fromUrl: string | URL, overrides: UserConfig = {}) {

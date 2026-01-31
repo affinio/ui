@@ -115,6 +115,7 @@ const hideContextMenu = () => {
 - Inspect `controller.state.value` to confirm whether a menu thinks it is open/highlighted.
 - Pass `callbacks.onHighlight`/`onOpen` to `<UiMenu>` for lightweight logging.
 - When you create controllers manually, call `controller.core.subscribe(...)` if you need lower-level snapshots; remember to unsubscribe.
+- Enable verbose console traces by setting `DEBUG_MENU=1` in your dev env (Vite, Next.js, etc.) or by toggling `window.__MENU_DEBUG__ = true` in the browser console. Every adapter now pipes those flags through to the underlying core so pointer heuristics, focus changes, and positioning logs become visible.
 
 ## Global shortcuts
 

@@ -1,7 +1,6 @@
-import type { Config } from "@ladle/vue"
 import { createWorkspaceAliases } from "../../config/workspace-aliases"
 
-const config: Config = {
+const config = {
   viteConfig: {
     resolve: {
       alias: createWorkspaceAliases(import.meta.url),

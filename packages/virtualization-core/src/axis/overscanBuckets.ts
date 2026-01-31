@@ -42,7 +42,7 @@ export function resolveOverscanBuckets({ available, direction }: OverscanBuckets
 
   let fractionIndex = 0
   while (remaining > 0) {
-    const target = fractions[fractionIndex % fractions.length]
+    const target = fractions[fractionIndex % fractions.length]!
     if (target.side === "lead") {
       leadCount += 1
     } else {

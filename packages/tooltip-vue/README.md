@@ -74,6 +74,26 @@ const floating = useFloatingTooltip(controller, {
 The helper exposes `triggerRef`, `tooltipRef`, `tooltipStyle`, `teleportTarget`, and `updatePosition()` so you can react
 to custom layout changes (portals, drawers, etc.) while keeping every tooltip inside the shared overlay host by default.
 
+### Layering inside modals or drawers
+
+`useFloatingTooltip` automatically teleports into a singleton host (`#affino-tooltip-host`) so multiple tooltips can share the same stacking context. You can override both the Teleport target and the applied `z-index` when a modal, drawer, or sheet needs stricter layering:
+
+```vue
+const {
+	triggerRef,
+	tooltipRef,
+	tooltipStyle,
+	teleportTarget,
+} = useFloatingTooltip(controller, {
+	teleportTo: '#my-dialog-overlay',
+	zIndex: 120,
+})
+```
+
+- Pass a CSS selector, HTMLElement, or `false` via `teleportTo` if you want to keep the tooltip inside a scoped overlay.
+- Use the `zIndex` option to pin the bubble above scroll locks or dialog chrome without reaching into the generated styles manually.
+- Call `floating.updatePosition()` after animations or layout changes so the inline positioning stays in sync.
+
 ## Controller API
 
 | Method | Description |

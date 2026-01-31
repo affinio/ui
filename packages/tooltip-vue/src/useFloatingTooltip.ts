@@ -5,10 +5,12 @@ import type { TooltipController } from "./useTooltipController"
 import { ensureOverlayHost } from "@affino/overlay-host"
 
 type Strategy = "fixed" | "absolute"
+const DEFAULT_Z_INDEX = 80
 
 export interface FloatingTooltipOptions extends PositionOptions {
   strategy?: Strategy
   teleportTo?: string | HTMLElement | false
+  zIndex?: number | string
 }
 
 export interface FloatingTooltipBindings {
@@ -22,21 +24,28 @@ export interface FloatingTooltipBindings {
 const TOOLTIP_HOST_ID = "affino-tooltip-host"
 const TOOLTIP_HOST_ATTRIBUTE = "data-affino-tooltip-host"
 
-const createHiddenStyle = (strategy: Strategy): Record<string, string> => ({
-  position: strategy,
-  left: "-9999px",
-  top: "-9999px",
-  transform: "translate3d(0, 0, 0)",
-})
+const createHiddenStyle = (strategy: Strategy, zIndex?: string): Record<string, string> => {
+  const style: Record<string, string> = {
+    position: strategy,
+    left: "-9999px",
+    top: "-9999px",
+    transform: "translate3d(0, 0, 0)",
+  }
+  if (zIndex) {
+    style.zIndex = zIndex
+  }
+  return style
+}
 
 export function useFloatingTooltip(
   controller: TooltipController,
   options: FloatingTooltipOptions = {},
 ): FloatingTooltipBindings {
   const strategy: Strategy = options.strategy ?? "fixed"
+  const zIndex = formatZIndex(options.zIndex ?? DEFAULT_Z_INDEX)
   const triggerRef = ref<HTMLElement | null>(null)
   const tooltipRef = ref<HTMLElement | null>(null)
-  const tooltipStyle = ref<Record<string, string>>(createHiddenStyle(strategy))
+  const tooltipStyle = ref<Record<string, string>>(createHiddenStyle(strategy, zIndex))
   const teleportTarget = ref<string | HTMLElement | null>(resolveTeleportTarget(options.teleportTo))
 
   const updatePosition = async () => {
@@ -60,11 +69,12 @@ export function useFloatingTooltip(
       left: `${Math.round(position.left)}px`,
       top: `${Math.round(position.top)}px`,
       transform: "translate3d(0, 0, 0)",
+      ...(zIndex ? { zIndex } : {}),
     }
   }
 
   const resetPosition = () => {
-    tooltipStyle.value = createHiddenStyle(strategy)
+    tooltipStyle.value = createHiddenStyle(strategy, zIndex)
   }
 
   watch(
@@ -118,4 +128,11 @@ function resolveTeleportTarget(teleportTo?: string | HTMLElement | false): strin
     return teleportTo
   }
   return ensureOverlayHost({ id: TOOLTIP_HOST_ID, attribute: TOOLTIP_HOST_ATTRIBUTE }) ?? "body"
+}
+
+function formatZIndex(value?: number | string): string | undefined {
+  if (value === undefined) {
+    return undefined
+  }
+  return typeof value === "number" ? `${value}` : value
 }
