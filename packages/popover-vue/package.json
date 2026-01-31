@@ -1,0 +1,46 @@
+{
+  "name": "@affino/popover-vue",
+  "version": "0.0.1-alpha.0",
+  "author": "Anton Pavlov <a.pavlov@affino.dev>",
+  "type": "module",
+  "description": "Vue 3 composables for the @affino/popover-core controller",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "peerDependencies": {
+    "vue": "^3.3.0"
+  },
+  "dependencies": {
+    "@affino/overlay-host": "workspace:^",
+    "@affino/popover-core": "workspace:^"
+  },
+  "devDependencies": {
+    "vue": "^3.4.0"
+  },
+  "scripts": {
+    "build": "tsc --build tsconfig.json",
+    "test": "vitest run"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/affinio/affinio/tree/main/packages/popover-vue"
+  },
+  "homepage": "https://affino.dev",
+  "keywords": [
+    "vue",
+    "popover",
+    "headless",
+    "controller",
+    "surface"
+  ],
+  "license": "MIT"
+}
