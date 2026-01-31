@@ -1,0 +1,34 @@
+{
+  "name": "@affino/focus-utils",
+  "version": "0.0.1-alpha.0",
+  "author": "Anton Pavlov <a.pavlov@affino.dev>",
+  "type": "module",
+  "description": "Cross-framework focus helpers for overlays and menus",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/affinio/affinio/tree/main/packages/focus-utils"
+  },
+  "homepage": "https://affino.dev",
+  "keywords": [
+    "focus",
+    "accessibility",
+    "trap",
+    "sentinel"
+  ],
+  "license": "MIT"
+}

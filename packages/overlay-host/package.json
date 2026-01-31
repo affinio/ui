@@ -1,0 +1,35 @@
+{
+  "name": "@affino/overlay-host",
+  "version": "0.0.1-alpha.0",
+  "author": "Anton Pavlov <a.pavlov@affino.dev>",
+  "type": "module",
+  "description": "Utilities for managing overlay portal hosts, scroll locking, and shared keydown handlers",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/affinio/affinio/tree/main/packages/overlay-host"
+  },
+  "homepage": "https://affino.dev",
+  "keywords": [
+    "overlay",
+    "portal",
+    "scroll-lock",
+    "keydown",
+    "host"
+  ],
+  "license": "MIT"
+}
