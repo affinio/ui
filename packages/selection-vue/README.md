@@ -1,14 +1,15 @@
 # @affino/selection-vue
 
-Headless Vue 3 bindings for the linear selection primitives that ship with `@affino/selection-core`.
+Headless Vue 3 bindings for the linear selection primitives that ship with `@affino/selection-core` plus the
+listbox state machine from `@affino/listbox-core`.
 
 ## Features
 
-- Tiny store wrapper with immutable snapshots
-- `useLinearSelectionStore()` composable for auto-cleanup inside components
-- Works with the range helpers exported by `@affino/selection-core`
+- Immutable linear selection store + `useLinearSelectionStore()` composable
+- Listbox store with activation, range extension, toggle, select-all helpers + `useListboxStore()`
+- Each store ships snapshots only, so Vue components stay serializable and easy to debug
 
-## Usage
+## Usage (Linear)
 
 ```ts
 import {
@@ -41,9 +42,38 @@ function clearAll() {
 }
 ```
 
+## Usage (Listbox)
+
+```ts
+import { createListboxStore, useListboxStore } from "@affino/selection-vue"
+
+const context = {
+  optionCount: options.length,
+  isDisabled: (index: number) => options[index]?.disabled ?? false,
+}
+
+const listboxStore = createListboxStore({ context })
+const { state } = useListboxStore(listboxStore)
+
+function handleArrow(delta: number, extend: boolean) {
+  listboxStore.move(delta, { extend })
+}
+
+function handleClick(index: number, event: MouseEvent) {
+  listboxStore.activate(index, { extend: event.shiftKey, toggle: event.metaKey || event.ctrlKey })
+}
+
+function selectEverything() {
+  listboxStore.selectAll()
+}
+```
+
 ## API
 
 - `createLinearSelectionStore(options?)`
 - `useLinearSelectionStore(store)`
+- `createListboxStore({ context, initialState? })`
+- `useListboxStore(store)`
 
-Each store exposes `getState()`, `peekState()`, `setState()`, `applyResult()`, `subscribe()`, and `dispose()`.
+Every store exposes `getState()`, `peekState()`, `setState()`, `applyResult()`, `subscribe()`, `dispose()`, plus listbox helpers for
+`activate()`, `move()`, `toggleActiveOption()`, `clearSelection()`, and `selectAll()`.

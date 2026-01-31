@@ -1,9 +1,9 @@
 {
-  "name": "@affino/selection-vue",
+  "name": "@affino/listbox-core",
   "version": "0.0.1-alpha.0",
   "author": "Anton Pavlov <a.pavlov@affino.dev>",
   "type": "module",
-  "description": "Vue 3 adapters for @affino/selection-core and @affino/listbox-core",
+  "description": "Headless listbox state machine built on @affino/selection-core",
   "files": [
     "dist"
   ],
@@ -21,29 +21,23 @@
     "build": "pnpm run clean && tsc -p tsconfig.json",
     "test": "vitest run"
   },
-  "peerDependencies": {
-    "vue": "^3.3.0"
-  },
   "dependencies": {
-    "@affino/listbox-core": "workspace:^",
     "@affino/selection-core": "workspace:^"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^4.0.15",
-    "vue": "^3.4.0",
     "vitest": "^4.0.15"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/affinio/affinio/tree/main/packages/selection-vue"
+    "url": "https://github.com/affinio/affinio/tree/main/packages/listbox-core"
   },
   "homepage": "https://affino.dev",
   "license": "MIT",
   "keywords": [
-    "vue",
-    "selection",
     "listbox",
+    "selection",
     "headless",
-    "adapter"
+    "accessibility"
   ]
 }
