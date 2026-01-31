@@ -363,6 +363,35 @@ const submenu = new SubmenuCore(
 submenu.getTree() === parentTree // true
 ```
 
+### Headless Tree Helper
+
+Prefer not to touch `SubmenuCore` directly? Use `createMenuTree` to get typed handles that include pointer + geometry adapters for every branch.
+
+```ts
+import { createMenuTree } from "@affino/menu-core"
+
+const tree = createMenuTree({ options: { openDelay: 60, closeDelay: 90 } })
+
+tree.root.registerItem("file")
+
+const fileSubmenu = tree.createSubmenu({
+  parent: tree.root,
+  parentItemId: "file",
+})
+
+fileSubmenu.geometry?.sync({
+  trigger: document.querySelector("[data-file]")?.getBoundingClientRect() ?? null,
+  panel: document.querySelector("[data-file-panel]")?.getBoundingClientRect() ?? null,
+})
+
+window.addEventListener("pointermove", (event) => {
+  fileSubmenu.pointer?.record({ x: event.clientX, y: event.clientY })
+})
+
+// Clean up every branch with a single call
+tree.destroy()
+```
+
 ## API Reference
 
 ### MenuCore

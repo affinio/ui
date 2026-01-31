@@ -1,12 +1,14 @@
 import { onBeforeUnmount, onMounted } from "vue"
-import type { SubmenuCore } from "@affino/menu-core"
 
-export function usePointerRecorder(core: Pick<SubmenuCore, "recordPointer">) {
+export function usePointerRecorder(recordPointer?: (point: { x: number; y: number }) => void) {
   let handler: ((event: PointerEvent) => void) | null = null
 
   onMounted(() => {
+    if (!recordPointer) {
+      return
+    }
     handler = (event: PointerEvent) => {
-      core.recordPointer({ x: event.clientX, y: event.clientY })
+      recordPointer({ x: event.clientX, y: event.clientY })
     }
     window.addEventListener("pointermove", handler)
   })

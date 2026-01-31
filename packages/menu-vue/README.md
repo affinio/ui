@@ -88,6 +88,65 @@ import '@affino/menu-vue/styles.css'
 6. Dive deeper in [docs/getting-started.md](./docs/getting-started.md)
 
 
+## Controller Surface
+
+`useMenuController` is backed by `createMenuTree`, so every controller now exposes the same pointer + geometry helpers that power the core package. That means you can sync layout data or inject custom pointer samples without casting to `SubmenuCore`.
+
+```ts
+const controller = useMenuController({ kind: "root", options, callbacks })
+
+watchEffect(() => {
+  if (controller.state.value.open) {
+    console.log("Active item", controller.state.value.activeItemId)
+  }
+})
+
+// Optional helpers become available automatically for submenus
+controller.recordPointer?.({ x: event.clientX, y: event.clientY })
+controller.setTriggerRect?.(triggerRect)
+controller.setPanelRect?.(panelRect)
+
+// Anchors work for both context menus and custom positioning flows
+controller.setAnchor(triggerRect)
+```
+
+- `recordPointer` feeds the diagonal intent heuristic so you can pipe in your own pointer stream (desktop, stylus, remote input, etc.).
+- `setTriggerRect` / `setPanelRect` keep submenu geometry in sync after ResizeObserver updates or layout transitions.
+- `setAnchor` lets you open at arbitrary coordinates (context menus, palettes, inspector panes) without writing glue code.
+
+
+## Headless usage with createMenuTree
+
+Need to integrate the Affino core into another renderer? Instantiate the helper directly — it returns the same branch objects the Vue controller now uses internally.
+
+```ts
+import { createMenuTree } from "@affino/menu-core"
+
+const tree = createMenuTree({ options: { openDelay: 60, closeDelay: 90 } })
+
+tree.root.registerItem("file")
+
+const submenu = tree.createSubmenu({
+  parent: tree.root,
+  parentItemId: "file",
+})
+
+submenu.geometry?.sync({
+  trigger: document.querySelector("[data-file]")?.getBoundingClientRect() ?? null,
+  panel: document.querySelector("[data-file-panel]")?.getBoundingClientRect() ?? null,
+})
+
+window.addEventListener("pointermove", (event) => {
+  submenu.pointer?.record({ x: event.clientX, y: event.clientY })
+})
+
+// Tear everything down when the view unmounts
+tree.destroy()
+```
+
+This flow works in design systems, custom runtimes, or tests where you want the raw controller surface without Vue components.
+
+
 ## Live Examples
 
 **Try it yourself in under 30 seconds:**

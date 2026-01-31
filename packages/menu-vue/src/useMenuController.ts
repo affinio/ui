@@ -1,7 +1,8 @@
 import { onBeforeUnmount, ref, shallowRef } from "vue"
 import type { Ref, ShallowRef } from "vue"
 import type { MenuCallbacks, MenuOptions, MenuState, Rect } from "@affino/menu-core"
-import { MenuCore, SubmenuCore } from "@affino/menu-core"
+import { MenuCore, SubmenuCore, createMenuTree } from "@affino/menu-core"
+import type { MenuTreeBranch, MenuTreeController } from "@affino/menu-core"
 
 export type MenuControllerKind = "root" | "submenu"
 
@@ -42,14 +43,13 @@ interface SubmenuControllerConfig {
 export type MenuControllerConfig = RootControllerConfig | SubmenuControllerConfig
 
 export function useMenuController(config: MenuControllerConfig): MenuController {
+  const { branch, tree, ownsTree } = resolveBranch(config)
   const triggerRef = ref<HTMLElement | null>(null)
   const panelRef = ref<HTMLElement | null>(null)
   const anchorRef = shallowRef<Rect | null>(null)
 
-  const core = createCore(config)
-
-  const state = shallowRef<MenuState>(core.getSnapshot())
-  const subscription = core.subscribe((next) => {
+  const state = shallowRef<MenuState>(branch.getSnapshot())
+  const subscription = branch.subscribe((next) => {
     state.value = next
   })
 
@@ -58,27 +58,33 @@ export function useMenuController(config: MenuControllerConfig): MenuController 
     if (disposed) return
     disposed = true
     subscription.unsubscribe()
-    core.destroy()
+    if (ownsTree && tree) {
+      tree.destroy()
+    } else {
+      branch.destroy()
+    }
   }
 
   const controller: MenuController = {
     kind: config.kind,
-    id: core.id,
-    core,
+    id: branch.id,
+    core: branch.core,
     state,
     triggerRef,
     panelRef,
     anchorRef,
-    open: (reason) => core.open(reason),
-    close: (reason) => core.close(reason),
-    toggle: () => core.toggle(),
-    highlight: (id) => core.highlight(id),
-    select: (id) => core.select(id),
+    open: (reason) => branch.open(reason),
+    close: (reason) => branch.close(reason),
+    toggle: () => branch.toggle(),
+    highlight: (id) => branch.highlight(id),
+    select: (id) => branch.select(id),
     setAnchor: (rect) => {
       anchorRef.value = rect
     },
+    recordPointer: branch.pointer ? (point) => branch.pointer?.record(point) : undefined,
+    setTriggerRect: branch.geometry ? (rect) => branch.geometry?.setTriggerRect(rect) : undefined,
+    setPanelRect: branch.geometry ? (rect) => branch.geometry?.setPanelRect(rect) : undefined,
     dispose,
-    ...createSubmenuAdapters(core),
   }
 
   onBeforeUnmount(dispose)
@@ -86,26 +92,73 @@ export function useMenuController(config: MenuControllerConfig): MenuController 
   return controller
 }
 
-/** Chooses the appropriate core implementation based on the requested controller kind. */
-function createCore(config: MenuControllerConfig) {
-  if (config.kind === "submenu") {
-    const parentCore = "core" in config.parent ? config.parent.core : config.parent
-    return new SubmenuCore(parentCore as MenuCore, { ...config.options, parentItemId: config.parentItemId }, config.callbacks)
-  }
-  return new MenuCore(config.options, config.callbacks)
+interface ResolvedBranch {
+  branch: MenuTreeBranch
+  tree?: MenuTreeController
+  ownsTree: boolean
 }
 
-/**
- * Submenus expose extra geometry helpers that the adapter can optionally consume.
- * Root menus ignore these hooks to keep the controller surface minimal.
- */
-function createSubmenuAdapters(core: MenuCore | SubmenuCore) {
-  if (!(core instanceof SubmenuCore)) {
-    return {}
+const treeRegistry = new WeakMap<MenuCore | SubmenuCore, MenuTreeController>()
+
+function resolveBranch(config: MenuControllerConfig): ResolvedBranch {
+  if (config.kind === "root") {
+    const tree = createMenuTree({ options: config.options, callbacks: config.callbacks })
+    const branch = tree.root
+    treeRegistry.set(branch.core, tree)
+    return { branch, tree, ownsTree: true }
   }
+
+  const parentCore = "core" in config.parent ? config.parent.core : config.parent
+  const existingTree = treeRegistry.get(parentCore)
+  if (existingTree) {
+    const branch = existingTree.createSubmenu({
+      parent: parentCore as MenuCore,
+      parentItemId: config.parentItemId,
+      options: config.options,
+      callbacks: config.callbacks,
+    })
+    treeRegistry.set(branch.core, existingTree)
+    return { branch, tree: existingTree, ownsTree: false }
+  }
+
+  const fallbackCore = new SubmenuCore(parentCore as MenuCore, { ...config.options, parentItemId: config.parentItemId }, config.callbacks)
+  return { branch: branchFromCore(fallbackCore, "submenu"), ownsTree: false }
+}
+
+function branchFromCore(core: MenuCore | SubmenuCore, kind: MenuControllerKind): MenuTreeBranch {
   return {
-    recordPointer: (point: { x: number; y: number }) => core.recordPointer(point),
+    kind,
+    id: core.id,
+    core,
+    getSnapshot: () => core.getSnapshot(),
+    subscribe: (subscriber) => core.subscribe(subscriber),
+    getTriggerProps: () => core.getTriggerProps(),
+    getPanelProps: () => core.getPanelProps(),
+    getItemProps: (id: string) => core.getItemProps(id),
+    registerItem: (id: string, options) => core.registerItem(id, options),
+    open: (reason) => core.open(reason),
+    close: (reason) => core.close(reason),
+    toggle: () => core.toggle(),
+    highlight: (id) => core.highlight(id),
+    moveFocus: (delta) => core.moveFocus(delta),
+    select: (id) => core.select(id),
+    geometry: core instanceof SubmenuCore ? createGeometryAdapter(core) : null,
+    pointer: core instanceof SubmenuCore ? { record: (point) => core.recordPointer(point) } : null,
+    destroy: () => core.destroy(),
+  }
+}
+
+function createGeometryAdapter(core: SubmenuCore) {
+  return {
     setTriggerRect: (rect: Rect | null) => core.setTriggerRect(rect),
     setPanelRect: (rect: Rect | null) => core.setPanelRect(rect),
+    sync: (rects: { trigger?: Rect | null; panel?: Rect | null }) => {
+      if (Object.prototype.hasOwnProperty.call(rects, "trigger")) {
+        core.setTriggerRect(rects.trigger ?? null)
+      }
+      if (Object.prototype.hasOwnProperty.call(rects, "panel")) {
+        core.setPanelRect(rects.panel ?? null)
+      }
+    },
   }
 }

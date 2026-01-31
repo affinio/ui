@@ -55,6 +55,62 @@ import "@affino/menu-react/styles.css"
 4. Nest `<UiSubMenu>` components for infinite submenu depth.
 5. Use the supplied hooks (`useMenu`, `useMenuShortcuts`) to drive programmatic flows.
 
+## Controller Surface
+
+`useMenuController` now builds on top of `createMenuTree`, so the hook exposes the same pointer + geometry adapters the core uses internally. Opt into them whenever you need custom positioning or analytics—no `instanceof SubmenuCore` casts required.
+
+```tsx
+const controller = useMenuController({ kind: "root", options, callbacks })
+
+useEffect(() => {
+  if (!controller.state.open) return
+  console.log("Active item", controller.state.activeItemId)
+}, [controller.state.open, controller.state.activeItemId])
+
+controller.recordPointer?.({ x: event.clientX, y: event.clientY })
+controller.setTriggerRect?.(controller.triggerRef.current?.getBoundingClientRect() ?? null)
+controller.setPanelRect?.(controller.panelRef.current?.getBoundingClientRect() ?? null)
+controller.setAnchor(controller.triggerRef.current?.getBoundingClientRect() ?? null)
+```
+
+- `recordPointer` feeds diagonal intent detection, enabling alternate input sources (stylus, remote desktop, Playwright pointer hooks).
+- `setTriggerRect` / `setPanelRect` keep submenu geometry fresh after layout transitions without poking private APIs.
+- `setAnchor` supports context menus, palette-style overlays, and anchored inspectors with zero custom timers.
+
+## Headless usage with createMenuTree
+
+Rolling your own renderer? Instantiate the helper directly to get the same branch objects the React hook relies on.
+
+```ts
+import { createMenuTree } from "@affino/menu-core"
+
+const tree = createMenuTree({ options: { openDelay: 75, closeDelay: 120 } })
+tree.root.registerItem("file")
+
+const submenu = tree.createSubmenu({
+  parent: tree.root,
+  parentItemId: "file",
+})
+
+const syncGeometry = () => {
+  submenu.geometry?.sync({
+    trigger: document.querySelector("[data-file]")?.getBoundingClientRect() ?? null,
+    panel: document.querySelector("[data-file-panel]")?.getBoundingClientRect() ?? null,
+  })
+}
+
+window.addEventListener("pointermove", (event) => {
+  submenu.pointer?.record({ x: event.clientX, y: event.clientY })
+})
+
+syncGeometry()
+
+// Clean up every branch when you unmount
+tree.destroy()
+```
+
+This keeps third-party design systems, test harnesses, and custom renderers aligned with the official adapters.
+
 ## Live Examples
 
 **Try it yourself in under 30 seconds:**

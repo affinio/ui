@@ -1,6 +1,6 @@
 import { useMemo } from "react"
 import type { PropsWithChildren } from "react"
-import type { MenuCallbacks, MenuOptions, SubmenuCore } from "@affino/menu-core"
+import type { MenuCallbacks, MenuOptions } from "@affino/menu-core"
 import { useMenuProvider, MenuProvider, useMenuProviderValue, SubmenuProvider, useSubmenuProviderValue } from "../context"
 import { useMenuController } from "../useMenuController"
 import { uid } from "../id"
@@ -24,7 +24,7 @@ export function UiSubMenu({ id, options, callbacks, children }: UiSubMenuProps) 
   })
   const childProvider = useMenuProviderValue({ controller, parent: parentProvider, submenuItemId })
   const submenuBridge = useSubmenuProviderValue({ parent: parentProvider, child: childProvider })
-  usePointerRecorder(controller.core as SubmenuCore)
+  usePointerRecorder(controller.recordPointer)
 
   return (
     <MenuProvider value={childProvider}>

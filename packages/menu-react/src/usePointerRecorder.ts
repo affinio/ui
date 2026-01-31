@@ -1,17 +1,19 @@
 import { useEffect } from "react"
-import type { SubmenuCore } from "@affino/menu-core"
 
-export function usePointerRecorder(core: Pick<SubmenuCore, "recordPointer">) {
+export function usePointerRecorder(recordPointer?: (point: { x: number; y: number }) => void) {
   useEffect(() => {
     if (typeof window === "undefined") {
       return
     }
+    if (!recordPointer) {
+      return undefined
+    }
     const handler = (event: PointerEvent) => {
-      core.recordPointer({ x: event.clientX, y: event.clientY })
+      recordPointer({ x: event.clientX, y: event.clientY })
     }
     window.addEventListener("pointermove", handler)
     return () => {
       window.removeEventListener("pointermove", handler)
     }
-  }, [core])
+  }, [recordPointer])
 }

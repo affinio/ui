@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { MenuCallbacks, MenuOptions, SubmenuCore } from "@affino/menu-core"
+import type { MenuCallbacks, MenuOptions } from "@affino/menu-core"
 import { provideMenuProvider, provideSubmenuProvider, useMenuProvider } from "../context"
 import { uid } from "../id"
 import { useMenuController } from "../useMenuController"
@@ -29,7 +29,7 @@ provideSubmenuProvider({
   child: provider,
 })
 
-usePointerRecorder(controller.core as SubmenuCore)
+usePointerRecorder(controller.recordPointer)
 
 defineExpose({ controller })
 </script>

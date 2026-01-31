@@ -8,6 +8,7 @@ The `@affino/menu-vue` package gives you accessible, headless Vue 3 building blo
 - [Component reference](./reference/components.md)
 - [Controller API](./reference/controller.md)
 - [Context menus guide](./guide/context-menu.md)
+- [Menu core guide](./guide/menu-core.md)
 - [Virtualized menus guide](./guide/virtualization.md)
 - [Animations guide](./guide/animations.md)
 
