@@ -81,7 +81,21 @@ const menu = new MenuCore({
 })
 ```
 
-When tuning, run your app with `DEBUG_MENU=1` (or set `globalThis.__MENU_DEBUG__ = true`) before constructing menus. This enables verbose console logs inside `SubmenuCore` and lets you attach a `MousePrediction` debug callback if you instantiate the class manually.
+When tuning, pass `onDebug` when you create a menu (or call `createMenuTree`) to receive structured `MenuDebugEvent` objects:
+
+```ts
+const tree = createMenuTree({
+  callbacks: {
+    onDebug(event) {
+      if (event.type === "mouse-prediction") {
+        renderPointerOverlay(event.payload)
+      }
+    },
+  },
+})
+```
+
+Every debug payload includes the sampled pointer points, origin/target rects, heading score, and corridor verdict so devtools can visualize the path. If you just want verbose logging without wiring a callback, set `DEBUG_MENU=1` (or `globalThis.__MENU_DEBUG__ = true`) before instantiating controllers and the predictor will `console.debug` each payload automatically.
 
 ## Vanilla Wiring Example
 

@@ -334,6 +334,8 @@ const menu = new MenuCore({
 - Very dense menus → Lower `headingThreshold` (0.1-0.2)
 - High-precision mice → Keep defaults
 
+**Need visibility into the heuristic?** Pass `onDebug` when constructing a menu (or when creating submenus) to receive structured `MenuDebugEvent` objects. Today the event type is `"mouse-prediction"`, which streams the sampled points, heading score, and corridor analysis so devtools can render overlays or export telemetry. If you would rather log without wiring a callback, set `DEBUG_MENU=1` (or `globalThis.__MENU_DEBUG__ = true`) before creating controllers and the predictor will `console.debug` the payloads for you.
+
 📖 Full tuning guide: [docs/mouse-prediction.md](./docs/core/mouse-prediction.md)
 
 ### Nested Submenus
@@ -415,6 +417,7 @@ new MenuCore(options?: MenuOptions, callbacks?: MenuCallbacks)
 - `onClose?: (menuId: string) => void`
 - `onSelect?: (itemId: string, menuId: string) => void`
 - `onHighlight?: (itemId: string | null, menuId: string) => void`
+- `onDebug?: (event: MenuDebugEvent) => void`
 - `onPositionChange?: (menuId: string, position: PositionResult) => void`
 
 #### Methods

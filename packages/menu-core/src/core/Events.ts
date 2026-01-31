@@ -1,4 +1,4 @@
-import type { MenuCallbacks } from "../types"
+import type { MenuCallbacks, MenuDebugEvent } from "../types"
 
 export class MenuEvents {
   constructor(private readonly menuId: string, private readonly callbacks: MenuCallbacks = {}) {}
@@ -9,5 +9,9 @@ export class MenuEvents {
 
   emitHighlight(itemId: string | null) {
     this.callbacks.onHighlight?.(itemId, this.menuId)
+  }
+
+  emitDebug(event: MenuDebugEvent) {
+    this.callbacks.onDebug?.(event)
   }
 }

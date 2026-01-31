@@ -49,6 +49,7 @@ export class SubmenuCore extends MenuCore {
     this.parent = parent
     this.parentItemId = options.parentItemId
     this.predictor = new MousePrediction(this.menuOptions.mousePrediction)
+    this.configurePredictionDebug(callbacks)
     this.releaseTree = this.tree.subscribe(this.id, (state) => this.syncWithTree(state))
   }
 
@@ -226,5 +227,24 @@ export class SubmenuCore extends MenuCore {
       return
     }
     this.recordPointer({ x: event.clientX, y: event.clientY })
+  }
+
+  private configurePredictionDebug(callbacks: MenuCallbacks) {
+    if (callbacks.onDebug) {
+      this.predictor.enableDebug((payload) => {
+        this.menuEvents.emitDebug({
+          type: "mouse-prediction",
+          menuId: this.id,
+          payload,
+        })
+      })
+      return
+    }
+    if (isDebugMenuEnabled()) {
+      this.predictor.enableDebug((payload) => {
+        // eslint-disable-next-line no-console
+        console.debug(`[menu:${this.id}] mouse-prediction`, payload)
+      })
+    }
   }
 }

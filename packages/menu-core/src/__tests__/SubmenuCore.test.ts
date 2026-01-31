@@ -89,4 +89,24 @@ describe("SubmenuCore", () => {
     expect(submenu.getSnapshot().open).toBe(true)
     expect(parent.getSnapshot().open).toBe(true)
   })
+
+  it("emits mouse prediction debug events when enabled", () => {
+    const debug = vi.fn()
+    const parent = new MenuCore({ id: "parent" })
+    parent.registerItem("parent-item")
+    const submenu = new SubmenuCore(parent, { parentItemId: "parent-item" }, { onDebug: debug })
+
+    submenu.setTriggerRect({ x: 0, y: 0, width: 120, height: 40 })
+    submenu.setPanelRect({ x: 160, y: 0, width: 240, height: 200 })
+    submenu.recordPointer({ x: 40, y: 12 })
+    submenu.recordPointer({ x: 140, y: 20 })
+
+    const panel = submenu.getPanelProps()
+    panel.onPointerLeave?.({} as any)
+
+    expect(debug).toHaveBeenCalled()
+    const event = debug.mock.calls[0]?.[0]
+    expect(event).toMatchObject({ type: "mouse-prediction", menuId: submenu.id })
+    expect(event.payload).toMatchObject({ orientation: expect.any(String) })
+  })
 })

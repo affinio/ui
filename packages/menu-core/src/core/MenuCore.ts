@@ -31,7 +31,7 @@ export class MenuCore extends SurfaceCore<MenuState, MenuCallbacks> {
   protected readonly selectionMachine: MenuStateMachine
   protected readonly tree: MenuTree
   protected readonly menuOptions: NormalizedMenuOptions
-  private readonly menuEvents: MenuEvents
+  protected readonly menuEvents: MenuEvents
   protected autoHighlightOnOpen = false
   private pointerHighlightLock: { id: string; timer: ReturnType<typeof setTimeout> | null } | null = null
 

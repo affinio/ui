@@ -45,9 +45,18 @@ export interface MousePredictionDebugPayload {
 
 export type MousePredictionDebugCallback = (payload: MousePredictionDebugPayload) => void
 
+export interface MenuMousePredictionDebugEvent {
+  type: "mouse-prediction"
+  menuId: string
+  payload: MousePredictionDebugPayload
+}
+
+export type MenuDebugEvent = MenuMousePredictionDebugEvent
+
 export interface MenuCallbacks extends SurfaceCallbacks {
   onSelect?: (itemId: string, menuId: string) => void
   onHighlight?: (itemId: string | null, menuId: string) => void
+  onDebug?: (event: MenuDebugEvent) => void
 }
 
 export interface MenuOptions extends SurfaceOptions {
