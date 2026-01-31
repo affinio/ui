@@ -64,4 +64,67 @@ describe("TooltipCore", () => {
     tooltip.open("programmatic")
     expect(listener).toHaveBeenLastCalledWith(expect.objectContaining({ open: true }))
   })
+
+  it("merges custom aria-describedby targets", () => {
+    const tooltip = createTooltip()
+    const trigger = tooltip.getTriggerProps({ describedBy: "tooltip-extra" })
+    expect(trigger["aria-describedby"]).toBe("tooltip-content tooltip-extra")
+  })
+
+  it("cancels close timers when pointer re-enters", () => {
+    const tooltip = createTooltip({ openDelay: 10, closeDelay: 40 })
+    const trigger = tooltip.getTriggerProps()
+
+    trigger.onPointerEnter?.({})
+    vi.advanceTimersByTime(10)
+    expect(tooltip.getSnapshot().open).toBe(true)
+
+    trigger.onPointerLeave?.({})
+    vi.advanceTimersByTime(20)
+    expect(tooltip.getSnapshot().open).toBe(true)
+
+    trigger.onPointerEnter?.({})
+    vi.advanceTimersByTime(40)
+    expect(tooltip.getSnapshot().open).toBe(true)
+  })
+
+  it("returns arrow props for vertical placement", () => {
+    const tooltip = createTooltip()
+    const arrow = tooltip.getArrowProps({
+      anchorRect: { x: 120, y: 200, width: 40, height: 30 },
+      tooltipRect: { x: 0, y: 0, width: 160, height: 48 },
+      position: { left: 80, top: 120, placement: "top", align: "center" },
+      options: { size: 12, inset: 8 },
+    })
+
+    expect(arrow["data-placement"]).toBe("top")
+    expect(arrow.style.left).toBe("54px")
+    expect(arrow.style.bottom).toBe("-6px")
+  })
+
+  it("returns arrow props for horizontal placement", () => {
+    const tooltip = createTooltip()
+    const arrow = tooltip.getArrowProps({
+      anchorRect: { x: 320, y: 200, width: 24, height: 24 },
+      tooltipRect: { x: 0, y: 0, width: 120, height: 120 },
+      position: { left: 360, top: 140, placement: "right", align: "start" },
+      options: { size: 10, inset: 6, staticOffset: 12 },
+    })
+
+    expect(arrow["data-placement"]).toBe("right")
+    expect(arrow.style.top).toBe("67px")
+    expect(arrow.style.left).toBe("-12px")
+    expect(arrow.style.right).toBeUndefined()
+  })
+
+  it("provides description props with ARIA live defaults", () => {
+    const tooltip = createTooltip({ defaultOpen: true })
+    const props = tooltip.getDescriptionProps({ role: "alert", politeness: "assertive", id: "custom" })
+
+    expect(props.id).toBe("custom")
+    expect(props.role).toBe("alert")
+    expect(props["aria-live"]).toBe("assertive")
+    expect(props["data-state"]).toBe("open")
+    expect(props["aria-hidden"]).toBe("false")
+  })
 })

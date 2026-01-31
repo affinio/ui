@@ -49,6 +49,7 @@ const floating = useFloatingTooltip(controller, {
 	placement: "top",
 	align: "center",
 	gutter: 12,
+	arrow: { size: 10 },
 })
 </script>
 
@@ -65,14 +66,16 @@ const floating = useFloatingTooltip(controller, {
 			v-bind="controller.getTooltipProps()"
 			:style="floating.tooltipStyle"
 		>
+			<span v-if="floating.arrowProps" class="TooltipArrow" v-bind="floating.arrowProps" :style="floating.arrowProps.style" />
 			<p>Always-on support across 11 regions.</p>
 		</div>
 	</Teleport>
 </template>
 ```
 
-The helper exposes `triggerRef`, `tooltipRef`, `tooltipStyle`, `teleportTarget`, and `updatePosition()` so you can react
-to custom layout changes (portals, drawers, etc.) while keeping every tooltip inside the shared overlay host by default.
+The helper exposes `triggerRef`, `tooltipRef`, `tooltipStyle`, `teleportTarget`, `arrowProps`, and `updatePosition()` so you
+can react to custom layout changes (portals, drawers, etc.) while keeping every tooltip inside the shared overlay host by
+default.
 
 ### Layering inside modals or drawers
 
@@ -99,8 +102,9 @@ const {
 | Method | Description |
 | --- | --- |
 | `controller.state` | `ShallowRef<TooltipState>` updated whenever the surface opens or closes. |
-| `controller.getTriggerProps()` | Returns id/ARIA/pointer/focus handlers for any trigger element. |
+| `controller.getTriggerProps(options?)` | Returns id/ARIA/pointer/focus handlers with optional `aria-describedby` overrides. |
 | `controller.getTooltipProps()` | Returns attributes for the floating surface, including `data-state`. |
+| `controller.getDescriptionProps(options?)` | Produces a live-region description node you can attach to form fields. |
 | `controller.open(reason?)` / `close(reason?)` / `toggle()` | Imperative controls for advanced flows. |
 | `controller.dispose()` | Tears down timers + subscriptions (auto-called when the component unmounts).
 
@@ -118,3 +122,27 @@ Tooltips often decorate input labels. Blend focus-driven logic with pointer help
 ```
 
 Because the controller reuses `@affino/surface-core`, its timers match menus and other floating primitives in the Affino stack.
+
+### Announcing validation or hints
+
+Compose live regions by combining `getTriggerProps({ describedBy })` with `getDescriptionProps`:
+
+```vue
+<script setup lang="ts">
+import { useTooltipController } from "@affino/tooltip-vue"
+
+const controller = useTooltipController({ id: "field-tooltip" })
+const descriptionId = "field-tooltip-description"
+const triggerProps = controller.getTriggerProps({ describedBy: descriptionId })
+const descriptionProps = controller.getDescriptionProps({ id: descriptionId, politeness: "assertive" })
+</script>
+
+<template>
+	<button v-bind="triggerProps">?</button>
+	<span class="sr-only" v-bind="descriptionProps">
+		Use your company email so access can be provisioned instantly.
+	</span>
+</template>
+```
+
+`aria-hidden` flips automatically based on the tooltip state, so the announcement only fires when the helper is open.

@@ -3,9 +3,12 @@ import type { ShallowRef } from "vue"
 import type {
   TooltipCallbacks,
   TooltipContentProps,
+  TooltipDescriptionOptions,
+  TooltipDescriptionProps,
   TooltipOptions,
   TooltipReason,
   TooltipState,
+  TooltipTriggerOptions,
   TooltipTriggerProps,
 } from "@affino/tooltip-core"
 import { TooltipCore } from "@affino/tooltip-core"
@@ -24,8 +27,9 @@ export interface TooltipController {
   readonly id: string
   readonly core: TooltipCore
   readonly state: ShallowRef<TooltipState>
-  readonly getTriggerProps: () => VueTriggerProps
+  readonly getTriggerProps: (options?: TooltipTriggerOptions) => VueTriggerProps
   readonly getTooltipProps: () => VueTooltipProps
+  readonly getDescriptionProps: (options?: TooltipDescriptionOptions) => TooltipDescriptionProps
   readonly open: (reason?: TooltipReason) => void
   readonly close: (reason?: TooltipReason) => void
   readonly toggle: () => void
@@ -53,8 +57,9 @@ export function useTooltipController(options?: TooltipOptions, callbacks?: Toolt
     id: core.id,
     core,
     state,
-    getTriggerProps: () => mapTriggerProps(core.getTriggerProps()),
+    getTriggerProps: (options?: TooltipTriggerOptions) => mapTriggerProps(core.getTriggerProps(options)),
     getTooltipProps: () => mapContentProps(core.getTooltipProps()),
+    getDescriptionProps: (options?: TooltipDescriptionOptions) => core.getDescriptionProps(options),
     open: (reason?: TooltipReason) => core.open(reason),
     close: (reason?: TooltipReason) => core.close(reason),
     toggle: () => core.toggle(),

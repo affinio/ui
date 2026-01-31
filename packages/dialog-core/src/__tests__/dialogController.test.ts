@@ -198,4 +198,36 @@ describe("DialogController", () => {
     closeGate.resolve({ outcome: "allow" })
     await closePromise
   })
+
+  it("destroys controller, releasing listeners, guard state, and focus orchestration", async () => {
+    const focusLog: string[] = []
+    const controller = new DialogController({
+      focusOrchestrator: {
+        activate: ({ reason }) => focusLog.push(`activate:${reason}`),
+        deactivate: ({ reason }) => focusLog.push(`deactivate:${reason}`),
+      },
+    })
+
+    const snapshots: string[] = []
+    controller.subscribe((snapshot) => snapshots.push(snapshot.phase))
+
+    controller.open("keyboard")
+    expect(focusLog).toEqual(["activate:keyboard"])
+
+    const closeGate = deferred<CloseGuardDecision>()
+    controller.setCloseGuard(() => closeGate.promise)
+    const closePromise = controller.close("programmatic")
+    expect(controller.snapshot.isGuardPending).toBe(true)
+
+    controller.destroy("escape-key")
+    closeGate.resolve({ outcome: "allow" })
+    await closePromise
+
+    const snapshotCountAfterDestroy = snapshots.length
+    controller.open()
+    expect(snapshots.length).toBe(snapshotCountAfterDestroy)
+    expect(focusLog).toEqual(["activate:keyboard", "deactivate:escape-key"])
+    expect(controller.snapshot.isGuardPending).toBe(false)
+    expect(controller.getPendingCloseAttempts()).toBe(0)
+  })
 })

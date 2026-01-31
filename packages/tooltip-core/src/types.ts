@@ -1,6 +1,8 @@
 import type {
   EventHandler,
   PointerEventLike,
+  PositionResult,
+  Rect,
   SurfaceCallbacks,
   SurfaceOptions,
   SurfaceReason,
@@ -43,4 +45,45 @@ export interface TooltipContentProps {
   "data-state": "open" | "closed"
   onPointerEnter?: EventHandler<PointerEventLike>
   onPointerLeave?: EventHandler<PointerEventLike>
+}
+
+export interface TooltipTriggerOptions {
+  describedBy?: string | string[]
+  tabIndex?: number
+}
+
+export interface TooltipArrowOptions {
+  size?: number
+  inset?: number
+  staticOffset?: number
+}
+
+export interface TooltipArrowParams {
+  anchorRect: Rect
+  tooltipRect: Rect
+  position: PositionResult
+  options?: TooltipArrowOptions
+}
+
+export interface TooltipArrowProps {
+  "data-placement": PositionResult["placement"]
+  "data-align": PositionResult["align"]
+  "data-arrow": PositionResult["placement"]
+  style: Record<string, string | number>
+}
+
+export interface TooltipDescriptionOptions {
+  id?: string
+  politeness?: "polite" | "assertive"
+  role?: "status" | "alert" | "log"
+  atomic?: boolean
+}
+
+export interface TooltipDescriptionProps {
+  id: string
+  role: "status" | "alert" | "log"
+  "aria-live": "polite" | "assertive"
+  "aria-atomic": boolean
+  "aria-hidden": "true" | "false"
+  "data-state": "open" | "closed"
 }

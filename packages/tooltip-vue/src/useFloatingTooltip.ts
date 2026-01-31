@@ -1,6 +1,6 @@
 import { nextTick, onBeforeUnmount, ref, watch } from "vue"
 import type { Ref } from "vue"
-import type { PositionOptions } from "@affino/tooltip-core"
+import type { PositionOptions, TooltipArrowOptions, TooltipArrowProps } from "@affino/tooltip-core"
 import type { TooltipController } from "./useTooltipController"
 import { ensureOverlayHost } from "@affino/overlay-host"
 
@@ -11,6 +11,7 @@ export interface FloatingTooltipOptions extends PositionOptions {
   strategy?: Strategy
   teleportTo?: string | HTMLElement | false
   zIndex?: number | string
+  arrow?: TooltipArrowOptions
 }
 
 export interface FloatingTooltipBindings {
@@ -18,6 +19,7 @@ export interface FloatingTooltipBindings {
   tooltipRef: Ref<HTMLElement | null>
   tooltipStyle: Ref<Record<string, string>>
   teleportTarget: Ref<string | HTMLElement | null>
+  arrowProps: Ref<TooltipArrowProps | null>
   updatePosition: () => Promise<void>
 }
 
@@ -47,6 +49,7 @@ export function useFloatingTooltip(
   const tooltipRef = ref<HTMLElement | null>(null)
   const tooltipStyle = ref<Record<string, string>>(createHiddenStyle(strategy, zIndex))
   const teleportTarget = ref<string | HTMLElement | null>(resolveTeleportTarget(options.teleportTo))
+  const arrowProps = ref<TooltipArrowProps | null>(null)
 
   const updatePosition = async () => {
     if (typeof window === "undefined") return
@@ -71,10 +74,18 @@ export function useFloatingTooltip(
       transform: "translate3d(0, 0, 0)",
       ...(zIndex ? { zIndex } : {}),
     }
+
+    arrowProps.value = controller.core.getArrowProps({
+      anchorRect,
+      tooltipRect: surfaceRect,
+      position,
+      options: options.arrow,
+    })
   }
 
   const resetPosition = () => {
     tooltipStyle.value = createHiddenStyle(strategy, zIndex)
+    arrowProps.value = null
   }
 
   watch(
@@ -116,6 +127,7 @@ export function useFloatingTooltip(
     tooltipRef,
     tooltipStyle,
     teleportTarget,
+    arrowProps,
     updatePosition,
   }
 }

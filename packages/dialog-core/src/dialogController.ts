@@ -42,6 +42,7 @@ export class DialogController {
   private readonly focusOrchestrator?: DialogFocusOrchestrator
   private readonly overlayRegistrar?: OverlayRegistrar
   private focusActive = false
+  private destroyed = false
 
   constructor(private readonly options: DialogControllerOptions = {}) {
     this.phase = options.defaultOpen ? "open" : "idle"
@@ -70,6 +71,20 @@ export class DialogController {
     }
   }
 
+  destroy(reason: DialogCloseReason = "programmatic"): void {
+    if (this.destroyed) return
+    this.destroyed = true
+    this.subscribers.clear()
+    this.eventListeners.clear()
+    this.guardPromise = null
+    this.closeGuard = undefined
+    this.optimisticClose = false
+    this.optimisticReason = undefined
+    this.guardMessage = undefined
+    this.pendingAttempts = 0
+    this.deactivateFocus({ reason })
+  }
+
   get isGuardPending(): boolean {
     return Boolean(this.guardPromise)
   }
@@ -80,16 +95,21 @@ export class DialogController {
   }
 
   subscribe(listener: (snapshot: DialogSnapshot) => void): () => void {
+    if (this.destroyed) {
+      return () => {}
+    }
     this.subscribers.add(listener)
     listener(this.snapshot)
     return () => this.subscribers.delete(listener)
   }
 
   setCloseGuard(guard: CloseGuard | undefined): void {
+    if (this.destroyed) return
     this.closeGuard = guard
   }
 
   open(reason: DialogOpenReason = "programmatic"): void {
+    if (this.destroyed) return
     if (this.phase === "open" || this.phase === "opening") return
     const context: DialogOpenContext = { reason }
     this.guardMessage = undefined
@@ -104,6 +124,9 @@ export class DialogController {
     reason: DialogCloseReason = "programmatic",
     request: CloseRequestOptions = {}
   ): Promise<boolean> {
+    if (this.destroyed) {
+      return false
+    }
     if (this.phase === "idle" || this.phase === "closed") {
       return false
     }
@@ -184,6 +207,9 @@ export class DialogController {
   }
 
   registerOverlay(registration: OverlayRegistration): () => void {
+    if (this.destroyed) {
+      return () => {}
+    }
     const dispose = this.overlayRegistrar?.register(registration)
     this.emitEvent("overlay-registered", registration)
     return () => {
