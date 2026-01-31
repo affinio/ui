@@ -1,0 +1,52 @@
+{
+  "name": "@affino/dialog-vue",
+  "version": "0.1.0-alpha.0",
+  "author": "Anton Pavlov <a.pavlov@affino.dev>",
+  "type": "module",
+  "description": "Vue 3 composables for the @affino/dialog-core controller",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "peerDependencies": {
+    "vue": "^3.3.0"
+  },
+  "dependencies": {
+    "@affino/dialog-core": "workspace:^"
+  },
+  "devDependencies": {
+    "@testing-library/vue": "^8.1.0",
+    "@vitejs/plugin-vue": "^6.0.3",
+    "@vitest/coverage-v8": "^4.0.15",
+    "@vue/test-utils": "^2.4.6",
+    "jsdom": "^27.3.0",
+    "vitest": "^4.0.15",
+    "vue": "^3.4.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/affinio/affinio/tree/main/packages/dialog-vue"
+  },
+  "homepage": "https://affino.dev",
+  "keywords": [
+    "vue",
+    "dialog",
+    "overlay",
+    "focus-management",
+    "headless",
+    "controller"
+  ],
+  "license": "MIT"
+}

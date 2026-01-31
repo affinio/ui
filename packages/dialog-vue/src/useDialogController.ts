@@ -1,0 +1,51 @@
+import { getCurrentInstance, onBeforeUnmount, shallowRef } from "vue"
+import type { ShallowRef } from "vue"
+import {
+  DialogController,
+  type DialogControllerOptions,
+  type DialogSnapshot,
+  type DialogOpenReason,
+  type DialogCloseReason,
+  type CloseRequestOptions,
+} from "@affino/dialog-core"
+
+export type UseDialogControllerOptions = DialogControllerOptions
+
+export interface DialogControllerBinding {
+  readonly controller: DialogController
+  readonly snapshot: ShallowRef<DialogSnapshot>
+  readonly open: (reason?: DialogOpenReason) => void
+  readonly close: (
+    reason?: DialogCloseReason,
+    request?: CloseRequestOptions
+  ) => Promise<boolean>
+  readonly dispose: () => void
+}
+
+export function useDialogController(options: UseDialogControllerOptions = {}): DialogControllerBinding {
+  const controller = new DialogController(options)
+  const snapshot = shallowRef<DialogSnapshot>(controller.snapshot)
+  const unsubscribe = controller.subscribe((next: DialogSnapshot) => {
+    snapshot.value = next
+  })
+
+  let disposed = false
+  const dispose = () => {
+    if (disposed) return
+    disposed = true
+    unsubscribe()
+  }
+
+  if (getCurrentInstance()) {
+    onBeforeUnmount(dispose)
+  }
+
+  return {
+    controller,
+    snapshot,
+    open: (reason?: DialogOpenReason) => controller.open(reason),
+    close: (reason?: DialogCloseReason, request?: CloseRequestOptions) =>
+      controller.close(reason, request),
+    dispose,
+  }
+}

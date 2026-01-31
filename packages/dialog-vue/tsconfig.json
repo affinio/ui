@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.core.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "declaration": true,
+    "emitDeclarationOnly": false,
+    "declarationMap": true,
+    "baseUrl": ".",
+    "paths": {
+      "@affino/dialog-core": ["../dialog-core/src/index.ts"]
+    }
+  },
+  "include": ["src"]
+}
