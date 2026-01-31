@@ -1,20 +1,8 @@
-import { fileURLToPath } from "node:url"
-import { defineConfig } from "vitest/config"
+import { createWorkspaceVitestConfig } from "../../config/vitest.base"
 
-const dialogCoreEntry = fileURLToPath(new URL("../dialog-core/src/index.ts", import.meta.url))
-
-export default defineConfig({
-  resolve: {
-    alias: {
-      "@affino/dialog-core": dialogCoreEntry,
-    },
-  },
+export default createWorkspaceVitestConfig(import.meta.url, {
   test: {
-    environment: "jsdom",
-    css: false,
     coverage: {
-      provider: "v8",
-      reporter: ["text", "html"],
       include: ["src/**/*.ts"],
     },
   },

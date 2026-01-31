@@ -6,5 +6,9 @@
     "emitDeclarationOnly": true,
     "outDir": "dist",
     "stripInternal": true
-  }
+  },
+  "references": [
+    { "path": "../focus-utils" },
+    { "path": "../overlay-host" }
+  ]
 }

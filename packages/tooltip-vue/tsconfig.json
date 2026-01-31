@@ -9,5 +9,11 @@
   },
   "include": [
     "src"
+  ],
+  "references": [
+    { "path": "../focus-utils" },
+    { "path": "../overlay-host" },
+    { "path": "../surface-core" },
+    { "path": "../tooltip-core" }
   ]
 }

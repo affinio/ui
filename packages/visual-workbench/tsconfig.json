@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.adapter.json",
+  "compilerOptions": {
+    "jsx": "preserve",
+    "baseUrl": "./",
+    "types": ["node"]
+  },
+  "include": [
+    "stories",
+    ".storybook"
+  ]
+}

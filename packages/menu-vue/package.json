@@ -34,7 +34,7 @@
   "scripts": {
     "clean": "rm -rf dist",
     "build": "pnpm run clean && vite build && pnpm run build:types",
-    "build:types": "vue-tsc -p tsconfig.build.json",
+    "build:types": "vue-tsc --build tsconfig.build.json",
     "test": "vitest run"
   },
   "repository": {

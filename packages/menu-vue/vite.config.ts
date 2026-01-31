@@ -1,9 +1,13 @@
 import { defineConfig } from "vite"
 import vue from "@vitejs/plugin-vue"
 import { resolve } from "node:path"
+import { createWorkspaceAliases } from "../../config/workspace-aliases"
 
 export default defineConfig({
   plugins: [vue()],
+  resolve: {
+    alias: createWorkspaceAliases(import.meta.url),
+  },
 
   build: {
     lib: {

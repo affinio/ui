@@ -1,5 +1,6 @@
 import type { Alignment, Placement, PositionOptions, PositionResult, Rect } from "../types"
-import { ALIGNMENTS, clamp, crossAxis, sideAxis, Side, SIDES } from "./geometry"
+import { ALIGNMENTS, clamp, crossAxis, sideAxis, SIDES } from "./geometry"
+import type { Side } from "./geometry"
 
 const DEFAULT_VIEWPORT = 10_000
 

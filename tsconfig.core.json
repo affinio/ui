@@ -1,12 +1,17 @@
 {
+  "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "target": "ES2019",
     "module": "ES2020",
     "lib": ["ES2019", "DOM"],
 
     "declaration": true,
+    "declarationMap": true,
     "outDir": "dist",
     "rootDir": "src",
+    "composite": true,
+    "noEmit": false,
+    "allowImportingTsExtensions": false,
 
     "strict": true,
     "skipLibCheck": true,

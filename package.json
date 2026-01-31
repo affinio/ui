@@ -3,9 +3,27 @@
   "private": true,
   "version": "1.0.0",
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "demo-vue",
+    "docs-site"
   ],
+  "scripts": {
+    "bootstrap": "node ./scripts/bootstrap.mjs",
+    "build": "pnpm -r --if-present build",
+    "type-check": "pnpm -r --if-present type-check",
+    "lint": "pnpm -r --if-present lint",
+    "format": "pnpm -r --if-present format",
+    "test": "pnpm -r --if-present test",
+    "test:unit": "pnpm -r --if-present test",
+    "test:e2e": "playwright test",
+    "docs:build": "pnpm --filter docs-site build",
+    "check": "pnpm run lint && pnpm run type-check && pnpm run test",
+    "changeset": "changeset"
+  },
   "devDependencies": {
+    "@changesets/cli": "^2.27.11",
+    "@playwright/test": "^1.48.2",
+    "@vue/tsconfig": "^0.8.1",
     "@testing-library/vue": "^8.1.0",
     "@types/node": "^24.10.4",
     "@vitejs/plugin-vue": "^6.0.3",

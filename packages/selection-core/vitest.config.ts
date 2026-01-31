@@ -1,11 +1,9 @@
-import { defineConfig } from "vitest/config"
+import { createWorkspaceVitestConfig } from "../../config/vitest.base"
 
-export default defineConfig({
+export default createWorkspaceVitestConfig(import.meta.url, {
   test: {
     environment: "node",
     coverage: {
-      provider: "v8",
-      reporter: ["text", "html"],
       include: ["src/**/*.ts"],
       exclude: ["src/**/*.d.ts"],
     },

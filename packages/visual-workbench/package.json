@@ -1,0 +1,19 @@
+{
+  "name": "@affino/visual-workbench",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "storybook dev -p 6006",
+    "build": "storybook build",
+    "test:visual": "storybook test --coverage"
+  },
+  "devDependencies": {
+    "@storybook/addon-essentials": "^8.6.15",
+    "@storybook/addon-interactions": "^8.6.15",
+    "@storybook/test": "^8.6.15",
+    "@storybook/vue3": "^8.6.15",
+    "@storybook/vue3-webpack5": "^8.6.15",
+    "storybook": "^8.6.15",
+    "vue": "^3.5.25"
+  }
+}
