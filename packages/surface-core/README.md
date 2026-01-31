@@ -39,6 +39,44 @@ class TooltipCore extends SurfaceCore {
 
 See `packages/menu-core` for a full example of composing `SurfaceCore` with richer selection logic.
 
+## Lifecycle
+
+Every controller created from `SurfaceCore` flows through the same deterministic states:
+
+```
+┌─────────────┐   open() / pointer enter    ┌──────────────┐
+│   closed    │ ───────────────────────────▶ │   opening    │
+└─────────────┘                             └──────┬───────┘
+        ▲                                        timers settle
+        │ close() / pointer leave                 │
+        │                                         ▼
+┌─────────────┐   timers complete / settle   ┌──────────────┐
+│  closing    │ ◀─────────────────────────── │    open      │
+└─────────────┘                             └──────────────┘
+```
+
+- **open / close** always respect the configured `openDelay` / `closeDelay` timers.
+- `getSnapshot()` emits `open: true/false` the moment timers settle, so adapters can rely on consistent paint timing.
+- Subscribers run in the order they were registered; clean up via `subscription.unsubscribe()` or `destroy()`.
+
+## Diagnostics
+
+Use `SurfaceDiagnostics` to catch malformed geometry or options before they reach production:
+
+```ts
+import { SurfaceDiagnostics } from "@affino/surface-core"
+
+SurfaceDiagnostics.configure((message, details) => {
+  myLogger.warn(message, details)
+})
+
+SurfaceDiagnostics.validatePositionArgs(anchorRect, surfaceRect, options)
+```
+
+- In development builds the helper warns about missing rects, negative dimensions, or invalid viewport sizes.
+- `computePosition()` already calls `validatePositionArgs()`, so you get warnings for free unless you opt out.
+- Provide a custom reporter via `configure()` to forward diagnostics into your own logging system or tests.
+
 ## API reference
 
 | Method | Description |

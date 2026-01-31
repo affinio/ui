@@ -1,4 +1,5 @@
 import type { Alignment, Placement, PositionOptions, PositionResult, Rect } from "../types"
+import { SurfaceDiagnostics } from "../core/SurfaceDiagnostics"
 import { ALIGNMENTS, clamp, crossAxis, sideAxis, SIDES } from "./geometry"
 import type { Side } from "./geometry"
 
@@ -17,6 +18,7 @@ interface NormalizedOptions {
 }
 
 export function computePosition(anchor: Rect, surface: Rect, options: PositionOptions = {}): PositionResult {
+  SurfaceDiagnostics.validatePositionArgs(anchor, surface, options)
   const config: NormalizedOptions = {
     gutter: options.gutter ?? 6,
     viewportPadding: options.viewportPadding ?? 8,
