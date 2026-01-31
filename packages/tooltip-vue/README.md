@@ -57,20 +57,22 @@ const floating = useFloatingTooltip(controller, {
 		Inspect SLA
 	</button>
 
-	<div
-		v-if="controller.state.value.open"
-		ref="floating.tooltipRef"
-		class="Tooltip"
-		v-bind="controller.getTooltipProps()"
-		:style="floating.tooltipStyle"
-	>
-		<p>Always-on support across 11 regions.</p>
-	</div>
+	<Teleport :to="floating.teleportTarget">
+		<div
+			v-if="controller.state.value.open"
+			ref="floating.tooltipRef"
+			class="Tooltip"
+			v-bind="controller.getTooltipProps()"
+			:style="floating.tooltipStyle"
+		>
+			<p>Always-on support across 11 regions.</p>
+		</div>
+	</Teleport>
 </template>
 ```
 
-The helper exposes `triggerRef`, `tooltipRef`, `tooltipStyle`, and `updatePosition()` so you can react to custom
-layout changes (portals, drawers, etc.).
+The helper exposes `triggerRef`, `tooltipRef`, `tooltipStyle`, `teleportTarget`, and `updatePosition()` so you can react
+to custom layout changes (portals, drawers, etc.) while keeping every tooltip inside the shared overlay host by default.
 
 ## Controller API
 

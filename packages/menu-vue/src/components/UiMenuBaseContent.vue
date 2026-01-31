@@ -7,6 +7,10 @@ import { useMenuFocus } from "../useMenuFocus"
 import { useMenuPositioning } from "../useMenuPositioning"
 import { toRect } from "../dom"
 import { useSubmenuBridge } from "../useSubmenuBridge"
+import { ensureOverlayHost } from "@affino/overlay-host"
+
+const MENU_HOST_ID = "affino-menu-host"
+const MENU_HOST_ATTRIBUTE = "data-affino-menu-host"
 
 const props = defineProps<{
   provider: MenuProviderValue
@@ -52,7 +56,7 @@ const updatePosition = useMenuPositioning(props.provider.controller, {
   },
 })
 
-const teleportTarget = computed(() => props.teleportTo ?? "body")
+const teleportTarget = computed(() => props.teleportTo ?? getMenuOverlayHost() ?? "body")
 const parentMenuId = props.provider.parentController?.id ?? ""
 
 const refreshGeometry = () => {
@@ -156,6 +160,10 @@ function motionFromSide(side: PositionResult["placement"]) {
     default:
       return "from-bottom"
   }
+}
+
+function getMenuOverlayHost(): HTMLElement | null {
+  return ensureOverlayHost({ id: MENU_HOST_ID, attribute: MENU_HOST_ATTRIBUTE })
 }
 </script>
 

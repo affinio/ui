@@ -1,31 +1,20 @@
 import type { Ref } from "vue"
+import { focusEdge, getFocusableElements } from "@affino/focus-utils"
+
+const MENU_ITEM_SELECTOR = "[role='menuitem']"
 
 export function useMenuFocus(panelRef: Ref<HTMLElement | null>) {
-  const getItems = () => {
-    if (typeof window === "undefined") return [] as HTMLElement[]
-    return panelRef.value ? Array.from(panelRef.value.querySelectorAll<HTMLElement>("[role='menuitem']")) : []
-  }
+  const getItems = () => getFocusableElements(panelRef.value, { selector: MENU_ITEM_SELECTOR })
 
-  const focusFallback = () => {
-    panelRef.value?.focus()
-  }
+  const focusFirst = () => focusWithin("start")
+  const focusLast = () => focusWithin("end")
 
-  const focusFirst = () => {
-    const items = getItems()
-    if (!items.length) {
-      focusFallback()
+  const focusWithin = (edge: "start" | "end") => {
+    if (!panelRef.value) {
       return
     }
-    items[0].focus()
-  }
-
-  const focusLast = () => {
     const items = getItems()
-    if (!items.length) {
-      focusFallback()
-      return
-    }
-    items[items.length - 1].focus()
+    focusEdge(panelRef.value, edge, { focusables: items, fallbackToContainer: true })
   }
 
   return {

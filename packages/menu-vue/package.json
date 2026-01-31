@@ -18,6 +18,10 @@
     "@affino/menu-core": "^1.0.0-alpha.9",
     "vue": "^3.3.0"
   },
+  "dependencies": {
+    "@affino/focus-utils": "workspace:^",
+    "@affino/overlay-host": "workspace:^"
+  },
   "devDependencies": {
     "@affino/menu-core": "workspace:^",
     "@testing-library/vue": "^8.1.0",

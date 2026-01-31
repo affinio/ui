@@ -277,6 +277,12 @@ importers:
 
   packages/menu-vue:
     dependencies:
+      '@affino/focus-utils':
+        specifier: workspace:^
+        version: link:../focus-utils
+      '@affino/overlay-host':
+        specifier: workspace:^
+        version: link:../overlay-host
       vue:
         specifier: ^3.3.0
         version: 3.5.25(typescript@5.9.3)
@@ -338,6 +344,9 @@ importers:
 
   packages/tooltip-vue:
     dependencies:
+      '@affino/overlay-host':
+        specifier: workspace:^
+        version: link:../overlay-host
       '@affino/tooltip-core':
         specifier: workspace:^
         version: link:../tooltip-core
