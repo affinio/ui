@@ -25,7 +25,7 @@ function createContext(rowCount: number, colCount: number): GridSelectionContext
   }
 }
 
-describe("selection-core geometry", () => {
+describe("grid-selection-core geometry", () => {
   it("normalizes and clamps selection areas", () => {
     const context = createContext(5, 5)
     const area: SelectionArea = { startRow: 4, endRow: 1, startCol: 5, endCol: -2 }
@@ -66,7 +66,7 @@ describe("selection-core geometry", () => {
   })
 })
 
-describe("selection-core range", () => {
+describe("grid-selection-core range", () => {
   it("creates ranges from arbitrary anchor/focus within bounds", () => {
     const context = createContext(3, 3)
     const range = createGridSelectionRange(
@@ -95,7 +95,7 @@ describe("selection-core range", () => {
   })
 })
 
-describe("selection-core operations", () => {
+describe("grid-selection-core operations", () => {
   it("detects selected cells", () => {
     const areas = [{ startRow: 1, endRow: 2, startCol: 1, endCol: 2 }]
     expect(isCellSelected(areas, 1, 1)).toBe(true)

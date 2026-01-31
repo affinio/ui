@@ -1,9 +1,9 @@
 {
-  "name": "@affino/selection-core",
-  "version": "1.0.0-alpha.3",
+  "name": "@affino/grid-selection-core",
+  "version": "0.0.1-alpha.0",
   "author": "Anton Pavlov <a.pavlov@affino.dev>",
   "type": "module",
-  "description": "Framework-agnostic headless selection primitives for linear lists and adapters",
+  "description": "Grid-based multi-range selection semantics with anchor/focus model",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -22,11 +22,9 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/affinio/affinio/tree/main/packages/selection-core"
+    "url": "https://github.com/affinio/affinio/tree/main/packages/grid-selection-core"
   },
-
   "homepage": "https://affino.dev",
-
   "license": "MIT",
   "keywords": [
     "selection",
@@ -38,8 +36,5 @@
   "devDependencies": {
     "@vitest/coverage-v8": "^4.0.15",
     "vitest": "^4.0.15"
-  },
-  "dependencies": {
-    "@affino/grid-selection-core": "workspace:*"
   }
 }

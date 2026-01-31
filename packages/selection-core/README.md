@@ -1,15 +1,16 @@
 # @affino/selection-core
 
-A framework-agnostic core for deterministic grid and range selection logic.
+Headless linear selection primitives (1D ranges) that power select, listbox, command menu, and tree adapters.
 
-> Powered by deterministic range math shared across our Vue/React demos.
+> Looking for the grid engine? Use [`@affino/grid-selection-core`](../grid-selection-core/README.md). This package now exports that API for backward compatibility while focusing on the new `linear` module.
 
 ## Features
 
-- Grid-aware range creation and normalization
-- Immutable selection operations (focus, extend, toggle, clear)
-- Pure selection store to observe changes without framework bindings
+- Normalized 1D ranges (`start`, `end`) with anchor/focus semantics
+- Immutable merge/toggle/extend helpers
+- Deterministic `resolveLinearSelectionUpdate()` snapshots for stores/renderers
 - Zero DOM dependencies so adapters stay thin
+- Re-exports of `@affino/grid-selection-core` while consumers migrate
 
 ## Non-goals
 
@@ -27,22 +28,19 @@ A framework-agnostic core for deterministic grid and range selection logic.
 ## Usage
 
 ```ts
-import { createGridSelectionRange, selectSingleCell } from "@affino/selection-core"
-import { createSelectionStore } from "@affino/selection-core/store"
+import {
+  addLinearRange,
+  resolveLinearSelectionUpdate,
+  toggleLinearRange,
+} from "@affino/selection-core"
 
-const context = { grid: { rowCount: 100, colCount: 26 } }
-const store = createSelectionStore()
+let state = resolveLinearSelectionUpdate({ ranges: [{ start: 2, end: 2 }], activeRangeIndex: 0 })
+state = {
+  ...state,
+  ranges: toggleLinearRange(state.ranges, { start: 5, end: 7 }),
+}
 
-const result = selectSingleCell({
-  point: { rowIndex: 2, colIndex: 4 },
-  context,
-})
-
-store.applyResult(result)
+const merged = addLinearRange(state.ranges, { start: 3, end: 4 })
 ```
 
-See the `/demo-vue` selection page `https://www.affino.dev` for an interactive example of clicking,
-shift-extending, meta toggling, and drag selection powered by `@affino/selection-core`.
-
-Adapters for Vue/React live alongside the demo code and translate pointer/keyboard
-input into pure selection operations.
+See `/demo-vue` (listbox WIP) for an interactive example, and use `@affino/grid-selection-core` for existing spreadsheet demos.
