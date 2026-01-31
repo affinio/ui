@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest"
 import {
   addLinearRange,
+  clearLinearSelection,
   emptyLinearSelectionState,
+  extendLinearSelectionToIndex,
   mergeLinearRanges,
   removeLinearRange,
   resolveLinearSelectionUpdate,
+  selectLinearIndex,
+  toggleLinearIndex,
   toggleLinearRange,
 } from ".."
 
@@ -75,5 +79,38 @@ describe("linear selection state", () => {
   it("returns an empty snapshot when no ranges are provided", () => {
     const state = resolveLinearSelectionUpdate({ ranges: [], activeRangeIndex: 0 })
     expect(state).toEqual(emptyLinearSelectionState())
+  })
+})
+
+describe("linear selection operations", () => {
+  it("selects a single index and seeds anchor/focus", () => {
+    const state = selectLinearIndex({ index: 5 })
+    expect(state.ranges).toEqual([{ start: 5, end: 5 }])
+    expect(state.anchor).toBe(5)
+    expect(state.focus).toBe(5)
+  })
+
+  it("extends from the current anchor when shift-selecting", () => {
+    const base = selectLinearIndex({ index: 2 })
+    const extended = extendLinearSelectionToIndex({ state: base, index: 6 })
+    expect(extended.ranges).toEqual([{ start: 2, end: 6 }])
+    expect(extended.anchor).toBe(2)
+    expect(extended.focus).toBe(6)
+  })
+
+  it("toggles individual indices and clears when empty", () => {
+    const selected = selectLinearIndex({ index: 3 })
+    const toggledOff = toggleLinearIndex({ state: selected, index: 3 })
+    expect(toggledOff).toEqual(emptyLinearSelectionState())
+
+    const multi = toggleLinearIndex({ state: selected, index: 7 })
+    expect(multi.ranges).toEqual([
+      { start: 3, end: 3 },
+      { start: 7, end: 7 },
+    ])
+  })
+
+  it("clears selection snapshots", () => {
+    expect(clearLinearSelection()).toEqual(emptyLinearSelectionState())
   })
 })

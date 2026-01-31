@@ -80,6 +80,9 @@ importers:
       '@affino/selection-core':
         specifier: workspace:*
         version: link:../packages/selection-core
+      '@affino/selection-vue':
+        specifier: workspace:*
+        version: link:../packages/selection-vue
       '@affino/tooltip-vue':
         specifier: workspace:*
         version: link:../packages/tooltip-vue
@@ -360,6 +363,22 @@ importers:
       vitest:
         specifier: ^4.0.15
         version: 4.0.15(@types/node@24.10.4)(jiti@2.6.1)(jsdom@27.3.0(postcss@8.5.6))(lightningcss@1.30.2)(terser@5.46.0)
+
+  packages/selection-vue:
+    dependencies:
+      '@affino/selection-core':
+        specifier: workspace:^
+        version: link:../selection-core
+    devDependencies:
+      '@vitest/coverage-v8':
+        specifier: ^4.0.15
+        version: 4.0.15(vitest@4.0.15(@types/node@24.10.4)(jiti@2.6.1)(jsdom@27.3.0(postcss@8.5.6))(lightningcss@1.30.2)(terser@5.46.0))
+      vitest:
+        specifier: ^4.0.15
+        version: 4.0.15(@types/node@24.10.4)(jiti@2.6.1)(jsdom@27.3.0(postcss@8.5.6))(lightningcss@1.30.2)(terser@5.46.0)
+      vue:
+        specifier: ^3.4.0
+        version: 3.5.25(typescript@5.9.3)
 
   packages/surface-core:
     devDependencies:

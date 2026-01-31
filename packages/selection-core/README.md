@@ -3,6 +3,8 @@
 Headless linear selection primitives (1D ranges) that power select, listbox, command menu, and tree adapters.
 
 > Looking for the grid engine? Use [`@affino/grid-selection-core`](../grid-selection-core/README.md). This package now exports that API for backward compatibility while focusing on the new `linear` module.
+>
+> Need Vue bindings for linear selections? Reach for [`@affino/selection-vue`](../selection-vue/README.md).
 
 ## Features
 

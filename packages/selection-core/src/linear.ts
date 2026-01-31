@@ -20,6 +20,20 @@ export interface ResolveLinearSelectionInput {
 
 export type ResolveLinearSelectionResult = LinearSelectionState
 
+export interface SelectLinearIndexInput {
+  readonly index: number
+}
+
+export interface ExtendLinearSelectionInput {
+  readonly state: LinearSelectionState
+  readonly index: number
+}
+
+export interface ToggleLinearIndexInput {
+  readonly state: LinearSelectionState
+  readonly index: number
+}
+
 export function normalizeLinearRange(range: LinearRange): LinearRange {
   const start = sanitizeIndex(range.start)
   const end = sanitizeIndex(range.end)
@@ -98,6 +112,62 @@ export function resolveLinearSelectionUpdate(input: ResolveLinearSelectionInput)
     anchor,
     focus,
   }
+}
+
+export function selectLinearIndex(input: SelectLinearIndexInput): LinearSelectionState {
+  const target = sanitizeIndex(input.index)
+  return resolveLinearSelectionUpdate({
+    ranges: [{ start: target, end: target }],
+    activeRangeIndex: 0,
+    anchor: target,
+    focus: target,
+  })
+}
+
+export function extendLinearSelectionToIndex(input: ExtendLinearSelectionInput): LinearSelectionState {
+  const { state } = input
+  if (!state.ranges.length) {
+    return selectLinearIndex({ index: input.index })
+  }
+
+  const activeIndex = clampIndex(state.activeRangeIndex < 0 ? 0 : state.activeRangeIndex, 0, state.ranges.length - 1)
+  const anchor = state.anchor ?? state.ranges[activeIndex]?.start ?? sanitizeIndex(input.index)
+  const focus = sanitizeIndex(input.index)
+  const nextRange = normalizeLinearRange({ start: anchor, end: focus })
+  const ranges = state.ranges.slice()
+  ranges[activeIndex] = nextRange
+
+  return resolveLinearSelectionUpdate({
+    ranges,
+    activeRangeIndex: activeIndex,
+    anchor,
+    focus,
+  })
+}
+
+export function toggleLinearIndex(input: ToggleLinearIndexInput): LinearSelectionState {
+  const focus = sanitizeIndex(input.index)
+  const nextRanges = toggleLinearRange(input.state.ranges, { start: focus, end: focus })
+
+  if (!nextRanges.length) {
+    return emptyLinearSelectionState()
+  }
+
+  const maxIndex = nextRanges.length - 1
+  const preferredIndex = input.state.activeRangeIndex >= 0 ? input.state.activeRangeIndex : maxIndex
+  const activeRangeIndex = clampIndex(preferredIndex, 0, maxIndex)
+  const anchor = input.state.anchor ?? focus
+
+  return resolveLinearSelectionUpdate({
+    ranges: nextRanges,
+    activeRangeIndex,
+    anchor,
+    focus,
+  })
+}
+
+export function clearLinearSelection(): LinearSelectionState {
+  return emptyLinearSelectionState()
 }
 
 export function emptyLinearSelectionState(): LinearSelectionState {
