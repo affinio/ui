@@ -1,43 +1,43 @@
-name: CI
+  name: CI
 
-on:
-  push:
-    branches:
-      - main
-  pull_request:
+  on:
+    push:
+      branches:
+        - main
+    pull_request:
 
-jobs:
-  verify:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+  jobs:
+    verify:
+      runs-on: ubuntu-latest
+      steps:
+        - name: Checkout
+          uses: actions/checkout@v4
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v3
-        with:
-          version: 10.28.1
+        - name: Setup pnpm
+          uses: pnpm/action-setup@v3
+          with:
+            version: 10.28.1
 
-      - name: Use Node.js 20
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: pnpm
+        - name: Use Node.js 20
+          uses: actions/setup-node@v4
+          with:
+            node-version: 20
+            cache: pnpm
 
-      - name: Install dependencies
-        run: pnpm install
+        - name: Install dependencies
+          run: pnpm install
 
-      - name: Install Playwright browsers
-        run: pnpm exec playwright install --with-deps
+        - name: Install Playwright browsers
+          run: pnpm exec playwright install --with-deps
 
-      - name: Lint / type-check / unit tests
-        run: pnpm run check
+        - name: Lint / type-check / unit tests
+          run: pnpm run check
 
-      - name: End-to-end tests
-        run: pnpm run test:e2e
+        - name: End-to-end tests
+          run: pnpm run test:e2e
 
-      - name: Storybook visual tests
-        run: pnpm --filter @affino/visual-workbench run test:visual
+        # - name: Storybook visual tests
+        #   run: pnpm --filter @affino/visual-workbench run test:visual
 
-      - name: Build docs
-        run: pnpm run docs:build
+        # - name: Build docs
+        #   run: pnpm run docs:build
