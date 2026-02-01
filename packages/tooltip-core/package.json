@@ -1,6 +1,6 @@
 {
   "name": "@affino/tooltip-core",
-  "version": "0.1.0-alpha.1",
+  "version": "1.0.0",
   "author": "Anton Pavlov <a.pavlov@affino.dev>",
   "type": "module",
   "description": "Headless tooltip controller powered by @affino/surface-core",

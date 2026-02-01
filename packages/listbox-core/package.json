@@ -1,6 +1,6 @@
 {
   "name": "@affino/listbox-core",
-  "version": "0.0.1-alpha.0",
+  "version": "1.0.0",
   "author": "Anton Pavlov <a.pavlov@affino.dev>",
   "type": "module",
   "description": "Headless listbox state machine built on @affino/selection-core",

@@ -1,6 +1,6 @@
 {
   "name": "@affino/tooltip-vue",
-  "version": "0.1.0-alpha.1",
+  "version": "1.0.0",
   "author": "Anton Pavlov <a.pavlov@affino.dev>",
   "type": "module",
   "description": "Vue 3 composables for the @affino/tooltip-core controller",

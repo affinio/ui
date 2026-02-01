@@ -1,6 +1,6 @@
 {
   "name": "@affino/menu-react",
-  "version": "1.0.0-alpha.5",
+  "version": "1.0.0",
   "author": "Anton Pavlov <a.pavlov@affino.dev>",
   "type": "module",
   "description": "Headless React menu components powered by @affino/menu-core",
@@ -15,7 +15,7 @@
     "./styles.css": "./dist/styles.css"
   },
   "peerDependencies": {
-    "@affino/menu-core": "^1.0.0-alpha.9",
+    "@affino/menu-core": "^1.0.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },

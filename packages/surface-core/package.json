@@ -1,6 +1,6 @@
 {
   "name": "@affino/surface-core",
-  "version": "1.0.0-alpha.1",
+  "version": "1.0.0",
   "author": "Anton Pavlov <a.pavlov@affino.dev>",
   "type": "module",
   "description": "Framework-agnostic interaction kernel for floating surfaces (menus, tooltips, popovers)",

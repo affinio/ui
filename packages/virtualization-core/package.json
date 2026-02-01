@@ -1,6 +1,6 @@
 {
   "name": "@affino/virtualization-core",
-  "version": "1.0.0-alpha.3",
+  "version": "1.0.0",
   "author": "Anton Pavlov <a.pavlov@affino.dev>",
   "type": "module",
   "description": "Framework-agnostic headless virtualization math for grids and scrolling surfaces",
@@ -24,9 +24,7 @@
     "type": "git",
     "url": "https://github.com/affinio/affinio/tree/main/packages/virtualization-core"
   },
-
   "homepage": "https://affino.dev",
-
   "license": "MIT",
   "keywords": [
     "virtualization",

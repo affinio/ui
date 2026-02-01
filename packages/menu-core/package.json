@@ -1,42 +1,33 @@
 {
   "name": "@affino/menu-core",
-  "version": "1.0.0-alpha.9",
+  "version": "1.0.0",
   "author": "Anton Pavlov <a.pavlov@affino.dev>",
   "type": "module",
-
   "description": "Framework-agnostic headless menu engine with smart mouse prediction, keyboard navigation, and nested submenus",
-
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     }
   },
-
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-
   "files": [
     "dist"
   ],
-
   "sideEffects": false,
   "dependencies": {
     "@affino/surface-core": "workspace:^"
   },
-
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run"
   },
-
   "repository": {
     "type": "git",
     "url": "https://github.com/affinio/affinio/tree/main/packages/menu-core"
   },
-
   "homepage": "https://affino.dev",
-
   "keywords": [
     "menu",
     "dropdown",
@@ -59,7 +50,6 @@
     "headless-ui"
   ],
   "license": "MIT",
-  
   "devDependencies": {
     "@vitest/coverage-v8": "^4.0.15",
     "vitest": "^4.0.15"
