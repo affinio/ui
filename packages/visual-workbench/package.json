@@ -19,6 +19,7 @@
     "concurrently": "^8.2.2",
     "http-server": "^14.1.1",
     "storybook": "^8.6.15",
+    "ts-node": "^10.9.2",
     "vue": "^3.5.25",
     "wait-on": "^7.2.0"
   }
