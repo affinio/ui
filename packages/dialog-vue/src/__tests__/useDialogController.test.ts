@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { useDialogController } from "../useDialogController.js"
 
 function nextTick(): Promise<void> {
@@ -27,5 +27,27 @@ describe("useDialogController", () => {
 
     binding.open()
     expect(binding.snapshot.value.phase).toBe("idle")
+  })
+
+  it("relays overlay registrations when a registrar is provided", async () => {
+    const unregister = vi.fn()
+    const register = vi.fn().mockReturnValue(unregister)
+    const isTopMost = vi.fn().mockReturnValue(true)
+
+    const binding = useDialogController({
+      overlayRegistrar: {
+        register,
+        isTopMost,
+      },
+    })
+
+    binding.open()
+    expect(register).toHaveBeenCalledTimes(1)
+    const overlay = register.mock.calls[0][0]
+    expect(overlay).toMatchObject({ kind: "dialog" })
+
+    await binding.close("backdrop")
+    expect(isTopMost).toHaveBeenCalledWith(overlay.id)
+    expect(unregister).toHaveBeenCalledTimes(1)
   })
 })

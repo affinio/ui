@@ -162,6 +162,7 @@ describe("DialogController", () => {
     const controller = new DialogController({
       overlayRegistrar: {
         register,
+        isTopMost: () => true,
       },
     })
 
@@ -176,6 +177,59 @@ describe("DialogController", () => {
     dispose()
     expect(unregister).toHaveBeenCalledTimes(1)
     expect(events).toEqual(["registered:primary", "unregistered:primary"])
+  })
+
+  it("registers itself with the registrar on open and unregisters on close", async () => {
+    const unregister = vi.fn()
+    const register = vi.fn().mockReturnValue(unregister)
+    const controller = new DialogController({
+      overlayRegistrar: {
+        register,
+        isTopMost: () => true,
+      },
+    })
+
+    controller.open()
+    expect(register).toHaveBeenCalledTimes(1)
+    const registration = register.mock.calls[0][0]
+    expect(registration).toMatchObject({ kind: "dialog" })
+
+    await controller.close("programmatic")
+    expect(unregister).toHaveBeenCalledTimes(1)
+  })
+
+  it("rejects backdrop closes when the registrar reports a lower stacking depth", async () => {
+    const register = vi.fn()
+    const isTopMost = vi.fn().mockReturnValue(false)
+    const controller = new DialogController({
+      defaultOpen: true,
+      overlayRegistrar: {
+        register,
+        isTopMost,
+      },
+    })
+
+    const registration = register.mock.calls[0][0]
+    const didClose = await controller.close("backdrop")
+    expect(didClose).toBe(false)
+    expect(isTopMost).toHaveBeenCalledWith(registration.id)
+    expect(controller.snapshot.isOpen).toBe(true)
+  })
+
+  it("always accepts programmatic closes regardless of registrar state", async () => {
+    const register = vi.fn()
+    const isTopMost = vi.fn().mockReturnValue(false)
+    const controller = new DialogController({
+      defaultOpen: true,
+      overlayRegistrar: {
+        register,
+        isTopMost,
+      },
+    })
+
+    const didClose = await controller.close("programmatic")
+    expect(didClose).toBe(true)
+    expect(isTopMost).not.toHaveBeenCalled()
   })
 
   it("notifies when pending close attempts reach the configured limit", async () => {

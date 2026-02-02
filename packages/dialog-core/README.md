@@ -142,7 +142,7 @@ The controller only calls `activate` once per open cycle and automatically invok
 | `maxPendingAttempts` | `number` | ESC spam ceiling before firing `onPendingCloseLimitReached`. |
 | `lifecycle` | `DialogLifecycleHooks` | `before/after` open + close callbacks. |
 | `focusOrchestrator` | `DialogFocusOrchestrator` | Hook to your focus trap/return target logic. |
-| `overlayRegistrar` | `OverlayRegistrar` | Bridge into an external overlay manager. |
+| `overlayRegistrar` | `OverlayRegistrar` | Bridge into an external overlay manager (must expose `register` + `isTopMost`). |
 | `onSnapshot` | `(snapshot) => void` | Shortcut subscription invoked immediately + on change. |
 | `onPendingCloseAttempt` | `(info) => void` | Called every time a guard is already pending and a new request arrives. |
 | `onPendingCloseLimitReached` | `(info) => void` | Fired once per pending cycle when attempts reach the configured limit. |
@@ -157,6 +157,7 @@ The controller only calls `activate` once per open cycle and automatically invok
 | `subscribe(listener)` | Receive snapshots; returns an unsubscribe function. |
 | `on(event, listener)` | Listen to `phase-change`, `open`, `close`, `overlay-registered`, `overlay-unregistered`. |
 | `registerOverlay(registration)` | Relay to an external registrar and emit overlay events; returns disposer. |
+| `canHandleClose(reason)` | Returns `true` if the controller is allowed to process the close request (top-most checks happen automatically). |
 | `canStackOver(kind)` / `closeStrategyFor(kind)` | Consult interaction matrix before stacking new overlays. |
 | `getPendingCloseAttempts()` | Inspect how many retries happened during the active guard. |
 | `destroy(reason?)` | Clear subscribers, event listeners, guard state, and deactivate focus orchestration. |

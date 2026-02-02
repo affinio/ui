@@ -23,6 +23,12 @@ import { createOverlayInteractionMatrix } from "./overlay/interactionMatrix.js"
 import type { OverlayInteractionMatrix } from "./overlay/interactionMatrix.js"
 
 const DEFAULT_PENDING_MESSAGE = "Dialog close pending"
+let controllerId = 0
+
+function createDialogId(prefix = "affino-dialog") {
+  controllerId += 1
+  return `${prefix}-${controllerId}`
+}
 
 export class DialogController {
   private phase: DialogPhase
@@ -41,6 +47,8 @@ export class DialogController {
   private readonly lifecycle: DialogLifecycleHooks
   private readonly focusOrchestrator?: DialogFocusOrchestrator
   private readonly overlayRegistrar?: OverlayRegistrar
+  private readonly overlayId: string
+  private selfOverlayDisposer: (() => void) | null = null
   private focusActive = false
   private destroyed = false
 
@@ -52,8 +60,12 @@ export class DialogController {
     this.lifecycle = options.lifecycle ?? {}
     this.focusOrchestrator = options.focusOrchestrator
     this.overlayRegistrar = options.overlayRegistrar
+    this.overlayId = options.id ?? createDialogId()
     if (options.onSnapshot) {
       this.subscribe(options.onSnapshot)
+    }
+    if (this.phase === "open") {
+      this.registerSelfOverlay()
     }
   }
 
@@ -74,6 +86,7 @@ export class DialogController {
   destroy(reason: DialogCloseReason = "programmatic"): void {
     if (this.destroyed) return
     this.destroyed = true
+    this.unregisterSelfOverlay()
     this.subscribers.clear()
     this.eventListeners.clear()
     this.guardPromise = null
@@ -115,6 +128,7 @@ export class DialogController {
     this.guardMessage = undefined
     this.runOpenLifecycle("beforeOpen", context)
     this.transition("opening")
+    this.registerSelfOverlay()
     this.activateFocus(context)
     this.transition("open", { openReason: reason })
     this.runOpenLifecycle("afterOpen", context)
@@ -132,6 +146,10 @@ export class DialogController {
     }
 
     if (this.phase === "closing" && !this.guardPromise) {
+      return false
+    }
+
+    if (!this.canHandleClose(reason)) {
       return false
     }
 
@@ -230,6 +248,16 @@ export class DialogController {
     return this.pendingAttempts
   }
 
+  canHandleClose(reason: DialogCloseReason): boolean {
+    if (!this.overlayRegistrar) {
+      return true
+    }
+    if (reason !== "backdrop" && reason !== "escape-key") {
+      return true
+    }
+    return this.overlayRegistrar.isTopMost(this.overlayId)
+  }
+
   private enterClosing(reason: DialogCloseReason): void {
     if (this.phase !== "closing") {
       this.runCloseLifecycle("beforeClose", { reason })
@@ -259,6 +287,7 @@ export class DialogController {
       const reason = context?.closeReason ?? this.lastReason ?? "programmatic"
       this.emitEvent("close", { reason, snapshot: this.snapshot })
       this.runCloseLifecycle("afterClose", { reason })
+      this.unregisterSelfOverlay()
       this.deactivateFocus({ reason })
     }
   }
@@ -308,5 +337,20 @@ export class DialogController {
       attempt: this.pendingAttempts,
       limit,
     })
+  }
+
+  private registerSelfOverlay(): void {
+    if (this.selfOverlayDisposer) {
+      return
+    }
+    this.selfOverlayDisposer = this.registerOverlay({ id: this.overlayId, kind: this.overlayKind })
+  }
+
+  private unregisterSelfOverlay(): void {
+    if (!this.selfOverlayDisposer) {
+      return
+    }
+    this.selfOverlayDisposer()
+    this.selfOverlayDisposer = null
   }
 }

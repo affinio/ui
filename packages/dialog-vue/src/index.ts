@@ -6,3 +6,12 @@ export type {
   DialogFocusOrchestratorOptions,
   MaybeElementAccessor,
 } from "./createDialogFocusOrchestrator.js"
+export {
+  createDialogOverlayRegistrar,
+  provideDialogOverlayRegistrar,
+  useDialogOverlayRegistrar,
+} from "./overlayRegistrar.js"
+export type {
+  DialogOverlayRegistrar,
+  DialogOverlayRegistrarOptions,
+} from "./overlayRegistrar.js"

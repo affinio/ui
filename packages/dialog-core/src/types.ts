@@ -57,6 +57,7 @@ export interface OverlayRegistration {
 
 export interface OverlayRegistrar {
   register: (overlay: OverlayRegistration) => (() => void) | void
+  isTopMost: (id: string) => boolean
 }
 
 export interface DialogOpenContext {

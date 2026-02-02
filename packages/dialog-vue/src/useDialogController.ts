@@ -8,6 +8,7 @@ import {
   type DialogCloseReason,
   type CloseRequestOptions,
 } from "@affino/dialog-core"
+import { useDialogOverlayRegistrar } from "./overlayRegistrar.js"
 
 export type UseDialogControllerOptions = DialogControllerOptions
 
@@ -23,7 +24,12 @@ export interface DialogControllerBinding {
 }
 
 export function useDialogController(options: UseDialogControllerOptions = {}): DialogControllerBinding {
-  const controller = new DialogController(options)
+  const resolvedOverlayRegistrar = options.overlayRegistrar ?? useDialogOverlayRegistrar() ?? undefined
+  const controllerOptions: DialogControllerOptions = {
+    ...options,
+    overlayRegistrar: resolvedOverlayRegistrar,
+  }
+  const controller = new DialogController(controllerOptions)
   const snapshot = shallowRef<DialogSnapshot>(controller.snapshot)
   const unsubscribe = controller.subscribe((next: DialogSnapshot) => {
     snapshot.value = next
