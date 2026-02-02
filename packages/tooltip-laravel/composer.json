@@ -1,0 +1,22 @@
+{
+    "name": "affino/tooltip-laravel",
+    "description": "Headless Laravel tooltip primitives backed by @affino/tooltip-core semantics.",
+    "type": "library",
+    "license": "MIT",
+    "require": {
+        "php": "^8.2",
+        "livewire/livewire": "^3.0 || ^4.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Affino\\Tooltip\\Laravel\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Affino\\Tooltip\\Laravel\\AffinoTooltipServiceProvider"
+            ]
+        }
+    }
+}
