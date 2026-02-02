@@ -1,6 +1,6 @@
 {
   "name": "@affino/dialog-core",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "Anton Pavlov <a.pavlov@affino.dev>",
   "type": "module",
   "description": "Headless dialog/overlay engine with async guards, focus orchestration, and mobile keyboard resilience",
