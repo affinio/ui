@@ -175,6 +175,8 @@ function hydrateResolvedListbox(root: RootEl, trigger: HTMLElement, surface: HTM
 
   const handleTriggerClick = (event: MouseEvent) => {
     event.preventDefault()
+    event.stopPropagation()
+    event.stopImmediatePropagation()
     if (disabled) {
       return
     }
@@ -319,7 +321,10 @@ function hydrateResolvedListbox(root: RootEl, trigger: HTMLElement, surface: HTM
     if (index === -1 || index === state.activeIndex) {
       return
     }
-    const next = activateListboxIndex({ state, context, index })
+    const next: ListboxState = {
+      selection: state.selection,
+      activeIndex: index,
+    }
     applyState(next)
   }
   surface.addEventListener("pointermove", handleSurfacePointerMove)
@@ -408,13 +413,16 @@ function hydrateResolvedListbox(root: RootEl, trigger: HTMLElement, surface: HTM
     if (listboxStatesEqual(state, next)) {
       return
     }
+    const selectionChanged = !linearSelectionsEqual(state.selection, next.selection)
     state = cloneListboxState(next)
     context = {
       optionCount: options.length,
       isDisabled: (index) => options[index]?.dataset.affinoListboxDisabled === "true",
     }
     syncSelectionAttributes()
-    pushSelectionChanges()
+    if (selectionChanged) {
+      pushSelectionChanges()
+    }
   }
 
   function syncSelectionAttributes() {
@@ -464,8 +472,9 @@ function hydrateResolvedListbox(root: RootEl, trigger: HTMLElement, surface: HTM
     }
     const snapshotPayload = mode === "multiple" ? values : values[0] ?? null
     const serializedLivewire = JSON.stringify(snapshotPayload)
-    if (serializedLivewire !== livewireSyncCache) {
-      livewireSyncCache = serializedLivewire
+    const pendingLivewireSync = serializedLivewire !== livewireSyncCache
+    livewireSyncCache = serializedLivewire
+    if (pendingLivewireSync && !options?.silent) {
       syncLivewireModel(root, snapshotPayload)
     }
     if (!options?.silent) {
