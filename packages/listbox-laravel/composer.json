@@ -1,0 +1,22 @@
+{
+    "name": "affino/listbox-laravel",
+    "description": "Headless Laravel listbox primitives backed by @affino/listbox-core.",
+    "type": "library",
+    "license": "MIT",
+    "require": {
+        "php": "^8.2",
+        "livewire/livewire": "^3.0 || ^4.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Affino\\Listbox\\Laravel\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Affino\\Listbox\\Laravel\\AffinoListboxServiceProvider"
+            ]
+        }
+    }
+}
