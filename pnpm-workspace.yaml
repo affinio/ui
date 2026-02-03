@@ -1,6 +1,7 @@
 packages:
   - packages/*
   - demo-vue
+  - demo-laravel
   - docs-site
 
 onlyBuiltDependencies:

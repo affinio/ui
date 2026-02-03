@@ -1,5 +1,5 @@
 import { SurfaceCore } from "@affino/surface-core"
-import type { SurfaceState } from "@affino/surface-core"
+import type { PointerEventLike, SurfaceState } from "@affino/surface-core"
 import type {
   TooltipCallbacks,
   TooltipContentProps,
@@ -14,6 +14,8 @@ import type {
 } from "../types"
 
 export class TooltipCore extends SurfaceCore<TooltipState, TooltipCallbacks> {
+  private focusWithin = false
+
   constructor(options: TooltipOptions = {}, callbacks: TooltipCallbacks = {}) {
     super(options, callbacks)
   }
@@ -37,8 +39,14 @@ export class TooltipCore extends SurfaceCore<TooltipState, TooltipCallbacks> {
         this.timers.scheduleOpen(() => this.open("pointer"))
       },
       onPointerLeave: (event) => this.handlePointerLeave(event),
-      onFocus: () => this.open("keyboard"),
-      onBlur: () => this.close("keyboard"),
+      onFocus: () => {
+        this.focusWithin = true
+        this.open("keyboard")
+      },
+      onBlur: () => {
+        this.focusWithin = false
+        this.close("keyboard")
+      },
     }
   }
 
@@ -67,6 +75,13 @@ export class TooltipCore extends SurfaceCore<TooltipState, TooltipCallbacks> {
       "aria-hidden": state === "open" ? "false" : "true",
       "data-state": state,
     }
+  }
+
+  protected override shouldIgnorePointerLeave(event?: PointerEventLike): boolean {
+    if (this.focusWithin) {
+      return true
+    }
+    return super.shouldIgnorePointerLeave(event)
   }
 
   private get triggerId() {

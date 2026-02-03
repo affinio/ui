@@ -150,6 +150,7 @@ export class SurfaceCore<
       this.cancelPendingClose()
       return
     }
+    this.timers.cancelOpen()
     this.timers.scheduleClose(() => this.close("pointer"))
   }
 }
