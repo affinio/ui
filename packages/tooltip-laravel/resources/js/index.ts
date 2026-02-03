@@ -46,6 +46,7 @@ type RootEl = HTMLElement & {
 		affinoTooltipOpenDelay?: string
 		affinoTooltipCloseDelay?: string
 		affinoTooltipTriggerMode?: string
+		affinoTooltipPinned?: string
 	}
 	affinoTooltip?: TooltipHandle
 }
@@ -262,6 +263,14 @@ export function hydrateTooltip(root: RootEl): void {
 		global.__affinoRestorerSetCount = (global.__affinoRestorerSetCount ?? 0) + 1
 	}
 
+	if (isPinnedTooltip(root)) {
+		requestAnimationFrame(() => {
+			if (root.isConnected && isPinnedTooltip(root)) {
+				tooltip.open("programmatic")
+			}
+		})
+	}
+
 	registry.set(root, (options = {}) => {
 		const releaseFocus = options.releaseFocus !== false
 		if (activeTooltipRoot === root) {
@@ -311,6 +320,10 @@ function resolveFocusableTarget(trigger: HTMLElement | null): HTMLElement | null
 	}
 
 	return isFocusableElement(trigger) ? trigger : null
+}
+
+function isPinnedTooltip(root: RootEl): boolean {
+	return root.dataset.affinoTooltipPinned === "true"
 }
 
 function bindProps(element: HTMLElement, props: Record<string, unknown>): Cleanup {
