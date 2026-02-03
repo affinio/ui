@@ -16,11 +16,31 @@ Import the helper in your `resources/js/app.ts` (Laravel + Vite):
 
 ```ts
 import { bootstrapAffinoTooltips } from "@affino/tooltip-laravel"
+import "./bootstrap"
 
 bootstrapAffinoTooltips()
 ```
 
 The bootstrapper registers a mutation observer and Livewire DOM hooks so tooltips hydrate automatically, even after partial page updates.
+
+If you plan to drive tooltips manually (Mode 03 in the demo), wire a tiny bridge that listens for Livewire dispatch events and calls the controller:
+
+```ts
+const MANUAL_EVENT = "affino-tooltip:manual"
+
+document.addEventListener(MANUAL_EVENT, (event) => {
+    const detail = (event as CustomEvent<{ id: string; action: "open" | "close" | "toggle"; reason?: string }>).detail
+    if (!detail?.id || !detail?.action) return
+
+    const root = document.querySelector<HTMLElement>(`[data-affino-tooltip-root="${CSS.escape(detail.id)}"]`)
+    const controller = root?.affinoTooltip
+    if (!controller) return
+
+    controller[detail.action](detail.reason ?? "programmatic")
+})
+```
+
+Livewire components can then call `$dispatch('affino-tooltip:manual', { id: 'manual-tip', action: 'open' })` without reaching into the DOM.
 
 ## Basic usage
 
@@ -83,6 +103,22 @@ const tooltipRoot = document.querySelector('[data-affino-tooltip-root="sla-toolt
 
 tooltipRoot?.affinoTooltip?.open("programmatic")
 ```
+
+### Keeping manual tooltips pinned through morphs
+
+Livewire re-renders can temporarily unmount the tooltip root. If you need a manual tooltip to remain open across those morphs, add a `data-affino-tooltip-pinned="true"` attribute to the Blade component whenever the server-side state says it should stay visible:
+
+```blade
+<x-affino-tooltip
+    tooltip-id="manual-tip"
+    trigger="manual"
+    :data-affino-tooltip-pinned="$isPinned ? 'true' : 'false'"
+>
+    ...
+</x-affino-tooltip>
+```
+
+When hydration runs, the controller re-opens any tooltip marked as pinned so the UI stays in sync with Livewire’s boolean.
 
 ## Roadmap
 

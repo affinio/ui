@@ -421,12 +421,12 @@ function bindTriggerModeListeners(
 	if (mode === "hover" || mode === "hover-focus") {
 		if (events.onPointerEnter) {
 			const hoverEnter: EventListener = (event) => events.onPointerEnter?.(event as unknown as PointerEvent)
-			add("mouseenter", hoverEnter)
+			add("pointerenter", hoverEnter)
 		}
 
 		if (events.onPointerLeave) {
 			const hoverLeave: EventListener = (event) => events.onPointerLeave?.(event as unknown as PointerEvent)
-			add("mouseleave", hoverLeave)
+			add("pointerleave", hoverLeave)
 		}
 	}
 
