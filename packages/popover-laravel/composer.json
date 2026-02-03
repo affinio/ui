@@ -1,0 +1,22 @@
+{
+    "name": "affino/popover-laravel",
+    "description": "Headless Laravel popover primitives backed by @affino/popover-core semantics.",
+    "type": "library",
+    "license": "MIT",
+    "require": {
+        "php": "^8.2",
+        "livewire/livewire": "^3.0 || ^4.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Affino\\Popover\\Laravel\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Affino\\Popover\\Laravel\\AffinoPopoverServiceProvider"
+            ]
+        }
+    }
+}

@@ -326,6 +326,14 @@ function isPinnedTooltip(root: RootEl): boolean {
 	return root.dataset.affinoTooltipPinned === "true"
 }
 
+function isManualTooltip(root: RootEl): boolean {
+	return resolveTriggerMode(root.dataset.affinoTooltipTriggerMode) === "manual"
+}
+
+function isPersistentTooltip(root: RootEl): boolean {
+	return isPinnedTooltip(root) || isManualTooltip(root)
+}
+
 function bindProps(element: HTMLElement, props: Record<string, unknown>): Cleanup {
 	const disposers: Cleanup[] = []
 
@@ -476,10 +484,13 @@ function attachTooltipHandle(root: RootEl, tooltip: TooltipCore): Cleanup {
 }
 
 function ensureSingleActiveTooltip(nextRoot: RootEl) {
-	if (activeTooltipRoot && activeTooltipRoot !== nextRoot) {
+	// Core contract: only one auto-managed surface stays open. Manual or pinned tooltips opt out.
+	if (activeTooltipRoot && activeTooltipRoot !== nextRoot && !isPersistentTooltip(activeTooltipRoot)) {
 		closeTooltipRoot(activeTooltipRoot, "programmatic")
 	}
-	activeTooltipRoot = nextRoot
+	if (!isPersistentTooltip(nextRoot)) {
+		activeTooltipRoot = nextRoot
+	}
 }
 
 function closeTooltipRoot(root: RootEl, reason: TooltipReason = "programmatic") {
@@ -601,7 +612,7 @@ function maybeCloseActiveTooltip(reason: TooltipReason) {
 
 function shouldSkipPointerGuard(root: RootEl): boolean {
 	const mode = resolveTriggerMode(root.dataset.affinoTooltipTriggerMode)
-	return mode === "manual" || mode === "click" || mode === "focus"
+	return mode === "manual" || mode === "click" || mode === "focus" || isPinnedTooltip(root)
 }
 
 function setupPointerIntentTracker(): void {

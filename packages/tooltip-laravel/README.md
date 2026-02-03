@@ -19,28 +19,62 @@ import { bootstrapAffinoTooltips } from "@affino/tooltip-laravel"
 import "./bootstrap"
 
 bootstrapAffinoTooltips()
+
+registerManualControllerBridge({
+    eventName: "affino-tooltip:manual",
+    rootAttribute: "data-affino-tooltip-root",
+    property: "affinoTooltip",
+    rehydrate: bootstrapAffinoTooltips,
+})
+
+function registerManualControllerBridge({ eventName, rootAttribute, property, rehydrate }) {
+    const handledFlag = "__affinoManualHandled"
+    const maxRetries = 20
+
+    const findHandle = (id: string) => {
+        const escapedId = typeof CSS !== "undefined" && typeof CSS.escape === "function" ? CSS.escape(id) : id
+        const selector = `[${rootAttribute}="${escapedId}"]`
+        const root = document.querySelector(selector) as HTMLElement | null
+        return root?.[property as keyof typeof root] as any
+    }
+
+    const invokeAction = (detail: { id: string; action: string; reason?: string }, attempt = 0) => {
+        rehydrate?.()
+        const handle = findHandle(detail.id)
+        if (!handle) {
+            if (attempt < maxRetries) {
+                requestAnimationFrame(() => invokeAction(detail, attempt + 1))
+            }
+            return
+        }
+
+        const reason = detail.reason ?? "programmatic"
+        if (detail.action === "open") return handle.open(reason)
+        if (detail.action === "close") return handle.close(reason)
+        handle.toggle()
+    }
+
+    document.addEventListener(eventName, (event) => {
+        const detail = (event as CustomEvent<{ id?: string; action?: string; reason?: string }>).detail
+        if (!(detail?.id && detail?.action)) return
+        if ((event as any)[handledFlag]) return
+        ;(event as any)[handledFlag] = true
+        invokeAction(detail as { id: string; action: string; reason?: string })
+    })
+}
 ```
 
 The bootstrapper registers a mutation observer and Livewire DOM hooks so tooltips hydrate automatically, even after partial page updates.
 
-If you plan to drive tooltips manually (Mode 03 in the demo), wire a tiny bridge that listens for Livewire dispatch events and calls the controller:
+The bridge retries while Livewire swaps DOM nodes, so `$dispatch('affino-tooltip:manual', { id: 'manual-tip', action: 'open' })` stays reliable even during morphs.
 
-```ts
-const MANUAL_EVENT = "affino-tooltip:manual"
+## Behavior contract
 
-document.addEventListener(MANUAL_EVENT, (event) => {
-    const detail = (event as CustomEvent<{ id: string; action: "open" | "close" | "toggle"; reason?: string }>).detail
-    if (!detail?.id || !detail?.action) return
-
-    const root = document.querySelector<HTMLElement>(`[data-affino-tooltip-root="${CSS.escape(detail.id)}"]`)
-    const controller = root?.affinoTooltip
-    if (!controller) return
-
-    controller[detail.action](detail.reason ?? "programmatic")
-})
-```
-
-Livewire components can then call `$dispatch('affino-tooltip:manual', { id: 'manual-tip', action: 'open' })` without reaching into the DOM.
+- Only one auto-managed tooltip stays open at a time. Manual (`trigger="manual"`) and pinned (`data-affino-tooltip-pinned="true"`) tips opt out so you can script multi-surface flows.
+- Scroll, resize, and DOM mutations trigger re-hydration so open state survives Livewire morphs. Pinned/manual tips re-open automatically after each scan.
+- Focus returns to the trigger (or its first focusable descendant) on close unless you explicitly unset the behavior.
+- The Blade component emits deterministic `data-affino-tooltip-*` attributes for the JS helper; avoid stripping them so ARIA wiring, timers, and open-state syncing keep working.
+- Styling is entirely up to you—the helper only sets positioning + visibility attributes. Keep design tokens in your own CSS so the primitives remain headless.
 
 ## Basic usage
 
