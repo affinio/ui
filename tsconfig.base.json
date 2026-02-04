@@ -21,6 +21,8 @@
       "@affino/tooltip-vue/*": ["./packages/tooltip-vue/src/*"],
       "@affino/virtualization-core": ["./packages/virtualization-core/src/index.ts"],
       "@affino/virtualization-core/*": ["./packages/virtualization-core/src/*"],
+      "@affino/overlay-kernel": ["./packages/overlay-kernel/src/index.ts"],
+      "@affino/overlay-kernel/*": ["./packages/overlay-kernel/src/*"],
       "@affino/overlay-host": ["./packages/overlay-host/src/index.ts"],
       "@affino/overlay-host/*": ["./packages/overlay-host/src/*"],
       "@affino/focus-utils": ["./packages/focus-utils/src/index.ts"],
