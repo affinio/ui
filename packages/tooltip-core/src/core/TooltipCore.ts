@@ -1,5 +1,12 @@
 import { SurfaceCore } from "@affino/surface-core"
-import type { PointerEventLike, SurfaceState } from "@affino/surface-core"
+import type { PointerEventLike, SurfaceReason, SurfaceState } from "@affino/surface-core"
+import {
+  createOverlayIntegration,
+  type OverlayCloseReason,
+  type OverlayIntegration,
+  type OverlayKind,
+  type OverlayManager,
+} from "@affino/overlay-kernel"
 import type {
   TooltipCallbacks,
   TooltipContentProps,
@@ -13,15 +20,72 @@ import type {
   TooltipArrowProps,
 } from "../types"
 
+const DEFAULT_OVERLAY_KIND: OverlayKind = "tooltip"
+
 export class TooltipCore extends SurfaceCore<TooltipState, TooltipCallbacks> {
   private focusWithin = false
+  private readonly overlayKind: OverlayKind
+  private readonly overlayIntegration: OverlayIntegration
+  private destroyed = false
 
   constructor(options: TooltipOptions = {}, callbacks: TooltipCallbacks = {}) {
     super(options, callbacks)
+    this.overlayKind = options.overlayKind ?? DEFAULT_OVERLAY_KIND
+    const overlayTraits = options.overlayEntryTraits ?? {}
+    this.overlayIntegration = createOverlayIntegration({
+      id: this.id,
+      kind: this.overlayKind,
+      traits: {
+        ownerId: overlayTraits.ownerId ?? null,
+        modal: overlayTraits.modal ?? false,
+        trapsFocus: overlayTraits.trapsFocus ?? false,
+        blocksPointerOutside: overlayTraits.blocksPointerOutside ?? false,
+        inertSiblings: overlayTraits.inertSiblings ?? false,
+        returnFocus: overlayTraits.returnFocus ?? true,
+        priority: overlayTraits.priority,
+        root: overlayTraits.root ?? null,
+        data: overlayTraits.data,
+      },
+      overlayManager: options.overlayManager ?? null,
+      getOverlayManager: options.getOverlayManager,
+      onCloseRequested: (reason) => this.handleKernelCloseRequest(reason),
+      initialState: this.surfaceState.open ? "open" : "closed",
+      releaseOnIdle: false,
+    })
+    this.overlayIntegration.syncState(this.surfaceState.open ? "open" : "closed")
   }
 
   protected override composeState(surface: SurfaceState): TooltipState {
     return surface
+  }
+
+  override destroy(): void {
+    if (this.destroyed) {
+      return
+    }
+    this.destroyed = true
+    this.overlayIntegration.destroy()
+    super.destroy()
+  }
+
+  protected override onOpened(_reason: SurfaceReason): void {
+    this.overlayIntegration.syncState("open")
+  }
+
+  protected override onClosed(_reason: SurfaceReason): void {
+    this.overlayIntegration.syncState("closed")
+  }
+
+  override close(reason: SurfaceReason = "programmatic"): void {
+    this.requestClose(reason)
+  }
+
+  requestClose(reason: SurfaceReason = "programmatic"): void {
+    this.closeWithSource(reason, "local")
+  }
+
+  getOverlayManager(): OverlayManager | null {
+    return this.overlayIntegration.getManager()
   }
 
   getTriggerProps(options: TooltipTriggerOptions = {}): TooltipTriggerProps {
@@ -45,7 +109,7 @@ export class TooltipCore extends SurfaceCore<TooltipState, TooltipCallbacks> {
       },
       onBlur: () => {
         this.focusWithin = false
-        this.close("keyboard")
+        this.requestClose("keyboard")
       },
     }
   }
@@ -90,6 +154,61 @@ export class TooltipCore extends SurfaceCore<TooltipState, TooltipCallbacks> {
 
   private get contentId() {
     return `${this.id}-content`
+  }
+
+  private closeWithSource(reason: SurfaceReason, source: "local" | "kernel"): void {
+    if (this.destroyed) {
+      return
+    }
+    if (source === "local" && this.isKernelManagedReason(reason)) {
+      const overlayReason = this.mapSurfaceReasonToOverlay(reason)
+      if (overlayReason && this.overlayIntegration.requestClose(overlayReason)) {
+        return
+      }
+    }
+    this.performClose(reason)
+  }
+
+  private performClose(reason: SurfaceReason): void {
+    super.close(reason)
+  }
+
+  protected isKernelManagedReason(reason: SurfaceReason): boolean {
+    return reason === "pointer" || reason === "keyboard"
+  }
+
+  private mapSurfaceReasonToOverlay(reason: SurfaceReason): OverlayCloseReason | null {
+    switch (reason) {
+      case "pointer":
+        return "pointer-outside"
+      case "keyboard":
+        return "escape-key"
+      case "programmatic":
+      default:
+        return "programmatic"
+    }
+  }
+
+  private mapOverlayReasonToSurface(reason: OverlayCloseReason): SurfaceReason | null {
+    switch (reason) {
+      case "pointer-outside":
+        return "pointer"
+      case "escape-key":
+        return "keyboard"
+      case "owner-close":
+      case "focus-loss":
+      case "programmatic":
+      default:
+        return "programmatic"
+    }
+  }
+
+  private handleKernelCloseRequest(reason: OverlayCloseReason): void {
+    const surfaceReason = this.mapOverlayReasonToSurface(reason)
+    if (!surfaceReason) {
+      return
+    }
+    this.closeWithSource(surfaceReason, "kernel")
   }
 }
 

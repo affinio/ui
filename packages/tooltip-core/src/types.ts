@@ -10,6 +10,7 @@ import type {
   SurfaceSubscriber,
   Subscription,
 } from "@affino/surface-core"
+import type { OverlayEntryInit, OverlayKind, OverlayManager } from "@affino/overlay-kernel"
 
 export type {
   EventHandler,
@@ -21,7 +22,12 @@ export type {
 
 export interface TooltipCallbacks extends SurfaceCallbacks {}
 
-export interface TooltipOptions extends SurfaceOptions {}
+export interface TooltipOptions extends SurfaceOptions {
+  overlayKind?: OverlayKind
+  overlayManager?: OverlayManager | null
+  getOverlayManager?: () => OverlayManager | null | undefined
+  overlayEntryTraits?: TooltipOverlayTraits
+}
 
 export interface TooltipState extends SurfaceState {}
 
@@ -87,3 +93,18 @@ export interface TooltipDescriptionProps {
   "aria-hidden": "true" | "false"
   "data-state": "open" | "closed"
 }
+
+export type TooltipOverlayTraits = Partial<
+  Pick<
+    OverlayEntryInit,
+    | "ownerId"
+    | "modal"
+    | "trapsFocus"
+    | "blocksPointerOutside"
+    | "inertSiblings"
+    | "returnFocus"
+    | "priority"
+    | "root"
+    | "data"
+  >
+>

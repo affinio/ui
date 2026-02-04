@@ -8,6 +8,7 @@ Deterministic tooltip controller powered by `@affino/surface-core`. Use it when 
 - Pointer + focus orchestration with forgiving open/close delays.
 - Geometry helpers (`computePosition`) without bringing in Popper/floating-ui.
 - Pure TypeScript with zero DOM dependencies, ready for any framework adapter.
+- Optional `@affino/overlay-kernel` integration so stacked tooltips respect global close cascades.
 
 ## Installation
 
@@ -51,6 +52,10 @@ Spread `triggerProps` across the element that owns the tooltip (usually a label 
 | `openDelay` | `number` | Milliseconds before opening on pointer intent (defaults to `80`). |
 | `closeDelay` | `number` | Milliseconds before closing on pointer leave (defaults to `150`). |
 | `defaultOpen` | `boolean` | Start the tooltip in the open state, useful for SSR previews. |
+| `overlayKind` | `OverlayKind` | Forwarded to `@affino/overlay-kernel` (defaults to `"tooltip"`). |
+| `overlayManager` | `OverlayManager` | Inject a kernel instance so pointer/keyboard closes are mediated by the global stack. |
+| `getOverlayManager` | `() => OverlayManager \| null \| undefined` | Lazy resolver for adapters that hydrate the manager later. |
+| `overlayEntryTraits` | `TooltipOverlayTraits` | Override owner/modality/priority traits that are registered with the kernel. |
 
 | Callback | Payload | When |
 | --- | --- | --- |

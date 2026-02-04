@@ -36,6 +36,7 @@
   ],
   "license": "MIT",
   "dependencies": {
+    "@affino/overlay-kernel": "workspace:^",
     "@affino/surface-core": "workspace:^"
   },
   "devDependencies": {

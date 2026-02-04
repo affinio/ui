@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { TooltipCore } from "../core/TooltipCore"
+import { createOverlayManager } from "@affino/overlay-kernel"
 
 const noopCallbacks = {
   onOpen: vi.fn(),
@@ -126,5 +127,33 @@ describe("TooltipCore", () => {
     expect(props["aria-live"]).toBe("assertive")
     expect(props["data-state"]).toBe("open")
     expect(props["aria-hidden"]).toBe("false")
+  })
+
+  it("registers with the overlay manager and mirrors lifecycle state", () => {
+    const manager = createOverlayManager()
+    const tooltip = new TooltipCore({ id: "tooltip-overlay", overlayManager: manager })
+
+    tooltip.open("programmatic")
+    expect(manager.getEntry("tooltip-overlay")?.state).toBe("open")
+
+    tooltip.requestClose("programmatic")
+    expect(manager.getEntry("tooltip-overlay")?.state).toBe("closed")
+
+    tooltip.destroy()
+    expect(manager.getEntry("tooltip-overlay")).toBeNull()
+  })
+
+  it("routes kernel-managed close reasons through the overlay manager before performing close", () => {
+    const manager = createOverlayManager()
+    const requestSpy = vi.spyOn(manager, "requestClose")
+    const tooltip = new TooltipCore({ id: "kernel-tooltip", defaultOpen: true, overlayManager: manager })
+
+    tooltip.requestClose("pointer")
+    expect(requestSpy).toHaveBeenCalledWith("kernel-tooltip", "pointer-outside")
+    expect(tooltip.getSnapshot().open).toBe(false)
+
+    tooltip.open("programmatic")
+    tooltip.requestClose("keyboard")
+    expect(requestSpy).toHaveBeenLastCalledWith("kernel-tooltip", "escape-key")
   })
 })
