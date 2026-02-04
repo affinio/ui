@@ -12,6 +12,7 @@ import type {
   SurfaceReason,
 } from "@affino/popover-core"
 import { PopoverCore } from "@affino/popover-core"
+import { getDocumentOverlayManager, type OverlayManager } from "@affino/overlay-kernel"
 
 type VueTriggerProps = Omit<PopoverTriggerProps, "onClick" | "onKeyDown"> & {
   onClick?: PopoverTriggerProps["onClick"]
@@ -36,7 +37,8 @@ export interface PopoverController {
 }
 
 export function usePopoverController(options?: PopoverOptions, callbacks?: PopoverCallbacks): PopoverController {
-  const core = new PopoverCore(options, callbacks)
+  const resolvedOptions = withDefaultOverlayManager(options)
+  const core = new PopoverCore(resolvedOptions, callbacks)
   const state = shallowRef<PopoverState>(core.getSnapshot())
   const subscription = core.subscribe((next) => {
     state.value = next
@@ -66,6 +68,27 @@ export function usePopoverController(options?: PopoverOptions, callbacks?: Popov
     interactOutside: (event: PopoverInteractOutsideEvent) => core.interactOutside(event),
     dispose,
   }
+}
+
+function withDefaultOverlayManager(options?: PopoverOptions): PopoverOptions | undefined {
+  if (options?.overlayManager || options?.getOverlayManager) {
+    return options
+  }
+  const getOverlayManager = () => resolveDocumentOverlayManager()
+  if (!options) {
+    return { getOverlayManager }
+  }
+  return {
+    ...options,
+    getOverlayManager,
+  }
+}
+
+function resolveDocumentOverlayManager(): OverlayManager | null {
+  if (typeof document === "undefined") {
+    return null
+  }
+  return getDocumentOverlayManager(document)
 }
 
 function mapTriggerProps(props: PopoverTriggerProps): VueTriggerProps {

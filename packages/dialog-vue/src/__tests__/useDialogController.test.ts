@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
+import { getDocumentOverlayManager } from "@affino/overlay-kernel"
 import { useDialogController } from "../useDialogController.js"
 
 function nextTick(): Promise<void> {
@@ -39,6 +40,7 @@ describe("useDialogController", () => {
         register,
         isTopMost,
       },
+      getOverlayManager: () => null,
     })
 
     binding.open()
@@ -49,5 +51,25 @@ describe("useDialogController", () => {
     await binding.close("backdrop")
     expect(isTopMost).toHaveBeenCalledWith(overlay.id)
     expect(unregister).toHaveBeenCalledTimes(1)
+  })
+
+  it("registers overlays with the document manager by default", async () => {
+    const manager = getDocumentOverlayManager(document)
+    const binding = useDialogController()
+    let overlayId: string | null = null
+    const unsubscribe = binding.controller.on("overlay-registered", ({ id }) => {
+      overlayId = id
+    })
+
+    binding.open()
+    expect(overlayId).toBeTruthy()
+    expect(manager.getStack().some((entry) => entry.id === overlayId)).toBe(true)
+
+    await binding.close("backdrop")
+    await nextTick()
+    expect(manager.getStack().some((entry) => entry.id === overlayId)).toBe(false)
+
+    unsubscribe()
+    binding.dispose()
   })
 })

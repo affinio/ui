@@ -1,15 +1,15 @@
 import { describe, expect, it } from "vitest"
 import { effectScope } from "vue"
 import { getDocumentOverlayManager } from "@affino/overlay-kernel"
-import { usePopoverController } from "../usePopoverController"
+import { useTooltipController } from "../useTooltipController"
 
-describe("usePopoverController", () => {
-  it("streams open state and stops with the scope", () => {
+describe("useTooltipController", () => {
+  it("streams open state and stops when the scope is disposed", () => {
     const scope = effectScope()
-    let controller!: ReturnType<typeof usePopoverController>
+    let controller!: ReturnType<typeof useTooltipController>
 
     scope.run(() => {
-      controller = usePopoverController({ id: "test-popover" })
+      controller = useTooltipController({ id: "test-tooltip" })
     })
 
     expect(controller.state.value.open).toBe(false)
@@ -23,7 +23,7 @@ describe("usePopoverController", () => {
 
   it("registers with the document overlay manager by default", () => {
     const manager = getDocumentOverlayManager(document)
-    const controller = usePopoverController({ id: "popover-kernel-test" })
+    const controller = useTooltipController({ id: "tooltip-kernel-test" })
 
     controller.open()
     expect(manager.getStack().some((entry) => entry.id === controller.id)).toBe(true)

@@ -1,8 +1,9 @@
-import { onBeforeUnmount, ref, shallowRef } from "vue"
+import { getCurrentInstance, onBeforeUnmount, ref, shallowRef } from "vue"
 import type { Ref, ShallowRef } from "vue"
 import type { MenuCallbacks, MenuOptions, MenuState, Rect } from "@affino/menu-core"
 import { MenuCore, SubmenuCore, createMenuTree } from "@affino/menu-core"
 import type { MenuTreeBranch, MenuTreeController } from "@affino/menu-core"
+import { getDocumentOverlayManager, type OverlayManager } from "@affino/overlay-kernel"
 
 export type MenuControllerKind = "root" | "submenu"
 
@@ -43,7 +44,8 @@ interface SubmenuControllerConfig {
 export type MenuControllerConfig = RootControllerConfig | SubmenuControllerConfig
 
 export function useMenuController(config: MenuControllerConfig): MenuController {
-  const { branch, tree, ownsTree } = resolveBranch(config)
+  const normalizedConfig = normalizeControllerConfig(config)
+  const { branch, tree, ownsTree } = resolveBranch(normalizedConfig)
   const triggerRef = ref<HTMLElement | null>(null)
   const panelRef = ref<HTMLElement | null>(null)
   const anchorRef = shallowRef<Rect | null>(null)
@@ -66,7 +68,7 @@ export function useMenuController(config: MenuControllerConfig): MenuController 
   }
 
   const controller: MenuController = {
-    kind: config.kind,
+    kind: normalizedConfig.kind,
     id: branch.id,
     core: branch.core,
     state,
@@ -87,7 +89,9 @@ export function useMenuController(config: MenuControllerConfig): MenuController 
     dispose,
   }
 
-  onBeforeUnmount(dispose)
+  if (getCurrentInstance()) {
+    onBeforeUnmount(dispose)
+  }
 
   return controller
 }
@@ -161,4 +165,39 @@ function createGeometryAdapter(core: SubmenuCore) {
       }
     },
   }
+}
+
+function normalizeControllerConfig(config: MenuControllerConfig): MenuControllerConfig {
+  if (config.kind === "root") {
+    return {
+      ...config,
+      options: withDefaultOverlayManager(config.options),
+    }
+  }
+  return {
+    ...config,
+    options: withDefaultOverlayManager(config.options),
+  }
+}
+
+function withDefaultOverlayManager(options?: MenuOptions): MenuOptions | undefined {
+  const hasManager = options?.overlayManager || options?.getOverlayManager
+  if (hasManager) {
+    return options
+  }
+  const getManager = () => resolveDocumentOverlayManager()
+  if (!options) {
+    return { getOverlayManager: getManager }
+  }
+  return {
+    ...options,
+    getOverlayManager: getManager,
+  }
+}
+
+function resolveDocumentOverlayManager(): OverlayManager | null {
+  if (typeof document === "undefined") {
+    return null
+  }
+  return getDocumentOverlayManager(document)
 }

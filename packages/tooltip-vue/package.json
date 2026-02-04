@@ -21,7 +21,8 @@
   },
   "dependencies": {
     "@affino/overlay-host": "workspace:^",
-    "@affino/tooltip-core": "workspace:^"
+    "@affino/tooltip-core": "workspace:^",
+    "@affino/overlay-kernel": "workspace:^"
   },
   "devDependencies": {
     "vue": "^3.3.0"

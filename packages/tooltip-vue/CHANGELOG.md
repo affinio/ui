@@ -1,5 +1,15 @@
 # @affino/tooltip-vue
 
+## 1.1.0
+
+### Minor Changes
+
+- Default `useTooltipController` to the document-level `@affino/overlay-kernel` manager so Vue tooltips automatically participate in the shared overlay stack while still honoring custom managers/kinds.
+
+### Patch Changes
+
+- Added dependency on `@affino/overlay-kernel`.
+
 ## 1.0.0
 
 ### Minor Changes

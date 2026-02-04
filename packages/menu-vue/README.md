@@ -114,6 +114,10 @@ controller.setAnchor(triggerRect)
 - `setTriggerRect` / `setPanelRect` keep submenu geometry in sync after ResizeObserver updates or layout transitions.
 - `setAnchor` lets you open at arbitrary coordinates (context menus, palettes, inspector panes) without writing glue code.
 
+## Overlay kernel integration
+
+`useMenuController` (and the components built on top of it) automatically register each menu surface with the shared `@affino/overlay-kernel` manager when `document` exists. Override stacking metadata via `:options="{ overlayKind, overlayEntryTraits }"`, or provide custom managers with `overlayManager` / `getOverlayManager`. During SSR the hook simply defers registration until hydration, so servers never touch the DOM and client-side managers stay in sync once mounted.
+
 
 ## Headless usage with createMenuTree
 

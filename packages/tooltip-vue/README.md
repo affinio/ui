@@ -97,6 +97,10 @@ const {
 - Use the `zIndex` option to pin the bubble above scroll locks or dialog chrome without reaching into the generated styles manually.
 - Call `floating.updatePosition()` after animations or layout changes so the inline positioning stays in sync.
 
+## Overlay kernel integration
+
+`useTooltipController` automatically registers every tooltip with the shared `@affino/overlay-kernel` manager whenever `document` exists. Override stacking metadata through `overlayKind` / `overlayEntryTraits`, or provide bespoke managers via `overlayManager` / `getOverlayManager`. During SSR the hook simply defers registration until hydration, so server renders stay DOM-free while tooltips join dialogs, menus, and popovers on the same client-side overlay stack.
+
 ## Controller API
 
 | Method | Description |

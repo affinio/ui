@@ -45,6 +45,10 @@ const floating = useFloatingPopover(controller, { placement: "bottom", gutter: 1
 - `usePopoverController()` exposes the headless controller + prop helpers.
 - `useFloatingPopover()` wires DOM refs to `computePosition()`, teleports into the overlay host, and closes on outside clicks when enabled.
 
+## Overlay kernel integration
+
+Every controller created by `usePopoverController` registers with the shared `@affino/overlay-kernel` manager whenever `document` is available. Pass `overlayKind`, `overlayEntryTraits`, `overlayManager`, or `getOverlayManager` through the hook options to customize ownership, priorities, or provide a bespoke manager. During SSR the hook defers registration until hydration, so server renders remain DOM-free while clients stay in sync with the global overlay stack.
+
 ## Controller API
 
 | Method | Description |

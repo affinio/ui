@@ -1,5 +1,15 @@
 # @affino/dialog-vue
 
+## 1.2.0
+
+### Minor Changes
+
+- default `useDialogController` to the document-scoped `@affino/overlay-kernel` manager so Vue dialogs automatically participate in the shared overlay stack (still overridable via `overlayManager` / `getOverlayManager`).
+
+### Patch Changes
+
+- Added dependency on `@affino/overlay-kernel`.
+
 ## 1.1.0
 
 ### Minor Changes

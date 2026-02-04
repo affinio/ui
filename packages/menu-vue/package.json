@@ -20,7 +20,8 @@
   },
   "dependencies": {
     "@affino/focus-utils": "workspace:^",
-    "@affino/overlay-host": "workspace:^"
+    "@affino/overlay-host": "workspace:^",
+    "@affino/overlay-kernel": "workspace:^"
   },
   "devDependencies": {
     "@affino/menu-core": "workspace:^",

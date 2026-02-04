@@ -1,5 +1,15 @@
 # @affino/menu-vue
 
+## 1.1.0
+
+### Minor Changes
+
+- Default every Vue controller/component to the document-scoped `@affino/overlay-kernel` manager so menus participate in the shared overlay stack while still allowing custom managers or kinds via `options.overlayManager`, `options.getOverlayManager`, and `options.overlayKind`.
+
+### Patch Changes
+
+- Added dependency on `@affino/overlay-kernel`.
+
 ## 1.0.0
 
 ### Minor Changes

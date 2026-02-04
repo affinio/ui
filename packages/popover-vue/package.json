@@ -21,7 +21,8 @@
   },
   "dependencies": {
     "@affino/overlay-host": "workspace:^",
-    "@affino/popover-core": "workspace:^"
+    "@affino/popover-core": "workspace:^",
+    "@affino/overlay-kernel": "workspace:^"
   },
   "devDependencies": {
     "vue": "^3.4.0"

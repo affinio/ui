@@ -8,6 +8,7 @@ import {
   type DialogCloseReason,
   type CloseRequestOptions,
 } from "@affino/dialog-core"
+import { getDocumentOverlayManager, type OverlayManager } from "@affino/overlay-kernel"
 import { useDialogOverlayRegistrar } from "./overlayRegistrar.js"
 
 export type UseDialogControllerOptions = DialogControllerOptions
@@ -25,9 +26,13 @@ export interface DialogControllerBinding {
 
 export function useDialogController(options: UseDialogControllerOptions = {}): DialogControllerBinding {
   const resolvedOverlayRegistrar = options.overlayRegistrar ?? useDialogOverlayRegistrar() ?? undefined
+  const resolvedGetOverlayManager =
+    options.getOverlayManager ??
+    (() => options.overlayManager ?? resolveDocumentOverlayManager())
   const controllerOptions: DialogControllerOptions = {
     ...options,
     overlayRegistrar: resolvedOverlayRegistrar,
+    getOverlayManager: resolvedGetOverlayManager,
   }
   const controller = new DialogController(controllerOptions)
   const snapshot = shallowRef<DialogSnapshot>(controller.snapshot)
@@ -54,4 +59,11 @@ export function useDialogController(options: UseDialogControllerOptions = {}): D
       controller.close(reason, request),
     dispose,
   }
+}
+
+function resolveDocumentOverlayManager(): OverlayManager | null {
+  if (typeof document === "undefined") {
+    return null
+  }
+  return getDocumentOverlayManager(document)
 }

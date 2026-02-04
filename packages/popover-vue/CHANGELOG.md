@@ -1,5 +1,15 @@
 # @affino/popover-vue
 
+## 1.1.0
+
+### Minor Changes
+
+- Default `usePopoverController` to the document-level `@affino/overlay-kernel` manager so popovers automatically participate in the shared overlay stack while still honoring custom `overlayManager` / `getOverlayManager` overrides.
+
+### Patch Changes
+
+- Added dependency on `@affino/overlay-kernel`.
+
 ## 1.0.0
 
 ### Minor Changes

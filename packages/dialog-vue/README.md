@@ -101,6 +101,10 @@ function loopFocus(edge: "start" | "end") {
 
 3. **Bring your own styles.** The package is headless, so you can rely on Tailwind, UnoCSS, CSS Modules, etc.
 
+## Overlay kernel integration
+
+`useDialogController` automatically registers dialogs with the shared `@affino/overlay-kernel` manager whenever `document` is available. Customize stacking behavior by passing `overlayKind`, `overlayEntryTraits`, `overlayManager`, or `getOverlayManager` through the hook options. During SSR the hook simply defers registration until hydration so servers stay overlay-agnostic.
+
 ## Adding async guards (optional)
 
 ```ts

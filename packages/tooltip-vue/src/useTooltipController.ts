@@ -1,4 +1,4 @@
-import { onBeforeUnmount, shallowRef } from "vue"
+import { getCurrentScope, onScopeDispose, shallowRef } from "vue"
 import type { ShallowRef } from "vue"
 import type {
   TooltipCallbacks,
@@ -12,6 +12,7 @@ import type {
   TooltipTriggerProps,
 } from "@affino/tooltip-core"
 import { TooltipCore } from "@affino/tooltip-core"
+import { getDocumentOverlayManager, type OverlayManager } from "@affino/overlay-kernel"
 
 type VueTriggerProps = Omit<TooltipTriggerProps, "onPointerEnter" | "onPointerLeave"> & {
   onPointerenter?: TooltipTriggerProps["onPointerEnter"]
@@ -37,7 +38,8 @@ export interface TooltipController {
 }
 
 export function useTooltipController(options?: TooltipOptions, callbacks?: TooltipCallbacks): TooltipController {
-  const core = new TooltipCore(options, callbacks)
+  const resolvedOptions = withDefaultOverlayManager(options)
+  const core = new TooltipCore(resolvedOptions, callbacks)
   const state = shallowRef<TooltipState>(core.getSnapshot())
   const subscription = core.subscribe((next) => {
     state.value = next
@@ -51,7 +53,9 @@ export function useTooltipController(options?: TooltipOptions, callbacks?: Toolt
     core.destroy()
   }
 
-  onBeforeUnmount(dispose)
+  if (getCurrentScope()) {
+    onScopeDispose(dispose)
+  }
 
   return {
     id: core.id,
@@ -65,6 +69,27 @@ export function useTooltipController(options?: TooltipOptions, callbacks?: Toolt
     toggle: () => core.toggle(),
     dispose,
   }
+}
+
+function withDefaultOverlayManager(options?: TooltipOptions): TooltipOptions | undefined {
+  if (options?.overlayManager || options?.getOverlayManager) {
+    return options
+  }
+  const getOverlayManager = () => resolveDocumentOverlayManager()
+  if (!options) {
+    return { getOverlayManager }
+  }
+  return {
+    ...options,
+    getOverlayManager,
+  }
+}
+
+function resolveDocumentOverlayManager(): OverlayManager | null {
+  if (typeof document === "undefined") {
+    return null
+  }
+  return getDocumentOverlayManager(document)
 }
 
 function mapTriggerProps(props: TooltipTriggerProps): VueTriggerProps {

@@ -20,7 +20,8 @@
     "vue": "^3.3.0"
   },
   "dependencies": {
-    "@affino/dialog-core": "workspace:^"
+    "@affino/dialog-core": "workspace:^",
+    "@affino/overlay-kernel": "workspace:^"
   },
   "devDependencies": {
     "@testing-library/vue": "^8.1.0",
