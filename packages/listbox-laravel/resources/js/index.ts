@@ -56,6 +56,7 @@ type OptionSnapshot = {
 }
 
 const registry = new WeakMap<RootEl, Cleanup>()
+const openStateRegistry = new Map<string, boolean>()
 
 export function bootstrapAffinoListboxes(): void {
   scan(document)
@@ -91,8 +92,16 @@ function hydrateResolvedListbox(root: RootEl, trigger: HTMLElement, surface: HTM
   const triggerLabelEl = trigger.querySelector<HTMLElement>("[data-affino-listbox-display]")
   const hiddenInput = root.querySelector<HTMLInputElement>("[data-affino-listbox-input]")
 
+  const rootId = root.dataset.affinoListboxRoot ?? ""
+  const persistenceKey = rootId
   let state = primeStateFromDom(options, context)
   let open = readBoolean(root.dataset.affinoListboxState, false)
+  if (persistenceKey) {
+    const persistedOpen = openStateRegistry.get(persistenceKey)
+    if (typeof persistedOpen === "boolean") {
+      open = persistedOpen
+    }
+  }
   let outsideCleanup: Cleanup | null = null
   let livewireSyncCache: string | null = null
   let pendingStructureRehydrate = false
@@ -101,12 +110,17 @@ function hydrateResolvedListbox(root: RootEl, trigger: HTMLElement, surface: HTM
   applyTriggerAria(trigger, surface, open)
   syncSelectionAttributes()
   pushSelectionChanges({ silent: true })
+  if (open) {
+    attachOutsideGuards()
+    requestAnimationFrame(() => focusActiveOption())
+  }
 
   const openListbox = () => {
     if (open || disabled) {
       return
     }
     open = true
+    rememberOpenState(true)
     root.dataset.affinoListboxState = "open"
     surface.hidden = false
     applyTriggerAria(trigger, surface, true)
@@ -119,6 +133,7 @@ function hydrateResolvedListbox(root: RootEl, trigger: HTMLElement, surface: HTM
       return
     }
     open = false
+    rememberOpenState(false)
     root.dataset.affinoListboxState = "closed"
     surface.hidden = true
     applyTriggerAria(trigger, surface, false)
@@ -364,13 +379,15 @@ function hydrateResolvedListbox(root: RootEl, trigger: HTMLElement, surface: HTM
       return
     }
     const onPointerDown = (event: Event) => {
-      if (root.contains(event.target as Node)) {
+      const target = event.target as Node | null
+      if (root.contains(target as Node) || shouldIgnoreOutsideEvent(target)) {
         return
       }
       closeListbox()
     }
     const onFocusIn = (event: FocusEvent) => {
-      if (root.contains(event.target as Node)) {
+      const target = event.target as Node | null
+      if (root.contains(target as Node) || shouldIgnoreOutsideEvent(target)) {
         return
       }
       closeListbox()
@@ -386,6 +403,42 @@ function hydrateResolvedListbox(root: RootEl, trigger: HTMLElement, surface: HTM
 
   function detachOutsideGuards() {
     outsideCleanup?.()
+  }
+
+  function rememberOpenState(value: boolean) {
+    if (!persistenceKey) {
+      return
+    }
+    if (value) {
+      openStateRegistry.set(persistenceKey, true)
+    } else {
+      openStateRegistry.delete(persistenceKey)
+    }
+  }
+
+  function shouldIgnoreOutsideEvent(target: EventTarget | null): boolean {
+    if (!target || !(target instanceof Element)) {
+      return false
+    }
+    const sticky = target instanceof Element ? target.closest<HTMLElement>("[data-affino-listbox-sticky]") : null
+    if (!sticky) {
+      return false
+    }
+    const attr = sticky.getAttribute("data-affino-listbox-sticky")?.trim()
+    if (!attr) {
+      return true
+    }
+    const candidates = attr
+      .split(",")
+      .map((value) => value.trim())
+      .filter((value) => value.length > 0)
+    if (candidates.length === 0) {
+      return true
+    }
+    if (!rootId) {
+      return false
+    }
+    return candidates.includes(rootId)
   }
 
   function selectAllOptions() {
