@@ -1,0 +1,22 @@
+{
+    "name": "affino/dialog-laravel",
+    "description": "Headless Laravel dialog primitives backed by @affino/dialog-core.",
+    "type": "library",
+    "license": "MIT",
+    "require": {
+        "php": "^8.2",
+        "livewire/livewire": "^3.0 || ^4.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Affino\\Dialog\\Laravel\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Affino\\Dialog\\Laravel\\AffinoDialogServiceProvider"
+            ]
+        }
+    }
+}

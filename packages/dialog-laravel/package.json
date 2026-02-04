@@ -1,0 +1,33 @@
+{
+  "name": "@affino/dialog-laravel",
+  "version": "0.0.1",
+  "description": "Livewire dialog helper wired to @affino/dialog-core",
+  "type": "module",
+  "main": "dist/index.cjs",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup resources/js/index.ts --format esm,cjs --dts --clean",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@affino/dialog-core": "workspace:*",
+    "@affino/focus-utils": "workspace:*",
+    "@affino/overlay-host": "workspace:*"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^4.0.15",
+    "tsup": "^8.5.1",
+    "vitest": "^4.0.15"
+  }
+}
