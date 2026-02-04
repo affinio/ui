@@ -21,7 +21,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@affino/listbox-core": "workspace:*"
+    "@affino/listbox-core": "workspace:*",
+    "@affino/overlay-kernel": "workspace:*"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^4.0.15",

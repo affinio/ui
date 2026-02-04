@@ -6,6 +6,12 @@ import {
   type ListboxContext,
   type ListboxState,
 } from "@affino/listbox-core"
+import {
+  createOverlayIntegration,
+  getDocumentOverlayManager,
+  type OverlayCloseReason,
+  type OverlayKind,
+} from "@affino/overlay-kernel"
 
 export type ListboxMode = "single" | "multiple"
 
@@ -33,6 +39,7 @@ type RootEl = HTMLElement & {
     affinoListboxPlaceholder?: string
     affinoListboxModel?: string
     affinoListboxState?: string
+    affinoListboxOverlayKind?: OverlayKind
   }
   affinoListbox?: ListboxHandle
 }
@@ -108,6 +115,28 @@ function hydrateResolvedListbox(root: RootEl, trigger: HTMLElement, surface: HTM
 
   surface.hidden = !open
   applyTriggerAria(trigger, surface, open)
+  const overlayId = rootId || surface.dataset.affinoListboxSurface || surface.id || generateListboxOverlayId()
+  const overlayKind = (root.dataset.affinoListboxOverlayKind as OverlayKind) ?? "listbox"
+  const overlayIntegration = createOverlayIntegration({
+    id: overlayId,
+    kind: overlayKind,
+    overlayManager: getDocumentOverlayManager(root.ownerDocument ?? document),
+    traits: {
+      root: surface,
+      returnFocus: true,
+    },
+    initialState: open ? "open" : "closed",
+    releaseOnIdle: false,
+    onCloseRequested: (reason) => handleKernelClose(reason),
+  })
+  const syncOverlayState = () => overlayIntegration.syncState(open ? "open" : "closed")
+  const requestKernelClose = (reason: OverlayCloseReason) => {
+    if (overlayIntegration.requestClose(reason)) {
+      return
+    }
+    handleKernelClose(reason)
+  }
+  syncOverlayState()
   syncSelectionAttributes()
   pushSelectionChanges({ silent: true })
   if (open) {
@@ -124,6 +153,7 @@ function hydrateResolvedListbox(root: RootEl, trigger: HTMLElement, surface: HTM
     root.dataset.affinoListboxState = "open"
     surface.hidden = false
     applyTriggerAria(trigger, surface, true)
+    syncOverlayState()
     attachOutsideGuards()
     requestAnimationFrame(() => focusActiveOption())
   }
@@ -137,12 +167,26 @@ function hydrateResolvedListbox(root: RootEl, trigger: HTMLElement, surface: HTM
     root.dataset.affinoListboxState = "closed"
     surface.hidden = true
     applyTriggerAria(trigger, surface, false)
+    syncOverlayState()
     detachOutsideGuards()
     requestAnimationFrame(() => {
       if (trigger.isConnected) {
         trigger.focus({ preventScroll: true })
       }
     })
+  }
+
+  function handleKernelClose(reason: OverlayCloseReason) {
+    switch (reason) {
+      case "pointer-outside":
+      case "owner-close":
+      case "focus-loss":
+      case "programmatic":
+      case "escape-key":
+      default:
+        closeListbox()
+        break
+    }
   }
 
   const toggleListbox = () => {
@@ -248,7 +292,7 @@ function hydrateResolvedListbox(root: RootEl, trigger: HTMLElement, surface: HTM
       case "Escape":
         if (open) {
           event.preventDefault()
-          closeListbox()
+          requestKernelClose("escape-key")
         }
         break
     }
@@ -294,10 +338,10 @@ function hydrateResolvedListbox(root: RootEl, trigger: HTMLElement, surface: HTM
         break
       case "Escape":
         event.preventDefault()
-        closeListbox()
+        requestKernelClose("escape-key")
         break
       case "Tab":
-        closeListbox()
+        requestKernelClose("focus-loss")
         break
       case "a":
       case "A":
@@ -383,14 +427,14 @@ function hydrateResolvedListbox(root: RootEl, trigger: HTMLElement, surface: HTM
       if (root.contains(target as Node) || shouldIgnoreOutsideEvent(target)) {
         return
       }
-      closeListbox()
+      requestKernelClose("pointer-outside")
     }
     const onFocusIn = (event: FocusEvent) => {
       const target = event.target as Node | null
       if (root.contains(target as Node) || shouldIgnoreOutsideEvent(target)) {
         return
       }
-      closeListbox()
+      requestKernelClose("focus-loss")
     }
     document.addEventListener("pointerdown", onPointerDown, true)
     document.addEventListener("focusin", onFocusIn, true)
@@ -584,6 +628,7 @@ function hydrateResolvedListbox(root: RootEl, trigger: HTMLElement, surface: HTM
 
   root.affinoListbox = handle
 
+  detachments.push(() => overlayIntegration.destroy())
   detachments.push(() => {
     if (root.affinoListbox === handle) {
       delete root.affinoListbox
@@ -615,6 +660,13 @@ function applyTriggerAria(trigger: HTMLElement, surface: HTMLElement, open: bool
   if (!surface.hasAttribute("tabindex")) {
     surface.tabIndex = -1
   }
+}
+
+function generateListboxOverlayId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID()
+  }
+  return `affino-listbox-${Math.random().toString(36).slice(2)}`
 }
 
 function primeStateFromDom(options: OptionEl[], context: ListboxContext): ListboxState {
