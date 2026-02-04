@@ -1,0 +1,22 @@
+{
+    "name": "affino/combobox-laravel",
+    "description": "Headless Laravel combobox primitives backed by @affino/listbox-core.",
+    "type": "library",
+    "license": "MIT",
+    "require": {
+        "php": "^8.2",
+        "livewire/livewire": "^3.0 || ^4.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Affino\\Combobox\\Laravel\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Affino\\Combobox\\Laravel\\AffinoComboboxServiceProvider"
+            ]
+        }
+    }
+}

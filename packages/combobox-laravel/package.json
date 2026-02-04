@@ -1,0 +1,32 @@
+{
+  "name": "@affino/combobox-laravel",
+  "version": "0.0.1",
+  "description": "Livewire combobox helper composed from @affino/listbox-core",
+  "type": "module",
+  "main": "dist/index.cjs",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup resources/js/index.ts --format esm,cjs --dts --clean",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@affino/combobox-core": "workspace:^",
+    "@affino/listbox-core": "workspace:*"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^4.0.15",
+    "tsup": "^8.0.1",
+    "vitest": "^4.0.15"
+  }
+}

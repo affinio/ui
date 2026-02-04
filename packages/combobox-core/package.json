@@ -1,0 +1,44 @@
+{
+  "name": "@affino/combobox-core",
+  "version": "0.0.1",
+  "author": "Anton Pavlov <a.pavlov@affino.dev>",
+  "type": "module",
+  "description": "Headless combobox state helpers composed with @affino/listbox-core",
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "sideEffects": false,
+  "scripts": {
+    "clean": "rm -rf dist tsconfig.tsbuildinfo",
+    "build": "pnpm run clean && tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@affino/listbox-core": "workspace:^",
+    "@affino/selection-core": "workspace:^"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^4.0.15",
+    "vitest": "^4.0.15"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/affinio/affinio/tree/main/packages/combobox-core"
+  },
+  "homepage": "https://affino.dev",
+  "license": "MIT",
+  "keywords": [
+    "combobox",
+    "headless",
+    "listbox",
+    "accessibility"
+  ]
+}

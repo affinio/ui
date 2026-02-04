@@ -11,6 +11,8 @@
       "@affino/menu-react": ["./packages/menu-react/src/index.ts"],
       "@affino/menu-react/*": ["./packages/menu-react/src/*"],
       "@affino/menu-vue": ["./packages/menu-vue/src/index.ts"],
+      "@affino/listbox-core": ["./packages/listbox-core/src/index.ts"],
+      "@affino/listbox-core/*": ["./packages/listbox-core/src/*"],
       "@affino/selection-core": ["./packages/selection-core/src/index.ts"],
       "@affino/surface-core": ["./packages/surface-core/src/index.ts"],
       "@affino/tooltip-core": ["./packages/tooltip-core/src/index.ts"],
