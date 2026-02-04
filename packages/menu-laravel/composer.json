@@ -1,0 +1,22 @@
+{
+    "name": "affino/menu-laravel",
+    "description": "Headless Laravel menu primitives backed by @affino/menu-core.",
+    "type": "library",
+    "license": "MIT",
+    "require": {
+        "php": "^8.2",
+        "livewire/livewire": "^3.0 || ^4.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Affino\\Menu\\Laravel\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Affino\\Menu\\Laravel\\AffinoMenuServiceProvider"
+            ]
+        }
+    }
+}
