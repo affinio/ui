@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 import { PopoverCore } from "../core/PopoverCore"
+import { createOverlayManager } from "@affino/overlay-kernel"
 
 const createPointerEvent = () => ({ preventDefault: vi.fn() }) as unknown as MouseEvent
 
@@ -45,5 +46,33 @@ describe("PopoverCore", () => {
     expect(props["aria-modal"]).toBe("true")
     expect(props.role).toBe("dialog")
     expect(props["data-state"]).toBe("closed")
+  })
+
+  it("registers with the overlay manager and mirrors lifecycle state", () => {
+    const manager = createOverlayManager()
+    const core = new PopoverCore({ id: "popover-overlay", overlayManager: manager })
+
+    core.open()
+    expect(manager.getEntry("popover-overlay")?.state).toBe("open")
+
+    core.requestClose("programmatic")
+    expect(manager.getEntry("popover-overlay")?.state).toBe("closed")
+
+    core.destroy()
+    expect(manager.getEntry("popover-overlay")).toBeNull()
+  })
+
+  it("routes kernel-managed close reasons through the overlay manager before performing close", () => {
+    const manager = createOverlayManager()
+    const requestSpy = vi.spyOn(manager, "requestClose")
+    const core = new PopoverCore({ id: "kernel-popover", defaultOpen: true, overlayManager: manager })
+
+    core.requestClose("pointer")
+    expect(requestSpy).toHaveBeenCalledWith("kernel-popover", "pointer-outside")
+    expect(core.getSnapshot().open).toBe(false)
+
+    core.open()
+    core.requestClose("keyboard")
+    expect(requestSpy).toHaveBeenLastCalledWith("kernel-popover", "escape-key")
   })
 })

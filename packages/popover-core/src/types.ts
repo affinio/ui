@@ -9,6 +9,7 @@ import type {
   SurfaceSubscriber,
   Subscription,
 } from "@affino/surface-core"
+import type { OverlayEntryInit, OverlayKind, OverlayManager } from "@affino/overlay-kernel"
 
 export type { PositionOptions, SurfaceReason, Subscription } from "@affino/surface-core"
 
@@ -19,6 +20,10 @@ export interface PopoverOptions extends SurfaceOptions {
   modal?: boolean
   closeOnEscape?: boolean
   closeOnInteractOutside?: boolean
+  overlayKind?: OverlayKind
+  overlayManager?: OverlayManager | null
+  getOverlayManager?: () => OverlayManager | null | undefined
+  overlayEntryTraits?: PopoverOverlayTraits
 }
 
 export interface PopoverCallbacks extends SurfaceCallbacks {
@@ -85,3 +90,19 @@ export interface PopoverArrowProps {
   "data-arrow": PositionResult["placement"]
   style: Record<string, string | number>
 }
+
+export type PopoverOverlayTraits = Partial<
+  Pick<
+    OverlayEntryInit,
+    | "ownerId"
+    | "modal"
+    | "trapsFocus"
+    | "blocksPointerOutside"
+    | "inertSiblings"
+    | "returnFocus"
+    | "priority"
+    | "root"
+    | "data"
+  >
+>
+

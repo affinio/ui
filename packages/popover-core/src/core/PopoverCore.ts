@@ -1,5 +1,12 @@
 import { SurfaceCore } from "@affino/surface-core"
-import type { SurfaceState } from "@affino/surface-core"
+import type { SurfaceReason, SurfaceState } from "@affino/surface-core"
+import {
+  createOverlayIntegration,
+  type OverlayCloseReason,
+  type OverlayIntegration,
+  type OverlayKind,
+  type OverlayManager,
+} from "@affino/overlay-kernel"
 import type {
   PopoverArrowParams,
   PopoverArrowProps,
@@ -14,6 +21,8 @@ import type {
   PopoverTriggerProps,
 } from "../types"
 
+const DEFAULT_OVERLAY_KIND: OverlayKind = "popover"
+
 const DEFAULT_ROLE: PopoverRole = "dialog"
 
 export class PopoverCore extends SurfaceCore<PopoverState, PopoverCallbacks> {
@@ -21,6 +30,9 @@ export class PopoverCore extends SurfaceCore<PopoverState, PopoverCallbacks> {
   private readonly modal: boolean
   private readonly closeOnEscape: boolean
   private readonly closeOnInteractOutside: boolean
+  private readonly overlayKind: OverlayKind
+  private readonly overlayIntegration: OverlayIntegration
+  private destroyed = false
 
   constructor(options: PopoverOptions = {}, callbacks: PopoverCallbacks = {}) {
     super(options, callbacks)
@@ -28,10 +40,67 @@ export class PopoverCore extends SurfaceCore<PopoverState, PopoverCallbacks> {
     this.modal = options.modal ?? false
     this.closeOnEscape = options.closeOnEscape ?? true
     this.closeOnInteractOutside = options.closeOnInteractOutside ?? true
+    this.overlayKind = options.overlayKind ?? DEFAULT_OVERLAY_KIND
+    const overlayTraits = options.overlayEntryTraits ?? {}
+    const resolvedModal = overlayTraits.modal ?? this.modal
+    this.overlayIntegration = createOverlayIntegration({
+      id: this.id,
+      kind: this.overlayKind,
+      traits: {
+        ownerId: overlayTraits.ownerId ?? null,
+        modal: resolvedModal,
+        trapsFocus: overlayTraits.trapsFocus ?? resolvedModal,
+        blocksPointerOutside: overlayTraits.blocksPointerOutside ?? resolvedModal,
+        inertSiblings: overlayTraits.inertSiblings ?? false,
+        returnFocus: overlayTraits.returnFocus ?? true,
+        priority: overlayTraits.priority,
+        root: overlayTraits.root ?? null,
+        data: overlayTraits.data,
+      },
+      overlayManager: options.overlayManager ?? null,
+      getOverlayManager: options.getOverlayManager,
+      onCloseRequested: (reason) => this.handleKernelCloseRequest(reason),
+      initialState: this.surfaceState.open ? "open" : "closed",
+      releaseOnIdle: false,
+    })
+    if (this.surfaceState.open) {
+      this.overlayIntegration.syncState("open")
+    } else {
+      this.overlayIntegration.syncState("closed")
+    }
   }
 
   protected override composeState(surface: SurfaceState): PopoverState {
     return surface
+  }
+
+  override destroy(): void {
+    if (this.destroyed) {
+      return
+    }
+    this.destroyed = true
+    this.overlayIntegration.destroy()
+    super.destroy()
+  }
+
+  protected override onOpened(_reason: SurfaceReason): void {
+    this.overlayIntegration.syncState("open")
+  }
+
+  protected override onClosed(_reason: SurfaceReason): void {
+    this.overlayIntegration.syncState("closed")
+  }
+
+  override close(reason: SurfaceReason = "programmatic"): void {
+    this.requestClose(reason)
+  }
+
+  requestClose(reason: SurfaceReason = "programmatic"): void {
+    this.closeWithSource(reason, "local")
+  }
+
+  getOverlayManager(): OverlayManager | null {
+    return this.overlayIntegration.getManager()
   }
 
   getTriggerProps(options: PopoverTriggerOptions = {}): PopoverTriggerProps {
@@ -106,6 +175,61 @@ export class PopoverCore extends SurfaceCore<PopoverState, PopoverCallbacks> {
 
   private get contentId() {
     return `${this.id}-content`
+  }
+
+  private closeWithSource(reason: SurfaceReason, source: "local" | "kernel"): void {
+    if (this.destroyed) {
+      return
+    }
+    if (source === "local" && this.isKernelManagedReason(reason)) {
+      const overlayReason = this.mapSurfaceReasonToOverlay(reason)
+      if (overlayReason && this.overlayIntegration.requestClose(overlayReason)) {
+        return
+      }
+    }
+    this.performClose(reason)
+  }
+
+  private performClose(reason: SurfaceReason): void {
+    super.close(reason)
+  }
+
+  protected isKernelManagedReason(reason: SurfaceReason): boolean {
+    return reason === "pointer" || reason === "keyboard"
+  }
+
+  private mapSurfaceReasonToOverlay(reason: SurfaceReason): OverlayCloseReason | null {
+    switch (reason) {
+      case "pointer":
+        return "pointer-outside"
+      case "keyboard":
+        return "escape-key"
+      case "programmatic":
+      default:
+        return "programmatic"
+    }
+  }
+
+  private mapOverlayReasonToSurface(reason: OverlayCloseReason): SurfaceReason | null {
+    switch (reason) {
+      case "pointer-outside":
+        return "pointer"
+      case "escape-key":
+        return "keyboard"
+      case "owner-close":
+      case "focus-loss":
+      case "programmatic":
+      default:
+        return "programmatic"
+    }
+  }
+
+  private handleKernelCloseRequest(reason: OverlayCloseReason): void {
+    const surfaceReason = this.mapOverlayReasonToSurface(reason)
+    if (!surfaceReason) {
+      return
+    }
+    this.closeWithSource(surfaceReason, "kernel")
   }
 }
 

@@ -7,6 +7,7 @@ Headless popover controller built on top of `@affino/surface-core`. It keeps ARI
 - Deterministic open / close orchestration with shared surface timers
 - Trigger + content prop helpers for instant ARIA wiring
 - Optional modal mode and escape / interact-outside guards
+- Optional integration with `@affino/overlay-kernel` so Escape / pointer closes respect global stacking rules
 - Arrow + positioning helpers that reuse `computePosition()`
 
 ## Install
@@ -51,6 +52,10 @@ popover.open()
 | `modal` | `boolean` | `false` | Toggles `aria-modal="true"` and lets adapters apply scroll locking |
 | `closeOnEscape` | `boolean` | `true` | Close the surface when Escape fires from trigger or panel |
 | `closeOnInteractOutside` | `boolean` | `true` | Let adapters close when pointer / focus leaves the surface |
+| `overlayKind` | `OverlayKind` | `"popover"` | Overlay kind forwarded to `@affino/overlay-kernel` for stack semantics |
+| `overlayManager` | `OverlayManager` | `undefined` | Inject a kernel instance so pointer / Escape closes are mediated by the stack |
+| `getOverlayManager` | `() => OverlayManager \| null \| undefined` | `undefined` | Lazy resolver for the same manager, handy when adapters own the instance |
+| `overlayEntryTraits` | `PopoverOverlayTraits` | `{}` | Override owner / modal / priority traits forwarded to the kernel |
 | `openDelay` / `closeDelay` | `number` | `80 / 150` | Forwarded to the shared surface timers |
 
 Callbacks mirror `SurfaceCallbacks` and add `onInteractOutside(event)` so analytics hooks can observe outside clicks before the controller closes.
