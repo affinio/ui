@@ -17,8 +17,19 @@ import {
   type ComboboxContext,
   type ComboboxState,
 } from "@affino/combobox-core"
+import {
+  createOverlayIntegration,
+  getDocumentOverlayManager,
+  type OverlayCloseReason,
+  type OverlayKind,
+} from "@affino/overlay-kernel"
 
 export type ComboboxMode = "single" | "multiple"
+
+type CloseComboboxOptions = {
+  restoreInput?: boolean
+  silentFilterReset?: boolean
+}
 
 type Cleanup = () => void
 
@@ -50,6 +61,7 @@ type RootEl = HTMLElement & {
     affinoComboboxState?: string
     affinoComboboxPinned?: string
     affinoComboboxOpenPointer?: string
+    affinoComboboxOverlayKind?: OverlayKind
   }
   affinoCombobox?: ComboboxHandle
 }
@@ -136,6 +148,7 @@ function hydrateResolvedCombobox(root: RootEl, input: InputEl, surface: SurfaceE
   const hiddenInput = root.querySelector<HTMLInputElement>("[data-affino-combobox-value]")
   let outsideCleanup: Cleanup | null = null
   let pendingStructureRehydrate = false
+  let overlayIntegration: ReturnType<typeof createOverlayIntegration> | null = null
 
   let openState = readBoolean(root.dataset.affinoComboboxState, false)
   if (persistenceKey && pinnedOpenRegistry.has(persistenceKey)) {
@@ -143,6 +156,21 @@ function hydrateResolvedCombobox(root: RootEl, input: InputEl, surface: SurfaceE
   }
   state = setComboboxOpen(state, openState)
   reflectOpenState()
+  const overlayId = rootId || surface.dataset.affinoComboboxSurface || surface.id || generateComboboxOverlayId()
+  const overlayKind = (root.dataset.affinoComboboxOverlayKind as OverlayKind) ?? "combobox"
+  overlayIntegration = createOverlayIntegration({
+    id: overlayId,
+    kind: overlayKind,
+    overlayManager: getDocumentOverlayManager(root.ownerDocument ?? document),
+    traits: {
+      root: surface,
+      returnFocus: true,
+    },
+    initialState: state.open ? "open" : "closed",
+    releaseOnIdle: false,
+    onCloseRequested: (reason) => handleKernelClose(reason),
+  })
+  syncOverlayState()
   syncSelectionAttributes()
   setFilterValue("")
   primeInputDisplay()
@@ -157,6 +185,27 @@ function hydrateResolvedCombobox(root: RootEl, input: InputEl, surface: SurfaceE
     surface.dataset.state = state.open ? "open" : "closed"
     surface.hidden = !state.open
     applyInputAria(input, surface, state.open, mode)
+    syncOverlayState()
+  }
+
+  function syncOverlayState() {
+    overlayIntegration?.syncState(state.open ? "open" : "closed")
+  }
+
+  function requestKernelClose(reason: OverlayCloseReason, options?: CloseComboboxOptions) {
+    if (overlayIntegration && overlayIntegration.requestClose(reason)) {
+      return
+    }
+    handleKernelClose(reason, options)
+  }
+
+  function handleKernelClose(reason: OverlayCloseReason, options?: CloseComboboxOptions) {
+    const defaultRestore = reason === "escape-key" || reason === "pointer-outside" || reason === "focus-loss"
+    const shouldRestore = options?.restoreInput ?? defaultRestore
+    closeCombobox({
+      restoreInput: shouldRestore,
+      silentFilterReset: options?.silentFilterReset,
+    })
   }
 
   function primeInputDisplay() {
@@ -193,7 +242,7 @@ function hydrateResolvedCombobox(root: RootEl, input: InputEl, surface: SurfaceE
     }
   }
 
-  function closeCombobox(options?: { restoreInput?: boolean; silentFilterReset?: boolean }) {
+  function closeCombobox(options: CloseComboboxOptions = {}) {
     if (!state.open) {
       if (options?.restoreInput) {
         restoreInputFromSelection()
@@ -342,12 +391,10 @@ function hydrateResolvedCombobox(root: RootEl, input: InputEl, surface: SurfaceE
         break
       case "Escape":
         event.preventDefault()
-        restoreInputFromSelection()
-        closeCombobox()
+        requestKernelClose("escape-key", { restoreInput: true })
         break
       case "Tab":
-        restoreInputFromSelection()
-        closeCombobox()
+        requestKernelClose("focus-loss", { restoreInput: true })
         break
       case "a":
       case "A":
@@ -688,7 +735,7 @@ function hydrateResolvedCombobox(root: RootEl, input: InputEl, surface: SurfaceE
       if (shouldIgnoreOutsideEvent(rootId, target)) {
         return
       }
-      closeCombobox({ restoreInput: true })
+      requestKernelClose("pointer-outside", { restoreInput: true })
     }
     const onFocusIn = (event: FocusEvent) => {
       const target = event.target as Node | null
@@ -698,7 +745,7 @@ function hydrateResolvedCombobox(root: RootEl, input: InputEl, surface: SurfaceE
       if (shouldIgnoreOutsideEvent(rootId, target)) {
         return
       }
-      closeCombobox({ restoreInput: true })
+      requestKernelClose("focus-loss", { restoreInput: true })
     }
     document.addEventListener("pointerdown", onPointerDown, true)
     document.addEventListener("focusin", onFocusIn, true)
@@ -740,6 +787,7 @@ function hydrateResolvedCombobox(root: RootEl, input: InputEl, surface: SurfaceE
   }
 
   root.affinoCombobox = handle
+  detachments.push(() => overlayIntegration?.destroy())
   detachments.push(() => {
     if (root.affinoCombobox === handle) {
       delete root.affinoCombobox
@@ -977,4 +1025,11 @@ function generateId(prefix: string): string {
     return `${prefix}-${crypto.randomUUID()}`
   }
   return `${prefix}-${Math.random().toString(36).slice(2)}`
+}
+
+function generateComboboxOverlayId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID()
+  }
+  return `affino-combobox-${Math.random().toString(36).slice(2)}`
 }
