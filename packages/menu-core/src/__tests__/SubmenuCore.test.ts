@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { MenuCore } from "../core/MenuCore"
 import { SubmenuCore, type SubmenuOptions } from "../core/SubmenuCore"
 import type { MenuOptions } from "../types"
+import { createOverlayManager } from "@affino/overlay-kernel"
 
 const setupMenus = (overrides?: { parent?: Partial<MenuOptions>; submenu?: Partial<SubmenuOptions> }) => {
   const parent = new MenuCore({ id: "parent", openDelay: 0, closeDelay: 0, ...overrides?.parent })
@@ -76,6 +77,22 @@ describe("SubmenuCore", () => {
 
     expect(submenu.getSnapshot().open).toBe(false)
     expect(parent.getSnapshot().open).toBe(false)
+  })
+
+  it("responds to kernel owner-close cascades when the parent closes", () => {
+    const manager = createOverlayManager()
+    const parent = new MenuCore({ id: "parent", overlayManager: manager })
+    parent.registerItem("parent-item")
+    const submenu = new SubmenuCore(parent, { parentItemId: "parent-item", overlayManager: manager })
+    submenu.registerItem("child-item")
+
+    parent.open("programmatic")
+    parent.highlight("parent-item")
+    submenu.open("programmatic")
+
+    parent.requestClose("pointer")
+
+    expect(submenu.getSnapshot().open).toBe(false)
   })
 
   it("respects closeOnSelect = false in the hierarchy", () => {

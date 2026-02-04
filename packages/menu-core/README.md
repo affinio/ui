@@ -202,7 +202,7 @@ const item1Props = menu.getItemProps('item-1')
 
 // Control the menu programmatically
 menu.open('programmatic')
-menu.close('programmatic')
+menu.requestClose('programmatic')
 menu.toggle()
 
 // Cleanup
@@ -272,6 +272,35 @@ menu.subscribe(state => {
   updateYourFrameworkState(state)
 })
 ```
+
+## Overlay kernel integration
+
+Menus can register with `@affino/overlay-kernel` so pointer/keyboard closes respect global stacking rules:
+
+```ts
+import { createOverlayManager } from "@affino/overlay-kernel"
+
+const overlayManager = createOverlayManager()
+const menu = new MenuCore({
+  id: "file-menu",
+  overlayManager,
+  overlayEntryTraits: {
+    ownerId: "app-shell",
+    modal: false,
+    priority: 70,
+  },
+})
+
+menu.open("programmatic")
+menu.requestClose("pointer") // routes through overlay manager before closing
+```
+
+- `overlayManager` / `getOverlayManager` — inject a manager instance or lazy resolver per host document.
+- `overlayKind` — defaults to `"menu"`, but you can set `"context-menu"`, `"listbox"`, etc. for priority tuning.
+- `overlayEntryTraits` — override kernel metadata (`ownerId`, `priority`, `modal`, custom `data`). Submenus automatically set `ownerId` to their parent menu.
+- `requestClose(reason)` — use this instead of `close()` when you need to invoke pointer/keyboard dismissals manually; kernel-managed reasons (`"pointer"`, `"keyboard"`) always ask the manager first.
+
+Destroying a menu (`menu.destroy()`) unregisters it from the overlay stack; make sure adapters call this during unmount so the kernel never keeps stale entries around.
 
 ---
 

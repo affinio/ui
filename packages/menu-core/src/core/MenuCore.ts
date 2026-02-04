@@ -1,10 +1,19 @@
 import { SurfaceCore } from "@affino/surface-core"
 import type { PointerEventLike, SurfaceReason, SurfaceState } from "@affino/surface-core"
 import type {
+  OverlayCloseReason,
+  OverlayEntryInit,
+  OverlayKind,
+  OverlayManager,
+  OverlayPhase,
+  OverlayRegistrationHandle,
+} from "@affino/overlay-kernel"
+import type {
   EventHandler,
   ItemProps,
   MenuCallbacks,
   MenuOptions,
+  MenuOverlayTraits,
   MenuState,
   PanelProps,
   TriggerProps,
@@ -34,6 +43,13 @@ export class MenuCore extends SurfaceCore<MenuState, MenuCallbacks> {
   protected readonly menuEvents: MenuEvents
   protected autoHighlightOnOpen = false
   private pointerHighlightLock: { id: string; timer: ReturnType<typeof setTimeout> | null } | null = null
+  private readonly overlayKind: OverlayKind
+  private readonly overlayEntryTraits: MenuOverlayTraits
+  private resolvedOverlayManager: OverlayManager | null
+  private readonly overlayManagerResolver?: () => OverlayManager | null | undefined
+  private overlayHandle: OverlayRegistrationHandle | null = null
+  private readonly overlayListeners: Array<() => void> = []
+  private destroyed = false
 
   constructor(options: MenuOptions = {}, callbacks: MenuCallbacks = {}, tree?: MenuTree, parentLink?: ParentLink) {
     super(options, callbacks)
@@ -43,6 +59,13 @@ export class MenuCore extends SurfaceCore<MenuState, MenuCallbacks> {
       mousePrediction: options.mousePrediction ?? {},
     }
     this.menuEvents = new MenuEvents(this.id, callbacks)
+    this.overlayKind = options.overlayKind ?? "menu"
+    this.overlayEntryTraits = options.overlayEntryTraits ?? {}
+    this.overlayManagerResolver = options.getOverlayManager
+    this.resolvedOverlayManager = options.overlayManager ?? null
+    if (this.resolvedOverlayManager) {
+      this.attachOverlayManagerSignals(this.resolvedOverlayManager)
+    }
     this.selectionMachine = new MenuStateMachine({
       loopFocus: this.menuOptions.loopFocus,
       closeOnSelect: this.menuOptions.closeOnSelect,
@@ -52,11 +75,19 @@ export class MenuCore extends SurfaceCore<MenuState, MenuCallbacks> {
     if (existingTree || parentLink) {
       this.tree.register(this.id, parentLink?.parentId ?? null, parentLink?.parentItemId ?? null)
     }
+    if (this.surfaceState.open) {
+      this.syncOverlayState(true)
+    }
   }
 
   override destroy() {
+    if (this.destroyed) {
+      return
+    }
+    this.destroyed = true
     this.tree.unregister(this.id)
     this.releasePointerHighlightHold()
+    this.teardownOverlayIntegration()
     super.destroy()
   }
 
@@ -68,6 +99,7 @@ export class MenuCore extends SurfaceCore<MenuState, MenuCallbacks> {
   }
 
   protected override onOpened(_reason: SurfaceReason) {
+    this.syncOverlayState(true)
     this.tree.updateOpenState(this.id, true)
     if (this.autoHighlightOnOpen) {
       this.ensureInitialHighlight()
@@ -75,6 +107,7 @@ export class MenuCore extends SurfaceCore<MenuState, MenuCallbacks> {
   }
 
   protected override onClosed(_reason: SurfaceReason) {
+    this.syncOverlayState(false)
     const before = this.selectionMachine.snapshot.activeItemId
     this.tree.updateOpenState(this.id, false)
     this.selectionMachine.reset()
@@ -114,12 +147,87 @@ export class MenuCore extends SurfaceCore<MenuState, MenuCallbacks> {
     }
   }
 
+  override close(reason: SurfaceReason = "programmatic") {
+    this.requestClose(reason)
+  }
+
+  requestClose(reason: SurfaceReason = "programmatic") {
+    this.closeWithSource(reason, "local")
+  }
+
+  private closeWithSource(reason: SurfaceReason, source: "local" | "kernel") {
+    if (this.destroyed) {
+      return
+    }
+    if (source === "local" && this.isKernelManagedReason(reason)) {
+      const manager = this.ensureOverlayManager()
+      if (manager && this.ensureOverlayHandle()) {
+        this.requestKernelMediatedClose(manager, reason)
+        return
+      }
+    }
+    this.performClose(reason)
+  }
+
+  private performClose(reason: SurfaceReason) {
+    super.close(reason)
+  }
+
+  protected isKernelManagedReason(reason: SurfaceReason): boolean {
+    return reason === "pointer" || reason === "keyboard"
+  }
+
+  private mapSurfaceReasonToOverlay(reason: SurfaceReason): OverlayCloseReason | null {
+    switch (reason) {
+      case "pointer":
+        return "pointer-outside"
+      case "keyboard":
+        return "escape-key"
+      case "programmatic":
+      default:
+        return "programmatic"
+    }
+  }
+
+  private mapOverlayReasonToSurface(reason: OverlayCloseReason): SurfaceReason | null {
+    switch (reason) {
+      case "pointer-outside":
+        return "pointer"
+      case "escape-key":
+        return "keyboard"
+      case "owner-close":
+      case "focus-loss":
+      case "programmatic":
+      default:
+        return "programmatic"
+    }
+  }
+
+  private requestKernelMediatedClose(manager: OverlayManager, reason: SurfaceReason) {
+    const overlayReason = this.mapSurfaceReasonToOverlay(reason)
+    if (!overlayReason) {
+      this.performClose(reason)
+      return
+    }
+    // Menus treat the overlay manager as the source of truth and fire-and-forget close requests.
+    // Unlike dialogs we do not await an explicit confirmation before updating local state.
+    manager.requestClose(this.id, overlayReason)
+  }
+
+  private handleKernelCloseRequest(reason: OverlayCloseReason) {
+    const surfaceReason = this.mapOverlayReasonToSurface(reason)
+    if (!surfaceReason) {
+      return
+    }
+    this.closeWithSource(surfaceReason, "kernel")
+  }
+
   select(id: string) {
     const { accepted, shouldClose } = this.selectionMachine.handleSelection(this.surfaceState.open)
     if (!accepted) return
     this.menuEvents.emitSelect(id)
     if (shouldClose) {
-      this.close("programmatic")
+      this.requestClose("programmatic")
     }
   }
 
@@ -251,6 +359,15 @@ export class MenuCore extends SurfaceCore<MenuState, MenuCallbacks> {
     return false
   }
 
+  protected override handlePointerLeave(event?: PointerEventLike) {
+    if (this.shouldIgnorePointerLeave(event)) {
+      this.cancelPendingClose()
+      return
+    }
+    this.timers.cancelOpen()
+    this.timers.scheduleClose(() => this.requestClose("pointer"))
+  }
+
   protected handleHighlightChange(change: HighlightChange) {
     if (!change.changed) return false
     this.menuEvents.emitHighlight(change.current)
@@ -286,7 +403,7 @@ export class MenuCore extends SurfaceCore<MenuState, MenuCallbacks> {
   protected handlePanelKeydown: EventHandler<KeyboardEvent> = (event) => {
     if (event.key === "Escape") {
       event.preventDefault()
-      this.close("keyboard")
+      this.requestClose("keyboard")
       return
     }
 
@@ -355,5 +472,99 @@ export class MenuCore extends SurfaceCore<MenuState, MenuCallbacks> {
       event.preventDefault()
       this.moveFocus(1)
     }
+  }
+
+  getOverlayManager(): OverlayManager | null {
+    return this.ensureOverlayManager()
+  }
+
+  getOverlayKind(): OverlayKind {
+    return this.overlayKind
+  }
+
+  private ensureOverlayManager(): OverlayManager | null {
+    if (this.resolvedOverlayManager) {
+      return this.resolvedOverlayManager
+    }
+    const resolved = this.overlayManagerResolver?.() ?? null
+    if (resolved) {
+      this.setOverlayManager(resolved)
+    }
+    return this.resolvedOverlayManager ?? null
+  }
+
+  private setOverlayManager(manager: OverlayManager) {
+    if (this.resolvedOverlayManager === manager) {
+      return
+    }
+    this.overlayListeners.forEach((off) => off())
+    this.overlayListeners.length = 0
+    const hadHandle = Boolean(this.overlayHandle)
+    if (this.overlayHandle) {
+      this.overlayHandle.unregister()
+      this.overlayHandle = null
+    }
+    this.resolvedOverlayManager = manager
+    this.attachOverlayManagerSignals(manager)
+    if (hadHandle || this.surfaceState.open) {
+      this.syncOverlayState(this.surfaceState.open)
+    }
+  }
+
+  private attachOverlayManagerSignals(manager: OverlayManager) {
+    this.overlayListeners.push(
+      manager.onCloseRequested((event) => {
+        if (event.entry?.id !== this.id) {
+          return
+        }
+        this.handleKernelCloseRequest(event.reason)
+      }),
+    )
+  }
+
+  private ensureOverlayHandle(): boolean {
+    const manager = this.ensureOverlayManager()
+    if (!manager) {
+      return false
+    }
+    if (this.overlayHandle) {
+      return true
+    }
+    this.overlayHandle = manager.register(this.createOverlayEntryInit(this.surfaceState.open ? "open" : "closed"))
+    return true
+  }
+
+  private syncOverlayState(isOpen: boolean) {
+    if (!this.ensureOverlayHandle()) {
+      return
+    }
+    this.overlayHandle?.update({ state: isOpen ? "open" : "closed" })
+  }
+
+  private createOverlayEntryInit(state: OverlayPhase): OverlayEntryInit {
+    return {
+      id: this.id,
+      kind: this.overlayKind,
+      state,
+      ownerId: this.overlayEntryTraits.ownerId ?? null,
+      modal: this.overlayEntryTraits.modal ?? false,
+      trapsFocus: this.overlayEntryTraits.trapsFocus ?? false,
+      blocksPointerOutside: this.overlayEntryTraits.blocksPointerOutside ?? false,
+      inertSiblings: this.overlayEntryTraits.inertSiblings ?? false,
+      returnFocus: this.overlayEntryTraits.returnFocus ?? false,
+      priority: this.overlayEntryTraits.priority,
+      root: this.overlayEntryTraits.root ?? null,
+      data: this.overlayEntryTraits.data,
+    }
+  }
+
+  private teardownOverlayIntegration() {
+    this.overlayListeners.forEach((off) => off())
+    this.overlayListeners.length = 0
+    if (this.overlayHandle) {
+      this.overlayHandle.unregister()
+      this.overlayHandle = null
+    }
+    this.resolvedOverlayManager = null
   }
 }

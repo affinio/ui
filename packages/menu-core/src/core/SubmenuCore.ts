@@ -41,6 +41,14 @@ export class SubmenuCore extends MenuCore {
     const resolvedOptions: SubmenuOptions = {
       ...options,
       closeOnSelect: options.closeOnSelect ?? parent.isCloseOnSelectEnabled(),
+      overlayKind: options.overlayKind ?? parent.getOverlayKind(),
+      overlayManager: options.overlayManager ?? parent.getOverlayManager() ?? null,
+      getOverlayManager:
+        options.getOverlayManager ?? (() => parent.getOverlayManager()),
+      overlayEntryTraits: {
+        ownerId: options.overlayEntryTraits?.ownerId ?? parent.id,
+        ...options.overlayEntryTraits,
+      },
     }
     super(resolvedOptions, callbacks, parent.getTree(), {
       parentId: parent.id,
@@ -160,7 +168,7 @@ export class SubmenuCore extends MenuCore {
       if (!current.isCloseOnSelectEnabled()) {
         break
       }
-      current.close("programmatic")
+      current.requestClose("programmatic")
       current = current instanceof SubmenuCore ? current.parent : null
     }
   }

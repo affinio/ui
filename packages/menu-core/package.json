@@ -17,6 +17,7 @@
   ],
   "sideEffects": false,
   "dependencies": {
+    "@affino/overlay-kernel": "workspace:^",
     "@affino/surface-core": "workspace:^"
   },
   "scripts": {

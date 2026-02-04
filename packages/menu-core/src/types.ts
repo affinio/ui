@@ -10,6 +10,7 @@ import type {
   SurfaceState,
   SurfaceSubscriber,
 } from "@affino/surface-core"
+import type { OverlayEntryInit, OverlayKind, OverlayManager } from "@affino/overlay-kernel"
 
 export type {
   Point,
@@ -63,7 +64,26 @@ export interface MenuOptions extends SurfaceOptions {
   closeOnSelect?: boolean
   loopFocus?: boolean
   mousePrediction?: MousePredictionConfig
+  overlayManager?: OverlayManager | null
+  getOverlayManager?: () => OverlayManager | null | undefined
+  overlayKind?: OverlayKind
+  overlayEntryTraits?: MenuOverlayTraits
 }
+
+export type MenuOverlayTraits = Partial<
+  Pick<
+    OverlayEntryInit,
+    | "ownerId"
+    | "modal"
+    | "trapsFocus"
+    | "blocksPointerOutside"
+    | "inertSiblings"
+    | "returnFocus"
+    | "priority"
+    | "root"
+    | "data"
+  >
+>
 
 export interface MenuState extends SurfaceState {
   activeItemId: string | null

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { MenuCore } from "../core/MenuCore"
+import { createOverlayManager } from "@affino/overlay-kernel"
 
 const noopCallbacks = {
   onOpen: vi.fn(),
@@ -77,5 +78,34 @@ describe("MenuCore", () => {
 
     vi.advanceTimersByTime(10)
     expect(internals.shouldBlockPointerHighlight("bravo")).toBe(false)
+  })
+
+  it("registers with the overlay manager and mirrors lifecycle state", () => {
+    const manager = createOverlayManager()
+    const menu = new MenuCore({ id: "menu-overlay", overlayManager: manager })
+    menu.registerItem("alpha")
+
+    menu.open("programmatic")
+    expect(manager.getEntry("menu-overlay")?.state).toBe("open")
+
+    menu.requestClose("programmatic")
+    expect(manager.getEntry("menu-overlay")?.state).toBe("closed")
+
+    menu.destroy()
+    expect(manager.getEntry("menu-overlay")).toBeNull()
+  })
+
+  it("routes kernel-managed close reasons through the overlay manager before performing close", () => {
+    const manager = createOverlayManager()
+    const requestSpy = vi.spyOn(manager, "requestClose")
+    const menu = new MenuCore({ id: "kernel-menu", defaultOpen: true, overlayManager: manager })
+
+    menu.requestClose("pointer")
+    expect(requestSpy).toHaveBeenCalledWith("kernel-menu", "pointer-outside")
+    expect(menu.getSnapshot().open).toBe(false)
+
+    menu.open("programmatic")
+    menu.requestClose("keyboard")
+    expect(requestSpy).toHaveBeenLastCalledWith("kernel-menu", "escape-key")
   })
 })

@@ -382,6 +382,9 @@ importers:
 
   packages/menu-core:
     dependencies:
+      '@affino/overlay-kernel':
+        specifier: workspace:^
+        version: link:../overlay-kernel
       '@affino/surface-core':
         specifier: workspace:^
         version: link:../surface-core
