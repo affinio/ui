@@ -22,11 +22,11 @@ import type {
 } from "./types.js"
 import { createOverlayInteractionMatrix } from "./overlay/interactionMatrix.js"
 import type { OverlayInteractionMatrix } from "./overlay/interactionMatrix.js"
-import type {
-  OverlayCloseReason as KernelOverlayCloseReason,
-  OverlayEntryInit,
-  OverlayManager,
-  OverlayRegistrationHandle,
+import {
+  createOverlayIntegration,
+  type OverlayIntegration,
+  type OverlayCloseReason as KernelOverlayCloseReason,
+  type OverlayManager,
 } from "@affino/overlay-kernel"
 
 const DEFAULT_PENDING_MESSAGE = "Dialog close pending"
@@ -85,12 +85,8 @@ export class DialogController {
   private readonly lifecycle: DialogLifecycleHooks
   private readonly focusOrchestrator?: DialogFocusOrchestrator
   private readonly overlayRegistrar?: OverlayRegistrar
-  private readonly overlayEntryTraits: DialogOverlayTraits
-  private resolvedOverlayManager: OverlayManager | null
-  private readonly overlayManagerResolver?: () => OverlayManager | null | undefined
   private readonly overlayId: string
-  private overlayHandle: OverlayRegistrationHandle | null = null
-  private readonly overlayListeners: Array<() => void> = []
+  private readonly overlayIntegration: OverlayIntegration
   private legacyOverlayDisposer: (() => void) | null = null
   private readonly pendingKernelCloseResolvers: Array<(result: boolean) => void> = []
   private focusActive = false
@@ -104,13 +100,28 @@ export class DialogController {
     this.lifecycle = options.lifecycle ?? {}
     this.focusOrchestrator = options.focusOrchestrator
     this.overlayRegistrar = options.overlayRegistrar
-    this.overlayEntryTraits = options.overlayEntryTraits ?? {}
-    this.overlayManagerResolver = options.getOverlayManager
-    this.resolvedOverlayManager = options.overlayManager ?? null
     this.overlayId = options.id ?? createDialogId()
-    if (this.resolvedOverlayManager) {
-      this.attachOverlayManagerSignals(this.resolvedOverlayManager)
-    }
+    const overlayTraits = options.overlayEntryTraits ?? {}
+    this.overlayIntegration = createOverlayIntegration({
+      id: this.overlayId,
+      kind: this.overlayKind,
+      traits: {
+        ownerId: overlayTraits.ownerId ?? null,
+        modal: overlayTraits.modal ?? true,
+        trapsFocus: overlayTraits.trapsFocus ?? true,
+        blocksPointerOutside: overlayTraits.blocksPointerOutside ?? true,
+        inertSiblings: overlayTraits.inertSiblings ?? true,
+        returnFocus: overlayTraits.returnFocus ?? true,
+        priority: overlayTraits.priority,
+        root: overlayTraits.root ?? null,
+        data: overlayTraits.data,
+      },
+      overlayManager: options.overlayManager ?? null,
+      getOverlayManager: options.getOverlayManager,
+      onCloseRequested: (reason) => this.handleKernelCloseRequest(reason),
+      onRegistered: () => this.emitEvent("overlay-registered", { id: this.overlayId, kind: this.overlayKind }),
+      onUnregistered: () => this.emitEvent("overlay-unregistered", { id: this.overlayId, kind: this.overlayKind }),
+    })
     if (options.onSnapshot) {
       this.subscribe(options.onSnapshot)
     }
@@ -137,8 +148,6 @@ export class DialogController {
     if (this.destroyed) return
     this.destroyed = true
     this.unregisterSelfOverlay()
-    this.overlayListeners.forEach((off) => off())
-    this.overlayListeners.length = 0
     this.resolveKernelCloseRequests(false)
     this.subscribers.clear()
     this.eventListeners.clear()
@@ -211,7 +220,7 @@ export class DialogController {
     }
 
     if (this.isKernelManagedReason(reason)) {
-      const manager = this.ensureOverlayManager()
+      const manager = this.overlayIntegration.getManager()
       if (manager) {
         return this.requestKernelMediatedClose(manager, reason, request)
       }
@@ -290,9 +299,6 @@ export class DialogController {
       const reason = context?.closeReason ?? this.lastReason ?? "programmatic"
       this.emitEvent("close", { reason, snapshot: this.snapshot })
       this.runCloseLifecycle("afterClose", { reason })
-      if (!this.overlayHandle) {
-        this.unregisterLegacyOverlay()
-      }
       this.deactivateFocus({ reason })
     }
   }
@@ -345,36 +351,16 @@ export class DialogController {
   }
 
   private syncOverlayState(next: DialogPhase): void {
-    if (next === "idle") {
-      this.releaseOverlayHandle()
+    const handled = this.overlayIntegration.syncState(next)
+    if (handled) {
+      this.unregisterLegacyOverlay()
       return
     }
-    if (!this.ensureOverlayHandle()) {
-      return
+    if (next === "idle" || next === "closed") {
+      this.unregisterLegacyOverlay()
+    } else {
+      this.registerLegacyOverlay()
     }
-    this.overlayHandle?.update({ state: next })
-  }
-
-  private ensureOverlayHandle(): boolean {
-    const manager = this.ensureOverlayManager()
-    if (!manager) {
-      return false
-    }
-    if (this.overlayHandle) {
-      return true
-    }
-    this.overlayHandle = manager.register(this.createOverlayEntryInit(this.phase))
-    this.emitEvent("overlay-registered", { id: this.overlayId, kind: this.overlayKind })
-    return true
-  }
-
-  private releaseOverlayHandle(): void {
-    if (!this.overlayHandle) {
-      return
-    }
-    this.overlayHandle.unregister()
-    this.overlayHandle = null
-    this.emitEvent("overlay-unregistered", { id: this.overlayId, kind: this.overlayKind })
   }
 
   private registerLegacyOverlay(): void {
@@ -392,42 +378,6 @@ export class DialogController {
     this.legacyOverlayDisposer = null
   }
 
-  private ensureOverlayManager(): OverlayManager | null {
-    if (this.resolvedOverlayManager) {
-      return this.resolvedOverlayManager
-    }
-    const resolved = this.overlayManagerResolver?.() ?? null
-    if (resolved) {
-      this.setOverlayManager(resolved)
-    }
-    return this.resolvedOverlayManager ?? null
-  }
-
-  private setOverlayManager(manager: OverlayManager): void {
-    if (this.resolvedOverlayManager === manager) {
-      return
-    }
-    this.overlayListeners.forEach((off) => off())
-    this.overlayListeners.length = 0
-    this.resolvedOverlayManager = manager
-    this.attachOverlayManagerSignals(manager)
-    this.unregisterLegacyOverlay()
-    if (this.phase !== "idle" && this.phase !== "closed") {
-      this.syncOverlayState(this.phase)
-    }
-  }
-
-  private attachOverlayManagerSignals(manager: OverlayManager): void {
-    this.overlayListeners.push(
-      manager.onCloseRequested((event) => {
-        if (event.entry?.id !== this.overlayId) {
-          return
-        }
-        this.handleKernelCloseRequest(event.reason)
-      }),
-    )
-  }
-
   private handleKernelCloseRequest(reason: KernelOverlayCloseReason): void {
     const dialogReason = mapOverlayCloseReason(reason)
     if (!dialogReason) {
@@ -437,23 +387,6 @@ export class DialogController {
     void this.performClose(dialogReason, {}).then((result) => {
       this.resolveKernelCloseRequests(result)
     })
-  }
-
-  private createOverlayEntryInit(state: DialogPhase): OverlayEntryInit {
-    return {
-      id: this.overlayId,
-      kind: this.overlayKind,
-      state,
-      ownerId: this.overlayEntryTraits.ownerId ?? null,
-      modal: this.overlayEntryTraits.modal ?? true,
-      trapsFocus: this.overlayEntryTraits.trapsFocus ?? true,
-      blocksPointerOutside: this.overlayEntryTraits.blocksPointerOutside ?? true,
-      inertSiblings: this.overlayEntryTraits.inertSiblings ?? true,
-      returnFocus: this.overlayEntryTraits.returnFocus ?? true,
-      priority: this.overlayEntryTraits.priority,
-      root: this.overlayEntryTraits.root ?? null,
-      data: this.overlayEntryTraits.data,
-    }
   }
 
   private isKernelManagedReason(reason: DialogCloseReason): boolean {
@@ -584,17 +517,11 @@ export class DialogController {
   }
 
   private registerSelfOverlay(): void {
-    if (this.ensureOverlayHandle()) {
-      return
-    }
-    this.registerLegacyOverlay()
+    this.syncOverlayState(this.phase)
   }
 
   private unregisterSelfOverlay(): void {
-    if (this.overlayHandle) {
-      this.releaseOverlayHandle()
-      return
-    }
+    this.overlayIntegration.destroy()
     this.unregisterLegacyOverlay()
   }
 }

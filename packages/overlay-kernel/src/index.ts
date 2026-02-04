@@ -68,6 +68,43 @@ export interface OverlayRegistrationHandle {
   unregister(): void
 }
 
+export type OverlayIntegrationTraits = Partial<
+  Pick<
+    OverlayEntryInit,
+    | "ownerId"
+    | "modal"
+    | "trapsFocus"
+    | "blocksPointerOutside"
+    | "inertSiblings"
+    | "returnFocus"
+    | "priority"
+    | "root"
+    | "data"
+  >
+>
+
+export interface OverlayIntegrationOptions {
+  id: string
+  kind: OverlayKind
+  traits?: OverlayIntegrationTraits
+  initialState?: OverlayPhase
+  overlayManager?: OverlayManager | null
+  getOverlayManager?: () => OverlayManager | null | undefined
+  onCloseRequested?: (reason: OverlayCloseReason) => void
+  releaseOnIdle?: boolean
+  onRegistered?: () => void
+  onUnregistered?: () => void
+}
+
+export interface OverlayIntegration {
+  syncState(state: OverlayPhase): boolean
+  requestClose(reason: OverlayCloseReason): boolean
+  destroy(): void
+  getManager(): OverlayManager | null
+  setOverlayManager(manager: OverlayManager | null): void
+  updateTraits(traits: OverlayIntegrationTraits): void
+}
+
 export interface StickyDependentsOptions {
   reopenReason?: OverlayOpenReason
   filter?(entry: OverlayEntry): boolean
@@ -495,6 +532,208 @@ export function createStickyDependentsController(
     getSnapshot() {
       return [...snapshot]
     },
+  }
+}
+
+interface ResolvedOverlayIntegrationTraits {
+  ownerId: string | null
+  modal: boolean
+  trapsFocus: boolean
+  blocksPointerOutside: boolean
+  inertSiblings: boolean
+  returnFocus: boolean
+  priority?: number
+  root: HTMLElement | null
+  data?: Record<string, unknown>
+}
+
+export function createOverlayIntegration(options: OverlayIntegrationOptions): OverlayIntegration {
+  const {
+    id,
+    kind,
+    traits,
+    initialState = "idle",
+    overlayManager = null,
+    getOverlayManager,
+    onCloseRequested,
+    releaseOnIdle = true,
+    onRegistered,
+    onUnregistered,
+  } = options
+
+  let destroyed = false
+  let currentState: OverlayPhase = initialState
+  let currentManager: OverlayManager | null = overlayManager ?? null
+  let handle: OverlayRegistrationHandle | null = null
+  let listeners: Array<() => void> = []
+  let resolvedTraits = normalizeTraits(traits)
+
+  function normalizeTraits(
+    next?: OverlayIntegrationTraits,
+    fallback?: ResolvedOverlayIntegrationTraits,
+  ): ResolvedOverlayIntegrationTraits {
+    return {
+      ownerId: next?.ownerId ?? fallback?.ownerId ?? null,
+      modal: next?.modal ?? fallback?.modal ?? false,
+      trapsFocus: next?.trapsFocus ?? fallback?.trapsFocus ?? false,
+      blocksPointerOutside:
+        next?.blocksPointerOutside ?? fallback?.blocksPointerOutside ?? Boolean(next?.modal ?? fallback?.modal ?? false),
+      inertSiblings: next?.inertSiblings ?? fallback?.inertSiblings ?? false,
+      returnFocus: next?.returnFocus ?? fallback?.returnFocus ?? true,
+      priority: next?.priority ?? fallback?.priority,
+      root: next?.root ?? fallback?.root ?? null,
+      data: next?.data ?? fallback?.data,
+    }
+  }
+
+  function attach(manager: OverlayManager): void {
+    if (!onCloseRequested) {
+      return
+    }
+    listeners.push(
+      manager.onCloseRequested((event) => {
+        if (event.entry?.id !== id) {
+          return
+        }
+        onCloseRequested(event.reason)
+      }),
+    )
+  }
+
+  function detach(): void {
+    listeners.forEach((off) => off())
+    listeners = []
+    if (handle) {
+      handle.unregister()
+      handle = null
+    }
+  }
+
+  function ensureManager(): OverlayManager | null {
+    if (destroyed) {
+      return null
+    }
+    if (currentManager) {
+      return currentManager
+    }
+    const resolved = getOverlayManager?.() ?? null
+    if (resolved) {
+      setOverlayManager(resolved)
+    }
+    return currentManager
+  }
+
+  function ensureHandle(state: OverlayPhase): boolean {
+    const manager = ensureManager()
+    if (!manager) {
+      return false
+    }
+    if (handle) {
+      return true
+    }
+    handle = manager.register({
+      id,
+      kind,
+      state,
+      ownerId: resolvedTraits.ownerId,
+      modal: resolvedTraits.modal,
+      trapsFocus: resolvedTraits.trapsFocus,
+      blocksPointerOutside: resolvedTraits.blocksPointerOutside,
+      inertSiblings: resolvedTraits.inertSiblings,
+      returnFocus: resolvedTraits.returnFocus,
+      priority: resolvedTraits.priority,
+      root: resolvedTraits.root,
+      data: resolvedTraits.data,
+    })
+    onRegistered?.()
+    return true
+  }
+
+  function syncState(state: OverlayPhase): boolean {
+    currentState = state
+    if (releaseOnIdle && state === "idle") {
+      detach()
+      return Boolean(currentManager)
+    }
+    if (!ensureHandle(state)) {
+      return false
+    }
+    handle?.update({ state })
+    return true
+  }
+
+  function requestClose(reason: OverlayCloseReason): boolean {
+    if (!handle) {
+      return false
+    }
+      onUnregistered?.()
+    const manager = ensureManager()
+    if (!manager) {
+      return false
+    }
+    manager.requestClose(id, reason)
+    return true
+  }
+
+  function destroyIntegration(): void {
+    if (destroyed) {
+      return
+    }
+    destroyed = true
+    detach()
+    listeners = []
+    currentManager = null
+  }
+
+  function setOverlayManager(manager: OverlayManager | null): void {
+    if (destroyed) {
+      return
+    }
+    if (currentManager === manager) {
+      return
+    }
+    detach()
+    currentManager = manager
+    if (currentManager) {
+      attach(currentManager)
+      if (!releaseOnIdle || currentState !== "idle") {
+        ensureHandle(currentState)
+        handle?.update({ state: currentState })
+      }
+    }
+  }
+
+  function updateTraits(traitsPatch: OverlayIntegrationTraits): void {
+    resolvedTraits = normalizeTraits(traitsPatch, resolvedTraits)
+    if (handle) {
+      handle.update({
+        ownerId: resolvedTraits.ownerId,
+        modal: resolvedTraits.modal,
+        trapsFocus: resolvedTraits.trapsFocus,
+        blocksPointerOutside: resolvedTraits.blocksPointerOutside,
+        inertSiblings: resolvedTraits.inertSiblings,
+        returnFocus: resolvedTraits.returnFocus,
+        priority: resolvedTraits.priority,
+        root: resolvedTraits.root,
+        data: resolvedTraits.data,
+      })
+    }
+  }
+
+  if (currentManager) {
+    attach(currentManager)
+    if (currentState !== "idle" || !releaseOnIdle) {
+      ensureHandle(currentState)
+    }
+  }
+
+  return {
+    syncState,
+    requestClose,
+    destroy: destroyIntegration,
+    getManager: ensureManager,
+    setOverlayManager,
+    updateTraits,
   }
 }
 
