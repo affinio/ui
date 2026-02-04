@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 import { DialogController } from "../dialogController.js"
 import { CloseGuardDecision } from "../types.js"
+import { createOverlayManager } from "@affino/overlay-kernel"
 
 const deferred = <T>() => {
   let resolve!: (value: T) => void
@@ -18,10 +19,19 @@ describe("DialogController", () => {
     controller.open()
     expect(controller.snapshot.isOpen).toBe(true)
 
-    const didClose = await controller.close("programmatic")
+    const didClose = await controller.requestClose("programmatic")
     expect(didClose).toBe(true)
     expect(controller.snapshot.phase).toBe("closed")
     expect(controller.snapshot.isOpen).toBe(false)
+  })
+
+  it("keeps close() as an alias for requestClose()", async () => {
+    const controller = new DialogController({ defaultOpen: true })
+    const spy = vi.spyOn(controller, "requestClose")
+
+    const didClose = await controller.close("programmatic")
+    expect(didClose).toBe(true)
+    expect(spy).toHaveBeenCalledWith("programmatic", {})
   })
 
   it("waits for blocking guard before closing", async () => {
@@ -31,7 +41,7 @@ describe("DialogController", () => {
     const closeGate = deferred<CloseGuardDecision>()
     controller.setCloseGuard(() => closeGate.promise)
 
-    const closePromise = controller.close("escape-key")
+    const closePromise = controller.requestClose("escape-key")
     expect(controller.snapshot.isGuardPending).toBe(true)
     expect(controller.snapshot.phase).toBe("open")
 
@@ -45,7 +55,7 @@ describe("DialogController", () => {
     const controller = new DialogController({ defaultOpen: true })
     controller.setCloseGuard(async () => ({ outcome: "deny", message: "Unsaved edits" }))
 
-    const didClose = await controller.close("programmatic")
+    const didClose = await controller.requestClose("programmatic")
     expect(didClose).toBe(false)
     expect(controller.snapshot.isOpen).toBe(true)
     expect(controller.snapshot.guardMessage).toBe("Unsaved edits")
@@ -56,7 +66,7 @@ describe("DialogController", () => {
     const closeGate = deferred<CloseGuardDecision>()
     controller.setCloseGuard(() => closeGate.promise)
 
-    const closePromise = controller.close("programmatic", { strategy: "optimistic" })
+    const closePromise = controller.requestClose("programmatic", { strategy: "optimistic" })
     expect(controller.snapshot.phase).toBe("closing")
     expect(controller.snapshot.optimisticCloseInFlight).toBe(true)
     expect(controller.snapshot.optimisticCloseReason).toBe("programmatic")
@@ -75,11 +85,11 @@ describe("DialogController", () => {
     const closeGate = deferred<CloseGuardDecision>()
     controller.setCloseGuard(() => closeGate.promise)
 
-    const closePromise = controller.close("escape-key")
+    const closePromise = controller.requestClose("escape-key")
     expect(controller.snapshot.pendingCloseAttempts).toBe(0)
 
-    controller.close("escape-key")
-    controller.close("escape-key")
+    controller.requestClose("escape-key")
+    controller.requestClose("escape-key")
     expect(onPending).toHaveBeenCalledTimes(2)
     expect(controller.snapshot.pendingCloseAttempts).toBe(2)
 
@@ -92,7 +102,7 @@ describe("DialogController", () => {
     const closeGate = deferred<CloseGuardDecision>()
     controller.setCloseGuard(() => closeGate.promise)
 
-    const closePromise = controller.close("programmatic")
+    const closePromise = controller.requestClose("programmatic")
     expect(controller.snapshot.pendingNavigationMessage).toBe("Saving changes")
 
     closeGate.resolve({ outcome: "allow" })
@@ -138,7 +148,7 @@ describe("DialogController", () => {
     expect(focusEvents).toEqual(["activate:keyboard"])
     expect(phaseEvents).toEqual(["phase:opening", "phase:open", "open:keyboard"])
 
-    await controller.close("programmatic")
+    await controller.requestClose("programmatic")
     expect(lifecycleOrder).toEqual([
       "before-open:keyboard",
       "after-open:keyboard",
@@ -194,8 +204,123 @@ describe("DialogController", () => {
     const registration = register.mock.calls[0][0]
     expect(registration).toMatchObject({ kind: "dialog" })
 
-    await controller.close("programmatic")
+    await controller.requestClose("programmatic")
     expect(unregister).toHaveBeenCalledTimes(1)
+  })
+
+  it("registers with overlay manager and mirrors lifecycle state", async () => {
+    const manager = createOverlayManager()
+    const controller = new DialogController({ overlayManager: manager, overlayEntryTraits: { modal: false }, id: "dialog-under-test" })
+
+    controller.open("keyboard")
+    const entry = manager.getEntry("dialog-under-test")
+    expect(entry?.state).toBe("open")
+    expect(entry?.modal).toBe(false)
+
+    await controller.requestClose("programmatic")
+    expect(manager.getEntry("dialog-under-test")?.state).toBe("closed")
+
+    controller.destroy()
+    expect(manager.getEntry("dialog-under-test")).toBeNull()
+  })
+
+  it("keeps overlay registered until after close lifecycle completes", async () => {
+    const manager = createOverlayManager()
+    const afterCloseStates: Array<{ stillRegistered: boolean }> = []
+    const controller = new DialogController({
+      defaultOpen: true,
+      overlayManager: manager,
+      id: "dialog-after-close",
+      lifecycle: {
+        afterClose: () => {
+          afterCloseStates.push({ stillRegistered: Boolean(manager.getEntry("dialog-after-close")) })
+        },
+      },
+    })
+
+    await controller.requestClose("programmatic")
+    expect(afterCloseStates).toEqual([{ stillRegistered: true }])
+    expect(manager.getEntry("dialog-after-close")?.state).toBe("closed")
+
+    controller.destroy()
+    expect(manager.getEntry("dialog-after-close")).toBeNull()
+  })
+
+  it("routes kernel-managed close reasons through the overlay manager before performing close", async () => {
+    const manager = createOverlayManager()
+    const requestSpy = vi.spyOn(manager, "requestClose")
+    const controller = new DialogController({ defaultOpen: true, overlayManager: manager, id: "primary-dialog" })
+
+    const backdropPromise = controller.requestClose("backdrop")
+    expect(requestSpy).toHaveBeenCalledWith("primary-dialog", "pointer-outside")
+    await backdropPromise
+    expect(controller.snapshot.isOpen).toBe(false)
+
+    controller.open()
+    const escapePromise = controller.requestClose("escape-key")
+    expect(requestSpy).toHaveBeenLastCalledWith("primary-dialog", "escape-key")
+    await escapePromise
+    expect(controller.snapshot.phase).toBe("closed")
+  })
+
+  it("cascades kernel-mediated closes to owner-bound overlays", async () => {
+    const manager = createOverlayManager()
+    const dialog = new DialogController({ defaultOpen: true, overlayManager: manager, overlayKind: "dialog", id: "parent-dialog" })
+    const sheet = new DialogController({
+      defaultOpen: true,
+      overlayManager: manager,
+      overlayKind: "sheet",
+      id: "child-sheet",
+      overlayEntryTraits: { ownerId: "parent-dialog" },
+    })
+
+    await dialog.requestClose("backdrop")
+
+    expect(dialog.snapshot.phase).toBe("closed")
+    expect(sheet.snapshot.phase).toBe("closed")
+  })
+
+  it("resolves pending requests when the kernel declines to close", async () => {
+    const manager = createOverlayManager()
+    const controller = new DialogController({ defaultOpen: true, overlayManager: manager, id: "stale-dialog" })
+
+    manager.update("stale-dialog", { state: "closed" })
+
+    const didClose = await controller.requestClose("escape-key")
+    expect(didClose).toBe(false)
+    expect(controller.snapshot.phase).toBe("open")
+  })
+
+  it("does not hang when the kernel never emits close-requested", async () => {
+    const manager = createOverlayManager()
+    const controller = new DialogController({ defaultOpen: true, overlayManager: manager, id: "silent-kernel-dialog" })
+
+    manager.unregister("silent-kernel-dialog")
+
+    const didClose = await controller.requestClose("escape-key")
+    expect(didClose).toBe(false)
+    expect(controller.snapshot.isOpen).toBe(true)
+    expect(controller.snapshot.phase).toBe("open")
+  })
+
+  it("ignores kernel focus-loss close requests", () => {
+    const manager = createOverlayManager()
+    const controller = new DialogController({ defaultOpen: true, overlayManager: manager, id: "focus-loss-dialog" })
+
+    manager.requestClose("focus-loss-dialog", "focus-loss")
+    expect(controller.snapshot.isOpen).toBe(true)
+    expect(controller.snapshot.phase).toBe("open")
+  })
+
+  it("responds to kernel close requests", async () => {
+    const manager = createOverlayManager()
+    const controller = new DialogController({ defaultOpen: true, overlayManager: manager, id: "kernel-close-dialog" })
+
+    manager.requestClose("kernel-close-dialog", "pointer-outside")
+    await vi.waitFor(() => {
+      expect(controller.snapshot.isOpen).toBe(false)
+      expect(controller.snapshot.phase).toBe("closed")
+    })
   })
 
   it("rejects backdrop closes when the registrar reports a lower stacking depth", async () => {
@@ -210,7 +335,7 @@ describe("DialogController", () => {
     })
 
     const registration = register.mock.calls[0][0]
-    const didClose = await controller.close("backdrop")
+    const didClose = await controller.requestClose("backdrop")
     expect(didClose).toBe(false)
     expect(isTopMost).toHaveBeenCalledWith(registration.id)
     expect(controller.snapshot.isOpen).toBe(true)
@@ -227,7 +352,7 @@ describe("DialogController", () => {
       },
     })
 
-    const didClose = await controller.close("programmatic")
+    const didClose = await controller.requestClose("programmatic")
     expect(didClose).toBe(true)
     expect(isTopMost).not.toHaveBeenCalled()
   })
@@ -242,9 +367,9 @@ describe("DialogController", () => {
     const closeGate = deferred<CloseGuardDecision>()
     controller.setCloseGuard(() => closeGate.promise)
 
-    const closePromise = controller.close("escape-key")
-    controller.close("escape-key")
-    controller.close("escape-key")
+    const closePromise = controller.requestClose("escape-key")
+    controller.requestClose("escape-key")
+    controller.requestClose("escape-key")
 
     expect(onLimit).toHaveBeenCalledTimes(1)
     expect(onLimit).toHaveBeenCalledWith({ reason: "escape-key", attempt: 2, limit: 2 })
@@ -270,7 +395,7 @@ describe("DialogController", () => {
 
     const closeGate = deferred<CloseGuardDecision>()
     controller.setCloseGuard(() => closeGate.promise)
-    const closePromise = controller.close("programmatic")
+    const closePromise = controller.requestClose("programmatic")
     expect(controller.snapshot.isGuardPending).toBe(true)
 
     controller.destroy("escape-key")

@@ -1,3 +1,4 @@
+import type { OverlayEntryInit, OverlayManager } from "@affino/overlay-kernel"
 /**
  * Contract:
  * - "idle" means the overlay has never reached "open" since controller creation.
@@ -11,6 +12,7 @@ export type DialogCloseReason =
   | "programmatic"
   | "pointer"
   | "nested-dialog-request"
+  | "focus-loss"
 
 export type DialogOpenReason = "programmatic" | "pointer" | "keyboard" | "trigger"
 
@@ -59,6 +61,21 @@ export interface OverlayRegistrar {
   register: (overlay: OverlayRegistration) => (() => void) | void
   isTopMost: (id: string) => boolean
 }
+
+export type DialogOverlayTraits = Partial<
+  Pick<
+    OverlayEntryInit,
+    | "ownerId"
+    | "modal"
+    | "trapsFocus"
+    | "blocksPointerOutside"
+    | "inertSiblings"
+    | "returnFocus"
+    | "priority"
+    | "root"
+    | "data"
+  >
+>
 
 export interface DialogOpenContext {
   reason: DialogOpenReason
@@ -137,6 +154,9 @@ export interface DialogControllerOptions {
   lifecycle?: DialogLifecycleHooks
   focusOrchestrator?: DialogFocusOrchestrator
   overlayRegistrar?: OverlayRegistrar
+  overlayManager?: OverlayManager | null
+  getOverlayManager?: () => OverlayManager | null | undefined
+  overlayEntryTraits?: DialogOverlayTraits
   maxPendingAttempts?: number
 }
 

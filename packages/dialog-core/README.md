@@ -6,6 +6,7 @@ Headless dialog engine that coordinates lifecycle hooks, focus scopes, async clo
 
 - Deterministic state machine (`idle → opening → open → closing → closed`).
 - Blocking **and** optimistic guard strategies with pending-attempt telemetry.
+- Plugs directly into `@affino/overlay-kernel` or into legacy registrars.
 - Overlay interaction matrix (`dialog` vs `sheet`) plus registrar hooks.
 - Focus orchestration contract for portals, scroll locks, or custom traps.
 - Pure TypeScript, zero DOM dependencies, easy to adapt to Vue/React/Livewire.
@@ -37,7 +38,7 @@ controller.subscribe((snapshot) => {
 })
 
 controller.open("keyboard")
-await controller.close("programmatic")
+await controller.requestClose("programmatic")
 ```
 
 ### Snapshot contract
@@ -71,10 +72,10 @@ controller.setCloseGuard(async ({ reason, metadata }) => {
 })
 
 // Blocking (default): keep dialog open until guard resolves.
-await controller.close("programmatic", { strategy: "blocking" })
+await controller.requestClose("programmatic", { strategy: "blocking" })
 
 // Optimistic: play close animation immediately, reopen if guard denies.
-await controller.close("programmatic", { strategy: "optimistic" })
+await controller.requestClose("programmatic", { strategy: "optimistic" })
 ```
 
 ```
@@ -88,7 +89,42 @@ open → [close requested]
 ```
 
 - `pendingNavigationMessage` surfaces copy such as “Saving changes…” whenever a guard is resolving.
-- Repeated `close()` calls while a guard is pending increment `pendingCloseAttempts`. Hook `onPendingCloseAttempt` or `onPendingCloseLimitReached` to respond to ESC storms.
+- Repeated `requestClose()` calls while a guard is pending increment `pendingCloseAttempts`. Hook `onPendingCloseAttempt` or `onPendingCloseLimitReached` to respond to ESC storms.
+
+## Overlay kernel integration
+
+```ts
+import { DialogController } from "@affino/dialog-core"
+import { getDocumentOverlayManager } from "@affino/overlay-kernel"
+
+const manager = getDocumentOverlayManager(document)
+
+const dialog = new DialogController({
+	id: "settings-dialog",
+	overlayManager: manager,
+	overlayEntryTraits: {
+		ownerId: "root-modal",
+		modal: true,
+		blocksPointerOutside: true,
+	},
+})
+
+dialog.open()
+
+// Respond to owner-close cascades or pointer-outside decisions from the kernel.
+manager.requestClose("settings-dialog", "pointer-outside")
+
+// Escape/backdrop/pointer closes must route through the kernel:
+await dialog.requestClose("escape-key") // internally calls manager.requestClose(...)
+
+// Dialogs intentionally ignore kernel "focus-loss" close requests so routine focus churn
+// (e.g., moving between inputs or portals) never dismisses a modal.
+```
+
+- `overlayManager` — injects a ready manager instance (per document or per host application).
+- `getOverlayManager` — lazy resolver invoked once; useful when the controller runs before DOM is available.
+- `overlayEntryTraits` — overrides structural metadata (`ownerId`, `modal`, `priority`, etc.) that the controller passes to the kernel on each phase transition.
+- `overlayRegistrar` — remains as a fallback bridge for legacy stacks. When both are provided, the kernel path wins and the registrar is only used for manual `registerOverlay()` calls.
 
 ## Overlay stacking rules
 
@@ -142,7 +178,10 @@ The controller only calls `activate` once per open cycle and automatically invok
 | `maxPendingAttempts` | `number` | ESC spam ceiling before firing `onPendingCloseLimitReached`. |
 | `lifecycle` | `DialogLifecycleHooks` | `before/after` open + close callbacks. |
 | `focusOrchestrator` | `DialogFocusOrchestrator` | Hook to your focus trap/return target logic. |
-| `overlayRegistrar` | `OverlayRegistrar` | Bridge into an external overlay manager (must expose `register` + `isTopMost`). |
+| `overlayRegistrar` | `OverlayRegistrar` | Legacy bridge into custom overlay managers (still used for `registerOverlay`). |
+| `overlayManager` | `OverlayManager` | Inject an `@affino/overlay-kernel` manager to drive stacking, close requests, and ordering. |
+| `getOverlayManager` | `() => OverlayManager \\| null` | Lazy resolver invoked on first need (SSR or dependency injection scenarios). |
+| `overlayEntryTraits` | `DialogOverlayTraits` | Override kernel traits such as `ownerId`, `modal`, `priority`, `root`, or custom `data`. |
 | `onSnapshot` | `(snapshot) => void` | Shortcut subscription invoked immediately + on change. |
 | `onPendingCloseAttempt` | `(info) => void` | Called every time a guard is already pending and a new request arrives. |
 | `onPendingCloseLimitReached` | `(info) => void` | Fired once per pending cycle when attempts reach the configured limit. |
@@ -152,7 +191,8 @@ The controller only calls `activate` once per open cycle and automatically invok
 | Method | Description |
 | --- | --- |
 | `open(reason?)` | Transition to `opening → open`, run lifecycle hooks, and activate focus orchestration. |
-| `close(reason?, options?)` | Request a close with optional guard metadata/strategy. Returns `Promise<boolean>`. |
+| `requestClose(reason?, options?)` | Ask the controller (and kernel, when attached) to close. Kernel-managed reasons (`"escape-key"`, `"backdrop"`, `"pointer"`) are always arbitrated by the overlay manager before the controller executes guards. Returns `Promise<boolean>`. |
+| `close(reason?, options?)` | Alias for `requestClose()` retained for backward compatibility. |
 | `setCloseGuard(fn)` | Provide async/sync guard logic (resolve `{ outcome: "allow" }` or `{ outcome: "deny", message }`). |
 | `subscribe(listener)` | Receive snapshots; returns an unsubscribe function. |
 | `on(event, listener)` | Listen to `phase-change`, `open`, `close`, `overlay-registered`, `overlay-unregistered`. |
