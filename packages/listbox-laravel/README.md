@@ -89,6 +89,9 @@ The helper scans for new roots after Livewire morphs, keeps the trigger and surf
 - Livewire models can be bound via the `model` prop. The helper finds the owning component and calls `Livewire.find(id)?.set(model, value)` every time the selection changes.
 - Manual controllers stay opt-in: dispatch `affino-listbox:manual` with `{ action: 'open' | 'close' | 'toggle' | 'select' }` to keep the surface pinned while Livewire rerenders.
 - Styling is yours. The package never injects Tailwind or CSS utility classes—it only flips `data-state`, `aria-selected`, and inline visibility styles.
+- Each listbox remembers whether it was open the last time you interacted with it (keyed by `listbox-id`) so Livewire morphs don't force-close long forms. Closing the UI clears the stored flag.
+- Wrap any toolbar, chip list, or external control group with `data-affino-listbox-sticky="listbox-id"` (comma-separated for multiple targets) when it should be ignored by the outside-click + focus guards.
+- Every hydrated root exposes an imperative handle on `element.affinoListbox` with `open`, `close`, `toggle`, `selectIndex`, `selectValue`, and `getSnapshot` helpers. The manual bridge example below uses that handle.
 
 ## Basic usage
 
@@ -158,6 +161,11 @@ $this->dispatch('affino-listbox:manual', id: 'region-select', action: 'select', 
 ```
 
 The helper retries every animation frame (up to 20) so the command still lands while Livewire swaps DOM nodes.
+
+## Events
+
+- `affino-listbox:change` bubbles from the root element with `{ values: string[]; indexes: number[] }` whenever the selection mutates.
+- The hidden input still fires regular `input`/`change` events for non-Livewire forms.
 
 ## Roadmap
 
