@@ -81,7 +81,7 @@ $this->dispatch('affino-dialog:manual', id: 'ops-dialog', action: 'close', optio
 
 ```blade
 <x-affino-dialog
-    dialog-id="ops-dialog"
+  id="ops-dialog"
     labelled-by="ops-dialog-title"
     description-id="ops-dialog-description"
     :lock-scroll="true"
@@ -111,7 +111,7 @@ $this->dispatch('affino-dialog:manual', id: 'ops-dialog', action: 'close', optio
 
 | Prop | Type | Default | Description |
 | --- | --- | --- | --- |
-| `dialog-id` | `string` | auto UUID | Stable identifier used for ARIA wiring and manual controllers. |
+| `id` | `string` | auto UUID | Stable identifier used for ARIA wiring, DOM selection, and manual controllers. |
 | `modal` | `bool` | `true` | Locks focus inside the surface and adds `aria-modal="true"`. |
 | `close-on-backdrop` | `bool` | `true` | Close when the backdrop receives a pointer event. |
 | `close-on-escape` | `bool` | `true` | Toggle Escape key dismissal. |
@@ -121,13 +121,23 @@ $this->dispatch('affino-dialog:manual', id: 'ops-dialog', action: 'close', optio
 | `default-open` | `bool` | `false` | Start in the open state on first hydration. |
 | `overlay-kind` | `"dialog" \| "sheet"` | `dialog` | Selects the overlay semantics (standard modal vs slide/sheet). |
 | `close-strategy` | `"blocking" \| "optimistic"` | `blocking` | Tell the core whether close requests should wait for guards. |
-| `teleport` | `string|null` | `#affino-dialog-host` | CSS selector for the overlay host. Use `"inline"` to keep the overlay within the component tree. |
+| `teleport-target` | `string|null` | `null` | Controls where the overlay surface renders. `null`/`"inline"` keeps it next to the Blade markup, `"auto"` (default when omitted) mounts into the shared `#affino-dialog-host`, and any CSS selector targets a custom host. |
 | `pending-message` | `string|null` | `null` | Copy rendered while a guard blocks the close request. |
 | `max-pending-attempts` | `int|null` | `null` | Limit how many times an optimistic close retries before ignoring new requests. |
 | `labelled-by` | `string|null` | `null` | Pass the id for the heading inside the dialog. |
 | `aria-label` | `string|null` | `null` | Fallback label if no heading is present. |
 | `surface-role` | `string` | `dialog` | Custom ARIA role for the surface. |
 | `description-id` | `string|null` | `null` | Id of descriptive copy inside the surface. |
+
+### Teleport targeting
+
+Laravel devs often render dialogs deep inside Livewire components, so we expose flexible teleport semantics through `teleport-target`:
+
+- `null` or `"inline"` keeps the overlay adjacent to the Blade markup (good for simple layouts or when you manage stacking contexts yourself).
+- `"auto"` (the default) mounts into the shared `#affino-dialog-host`, ensuring the dialog floats above Livewire diffing and parent stacking contexts.
+- Any CSS selector (e.g. `"#workspace-overlays"`) teleports into that host, which is useful when you already manage portals elsewhere.
+
+The hydrator remembers the original position with a comment placeholder, so rehydrate cycles and Livewire morphs restore the overlay exactly where it came from if the host disappears.
 
 ## Behavior contract
 

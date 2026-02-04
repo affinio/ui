@@ -1,5 +1,5 @@
 @props([
-    'dialogId',
+    'id' => null,
     'modal' => true,
     'closeOnBackdrop' => true,
     'closeOnEscape' => true,
@@ -19,8 +19,12 @@
 ])
 
 @php
+    $dialogId = $id ?: (string) \Illuminate\Support\Str::uuid();
+    $closeStrategy = in_array($closeStrategy, ['blocking', 'optimistic'], true) ? $closeStrategy : 'blocking';
+
     $rootAttributes = [
         'data-affino-dialog-root' => $dialogId,
+        'id' => $dialogId,
         'data-affino-dialog-state' => 'closed',
         'data-affino-dialog-modal' => $modal ? 'true' : 'false',
         'data-affino-dialog-close-backdrop' => $closeOnBackdrop ? 'true' : 'false',
@@ -53,7 +57,7 @@
         </div>
     @endisset
 
-    <div data-affino-dialog-overlay data-state="closed" hidden>
+    <div data-affino-dialog-overlay data-affino-dialog-owner="{{ $dialogId }}" data-state="closed" hidden>
         <div
             data-affino-dialog-surface
             role="{{ $surfaceRole }}"
@@ -63,11 +67,15 @@
             @if ($ariaLabel) aria-label="{{ $ariaLabel }}" @endif
             @if ($descriptionId) aria-describedby="{{ $descriptionId }}" @endif
         >
-            <span class="affino-dialog__sentinel" data-affino-dialog-sentinel="start" tabindex="0"></span>
+            @if ($modal)
+                <span class="affino-dialog__sentinel" data-affino-dialog-sentinel="start" tabindex="0"></span>
+            @endif
 
             {{ $slot }}
 
-            <span class="affino-dialog__sentinel" data-affino-dialog-sentinel="end" tabindex="0"></span>
+            @if ($modal)
+                <span class="affino-dialog__sentinel" data-affino-dialog-sentinel="end" tabindex="0"></span>
+            @endif
         </div>
     </div>
 </div>
