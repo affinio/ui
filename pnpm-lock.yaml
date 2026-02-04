@@ -247,6 +247,9 @@ importers:
       '@affino/listbox-core':
         specifier: workspace:*
         version: link:../listbox-core
+      '@affino/overlay-kernel':
+        specifier: workspace:*
+        version: link:../overlay-kernel
     devDependencies:
       '@vitest/coverage-v8':
         specifier: ^4.0.15
@@ -301,6 +304,9 @@ importers:
       '@affino/dialog-core':
         specifier: workspace:^
         version: link:../dialog-core
+      '@affino/overlay-kernel':
+        specifier: workspace:^
+        version: link:../overlay-kernel
     devDependencies:
       '@testing-library/vue':
         specifier: ^8.1.0
@@ -369,6 +375,9 @@ importers:
       '@affino/listbox-core':
         specifier: workspace:*
         version: link:../listbox-core
+      '@affino/overlay-kernel':
+        specifier: workspace:*
+        version: link:../overlay-kernel
     devDependencies:
       '@vitest/coverage-v8':
         specifier: ^4.0.15
@@ -452,6 +461,9 @@ importers:
       '@affino/overlay-host':
         specifier: workspace:^
         version: link:../overlay-host
+      '@affino/overlay-kernel':
+        specifier: workspace:^
+        version: link:../overlay-kernel
       vue:
         specifier: ^3.3.0
         version: 3.5.25(typescript@5.9.3)
@@ -519,6 +531,9 @@ importers:
       '@affino/overlay-host':
         specifier: workspace:^
         version: link:../overlay-host
+      '@affino/overlay-kernel':
+        specifier: workspace:^
+        version: link:../overlay-kernel
       '@affino/popover-core':
         specifier: workspace:^
         version: link:../popover-core
@@ -605,6 +620,9 @@ importers:
       '@affino/overlay-host':
         specifier: workspace:^
         version: link:../overlay-host
+      '@affino/overlay-kernel':
+        specifier: workspace:^
+        version: link:../overlay-kernel
       '@affino/tooltip-core':
         specifier: workspace:^
         version: link:../tooltip-core
