@@ -1,13 +1,12 @@
 import { bindLivewireHooks } from "@affino/overlay-kernel"
 import { scan } from "./hydrate"
-import { clearTrackedFocus } from "./registry"
 
 export function setupLivewireHooks(): void {
   if (typeof window === "undefined") {
     return
   }
   bindLivewireHooks({
-    globalKey: "__affinoTooltipLivewireHooked",
+    globalKey: "__affinoComboboxLivewireHooked",
     hooks: [
       {
         name: "morph.added",
@@ -19,7 +18,6 @@ export function setupLivewireHooks(): void {
       },
     ],
     onNavigated: () => {
-      clearTrackedFocus()
       scan(document)
     },
   })

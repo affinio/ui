@@ -9,6 +9,7 @@ import type {
   OverlayKind,
 } from "@affino/dialog-core"
 import { focusEdge, getFocusableElements } from "@affino/focus-utils"
+import { ensureDocumentObserver } from "@affino/overlay-kernel"
 import type {
   BindingOptions,
   Cleanup,
@@ -40,7 +41,6 @@ const CLOSE_REASONS = new Set<DialogCloseReason>([
 
 const registry = new WeakMap<RootEl, Cleanup>()
 const pinnedOpenRegistry = new Map<string, boolean>()
-let mutationObserver: MutationObserver | null = null
 let dialogOverlayIdCounter = 0
 
 function hydrateDialog(root: RootEl): void {
@@ -341,20 +341,23 @@ function scan(root: ParentNode): void {
 }
 
 function setupMutationObserver(): void {
-  if (mutationObserver || typeof document === "undefined") {
+  if (typeof document === "undefined") {
     return
   }
-  mutationObserver = new MutationObserver((mutations) => {
-    mutations.forEach((mutation) => {
-      mutation.addedNodes.forEach((node) => {
-        if (node instanceof HTMLElement || node instanceof DocumentFragment) {
-          scan(node)
-        }
+  ensureDocumentObserver({
+    globalKey: "__affinoDialogObserver",
+    target: document.documentElement,
+    callback: (mutations) => {
+      mutations.forEach((mutation) => {
+        mutation.addedNodes.forEach((node) => {
+          if (node instanceof HTMLElement || node instanceof DocumentFragment) {
+            scan(node)
+          }
+        })
+        mutation.removedNodes.forEach((node) => scheduleRemovedCleanup(node))
       })
-      mutation.removedNodes.forEach((node) => scheduleRemovedCleanup(node))
-    })
+    },
   })
-  mutationObserver.observe(document.documentElement, { childList: true, subtree: true })
 }
 
 function scheduleRemovedCleanup(node: Node): void {

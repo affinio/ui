@@ -6,6 +6,11 @@ import { JSDOM } from "jsdom"
 const ROOTS_PER_KIND = Number.parseInt(process.env.ROOTS_PER_KIND ?? "150", 10)
 const ITERATIONS = Number.parseInt(process.env.ITERATIONS ?? "800", 10)
 const STRUCTURE_MUTATION_RATE = Number.parseFloat(process.env.STRUCTURE_MUTATION_RATE ?? "0.15")
+const BENCH_SEED = Number.parseInt(process.env.BENCH_SEED ?? "1337", 10)
+const PERF_BUDGET_TOTAL_MS = Number.parseFloat(process.env.PERF_BUDGET_TOTAL_MS ?? "Infinity")
+const PERF_BUDGET_MAX_HYDRATE_RATE_PCT = Number.parseFloat(process.env.PERF_BUDGET_MAX_HYDRATE_RATE_PCT ?? "Infinity")
+const PERF_BUDGET_MAX_BOOTSTRAP_MS = Number.parseFloat(process.env.PERF_BUDGET_MAX_BOOTSTRAP_MS ?? "Infinity")
+const PERF_BUDGET_MAX_OPEN_CLOSE_MS = Number.parseFloat(process.env.PERF_BUDGET_MAX_OPEN_CLOSE_MS ?? "Infinity")
 
 const PACKAGES = [
   { name: "dialog", root: "[data-affino-dialog-root]", trigger: "[data-affino-dialog-trigger]", content: "[data-affino-dialog-overlay]" },
@@ -22,11 +27,31 @@ function assertFiniteInt(value, label) {
   }
 }
 
+function assertFiniteNonNegative(value, label) {
+  if (!Number.isFinite(value) || value < 0) {
+    throw new Error(`${label} must be a non-negative number`)
+  }
+}
+
 assertFiniteInt(ROOTS_PER_KIND, "ROOTS_PER_KIND")
 assertFiniteInt(ITERATIONS, "ITERATIONS")
+assertFiniteInt(BENCH_SEED, "BENCH_SEED")
 
 if (!Number.isFinite(STRUCTURE_MUTATION_RATE) || STRUCTURE_MUTATION_RATE < 0 || STRUCTURE_MUTATION_RATE > 1) {
   throw new Error("STRUCTURE_MUTATION_RATE must be between 0 and 1")
+}
+
+if (PERF_BUDGET_TOTAL_MS !== Number.POSITIVE_INFINITY) {
+  assertFiniteNonNegative(PERF_BUDGET_TOTAL_MS, "PERF_BUDGET_TOTAL_MS")
+}
+if (PERF_BUDGET_MAX_HYDRATE_RATE_PCT !== Number.POSITIVE_INFINITY) {
+  assertFiniteNonNegative(PERF_BUDGET_MAX_HYDRATE_RATE_PCT, "PERF_BUDGET_MAX_HYDRATE_RATE_PCT")
+}
+if (PERF_BUDGET_MAX_BOOTSTRAP_MS !== Number.POSITIVE_INFINITY) {
+  assertFiniteNonNegative(PERF_BUDGET_MAX_BOOTSTRAP_MS, "PERF_BUDGET_MAX_BOOTSTRAP_MS")
+}
+if (PERF_BUDGET_MAX_OPEN_CLOSE_MS !== Number.POSITIVE_INFINITY) {
+  assertFiniteNonNegative(PERF_BUDGET_MAX_OPEN_CLOSE_MS, "PERF_BUDGET_MAX_OPEN_CLOSE_MS")
 }
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>")
@@ -121,7 +146,17 @@ function scanNode(pkg, node) {
 }
 
 function randomInt(max) {
-  return Math.floor(Math.random() * max)
+  return Math.floor(nextRandom() * max)
+}
+
+let rngState = BENCH_SEED % 2147483647
+if (rngState <= 0) {
+  rngState += 2147483646
+}
+
+function nextRandom() {
+  rngState = (rngState * 16807) % 2147483647
+  return (rngState - 1) / 2147483646
 }
 
 function runMorphIteration() {
@@ -133,19 +168,19 @@ function runMorphIteration() {
   if (!roots.length) return
 
   const target = roots[randomInt(roots.length)]
-  if (Math.random() < STRUCTURE_MUTATION_RATE) {
+  if (nextRandom() < STRUCTURE_MUTATION_RATE) {
     const oldTrigger = target.querySelector(pkg.trigger)
     if (oldTrigger) {
       const replacement = document.createElement("button")
       const triggerAttr = pkg.trigger.match(/\[data-([^\]]+)\]/)?.[1]
       replacement.setAttribute(`data-${triggerAttr}`, "")
-      replacement.textContent = `trigger-replaced-${Math.random().toString(36).slice(2, 7)}`
+      replacement.textContent = `trigger-replaced-${nextRandom().toString(36).slice(2, 7)}`
       oldTrigger.replaceWith(replacement)
     }
   } else {
     const textNode = target.querySelector(pkg.content)
     if (textNode) {
-      textNode.textContent = `text-${Math.random().toString(36).slice(2, 9)}`
+      textNode.textContent = `text-${nextRandom().toString(36).slice(2, 9)}`
     }
   }
 
@@ -194,21 +229,58 @@ const t1 = performance.now()
 const rows = PACKAGES.map((pkg) => {
   const m = metrics.get(pkg.name)
   const total = m.hydrated + m.skipped || 1
+  const hydrateRatePct = (m.hydrated / total) * 100
   return {
     package: pkg.name,
     scans: m.scans,
     hydrated: m.hydrated,
     skipped: m.skipped,
-    hydrateRate: `${((m.hydrated / total) * 100).toFixed(1)}%`,
+    hydrateRate: `${hydrateRatePct.toFixed(1)}%`,
+    hydrateRatePct,
     scanMs: m.scanMs.toFixed(2),
+    scanMsValue: m.scanMs,
     hydrateMs: m.hydrateMs.toFixed(2),
+    hydrateMsValue: m.hydrateMs,
     bootstrapMs: m.bootstrapMs.toFixed(2),
+    bootstrapMsValue: m.bootstrapMs,
     openCloseMs: m.openCloseMs.toFixed(2),
+    openCloseMsValue: m.openCloseMs,
   }
 })
 
 console.log("\\nAffino Laravel Livewire Morph Benchmark (synthetic)")
-console.log(`roots/kind=${ROOTS_PER_KIND} iterations=${ITERATIONS} structureMutationRate=${STRUCTURE_MUTATION_RATE}`)
+console.log(`roots/kind=${ROOTS_PER_KIND} iterations=${ITERATIONS} structureMutationRate=${STRUCTURE_MUTATION_RATE} seed=${BENCH_SEED}`)
 console.table(rows)
-console.log(`Total elapsed: ${(t1 - t0).toFixed(2)}ms\\n`)
+const totalElapsed = t1 - t0
+console.log(`Total elapsed: ${totalElapsed.toFixed(2)}ms\\n`)
 console.log("Note: This is a temporary synthetic benchmark for mutation pressure and rehydrate gating trends.")
+
+const budgetErrors = []
+
+if (totalElapsed > PERF_BUDGET_TOTAL_MS) {
+  budgetErrors.push(`Total elapsed ${totalElapsed.toFixed(2)}ms exceeded PERF_BUDGET_TOTAL_MS=${PERF_BUDGET_TOTAL_MS}ms`)
+}
+
+rows.forEach((row) => {
+  if (row.hydrateRatePct > PERF_BUDGET_MAX_HYDRATE_RATE_PCT) {
+    budgetErrors.push(
+      `${row.package}: hydrateRate ${row.hydrateRatePct.toFixed(1)}% exceeded PERF_BUDGET_MAX_HYDRATE_RATE_PCT=${PERF_BUDGET_MAX_HYDRATE_RATE_PCT}%`,
+    )
+  }
+  if (row.bootstrapMsValue > PERF_BUDGET_MAX_BOOTSTRAP_MS) {
+    budgetErrors.push(
+      `${row.package}: bootstrapMs ${row.bootstrapMsValue.toFixed(2)} exceeded PERF_BUDGET_MAX_BOOTSTRAP_MS=${PERF_BUDGET_MAX_BOOTSTRAP_MS}`,
+    )
+  }
+  if (row.openCloseMsValue > PERF_BUDGET_MAX_OPEN_CLOSE_MS) {
+    budgetErrors.push(
+      `${row.package}: openCloseMs ${row.openCloseMsValue.toFixed(2)} exceeded PERF_BUDGET_MAX_OPEN_CLOSE_MS=${PERF_BUDGET_MAX_OPEN_CLOSE_MS}`,
+    )
+  }
+})
+
+if (budgetErrors.length) {
+  console.error("\\nPerformance budget check failed:")
+  budgetErrors.forEach((line) => console.error(`- ${line}`))
+  process.exit(1)
+}

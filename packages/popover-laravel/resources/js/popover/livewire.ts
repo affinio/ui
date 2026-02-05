@@ -7,6 +7,7 @@ export function setupLivewireHooks(scan: (node: ParentNode) => void): void {
   }
   bindLivewireHooks({
     globalKey: "__affinoPopoverLivewireHooked",
+    retryOnLoad: true,
     hooks: [
       {
         name: "morph.added",

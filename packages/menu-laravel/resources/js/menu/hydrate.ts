@@ -29,22 +29,41 @@ const MENU_ITEM_SELECTOR = "[data-affino-menu-item]"
 const MENU_CLOSE_SELECTOR = "[data-affino-menu-close]"
 
 const registry = new Map<RootEl, MenuInstance>()
+const structureRegistry = new WeakMap<RootEl, MenuStructureSnapshot>()
 let mutationObserver: MutationObserver | null = null
 let refreshScheduled = false
+type MenuStructureSnapshot = {
+  trigger: TriggerEl
+  panel: PanelEl
+  itemCount: number
+  closeCount: number
+  configSignature: string
+}
 
 export function hydrateMenu(root: RootEl): void {
-  tearDownInstance(root)
   const trigger = root.querySelector<TriggerEl>(MENU_TRIGGER_SELECTOR)
   const panel = root.querySelector<PanelEl>(MENU_PANEL_SELECTOR)
   if (!trigger || !panel) {
+    tearDownInstance(root)
+    structureRegistry.delete(root)
     return
   }
+  const nextStructure = captureMenuStructure(root, trigger, panel)
+  const previousStructure = structureRegistry.get(root)
+  if (registry.has(root) && previousStructure && !didMenuStructureChange(previousStructure, nextStructure)) {
+    return
+  }
+  tearDownInstance(root)
   const instance = new MenuInstance(root, trigger, panel)
   registry.set(root, instance)
+  structureRegistry.set(root, nextStructure)
   root.affinoMenu = instance.getHandle()
 }
 
 export function scan(scope: ParentNode): void {
+  if (scope instanceof HTMLElement && scope.matches(MENU_ROOT_SELECTOR)) {
+    hydrateMenu(scope as RootEl)
+  }
   const nodes = Array.from(scope.querySelectorAll<RootEl>(MENU_ROOT_SELECTOR))
   nodes.forEach((node) => hydrateMenu(node))
 }
@@ -85,6 +104,7 @@ function refreshMenus(): void {
     if (!document.body.contains(root)) {
       instance.destroy()
       registry.delete(root)
+      structureRegistry.delete(root)
     }
   })
   scan(document)
@@ -137,8 +157,20 @@ function mutationTouchesMenu(mutation: MutationRecord): boolean {
 }
 
 function elementTouchesRegisteredMenu(node: Element): boolean {
-  for (const root of registry.keys()) {
-    if (root === node || root.contains(node) || node.contains(root)) {
+  const owner = node.closest<RootEl>(MENU_ROOT_SELECTOR)
+  if (owner && registry.has(owner)) {
+    return true
+  }
+  if (node.matches(MENU_ROOT_SELECTOR) && registry.has(node as RootEl)) {
+    return true
+  }
+  if (!node.querySelector) {
+    return false
+  }
+  const descendants = node.querySelectorAll<RootEl>(MENU_ROOT_SELECTOR)
+  for (let index = 0; index < descendants.length; index += 1) {
+    const candidate = descendants[index]
+    if (candidate && registry.has(candidate)) {
       return true
     }
   }
@@ -150,8 +182,38 @@ function tearDownInstance(root: RootEl): void {
   if (instance) {
     instance.destroy()
     registry.delete(root)
+    structureRegistry.delete(root)
     delete root.affinoMenu
   }
+}
+
+function captureMenuStructure(root: RootEl, trigger: TriggerEl, panel: PanelEl): MenuStructureSnapshot {
+  return {
+    trigger,
+    panel,
+    itemCount: panel.querySelectorAll(MENU_ITEM_SELECTOR).length,
+    closeCount: root.querySelectorAll(MENU_CLOSE_SELECTOR).length,
+    configSignature: buildMenuConfigSignature(root),
+  }
+}
+
+function didMenuStructureChange(previous: MenuStructureSnapshot, next: MenuStructureSnapshot): boolean {
+  if (previous.trigger !== next.trigger || previous.panel !== next.panel) {
+    return true
+  }
+  if (previous.itemCount !== next.itemCount || previous.closeCount !== next.closeCount) {
+    return true
+  }
+  return previous.configSignature !== next.configSignature
+}
+
+function buildMenuConfigSignature(root: RootEl): string {
+  return root
+    .getAttributeNames()
+    .filter((name) => name.startsWith("data-affino-menu-") && name !== "data-affino-menu-state")
+    .sort()
+    .map((name) => `${name}:${root.getAttribute(name) ?? ""}`)
+    .join("|")
 }
 
 class MenuInstance {

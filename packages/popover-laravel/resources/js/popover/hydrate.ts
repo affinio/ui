@@ -306,9 +306,37 @@ export function setupMutationObserver(): void {
             scan(node)
           }
         })
+        mutation.removedNodes.forEach((node) => {
+          cleanupRemovedNode(node)
+        })
       })
     },
   })
+}
+
+function cleanupRemovedNode(node: Node): void {
+  const roots = collectPopoverRoots(node)
+  if (!roots.length) {
+    return
+  }
+  queueMicrotask(() => {
+    roots.forEach((root) => {
+      if (!root.isConnected) {
+        registry.get(root)?.()
+      }
+    })
+  })
+}
+
+function collectPopoverRoots(node: Node): RootEl[] {
+  const roots: RootEl[] = []
+  if (node instanceof HTMLElement && node.matches("[data-affino-popover-root]")) {
+    roots.push(node as RootEl)
+  }
+  if (node instanceof HTMLElement || node instanceof DocumentFragment) {
+    node.querySelectorAll<RootEl>("[data-affino-popover-root]").forEach((root) => roots.push(root))
+  }
+  return roots
 }
 
 function maybeHydratePopover(root: RootEl): void {

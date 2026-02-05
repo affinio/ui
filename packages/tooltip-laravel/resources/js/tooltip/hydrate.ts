@@ -1,7 +1,22 @@
 import { TooltipCore } from "@affino/tooltip-core"
 import type { TooltipTriggerProps, TooltipState, TooltipReason } from "@affino/tooltip-core"
-import { ensureDocumentObserver } from "@affino/overlay-kernel"
-
+import { didStructureChange, ensureDocumentObserver } from "@affino/overlay-kernel"
+import {
+  scheduleFocusSync,
+  setupPointerGuards as setupGlobalPointerGuards,
+  setupPointerIntentTracker as setupGlobalPointerIntentTracker,
+  wasRecentExternalPointerDown,
+} from "./guards"
+import {
+  closeTooltipRoot,
+  focusRestorers,
+  focusedTooltipIds,
+  getActiveTooltipRoot,
+  registry,
+  setActiveTooltipRoot,
+  structureRegistry,
+} from "./registry"
+import { isFocusMode, isPersistentTooltip, isPinnedTooltip, readNumber, resolveTriggerMode } from "./options"
 import type {
   Cleanup,
   CSSPosition,
@@ -12,20 +27,6 @@ import type {
   TriggerMode,
 } from "./types"
 
-const DEFAULT_TRIGGER_MODE: TriggerMode = "hover-focus"
-
-const ALLOWED_TRIGGER_MODES = new Set<TriggerMode>(["hover", "focus", "hover-focus", "click", "manual"])
-
-const activeByDocument = new WeakMap<Document, RootEl | null>()
-let pointerGuardsBound = false
-let pointerGuardTicking = false
-const focusedTooltipIds = new Set<string>()
-;(window as any).__affinoTooltipFocused = focusedTooltipIds
-const focusRestorers = new Map<string, () => void>()
-;(window as any).__affinoFocusRestorers = focusRestorers
-let pendingFocusSync = false
-let pointerIntentBound = false
-let lastExternalPointerDown = 0
 const POINTER_INTENT_WINDOW_MS = 300
 const FOCUSABLE_WITHIN_SELECTOR = [
   '[data-affino-tooltip-focus-target]',
@@ -38,8 +39,6 @@ const FOCUSABLE_WITHIN_SELECTOR = [
   '[contenteditable="true"]',
   '[contenteditable=""]',
 ].join(",")
-
-const registry = new WeakMap<RootEl, Cleanup>()
 
 export function hydrateTooltip(root: RootEl): void {
   const resolveTriggerElement = () => root.querySelector<HTMLElement>("[data-affino-tooltip-trigger]")
@@ -86,7 +85,7 @@ export function hydrateTooltip(root: RootEl): void {
     onBlur: (event) => {
       if (rootId) {
         const hasExplicitTarget = event.relatedTarget instanceof HTMLElement
-        const pointerInitiated = performance.now() - lastExternalPointerDown < POINTER_INTENT_WINDOW_MS
+        const pointerInitiated = wasRecentExternalPointerDown(POINTER_INTENT_WINDOW_MS)
         requestAnimationFrame(() => {
           const shouldRelease = hasExplicitTarget || pointerInitiated
           if (shouldRelease && trigger.isConnected) {
@@ -172,6 +171,9 @@ export function hydrateTooltip(root: RootEl): void {
     pendingStructureRehydrate = true
     Promise.resolve().then(() => {
       pendingStructureRehydrate = false
+      if (!root.isConnected) {
+        return
+      }
       hydrateTooltip(root)
     })
   }
@@ -251,6 +253,8 @@ export function hydrateTooltip(root: RootEl): void {
     }
     registry.delete(root)
   })
+
+  structureRegistry.set(root, { trigger, surface })
 }
 
 function isDisableableElement(element: HTMLElement): element is HTMLElement & { disabled: boolean } {
@@ -284,18 +288,6 @@ function resolveFocusableTarget(trigger: HTMLElement | null): HTMLElement | null
   }
 
   return isFocusableElement(trigger) ? trigger : null
-}
-
-function isPinnedTooltip(root: RootEl): boolean {
-  return root.dataset.affinoTooltipPinned === "true"
-}
-
-function isManualTooltip(root: RootEl): boolean {
-  return resolveTriggerMode(root.dataset.affinoTooltipTriggerMode) === "manual"
-}
-
-function isPersistentTooltip(root: RootEl): boolean {
-  return isPinnedTooltip(root) || isManualTooltip(root)
 }
 
 function bindProps(element: HTMLElement, props: Record<string, unknown>): Cleanup {
@@ -364,15 +356,6 @@ function stripTriggerEventHandlers(props: TooltipTriggerProps): Record<string, u
   delete attributes.onFocus
   delete attributes.onBlur
   return attributes
-}
-
-function resolveTriggerMode(value?: string): TriggerMode {
-  if (!value) {
-    return DEFAULT_TRIGGER_MODE
-  }
-
-  const normalized = value.toLowerCase() as TriggerMode
-  return ALLOWED_TRIGGER_MODES.has(normalized) ? normalized : DEFAULT_TRIGGER_MODE
 }
 
 function bindTriggerModeListeners(
@@ -445,7 +428,7 @@ function attachTooltipHandle(root: RootEl, tooltip: TooltipCore): Cleanup {
   }
 }
 
-function ensureSingleActiveTooltip(nextRoot: RootEl) {
+function ensureSingleActiveTooltip(nextRoot: RootEl): void {
   const ownerDocument = nextRoot.ownerDocument ?? document
   const activeTooltipRoot = getActiveTooltipRoot(ownerDocument)
   if (activeTooltipRoot && activeTooltipRoot !== nextRoot && !isPersistentTooltip(activeTooltipRoot)) {
@@ -456,28 +439,26 @@ function ensureSingleActiveTooltip(nextRoot: RootEl) {
   }
 }
 
-function closeTooltipRoot(root: RootEl, reason: TooltipReason = "programmatic") {
-  const handle = root.affinoTooltip
-  if (handle) {
-    handle.close(reason)
-  }
-  const ownerDocument = root.ownerDocument ?? document
-  if (getActiveTooltipRoot(ownerDocument) === root) {
-    setActiveTooltipRoot(ownerDocument, null)
-  }
-}
-
-function getActiveTooltipRoot(ownerDocument: Document): RootEl | null {
-  return activeByDocument.get(ownerDocument) ?? null
-}
-
-function setActiveTooltipRoot(ownerDocument: Document, root: RootEl | null): void {
-  activeByDocument.set(ownerDocument, root)
-}
-
 export function scan(root: ParentNode): void {
+  if (root instanceof HTMLElement && root.matches("[data-affino-tooltip-root]")) {
+    maybeHydrateTooltip(root as RootEl)
+  }
   const nodes = root.querySelectorAll<RootEl>("[data-affino-tooltip-root]")
-  nodes.forEach((node) => hydrateTooltip(node))
+  nodes.forEach((node) => maybeHydrateTooltip(node))
+}
+
+function maybeHydrateTooltip(root: RootEl): void {
+  const trigger = root.querySelector<HTMLElement>("[data-affino-tooltip-trigger]")
+  const surface = root.querySelector<HTMLElement>("[data-affino-tooltip-surface]")
+  if (!trigger || !surface) {
+    return
+  }
+  const hasBinding = registry.has(root)
+  const previous = structureRegistry.get(root)
+  if (hasBinding && !didStructureChange(previous, { trigger, surface })) {
+    return
+  }
+  hydrateTooltip(root)
 }
 
 export function setupMutationObserver(): void {
@@ -494,119 +475,41 @@ export function setupMutationObserver(): void {
             scan(node)
           }
         })
+        mutation.removedNodes.forEach((node) => {
+          cleanupRemovedNode(node)
+        })
       })
 
       if (focusedTooltipIds.size > 0) {
-        scheduleFocusSync()
+        scheduleFocusSync(syncTrackedFocus)
       }
     },
   })
 }
 
-export function setupPointerGuards(): void {
-  if (pointerGuardsBound) {
+function cleanupRemovedNode(node: Node): void {
+  const roots = collectTooltipRoots(node)
+  if (!roots.length) {
     return
   }
-
-  const evaluatePointerMove = (target: EventTarget | null) => {
-    const ownerDocument = target instanceof Node ? target.ownerDocument ?? document : document
-    const activeTooltipRoot = getActiveTooltipRoot(ownerDocument)
-    if (!activeTooltipRoot) {
-      return
-    }
-    if (target instanceof Element) {
-      const owningRoot = target.closest<RootEl>("[data-affino-tooltip-root]")
-      if (owningRoot && owningRoot === activeTooltipRoot) {
-        return
+  queueMicrotask(() => {
+    roots.forEach((root) => {
+      if (!root.isConnected) {
+        registry.get(root)?.()
       }
-    }
-    maybeCloseActiveTooltip(ownerDocument, "pointer")
-  }
-
-  const handlePointerMove = (event: PointerEvent) => {
-    if (pointerGuardTicking) {
-      return
-    }
-    pointerGuardTicking = true
-    const target = event.target
-    requestAnimationFrame(() => {
-      pointerGuardTicking = false
-      evaluatePointerMove(target)
     })
-  }
-
-  const handleDocumentLeave = () => {
-    maybeCloseActiveTooltip(document, "pointer")
-  }
-
-  document.addEventListener("pointermove", handlePointerMove, { passive: true })
-  document.addEventListener("mouseleave", handleDocumentLeave)
-  window.addEventListener("blur", handleDocumentLeave)
-
-  pointerGuardsBound = true
-}
-
-function maybeCloseActiveTooltip(ownerDocument: Document, reason: TooltipReason) {
-  const activeTooltipRoot = getActiveTooltipRoot(ownerDocument)
-  if (!activeTooltipRoot) {
-    return
-  }
-
-  if (shouldSkipPointerGuard(activeTooltipRoot)) {
-    return
-  }
-
-  const activeElement = ownerDocument.activeElement
-  if (activeElement instanceof Element && activeTooltipRoot.contains(activeElement)) {
-    return
-  }
-
-  closeTooltipRoot(activeTooltipRoot, reason)
-}
-
-function shouldSkipPointerGuard(root: RootEl): boolean {
-  const mode = resolveTriggerMode(root.dataset.affinoTooltipTriggerMode)
-  return mode === "manual" || mode === "click" || mode === "focus" || isPinnedTooltip(root)
-}
-
-export function setupPointerIntentTracker(): void {
-  if (pointerIntentBound) {
-    return
-  }
-
-  const recordPointerDown = (event: PointerEvent) => {
-    const target = event.target
-    if (target instanceof Element) {
-      const owningRoot = target.closest<RootEl>("[data-affino-tooltip-root]")
-      if (owningRoot) {
-        const id = owningRoot.dataset.affinoTooltipRoot
-        if (id && focusedTooltipIds.has(id)) {
-          return
-        }
-      }
-    }
-
-    lastExternalPointerDown = performance.now()
-  }
-
-  document.addEventListener("pointerdown", recordPointerDown, true)
-  pointerIntentBound = true
-}
-
-function isFocusMode(mode: TriggerMode): boolean {
-  return mode === "focus" || mode === "hover-focus"
-}
-
-function scheduleFocusSync(): void {
-  if (pendingFocusSync) {
-    return
-  }
-
-  pendingFocusSync = true
-  requestAnimationFrame(() => {
-    pendingFocusSync = false
-    syncTrackedFocus()
   })
+}
+
+function collectTooltipRoots(node: Node): RootEl[] {
+  const roots: RootEl[] = []
+  if (node instanceof HTMLElement && node.matches("[data-affino-tooltip-root]")) {
+    roots.push(node as RootEl)
+  }
+  if (node instanceof HTMLElement || node instanceof DocumentFragment) {
+    node.querySelectorAll<RootEl>("[data-affino-tooltip-root]").forEach((root) => roots.push(root))
+  }
+  return roots
 }
 
 function syncTrackedFocus(): void {
@@ -622,14 +525,22 @@ function syncTrackedFocus(): void {
   staleIds.forEach((id) => focusedTooltipIds.delete(id))
 }
 
-export function clearTrackedFocus(): void {
-  focusedTooltipIds.clear()
-  focusRestorers.clear()
+export function setupPointerGuards(): void {
+  setupGlobalPointerGuards({
+    getActiveRoot: (ownerDocument) => getActiveTooltipRoot(ownerDocument),
+    isGuardSkipped: (root) => {
+      const mode = resolveTriggerMode(root.dataset.affinoTooltipTriggerMode)
+      return mode === "manual" || mode === "click" || mode === "focus" || isPinnedTooltip(root)
+    },
+    closeRoot: (root, reason) => closeTooltipRoot(root, reason),
+  })
 }
 
-function readNumber(value: string | undefined, fallback: number): number {
-  const parsed = Number(value)
-  return Number.isFinite(parsed) ? parsed : fallback
+export function setupPointerIntentTracker(): void {
+  setupGlobalPointerIntentTracker({
+    findOwningRoot: (target) => target.closest<RootEl>("[data-affino-tooltip-root]"),
+    isFocusedTooltipId: (id) => focusedTooltipIds.has(id),
+  })
 }
 
 function toKebabCase(key: string): string {

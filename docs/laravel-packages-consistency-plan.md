@@ -85,65 +85,65 @@ Deliverable:
 ## Phase 2: Per-Package TODOs
 
 ## 2.1 `tooltip-laravel` (highest priority)
-- [ ] Split monolith into modules (like menu/dialog/popover style):
+- [x] Split monolith into modules (like menu/dialog/popover style):
   - `tooltip/types.ts`
   - `tooltip/registry.ts`
   - `tooltip/hydrate.ts`
   - `tooltip/livewire.ts`
   - `tooltip/guards.ts`
   - `tooltip/options.ts`
-- [ ] Remove/guard debug globals on `window` (`__affino*`) behind explicit dev flag or remove entirely.
-- [ ] Remove `characterData: true` unless hard requirement is documented and tested.
-- [ ] Add structure-aware `maybeHydrateTooltip` gate.
-- [ ] Minimize global pointer/focus guard overhead and ensure proper cleanup.
-- [ ] Add deterministic focus restore tests around Livewire morph.
+- [x] Remove/guard debug globals on `window` (`__affino*`) behind explicit dev flag or remove entirely.
+- [x] Remove `characterData: true` unless hard requirement is documented and tested.
+- [x] Add structure-aware `maybeHydrateTooltip` gate.
+- [x] Minimize global pointer/focus guard overhead and ensure proper cleanup.
+- [x] Add deterministic focus restore tests around Livewire morph.
 
 Acceptance:
 - No unnecessary tooltip rehydrate on text-only changes.
 - No global debug leakage in production runtime.
 
 ## 2.2 `listbox-laravel`
-- [ ] Add structure gate before `hydrateListbox(root)` from structure observer.
-- [ ] Add explicit bootstrap browser guard.
-- [ ] Align livewire strategy with shared contract.
-- [ ] Reduce repeated full `collectOptions` cost where possible.
+- [x] Add structure gate before `hydrateListbox(root)` from structure observer.
+- [x] Add explicit bootstrap browser guard.
+- [x] Align livewire strategy with shared contract.
+- [x] Reduce repeated full `collectOptions` cost where possible.
 
 Acceptance:
 - Rehydrate only on relevant structure change.
 - Stable behavior under rapid option list updates.
 
 ## 2.3 `combobox-laravel`
-- [ ] Modularize monolith into subfiles (same style as menu/popover).
-- [ ] Add explicit bootstrap browser guard.
-- [ ] Replace ad-hoc observer/livewire bits with shared helpers.
-- [ ] Cache invalidation rules for option collection documented and tested.
+- [x] Modularize monolith into subfiles (same style as menu/popover).
+- [x] Add explicit bootstrap browser guard.
+- [x] Replace ad-hoc observer/livewire bits with shared helpers.
+- [x] Cache invalidation rules for option collection documented and tested.
 
 Acceptance:
 - Maintains current behavior with lower complexity and clearer ownership.
 
 ## 2.4 `popover-laravel`
-- [ ] Add explicit bootstrap browser guard in `index.ts`.
-- [ ] Add behavior tests (not only API export tests):
-  - [ ] idempotent hydrate
-  - [ ] structure-gated rehydrate
-  - [ ] lock interop with dialog/menu
-- [ ] Align livewire late-load behavior with shared contract.
+- [x] Add explicit bootstrap browser guard in `index.ts`.
+- [x] Add behavior tests (not only API export tests):
+  - [x] idempotent hydrate
+  - [x] structure-gated rehydrate
+  - [x] lock interop with dialog/menu
+- [x] Align livewire late-load behavior with shared contract.
 
 Acceptance:
 - No regressions after modularization.
 
 ## 2.5 `menu-laravel`
-- [ ] Add structural no-op path so unchanged roots are not fully re-instantiated on refresh.
-- [ ] Profile `mutationTouchesMenu` for large registries and optimize root intersection checks.
-- [ ] Add tests for portal + refresh + livewire navigation interactions.
+- [x] Add structural no-op path so unchanged roots are not fully re-instantiated on refresh.
+- [x] Profile `mutationTouchesMenu` for large registries and optimize root intersection checks.
+- [x] Add tests for portal + refresh + livewire navigation interactions.
 
 Acceptance:
 - Lower re-instantiation frequency under heavy DOM churn.
 
 ## 2.6 `dialog-laravel`
-- [ ] Align Livewire late-load behavior with contract (currently no retry if Livewire is absent at bootstrap).
-- [ ] Move remaining custom global guard logic to shared utilities where possible.
-- [ ] Add tests for removed-node cleanup and teleport edge cases.
+- [x] Align Livewire late-load behavior with contract (currently no retry if Livewire is absent at bootstrap).
+- [x] Move remaining custom global guard logic to shared utilities where possible.
+- [x] Add tests for removed-node cleanup and teleport edge cases.
 
 Acceptance:
 - Fully resilient livewire attach lifecycle.
@@ -153,20 +153,20 @@ Acceptance:
 ## Phase 3: Testing Upgrade (Mandatory for 10/10)
 
 ## 3.1 Test Coverage Targets
-- [ ] Each package must have:
-  - [ ] API exposure tests
-  - [ ] non-Livewire runtime tests (no `window.Livewire`)
-  - [ ] idempotent hydrate tests
-  - [ ] mutation observer/re-hydrate tests
-  - [ ] livewire integration tests (late load + navigation)
-  - [ ] cleanup/disconnect tests
-- [ ] Add cross-package integration tests for overlay lock interactions.
+- [x] Each package must have:
+  - [x] API exposure tests
+  - [x] non-Livewire runtime tests (no `window.Livewire`)
+  - [x] idempotent hydrate tests
+  - [x] mutation observer/re-hydrate tests
+  - [x] livewire integration tests (late load + navigation)
+  - [x] cleanup/disconnect tests
+- [x] Add cross-package integration tests for overlay lock interactions.
 
 ## 3.2 Regression Matrix
-- [ ] text-only mutations do not trigger unnecessary rehydrate.
-- [ ] structural change triggers exactly one rehydrate.
-- [ ] repeated bootstrap calls do not duplicate global hooks/listeners.
-- [ ] multiple overlays keep scroll lock stable until all release.
+- [x] text-only mutations do not trigger unnecessary rehydrate.
+- [x] structural change triggers exactly one rehydrate.
+- [x] repeated bootstrap calls do not duplicate global hooks/listeners.
+- [x] multiple overlays keep scroll lock stable until all release.
 
 Deliverable:
 - CI-required test matrix for all `*-laravel` packages.
@@ -174,9 +174,9 @@ Deliverable:
 ---
 
 ## Phase 4: Performance Hardening
-- [ ] Add lightweight instrumentation toggles (dev-only): rehydrate counters and observer events.
-- [ ] Add perf budget assertions in tests for synthetic mutation runs.
-- [ ] Optimize hot paths identified by baseline diff.
+- [x] Add lightweight instrumentation toggles (dev-only): rehydrate counters and observer events.
+- [x] Add perf budget assertions in tests for synthetic mutation runs.
+- [x] Optimize hot paths identified by baseline diff.
 
 Deliverable:
 - Post-optimization report showing measurable improvements vs Phase 0.
@@ -184,11 +184,11 @@ Deliverable:
 ---
 
 ## Definition of Done (Ecosystem 10/10)
-- [ ] All 6 Laravel packages follow same adapter contract.
-- [ ] All bottlenecks from audit resolved or documented with justified exceptions.
-- [ ] No package below 10/10 by checklist scoring.
-- [ ] Cross-package integration tests green.
-- [ ] Docs updated with architecture and extension rules.
+- [x] All 6 Laravel packages follow same adapter contract.
+- [x] All bottlenecks from audit resolved or documented with justified exceptions.
+- [x] No package below 10/10 by checklist scoring.
+- [x] Cross-package integration tests green.
+- [x] Docs updated with architecture and extension rules.
 
 ---
 

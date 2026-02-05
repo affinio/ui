@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import { __testing } from "../index"
 
-const { readBoolean, resolveMode, normalizeFilter, optionMatches, escapeIdentifier } = __testing
+const { readBoolean, resolveMode, normalizeFilter, optionMatches, escapeIdentifier, hasStructureChanged } = __testing
 
 describe("combobox laravel helpers", () => {
   it("normalizes boolean attributes with sensible fallbacks", () => {
@@ -31,5 +31,29 @@ describe("combobox laravel helpers", () => {
   it("escapes arbitrary identifiers deterministically", () => {
     expect(escapeIdentifier("alpha")).toBe("alpha")
     expect(escapeIdentifier("value/id")).toBe("value-2f-id")
+  })
+
+  it("invalidates options cache only on structural changes", () => {
+    const input = {} as HTMLInputElement
+    const surface = {} as HTMLElement
+    let optionCount = 1
+    const root = {
+      querySelector: (selector: string) => {
+        if (selector === "[data-affino-combobox-input]") {
+          return input
+        }
+        if (selector === "[data-affino-combobox-surface]") {
+          return surface
+        }
+        return null
+      },
+      querySelectorAll: () => ({ length: optionCount }),
+    }
+
+    const cache = { input, surface, optionCount: 1 }
+    expect(hasStructureChanged(root as any, cache as any)).toBe(false)
+
+    optionCount = 2
+    expect(hasStructureChanged(root as any, cache as any)).toBe(true)
   })
 })

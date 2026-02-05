@@ -48,6 +48,7 @@ function mockRect(element: HTMLElement, rectInit: RectInit) {
   const rect = createRect(rectInit)
   Object.defineProperty(element, "getBoundingClientRect", {
     value: vi.fn(() => rect),
+    configurable: true,
   })
 }
 
@@ -90,5 +91,28 @@ describe("hydrateTooltip", () => {
     expect(surface.dataset.align).toBe("center")
     expect(surface.style.left).toBe("450px")
     expect(surface.style.top).toBe("198px")
+  })
+
+  it("restores focus to the new trigger after structure rehydrate", () => {
+    const { root, trigger, surface } = setupTooltipFixture()
+    trigger.tabIndex = 0
+    document.body.appendChild(root)
+
+    hydrateTooltip(root as HTMLElement & { dataset: DOMStringMap })
+
+    trigger.focus()
+    trigger.dispatchEvent(new FocusEvent("focusin", { bubbles: true }))
+
+    const nextTrigger = document.createElement("div")
+    nextTrigger.dataset.affinoTooltipTrigger = ""
+    nextTrigger.tabIndex = 0
+    mockRect(nextTrigger, { x: 500, y: 330, width: 120, height: 40 })
+    trigger.replaceWith(nextTrigger)
+    mockRect(surface, { x: 0, y: 0, width: 220, height: 110 })
+
+    hydrateTooltip(root as HTMLElement & { dataset: DOMStringMap })
+    vi.runAllTimers()
+
+    expect(document.activeElement).toBe(nextTrigger)
   })
 })

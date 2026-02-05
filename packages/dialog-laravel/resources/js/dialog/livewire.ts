@@ -8,6 +8,7 @@ function setupLivewireHooks(scan: ScanFn): void {
   }
   bindLivewireHooks({
     globalKey: "__affinoDialogLivewireHooked",
+    retryOnLoad: true,
     hooks: [
       {
         name: "morph.added",

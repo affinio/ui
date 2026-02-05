@@ -1,0 +1,170 @@
+/** @vitest-environment jsdom */
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+
+import { bootstrapAffinoListboxes, hydrateListbox } from "./index"
+
+type ListboxTestRoot = HTMLDivElement & {
+  affinoListbox?: unknown
+}
+
+function createListboxFixture() {
+  const root = document.createElement("div") as ListboxTestRoot
+  root.dataset.affinoListboxRoot = "listbox-spec"
+
+  const trigger = document.createElement("button")
+  trigger.dataset.affinoListboxTrigger = ""
+  root.appendChild(trigger)
+
+  const surface = document.createElement("div")
+  surface.dataset.affinoListboxSurface = ""
+  root.appendChild(surface)
+
+  const option = document.createElement("button")
+  option.dataset.affinoListboxOption = ""
+  option.dataset.affinoListboxValue = "alpha"
+  option.textContent = "Alpha"
+  surface.appendChild(option)
+
+  document.body.appendChild(root)
+  return { root, trigger, surface }
+}
+
+describe("listbox integration", () => {
+  beforeEach(() => {
+    delete (window as any).Livewire
+    delete (window as any).__affinoListboxLivewireHooked
+    delete (window as any).__affinoListboxObserver
+  })
+
+  afterEach(() => {
+    document.body.innerHTML = ""
+    vi.restoreAllMocks()
+  })
+
+  it("bootstraps without Livewire present", () => {
+    const { root } = createListboxFixture()
+    expect(() => bootstrapAffinoListboxes()).not.toThrow()
+    expect(root.affinoListbox).toBeDefined()
+  })
+
+  it("hydrates idempotently without duplicate trigger listeners", () => {
+    const { root, trigger, surface } = createListboxFixture()
+    hydrateListbox(root as any)
+    hydrateListbox(root as any)
+
+    trigger.click()
+
+    expect(root.dataset.affinoListboxState).toBe("open")
+    expect(surface.hidden).toBe(false)
+  })
+
+  it("rehydrates on structural option changes", async () => {
+    const { root, surface } = createListboxFixture()
+    hydrateListbox(root as any)
+    const handleBefore = root.affinoListbox
+
+    const option = document.createElement("button")
+    option.dataset.affinoListboxOption = ""
+    option.dataset.affinoListboxValue = "beta"
+    option.textContent = "Beta"
+    surface.appendChild(option)
+
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(root.affinoListbox).not.toBe(handleBefore)
+  })
+
+  it("does not rehydrate on text-only mutations", () => {
+    const { root, surface } = createListboxFixture()
+    hydrateListbox(root as any)
+    const handleBefore = root.affinoListbox
+
+    const option = surface.querySelector("[data-affino-listbox-option]") as HTMLButtonElement
+    option.textContent = "Alpha updated"
+    ;(root as any).affinoListbox?.getSnapshot()
+
+    expect(root.affinoListbox).toBe(handleBefore)
+  })
+
+  it("triggers exactly one rehydrate for one structural change", async () => {
+    const { root, surface } = createListboxFixture()
+    hydrateListbox(root as any)
+
+    const option = document.createElement("button")
+    option.dataset.affinoListboxOption = ""
+    option.dataset.affinoListboxValue = "gamma"
+    option.textContent = "Gamma"
+    surface.appendChild(option)
+
+    await Promise.resolve()
+    await Promise.resolve()
+    const afterFirstPass = root.affinoListbox
+
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(root.affinoListbox).toBe(afterFirstPass)
+  })
+
+  it("cleans up handle after root disconnect", async () => {
+    const { root } = createListboxFixture()
+    bootstrapAffinoListboxes()
+    expect(root.affinoListbox).toBeDefined()
+
+    root.remove()
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(root.affinoListbox).toBeUndefined()
+  })
+
+  it("binds Livewire hooks after late livewire:load and hydrates morph additions", () => {
+    createListboxFixture()
+    bootstrapAffinoListboxes()
+
+    const hooks: Record<string, (...args: any[]) => void> = {}
+    ;(window as any).Livewire = {
+      hook: vi.fn((name: string, handler: (...args: any[]) => void) => {
+        hooks[name] = handler
+      }),
+    }
+
+    document.dispatchEvent(new Event("livewire:load"))
+
+    const lateRoot = document.createElement("div")
+    lateRoot.dataset.affinoListboxRoot = "listbox-late"
+    lateRoot.innerHTML = `
+      <button data-affino-listbox-trigger></button>
+      <div data-affino-listbox-surface>
+        <button data-affino-listbox-option data-affino-listbox-value="late">Late</button>
+      </div>
+    `
+
+    hooks["morph.added"]?.({ el: lateRoot })
+    expect((lateRoot as any).affinoListbox).toBeDefined()
+  })
+
+  it("does not duplicate livewire hooks on repeated bootstrap", () => {
+    const hook = vi.fn()
+    ;(window as any).Livewire = { hook }
+    createListboxFixture()
+
+    bootstrapAffinoListboxes()
+    bootstrapAffinoListboxes()
+
+    expect(hook).toHaveBeenCalledTimes(1)
+  })
+
+  it("rescans on livewire:navigated", () => {
+    ;(window as any).Livewire = { hook: vi.fn() }
+    const { root } = createListboxFixture()
+    bootstrapAffinoListboxes()
+    const handleBefore = root.affinoListbox
+
+    document.dispatchEvent(new Event("livewire:navigated"))
+
+    expect(root.affinoListbox).toBeDefined()
+    expect(root.affinoListbox).not.toBe(handleBefore)
+  })
+})

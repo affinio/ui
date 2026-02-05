@@ -92,6 +92,7 @@ function hydrateResolvedListbox(root: RootEl, trigger: HTMLElement, surface: HTM
 
   const detachments: Cleanup[] = []
   let options = collectOptions(root)
+  const valueToIndex = new Map<string, number>()
   let context: ListboxContext = {
     optionCount: options.length,
     isDisabled: (index) => options[index]?.dataset.affinoListboxDisabled === "true",
@@ -365,7 +366,7 @@ function hydrateResolvedListbox(root: RootEl, trigger: HTMLElement, surface: HTM
     if (!option) {
       return
     }
-    const index = options.indexOf(option)
+    const index = resolveOptionIndex(option)
     if (index === -1) {
       return
     }
@@ -381,7 +382,7 @@ function hydrateResolvedListbox(root: RootEl, trigger: HTMLElement, surface: HTM
     if (!option) {
       return
     }
-    const index = options.indexOf(option)
+    const index = resolveOptionIndex(option)
     if (index === -1 || index === state.activeIndex) {
       return
     }
@@ -544,12 +545,15 @@ function hydrateResolvedListbox(root: RootEl, trigger: HTMLElement, surface: HTM
   }
 
   function syncSelectionAttributes() {
-    options = collectOptions(root)
-    context.optionCount = options.length
+    valueToIndex.clear()
     options.forEach((option, index) => {
       option.tabIndex = -1
       option.setAttribute("role", "option")
       option.dataset.affinoListboxOptionIndex = String(index)
+      const value = option.dataset.affinoListboxValue
+      if (value !== undefined && !valueToIndex.has(value)) {
+        valueToIndex.set(value, index)
+      }
       const selected = isIndexSelected(state.selection, index)
       option.dataset.affinoListboxOptionSelected = selected ? "true" : "false"
       option.setAttribute("aria-selected", selected ? "true" : "false")
@@ -632,8 +636,7 @@ function hydrateResolvedListbox(root: RootEl, trigger: HTMLElement, surface: HTM
     toggle: toggleListbox,
     selectIndex: (index, opts) => selectIndex(index, opts),
     selectValue: (value: string) => {
-      const currentOptions = options
-      const targetIndex = currentOptions.findIndex((option) => option.dataset.affinoListboxValue === value)
+      const targetIndex = valueToIndex.get(value) ?? -1
       if (targetIndex >= 0) {
         selectIndex(targetIndex)
       }
@@ -661,6 +664,14 @@ function hydrateResolvedListbox(root: RootEl, trigger: HTMLElement, surface: HTM
     detachments.forEach((cleanup) => cleanup())
     registry.delete(root)
   })
+
+  function resolveOptionIndex(option: OptionEl): number {
+    const parsed = Number.parseInt(option.dataset.affinoListboxOptionIndex ?? "", 10)
+    if (Number.isInteger(parsed) && parsed >= 0 && parsed < options.length && options[parsed] === option) {
+      return parsed
+    }
+    return options.indexOf(option)
+  }
 }
 
 function collectOptions(root: RootEl): OptionEl[] {
@@ -827,9 +838,37 @@ function setupMutationObserver(): void {
             scan(node)
           }
         })
+        mutation.removedNodes.forEach((node) => {
+          cleanupRemovedNode(node)
+        })
       })
     },
   })
+}
+
+function cleanupRemovedNode(node: Node): void {
+  const roots = collectListboxRoots(node)
+  if (!roots.length) {
+    return
+  }
+  queueMicrotask(() => {
+    roots.forEach((root) => {
+      if (!root.isConnected) {
+        registry.get(root)?.()
+      }
+    })
+  })
+}
+
+function collectListboxRoots(node: Node): RootEl[] {
+  const roots: RootEl[] = []
+  if (node instanceof HTMLElement && node.matches("[data-affino-listbox-root]")) {
+    roots.push(node as RootEl)
+  }
+  if (node instanceof HTMLElement || node instanceof DocumentFragment) {
+    node.querySelectorAll<RootEl>("[data-affino-listbox-root]").forEach((root) => roots.push(root))
+  }
+  return roots
 }
 
 function setupLivewireHooks(): void {

@@ -165,6 +165,11 @@ export interface LivewireBindingOptions {
   retryOnLoad?: boolean
 }
 
+type AdapterMetricsStore = {
+  enabled: boolean
+  counters: Map<string, number>
+}
+
 const ACTIVE_PHASES = new Set<OverlayPhase>(["opening", "open", "closing"])
 const documentScrollLocks = typeof WeakMap !== "undefined" ? new WeakMap<Document, Map<string, number>>() : null
 const documentStoredOverflow = typeof WeakMap !== "undefined" ? new WeakMap<Document, string | null>() : null
@@ -181,6 +186,69 @@ const DEFAULT_KIND_PRIORITIES: Record<KnownOverlayKind, number> = {
 }
 
 const DEFAULT_PRIORITY = 1
+const ADAPTER_METRICS_KEY = "__affinoAdapterMetrics"
+const adapterMetricsStore: AdapterMetricsStore = {
+  enabled: false,
+  counters: new Map<string, number>(),
+}
+
+function resolveAdapterMetricsStore(): AdapterMetricsStore {
+  const runtimeWindow = typeof window !== "undefined" ? (window as unknown as Record<string, unknown>) : null
+  const runtimeGlobal = typeof globalThis !== "undefined" ? (globalThis as Record<string, unknown>) : null
+  const runtimeProcess =
+    runtimeGlobal && "process" in runtimeGlobal
+      ? (runtimeGlobal.process as { env?: Record<string, string | undefined> } | undefined)
+      : undefined
+  const flagFromProcess = runtimeProcess?.env?.AFFINO_ADAPTER_METRICS === "1"
+
+  const fromWindow = runtimeWindow?.[ADAPTER_METRICS_KEY]
+  const fromGlobal = runtimeGlobal?.[ADAPTER_METRICS_KEY]
+  const source = fromWindow ?? fromGlobal
+
+  if (source === true || flagFromProcess) {
+    adapterMetricsStore.enabled = true
+    if (runtimeWindow) {
+      runtimeWindow[ADAPTER_METRICS_KEY] = adapterMetricsStore
+    }
+    if (runtimeGlobal) {
+      runtimeGlobal[ADAPTER_METRICS_KEY] = adapterMetricsStore
+    }
+    return adapterMetricsStore
+  }
+
+  if (source && typeof source === "object") {
+    const sourceRecord = source as Record<string, unknown>
+    const existingCounters = sourceRecord.counters
+    if (existingCounters instanceof Map) {
+      adapterMetricsStore.counters = existingCounters as Map<string, number>
+    }
+    sourceRecord.enabled = sourceRecord.enabled !== false
+    sourceRecord.counters = adapterMetricsStore.counters
+    adapterMetricsStore.enabled = sourceRecord.enabled !== false
+    return adapterMetricsStore
+  }
+
+  adapterMetricsStore.enabled = false
+  return adapterMetricsStore
+}
+
+export function recordAdapterMetric(scope: string, name: string, delta = 1): void {
+  const store = resolveAdapterMetricsStore()
+  if (!store.enabled || !Number.isFinite(delta) || delta === 0) {
+    return
+  }
+  const key = `${scope}.${name}`
+  store.counters.set(key, (store.counters.get(key) ?? 0) + delta)
+}
+
+export function getAdapterMetricsSnapshot(): Record<string, number> {
+  const store = resolveAdapterMetricsStore()
+  const snapshot: Record<string, number> = {}
+  store.counters.forEach((value, key) => {
+    snapshot[key] = value
+  })
+  return snapshot
+}
 
 export class DefaultOverlayManager implements OverlayManager {
   readonly document: Document | null
@@ -546,7 +614,15 @@ export function ensureDocumentObserver(options: DocumentObserverOptions): Mutati
     return existing
   }
 
-  const observer = new MutationObserver(callback)
+  const observer = new MutationObserver((mutations, instance) => {
+    recordAdapterMetric("observer", `${options.globalKey}.callbacks`)
+    recordAdapterMetric("observer", `${options.globalKey}.mutations`, mutations.length)
+    mutations.forEach((mutation) => {
+      recordAdapterMetric("observer", `${options.globalKey}.addedNodes`, mutation.addedNodes.length)
+      recordAdapterMetric("observer", `${options.globalKey}.removedNodes`, mutation.removedNodes.length)
+    })
+    callback(mutations, instance)
+  })
   observer.observe(target, {
     childList: true,
     subtree: true,
@@ -560,11 +636,14 @@ export function didStructureChange<T extends string>(
   previous: StructureSnapshot<T> | null | undefined,
   next: StructureSnapshot<T>,
 ): boolean {
+  recordAdapterMetric("rehydrate", "structureChecks")
   if (!previous) {
+    recordAdapterMetric("rehydrate", "structureChanged")
     return true
   }
   for (const key of Object.keys(next) as T[]) {
     if (previous[key] !== next[key]) {
+      recordAdapterMetric("rehydrate", "structureChanged")
       return true
     }
   }
@@ -572,22 +651,26 @@ export function didStructureChange<T extends string>(
 }
 
 export function bindLivewireHooks(options: LivewireBindingOptions): boolean {
+  recordAdapterMetric("livewire", "bindAttempts")
   if (typeof window === "undefined") {
     return false
   }
 
   const globalWindow = window as unknown as Record<string, unknown>
   if (globalWindow[options.globalKey]) {
+    recordAdapterMetric("livewire", "bindSkipped")
     return true
   }
 
   const livewire = (window as any).Livewire
   if (!livewire) {
+    recordAdapterMetric("livewire", "bindDeferred")
     if (options.retryOnLoad !== false) {
       const target: EventTarget | null = typeof document !== "undefined" ? document : window
       target?.addEventListener(
         "livewire:load",
         () => {
+          recordAdapterMetric("livewire", "loadEvents")
           bindLivewireHooks({ ...options, retryOnLoad: false })
         },
         { once: true },
@@ -600,6 +683,7 @@ export function bindLivewireHooks(options: LivewireBindingOptions): boolean {
     ;(options.hooks ?? []).forEach((hook) => {
       try {
         livewire.hook(hook.name, (...args: any[]) => hook.handler(...args))
+        recordAdapterMetric("livewire", "hooksBound")
       } catch {
         // ignore unknown hook names
       }
@@ -616,6 +700,7 @@ export function bindLivewireHooks(options: LivewireBindingOptions): boolean {
   }
 
   globalWindow[options.globalKey] = true
+  recordAdapterMetric("livewire", "bindSuccess")
   return true
 }
 
