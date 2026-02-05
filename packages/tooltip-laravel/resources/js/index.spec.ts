@@ -93,6 +93,53 @@ describe("hydrateTooltip", () => {
     expect(surface.style.top).toBe("198px")
   })
 
+  it("respects initial open state from data-affino-tooltip-state", () => {
+    const { root, surface } = setupTooltipFixture()
+    root.dataset.affinoTooltipState = "open"
+    surface.hidden = false
+    surface.dataset.state = "open"
+
+    hydrateTooltip(root as HTMLElement & { dataset: DOMStringMap })
+    vi.runAllTimers()
+
+    expect(surface.hidden).toBe(false)
+    expect(root.dataset.affinoTooltipState).toBe("open")
+    expect(surface.dataset.state).toBe("open")
+  })
+
+  it("syncs tooltip open state from dom state attribute updates", async () => {
+    const { root, surface } = setupTooltipFixture()
+    hydrateTooltip(root as HTMLElement & { dataset: DOMStringMap })
+    expect(surface.hidden).toBe(true)
+
+    root.dataset.affinoTooltipState = "open"
+    await Promise.resolve()
+    vi.runAllTimers()
+    expect(surface.hidden).toBe(false)
+
+    root.dataset.affinoTooltipState = "closed"
+    await Promise.resolve()
+    vi.runAllTimers()
+    expect(surface.hidden).toBe(true)
+  })
+
+  it("keeps tooltip open on pointer leave when pinned", () => {
+    const { root, trigger, surface } = setupTooltipFixture()
+    root.dataset.affinoTooltipPinned = "true"
+
+    hydrateTooltip(root as HTMLElement & { dataset: DOMStringMap })
+    trigger.dispatchEvent(new Event("pointerenter"))
+    vi.runAllTimers()
+    expect(surface.hidden).toBe(false)
+
+    trigger.dispatchEvent(new Event("pointerleave"))
+    vi.runAllTimers()
+
+    expect(surface.hidden).toBe(false)
+    expect(root.dataset.affinoTooltipState).toBe("open")
+    expect(surface.dataset.state).toBe("open")
+  })
+
   it("restores focus to the new trigger after structure rehydrate", () => {
     const { root, trigger, surface } = setupTooltipFixture()
     trigger.tabIndex = 0

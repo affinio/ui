@@ -58,6 +58,38 @@ describe("listbox integration", () => {
     expect(surface.hidden).toBe(false)
   })
 
+  it("cancels option click default to avoid label-triggered reopen flows", () => {
+    const { root, trigger, surface } = createListboxFixture()
+    hydrateListbox(root as any)
+
+    trigger.click()
+    expect(root.dataset.affinoListboxState).toBe("open")
+
+    const option = surface.querySelector("[data-affino-listbox-option]") as HTMLButtonElement
+    const click = new MouseEvent("click", { bubbles: true, cancelable: true })
+    const dispatched = option.dispatchEvent(click)
+
+    expect(dispatched).toBe(false)
+    expect(click.defaultPrevented).toBe(true)
+    expect(root.dataset.affinoListboxState).toBe("closed")
+    expect(surface.hidden).toBe(true)
+  })
+
+  it("cancels option mousedown default to avoid label-triggered trigger activation", () => {
+    const { root, trigger, surface } = createListboxFixture()
+    hydrateListbox(root as any)
+
+    trigger.click()
+    expect(root.dataset.affinoListboxState).toBe("open")
+
+    const option = surface.querySelector("[data-affino-listbox-option]") as HTMLButtonElement
+    const down = new MouseEvent("mousedown", { bubbles: true, cancelable: true })
+    const dispatched = option.dispatchEvent(down)
+
+    expect(dispatched).toBe(false)
+    expect(down.defaultPrevented).toBe(true)
+  })
+
   it("rehydrates on structural option changes", async () => {
     const { root, surface } = createListboxFixture()
     hydrateListbox(root as any)

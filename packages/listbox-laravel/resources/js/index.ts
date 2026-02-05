@@ -216,6 +216,16 @@ function hydrateResolvedListbox(root: RootEl, trigger: HTMLElement, surface: HTM
     applyState(next)
     if (mode === "single") {
       closeListbox()
+      queueMicrotask(() => {
+        if (open) {
+          closeListbox()
+        }
+      })
+      requestAnimationFrame(() => {
+        if (open) {
+          closeListbox()
+        }
+      })
     }
   }
 
@@ -370,12 +380,25 @@ function hydrateResolvedListbox(root: RootEl, trigger: HTMLElement, surface: HTM
     if (index === -1) {
       return
     }
+    // Prevent label default activation from re-triggering the listbox button click.
+    event.preventDefault()
     const toggle = mode === "multiple" && (event.metaKey || event.ctrlKey)
     const extend = mode === "multiple" && event.shiftKey
     selectIndex(index, { toggle, extend })
   }
   surface.addEventListener("click", handleSurfaceClick)
   detachments.push(() => surface.removeEventListener("click", handleSurfaceClick))
+
+  const handleSurfaceMouseDown = (event: MouseEvent) => {
+    const option = (event.target instanceof HTMLElement ? event.target.closest<OptionEl>("[data-affino-listbox-option]") : null)
+    if (!option) {
+      return
+    }
+    // Prevent focus/label default activation from bouncing click back to the trigger.
+    event.preventDefault()
+  }
+  surface.addEventListener("mousedown", handleSurfaceMouseDown)
+  detachments.push(() => surface.removeEventListener("mousedown", handleSurfaceMouseDown))
 
   const handleSurfacePointerMove = (event: PointerEvent) => {
     const option = (event.target instanceof HTMLElement ? event.target.closest<OptionEl>("[data-affino-listbox-option]") : null)
