@@ -1,13 +1,20 @@
-import { nextTick, onBeforeUnmount, ref, watch } from "vue"
+import { nextTick, onScopeDispose, ref, watch } from "vue"
 import type { Ref } from "vue"
 import type { PositionOptions, PopoverArrowOptions, PopoverArrowProps } from "@affino/popover-core"
 import type { PopoverController } from "./usePopoverController"
-import { ensureOverlayHost, createScrollLockController } from "@affino/overlay-host"
+import {
+  createFloatingHiddenStyle,
+  createFloatingRelayoutController,
+  formatFloatingZIndex,
+  resolveFloatingTeleportTarget,
+} from "@affino/overlay-host"
+import { acquireDocumentScrollLock, releaseDocumentScrollLock } from "@affino/overlay-kernel"
 
 type Strategy = "fixed" | "absolute"
 const DEFAULT_Z_INDEX = 120
 const POPOVER_HOST_ID = "affino-popover-host"
 const POPOVER_HOST_ATTRIBUTE = "data-affino-popover-host"
+const SCROLL_LOCK_SOURCE = "popover-vue"
 
 export interface FloatingPopoverOptions extends PositionOptions {
   strategy?: Strategy
@@ -28,35 +35,27 @@ export interface FloatingPopoverBindings {
   updatePosition: () => Promise<void>
 }
 
-const createHiddenStyle = (strategy: Strategy, zIndex?: string): Record<string, string> => {
-  const style: Record<string, string> = {
-    position: strategy,
-    left: "-9999px",
-    top: "-9999px",
-    transform: "translate3d(0, 0, 0)",
-  }
-  if (zIndex) {
-    style.zIndex = zIndex
-  }
-  return style
-}
-
 export function useFloatingPopover(
   controller: PopoverController,
   options: FloatingPopoverOptions = {},
 ): FloatingPopoverBindings {
   const strategy: Strategy = options.strategy ?? "fixed"
-  const zIndex = formatZIndex(options.zIndex ?? DEFAULT_Z_INDEX)
+  const zIndex = formatFloatingZIndex(options.zIndex ?? DEFAULT_Z_INDEX)
   const closeOnOutside = options.closeOnInteractOutside ?? controller.core.shouldCloseOnInteractOutside()
   const returnFocus = options.returnFocus ?? true
   const lockScroll = options.lockScroll ?? controller.core.isModal()
 
   const triggerRef = ref<HTMLElement | null>(null)
   const contentRef = ref<HTMLElement | null>(null)
-  const contentStyle = ref<Record<string, string>>(createHiddenStyle(strategy, zIndex))
-  const teleportTarget = ref<string | HTMLElement | null>(resolveTeleportTarget(options.teleportTo))
+  const contentStyle = ref<Record<string, string>>(createFloatingHiddenStyle(strategy, zIndex))
+  const teleportTarget = ref<string | HTMLElement | null>(
+    resolveFloatingTeleportTarget(options.teleportTo, {
+      id: POPOVER_HOST_ID,
+      attribute: POPOVER_HOST_ATTRIBUTE,
+    }),
+  )
   const arrowProps = ref<PopoverArrowProps | null>(null)
-  const scrollLock = createScrollLockController()
+  let lockedDocument: Document | null = null
   let outsideCleanup: (() => void) | null = null
 
   const updatePosition = async () => {
@@ -96,14 +95,21 @@ export function useFloatingPopover(
   }
 
   const resetPosition = () => {
-    contentStyle.value = createHiddenStyle(strategy, zIndex)
+    contentStyle.value = createFloatingHiddenStyle(strategy, zIndex)
     arrowProps.value = null
+  }
+
+  const resolveActiveDocument = (): Document | null => {
+    return triggerRef.value?.ownerDocument ?? contentRef.value?.ownerDocument ?? (typeof document !== "undefined" ? document : null)
   }
 
   const handlePointerDown = (event: Event) => {
     if (!controller.state.value.open) return
     const target = event.target as Node | null
     if (isWithinSurface(target, triggerRef.value, contentRef.value, controller.id)) {
+      return
+    }
+    if (!closeOnOutside) {
       return
     }
     controller.interactOutside({ event, target })
@@ -113,6 +119,9 @@ export function useFloatingPopover(
     if (!controller.state.value.open) return
     const target = event.target as Node | null
     if (isWithinSurface(target, triggerRef.value, contentRef.value, controller.id)) {
+      return
+    }
+    if (!closeOnOutside) {
       return
     }
     controller.interactOutside({ event, target })
@@ -141,14 +150,21 @@ export function useFloatingPopover(
     (open, previous) => {
       if (open) {
         attachOutsideHandlers()
-        if (lockScroll) {
-          scrollLock.lock()
+        relayoutController.activate()
+        if (lockScroll && !lockedDocument) {
+          const activeDocument = resolveActiveDocument()
+          if (activeDocument) {
+            acquireDocumentScrollLock(activeDocument, SCROLL_LOCK_SOURCE)
+            lockedDocument = activeDocument
+          }
         }
         void updatePosition()
       } else {
         detachOutsideHandlers()
-        if (previous && lockScroll) {
-          scrollLock.unlock()
+        relayoutController.deactivate()
+        if (previous && lockScroll && lockedDocument) {
+          releaseDocumentScrollLock(lockedDocument, SCROLL_LOCK_SOURCE)
+          lockedDocument = null
         }
         resetPosition()
         if (previous && returnFocus) {
@@ -166,27 +182,24 @@ export function useFloatingPopover(
     }
   })
 
-  if (typeof window !== "undefined") {
-    const handleRelayout = () => {
-      if (!controller.state.value.open) return
+  const relayoutController = createFloatingRelayoutController({
+    metrics: { source: "popover-vue" },
+    onRelayout: () => {
+      if (!controller.state.value.open || typeof window === "undefined") {
+        return
+      }
       window.requestAnimationFrame(() => {
         void updatePosition()
       })
-    }
+    },
+  })
 
-    window.addEventListener("resize", handleRelayout)
-    window.addEventListener("scroll", handleRelayout, true)
-
-    onBeforeUnmount(() => {
-      window.removeEventListener("resize", handleRelayout)
-      window.removeEventListener("scroll", handleRelayout, true)
-    })
-  }
-
-  onBeforeUnmount(() => {
+  onScopeDispose(() => {
     detachOutsideHandlers()
-    if (lockScroll) {
-      scrollLock.unlock()
+    relayoutController.destroy()
+    if (lockScroll && lockedDocument) {
+      releaseDocumentScrollLock(lockedDocument, SCROLL_LOCK_SOURCE)
+      lockedDocument = null
     }
   })
 
@@ -198,23 +211,6 @@ export function useFloatingPopover(
     arrowProps,
     updatePosition,
   }
-}
-
-function resolveTeleportTarget(teleportTo?: string | HTMLElement | false): string | HTMLElement | null {
-  if (teleportTo === false) {
-    return null
-  }
-  if (teleportTo) {
-    return teleportTo
-  }
-  return ensureOverlayHost({ id: POPOVER_HOST_ID, attribute: POPOVER_HOST_ATTRIBUTE }) ?? "body"
-}
-
-function formatZIndex(value?: number | string): string | undefined {
-  if (value === undefined) {
-    return undefined
-  }
-  return typeof value === "number" ? `${value}` : value
 }
 
 function isWithinSurface(

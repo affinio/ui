@@ -1,0 +1,35 @@
+{
+  "name": "@affino/vue-adapter",
+  "version": "0.0.1",
+  "description": "Unified Vue integration facade for Affino overlays and primitives",
+  "type": "module",
+  "main": "dist/index.cjs",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm,cjs --dts --clean",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@affino/overlay-host": "workspace:*",
+    "@affino/overlay-kernel": "workspace:*"
+  },
+  "peerDependencies": {
+    "vue": "^3.3.0"
+  },
+  "devDependencies": {
+    "tsup": "^8.5.1",
+    "vitest": "^4.0.15",
+    "vue": "^3.4.0"
+  }
+}

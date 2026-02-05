@@ -1,11 +1,51 @@
 const DEFAULT_HOST_ID = "affino-overlay-host"
 const DEFAULT_HOST_ATTRIBUTE = "data-affino-overlay-host"
 const DEFAULT_SCROLL_LOCK_ATTR = "affinoScrollLock"
+const DEFAULT_FLOATING_GUTTER_LISTENER_OPTIONS: AddEventListenerOptions = { capture: true, passive: true }
+const DEFAULT_FLOATING_RELAYOUT_METRICS_FLAG = "__affinoFloatingRelayoutMetricsEnabled"
+const DEFAULT_FLOATING_RELAYOUT_METRICS_STORE = "__affinoFloatingRelayoutMetrics"
 
 export interface EnsureOverlayHostOptions {
   id?: string
   attribute?: string
   document?: Document
+}
+
+export type FloatingStrategy = "fixed" | "absolute"
+
+export interface FloatingHostTarget {
+  id: string
+  attribute: string
+}
+
+export interface FloatingRelayoutController {
+  activate(): void
+  deactivate(): void
+  destroy(): void
+  isActive(): boolean
+}
+
+export interface FloatingRelayoutControllerOptions {
+  onRelayout: () => void
+  window?: Window
+  metrics?: FloatingRelayoutMetricsOptions
+}
+
+export interface FloatingRelayoutMetricsOptions {
+  source?: string
+  flagKey?: string
+  storeKey?: string
+}
+
+export interface FloatingRelayoutMetricsEntry {
+  activations: number
+  deactivations: number
+  relayouts: number
+}
+
+export interface FloatingRelayoutMetricsSnapshot {
+  enabled: boolean
+  sources: Record<string, FloatingRelayoutMetricsEntry>
 }
 
 export function ensureOverlayHost(options: EnsureOverlayHostOptions = {}): HTMLElement | null {
@@ -23,6 +63,121 @@ export function ensureOverlayHost(options: EnsureOverlayHostOptions = {}): HTMLE
     doc.body?.appendChild(host)
   }
   return host
+}
+
+export function createFloatingHiddenStyle(
+  strategy: FloatingStrategy,
+  zIndex?: string,
+): Record<string, string> {
+  const style: Record<string, string> = {
+    position: strategy,
+    left: "-9999px",
+    top: "-9999px",
+    transform: "translate3d(0, 0, 0)",
+  }
+  if (zIndex) {
+    style.zIndex = zIndex
+  }
+  return style
+}
+
+export function formatFloatingZIndex(value?: number | string): string | undefined {
+  if (value === undefined) {
+    return undefined
+  }
+  return typeof value === "number" ? `${value}` : value
+}
+
+export function resolveFloatingTeleportTarget(
+  teleportTo: string | HTMLElement | false | undefined,
+  host: FloatingHostTarget,
+  doc?: Document,
+): string | HTMLElement | null {
+  if (teleportTo === false) {
+    return null
+  }
+  if (teleportTo) {
+    return teleportTo
+  }
+  return ensureOverlayHost({ id: host.id, attribute: host.attribute, document: doc }) ?? "body"
+}
+
+export function createFloatingRelayoutController(
+  options: FloatingRelayoutControllerOptions,
+): FloatingRelayoutController {
+  const targetWindow = options.window ?? getWindow()
+  const handleRelayout = () => {
+    if (!targetWindow) {
+      options.onRelayout()
+      return
+    }
+    recordFloatingRelayoutMetric(targetWindow, "relayouts", options.metrics)
+    options.onRelayout()
+  }
+  let active = false
+
+  return {
+    activate() {
+      if (!targetWindow || active) {
+        return
+      }
+      targetWindow.addEventListener("resize", handleRelayout)
+      targetWindow.addEventListener("scroll", handleRelayout, DEFAULT_FLOATING_GUTTER_LISTENER_OPTIONS)
+      recordFloatingRelayoutMetric(targetWindow, "activations", options.metrics)
+      active = true
+    },
+    deactivate() {
+      if (!targetWindow || !active) {
+        return
+      }
+      targetWindow.removeEventListener("resize", handleRelayout)
+      targetWindow.removeEventListener("scroll", handleRelayout, DEFAULT_FLOATING_GUTTER_LISTENER_OPTIONS)
+      recordFloatingRelayoutMetric(targetWindow, "deactivations", options.metrics)
+      active = false
+    },
+    destroy() {
+      this.deactivate()
+    },
+    isActive() {
+      return active
+    },
+  }
+}
+
+export function setFloatingRelayoutMetricsEnabled(enabled: boolean, target?: Window): void {
+  const win = target ?? getWindow()
+  const storeHost = getStoreHost(win)
+  if (!storeHost) {
+    return
+  }
+  storeHost[DEFAULT_FLOATING_RELAYOUT_METRICS_FLAG] = enabled
+}
+
+export function resetFloatingRelayoutMetrics(target?: Window): void {
+  const win = target ?? getWindow()
+  const storeHost = getStoreHost(win)
+  if (!storeHost) {
+    return
+  }
+  storeHost[DEFAULT_FLOATING_RELAYOUT_METRICS_STORE] = {}
+}
+
+export function getFloatingRelayoutMetrics(target?: Window): FloatingRelayoutMetricsSnapshot {
+  const win = target ?? getWindow()
+  const storeHost = getStoreHost(win)
+  if (!storeHost) {
+    return {
+      enabled: false,
+      sources: {},
+    }
+  }
+  const enabled = Boolean(storeHost[DEFAULT_FLOATING_RELAYOUT_METRICS_FLAG] === true)
+  const rawStore = storeHost[DEFAULT_FLOATING_RELAYOUT_METRICS_STORE]
+  const sources = isMetricsStore(rawStore) ? rawStore : {}
+  return {
+    enabled,
+    sources: { ...sources },
+  }
 }
 
 export interface ScrollLockController {
@@ -155,4 +310,68 @@ function getWindow(): Window | null {
     return null
   }
   return window
+}
+
+function getStoreHost(target: Window | null): Record<string, unknown> | null {
+  if (!target) {
+    return null
+  }
+  return target as unknown as Record<string, unknown>
+}
+
+function resolveMetricsSource(options?: FloatingRelayoutMetricsOptions): string {
+  return options?.source?.trim() || "floating-unknown"
+}
+
+function isMetricsEnabled(targetWindow: Window, options?: FloatingRelayoutMetricsOptions): boolean {
+  const storeHost = getStoreHost(targetWindow)
+  if (!storeHost) {
+    return false
+  }
+  const flagKey = options?.flagKey ?? DEFAULT_FLOATING_RELAYOUT_METRICS_FLAG
+  return storeHost[flagKey] === true
+}
+
+function ensureMetricsStore(
+  targetWindow: Window,
+  options?: FloatingRelayoutMetricsOptions,
+): Record<string, FloatingRelayoutMetricsEntry> {
+  const storeHost = getStoreHost(targetWindow)
+  if (!storeHost) {
+    return {}
+  }
+  const storeKey = options?.storeKey ?? DEFAULT_FLOATING_RELAYOUT_METRICS_STORE
+  const existing = storeHost[storeKey]
+  if (isMetricsStore(existing)) {
+    return existing
+  }
+  const created: Record<string, FloatingRelayoutMetricsEntry> = {}
+  storeHost[storeKey] = created
+  return created
+}
+
+function recordFloatingRelayoutMetric(
+  targetWindow: Window,
+  metric: keyof FloatingRelayoutMetricsEntry,
+  options?: FloatingRelayoutMetricsOptions,
+): void {
+  if (!isMetricsEnabled(targetWindow, options)) {
+    return
+  }
+  const source = resolveMetricsSource(options)
+  const store = ensureMetricsStore(targetWindow, options)
+  const current = store[source] ?? {
+    activations: 0,
+    deactivations: 0,
+    relayouts: 0,
+  }
+  current[metric] += 1
+  store[source] = current
+}
+
+function isMetricsStore(value: unknown): value is Record<string, FloatingRelayoutMetricsEntry> {
+  if (!value || typeof value !== "object") {
+    return false
+  }
+  return true
 }

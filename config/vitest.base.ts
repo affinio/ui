@@ -1,4 +1,4 @@
-import { defineConfig } from "vitest/config"
+import { configDefaults, defineConfig } from "vitest/config"
 import type { UserConfig } from "vite"
 import { createWorkspaceAliases } from "./workspace-aliases"
 
@@ -10,6 +10,7 @@ export function createWorkspaceVitestConfig(fromUrl: string | URL, overrides: Us
     test: {
       environment: "jsdom",
       css: false,
+      exclude: [...configDefaults.exclude, "**/dist/**", "**/coverage/**", "**/.*/**"],
       coverage: {
         provider: "v8",
         reporter: ["text", "html"],

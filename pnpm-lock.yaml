@@ -141,6 +141,9 @@ importers:
       '@affino/virtualization-core':
         specifier: workspace:*
         version: link:../packages/virtualization-core
+      '@affino/vue-adapter':
+        specifier: workspace:*
+        version: link:../packages/vue-adapter
       '@tailwindcss/vite':
         specifier: ^4.1.18
         version: 4.1.18(vite@7.2.7(@types/node@24.10.4)(jiti@2.6.1)(lightningcss@1.30.2)(terser@5.46.0))
@@ -380,6 +383,9 @@ importers:
       '@affino/combobox-laravel':
         specifier: workspace:*
         version: link:../combobox-laravel
+      '@affino/dialog-core':
+        specifier: workspace:*
+        version: link:../dialog-core
       '@affino/dialog-laravel':
         specifier: workspace:*
         version: link:../dialog-laravel
@@ -389,9 +395,18 @@ importers:
       '@affino/menu-laravel':
         specifier: workspace:*
         version: link:../menu-laravel
+      '@affino/popover-core':
+        specifier: workspace:*
+        version: link:../popover-core
       '@affino/popover-laravel':
         specifier: workspace:*
         version: link:../popover-laravel
+      '@affino/surface-core':
+        specifier: workspace:*
+        version: link:../surface-core
+      '@affino/tooltip-core':
+        specifier: workspace:*
+        version: link:../tooltip-core
       '@affino/tooltip-laravel':
         specifier: workspace:*
         version: link:../tooltip-laravel
@@ -749,6 +764,25 @@ importers:
       wait-on:
         specifier: ^7.2.0
         version: 7.2.0
+
+  packages/vue-adapter:
+    dependencies:
+      '@affino/overlay-host':
+        specifier: workspace:*
+        version: link:../overlay-host
+      '@affino/overlay-kernel':
+        specifier: workspace:*
+        version: link:../overlay-kernel
+    devDependencies:
+      tsup:
+        specifier: ^8.5.1
+        version: 8.5.1(@swc/core@1.15.11)(jiti@2.6.1)(postcss@8.5.6)(typescript@5.9.3)
+      vitest:
+        specifier: ^4.0.15
+        version: 4.0.15(@types/node@24.10.4)(jiti@2.6.1)(jsdom@27.3.0(postcss@8.5.6))(lightningcss@1.30.2)(terser@5.46.0)
+      vue:
+        specifier: ^3.4.0
+        version: 3.5.25(typescript@5.9.3)
 
 packages:
 

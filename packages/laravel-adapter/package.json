@@ -26,7 +26,11 @@
     "@affino/popover-laravel": "workspace:*",
     "@affino/listbox-laravel": "workspace:*",
     "@affino/combobox-laravel": "workspace:*",
-    "@affino/menu-laravel": "workspace:*"
+    "@affino/menu-laravel": "workspace:*",
+    "@affino/dialog-core": "workspace:*",
+    "@affino/tooltip-core": "workspace:*",
+    "@affino/popover-core": "workspace:*",
+    "@affino/surface-core": "workspace:*"
   },
   "devDependencies": {
     "tsup": "^8.5.1",

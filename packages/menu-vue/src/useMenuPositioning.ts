@@ -1,4 +1,4 @@
-import { nextTick, onBeforeUnmount, onMounted, watch } from "vue"
+import { nextTick, onBeforeUnmount, watch } from "vue"
 import type { Alignment, Placement, PositionResult, Rect } from "@affino/menu-core"
 import type { MenuController } from "./useMenuController"
 import { toRect, assignPanelPosition } from "./dom"
@@ -20,6 +20,7 @@ export function useMenuPositioning(controller: MenuController, options?: Positio
 
   let rafHandle: number | null = null
   let resizeObserver: ResizeObserver | null = null
+  let relayoutBound = false
 
   const schedule = () => {
     if (rafHandle !== null) return
@@ -89,20 +90,31 @@ export function useMenuPositioning(controller: MenuController, options?: Positio
     )
   }
 
-  const handleScroll = () => schedule()
+  const handleRelayout = () => {
+    if (!controller.state.value.open) return
+    schedule()
+  }
 
-  onMounted(() => {
-    window.addEventListener("scroll", handleScroll, true)
-    window.addEventListener("resize", handleScroll)
-  })
+  const bindRelayoutListeners = () => {
+    if (relayoutBound) return
+    relayoutBound = true
+    window.addEventListener("scroll", handleRelayout, true)
+    window.addEventListener("resize", handleRelayout)
+  }
+
+  const unbindRelayoutListeners = () => {
+    if (!relayoutBound) return
+    relayoutBound = false
+    window.removeEventListener("scroll", handleRelayout, true)
+    window.removeEventListener("resize", handleRelayout)
+  }
 
   onBeforeUnmount(() => {
     if (rafHandle !== null) {
       window.cancelAnimationFrame(rafHandle)
       rafHandle = null
     }
-    window.removeEventListener("scroll", handleScroll, true)
-    window.removeEventListener("resize", handleScroll)
+    unbindRelayoutListeners()
     resizeObserver?.disconnect()
   })
 
@@ -110,11 +122,15 @@ export function useMenuPositioning(controller: MenuController, options?: Positio
     () => controller.state.value.open,
     (open) => {
       if (open) {
+        bindRelayoutListeners()
         nextTick(() => {
           schedule()
         })
+      } else {
+        unbindRelayoutListeners()
       }
-    }
+    },
+    { immediate: true }
   )
 
   watch(

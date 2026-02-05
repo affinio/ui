@@ -25,6 +25,7 @@ export function createDialogOverlayRegistrar(
   options: DialogOverlayRegistrarOptions = {}
 ): DialogOverlayRegistrar {
   const stackRef = shallowRef<readonly OverlayRegistration[]>([])
+  const tokens = new Map<string, symbol>()
   const publicStack = readonly(stackRef)
 
   const notify = () => {
@@ -32,12 +33,18 @@ export function createDialogOverlayRegistrar(
   }
 
   const register: OverlayRegistrar["register"] = (registration) => {
+    const token = Symbol(registration.id)
+    tokens.set(registration.id, token)
     stackRef.value = [
       ...stackRef.value.filter((entry) => entry.id !== registration.id),
       registration,
     ]
     notify()
     return () => {
+      if (tokens.get(registration.id) !== token) {
+        return
+      }
+      tokens.delete(registration.id)
       stackRef.value = stackRef.value.filter((entry) => entry.id !== registration.id)
       notify()
     }

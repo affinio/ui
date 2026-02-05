@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 import { getDocumentOverlayManager } from "@affino/overlay-kernel"
+import { createApp, defineComponent, h, nextTick as vueNextTick, onMounted } from "vue"
 import { useDialogController } from "../useDialogController.js"
 
 function nextTick(): Promise<void> {
@@ -74,5 +75,55 @@ describe("useDialogController", () => {
 
     unsubscribe()
     binding.dispose()
+  })
+
+  it("is safe in SSR-like environments without document", async () => {
+    vi.stubGlobal("document", undefined)
+    try {
+      const binding = useDialogController()
+      binding.open("programmatic")
+      await binding.close("programmatic")
+      expect(binding.snapshot.value.isOpen).toBe(false)
+      binding.dispose()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it("cleans overlay registrations on mount/unmount cycles with the same manager", async () => {
+    const manager = getDocumentOverlayManager(document)
+    const host = document.createElement("div")
+    document.body.appendChild(host)
+
+    const mountOnce = async () => {
+      let overlayId = ""
+      const app = createApp(
+        defineComponent({
+          setup() {
+            const binding = useDialogController()
+            binding.controller.on("overlay-registered", ({ id }) => {
+              overlayId = id
+            })
+            onMounted(() => {
+              binding.open("programmatic")
+            })
+            return () => h("div")
+          },
+        }),
+      )
+      app.mount(host)
+      await vueNextTick()
+      expect(manager.getStack().some((entry) => entry.id === overlayId)).toBe(true)
+      app.unmount()
+      await vueNextTick()
+      expect(manager.getStack().some((entry) => entry.id === overlayId)).toBe(false)
+    }
+
+    try {
+      await mountOnce()
+      await mountOnce()
+    } finally {
+      host.remove()
+    }
   })
 })

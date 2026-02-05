@@ -45,6 +45,7 @@ export function useDialogController(options: UseDialogControllerOptions = {}): D
     if (disposed) return
     disposed = true
     unsubscribe()
+    controller.destroy()
   }
 
   if (getCurrentInstance()) {

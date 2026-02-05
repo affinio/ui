@@ -1,8 +1,13 @@
-import { nextTick, onBeforeUnmount, ref, watch } from "vue"
+import { nextTick, onScopeDispose, ref, watch } from "vue"
 import type { Ref } from "vue"
 import type { PositionOptions, TooltipArrowOptions, TooltipArrowProps } from "@affino/tooltip-core"
 import type { TooltipController } from "./useTooltipController"
-import { ensureOverlayHost } from "@affino/overlay-host"
+import {
+  createFloatingHiddenStyle,
+  createFloatingRelayoutController,
+  formatFloatingZIndex,
+  resolveFloatingTeleportTarget,
+} from "@affino/overlay-host"
 
 type Strategy = "fixed" | "absolute"
 const DEFAULT_Z_INDEX = 80
@@ -26,29 +31,21 @@ export interface FloatingTooltipBindings {
 const TOOLTIP_HOST_ID = "affino-tooltip-host"
 const TOOLTIP_HOST_ATTRIBUTE = "data-affino-tooltip-host"
 
-const createHiddenStyle = (strategy: Strategy, zIndex?: string): Record<string, string> => {
-  const style: Record<string, string> = {
-    position: strategy,
-    left: "-9999px",
-    top: "-9999px",
-    transform: "translate3d(0, 0, 0)",
-  }
-  if (zIndex) {
-    style.zIndex = zIndex
-  }
-  return style
-}
-
 export function useFloatingTooltip(
   controller: TooltipController,
   options: FloatingTooltipOptions = {},
 ): FloatingTooltipBindings {
   const strategy: Strategy = options.strategy ?? "fixed"
-  const zIndex = formatZIndex(options.zIndex ?? DEFAULT_Z_INDEX)
+  const zIndex = formatFloatingZIndex(options.zIndex ?? DEFAULT_Z_INDEX)
   const triggerRef = ref<HTMLElement | null>(null)
   const tooltipRef = ref<HTMLElement | null>(null)
-  const tooltipStyle = ref<Record<string, string>>(createHiddenStyle(strategy, zIndex))
-  const teleportTarget = ref<string | HTMLElement | null>(resolveTeleportTarget(options.teleportTo))
+  const tooltipStyle = ref<Record<string, string>>(createFloatingHiddenStyle(strategy, zIndex))
+  const teleportTarget = ref<string | HTMLElement | null>(
+    resolveFloatingTeleportTarget(options.teleportTo, {
+      id: TOOLTIP_HOST_ID,
+      attribute: TOOLTIP_HOST_ATTRIBUTE,
+    }),
+  )
   const arrowProps = ref<TooltipArrowProps | null>(null)
 
   const updatePosition = async () => {
@@ -84,16 +81,30 @@ export function useFloatingTooltip(
   }
 
   const resetPosition = () => {
-    tooltipStyle.value = createHiddenStyle(strategy, zIndex)
+    tooltipStyle.value = createFloatingHiddenStyle(strategy, zIndex)
     arrowProps.value = null
   }
+
+  const relayoutController = createFloatingRelayoutController({
+    metrics: { source: "tooltip-vue" },
+    onRelayout: () => {
+      if (!controller.state.value.open || typeof window === "undefined") {
+        return
+      }
+      window.requestAnimationFrame(() => {
+        void updatePosition()
+      })
+    },
+  })
 
   watch(
     () => controller.state.value.open,
     (open) => {
       if (open) {
-        updatePosition()
+        relayoutController.activate()
+        void updatePosition()
       } else {
+        relayoutController.deactivate()
         resetPosition()
       }
     },
@@ -101,26 +112,13 @@ export function useFloatingTooltip(
 
   watch([triggerRef, tooltipRef], () => {
     if (controller.state.value.open) {
-      updatePosition()
+      void updatePosition()
     }
   })
 
-  if (typeof window !== "undefined") {
-    const handleRelayout = () => {
-      if (!controller.state.value.open) return
-      window.requestAnimationFrame(() => {
-        void updatePosition()
-      })
-    }
-
-    window.addEventListener("resize", handleRelayout)
-    window.addEventListener("scroll", handleRelayout, true)
-
-    onBeforeUnmount(() => {
-      window.removeEventListener("resize", handleRelayout)
-      window.removeEventListener("scroll", handleRelayout, true)
-    })
-  }
+  onScopeDispose(() => {
+    relayoutController.destroy()
+  })
 
   return {
     triggerRef,
@@ -130,21 +128,4 @@ export function useFloatingTooltip(
     arrowProps,
     updatePosition,
   }
-}
-
-function resolveTeleportTarget(teleportTo?: string | HTMLElement | false): string | HTMLElement | null {
-  if (teleportTo === false) {
-    return null
-  }
-  if (teleportTo) {
-    return teleportTo
-  }
-  return ensureOverlayHost({ id: TOOLTIP_HOST_ID, attribute: TOOLTIP_HOST_ATTRIBUTE }) ?? "body"
-}
-
-function formatZIndex(value?: number | string): string | undefined {
-  if (value === undefined) {
-    return undefined
-  }
-  return typeof value === "number" ? `${value}` : value
 }

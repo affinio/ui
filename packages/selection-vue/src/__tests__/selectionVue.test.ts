@@ -1,7 +1,12 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { effectScope, type ShallowRef } from "vue"
 import { clearLinearSelection, selectLinearIndex, type LinearSelectionState } from "@affino/selection-core"
-import type { ListboxState } from "@affino/listbox-core"
+import {
+  activateListboxIndex,
+  moveListboxFocus,
+  toggleActiveListboxOption,
+  type ListboxState,
+} from "@affino/listbox-core"
 import { createLinearSelectionStore, createListboxStore } from "../store"
 import { useLinearSelectionStore } from "../useLinearSelection"
 import { useListboxStore } from "../useListboxStore"
@@ -40,6 +45,18 @@ describe("useLinearSelectionStore", () => {
     scope.stop()
     store.applyResult(clearLinearSelection())
     expect(selection.value.ranges[0]).toEqual({ start: 4, end: 4 })
+  })
+
+  it("works safely outside a Vue effect scope and can be stopped manually", () => {
+    const store = createLinearSelectionStore()
+    const result = useLinearSelectionStore(store)
+
+    store.applyResult(selectLinearIndex({ index: 2 }))
+    expect(result.state.value.ranges[0]).toEqual({ start: 2, end: 2 })
+
+    result.stop()
+    store.applyResult(clearLinearSelection())
+    expect(result.state.value.ranges[0]).toEqual({ start: 2, end: 2 })
   })
 })
 
@@ -80,6 +97,51 @@ describe("createListboxStore", () => {
     store.selectAll()
     expect(store.peekState().selection.ranges[0]).toEqual({ start: 0, end: 5 })
   })
+
+  it("stays in parity with listbox-core reducers for edge transitions", () => {
+    const context = { optionCount: 5 }
+    const store = createListboxStore({ context })
+    const base = store.peekState()
+
+    const expectedActivate = activateListboxIndex({
+      state: base,
+      context,
+      index: 999,
+      extend: false,
+      toggle: false,
+    })
+    const actualActivate = store.activate(999)
+    expect(actualActivate).toEqual(expectedActivate)
+
+    const expectedMove = moveListboxFocus({
+      state: actualActivate,
+      context,
+      delta: -999,
+      loop: false,
+      extend: false,
+    })
+    const actualMove = store.move(-999, { loop: false, extend: false })
+    expect(actualMove).toEqual(expectedMove)
+
+    const expectedToggle = toggleActiveListboxOption({ state: actualMove })
+    const actualToggle = store.toggleActiveOption()
+    expect(actualToggle).toEqual(expectedToggle)
+  })
+
+  it("does not leak listeners across repeated subscribe/unsubscribe cycles", () => {
+    const store = createListboxStore({ context: { optionCount: 10 } })
+    const listeners = Array.from({ length: 50 }, () => vi.fn())
+    const unsubs = listeners.map((listener) => store.subscribe(listener))
+
+    unsubs.forEach((unsubscribe) => unsubscribe())
+    // Idempotent unsubscribe should remain safe.
+    unsubs.forEach((unsubscribe) => unsubscribe())
+
+    store.activate(3)
+    listeners.forEach((listener) => {
+      expect(listener).not.toHaveBeenCalled()
+    })
+  })
 })
 
 describe("useListboxStore", () => {
@@ -102,5 +164,18 @@ describe("useListboxStore", () => {
     store.clearSelection({ preserveActiveIndex: true })
     expect(listbox.value.activeIndex).toBe(1)
     expect(listbox.value.selection.ranges[0]).toEqual({ start: 1, end: 1 })
+  })
+
+  it("is safe outside an effect scope and supports explicit stop", () => {
+    const context = { optionCount: 4 }
+    const store = createListboxStore({ context })
+    const result = useListboxStore(store)
+
+    store.activate(2)
+    expect(result.state.value.activeIndex).toBe(2)
+
+    result.stop()
+    store.activate(0)
+    expect(result.state.value.activeIndex).toBe(2)
   })
 })

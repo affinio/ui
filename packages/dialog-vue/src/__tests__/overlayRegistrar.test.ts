@@ -34,4 +34,19 @@ describe("createDialogOverlayRegistrar", () => {
     expect(onStackChange).toHaveBeenCalledTimes(2)
     expect(onStackChange).toHaveBeenLastCalledWith([])
   })
+
+  it("keeps the latest registration when stale disposer runs after re-register", () => {
+    const registrar = createDialogOverlayRegistrar()
+
+    const disposeFirst = registrar.register({ id: "dialog-a", kind: "dialog" })
+    const disposeSecond = registrar.register({ id: "dialog-a", kind: "dialog" })
+
+    // Simulate stale cleanup from an older hydration cycle.
+    disposeFirst?.()
+    expect(registrar.stack.value).toHaveLength(1)
+    expect(registrar.isTopMost("dialog-a")).toBe(true)
+
+    disposeSecond?.()
+    expect(registrar.stack.value).toHaveLength(0)
+  })
 })

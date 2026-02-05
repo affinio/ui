@@ -19,10 +19,12 @@ const WORKSPACE_ALIAS_TARGETS: Record<string, string> = {
   "@affino/surface-core": "packages/surface-core/src/index.ts",
   "@affino/tooltip-core": "packages/tooltip-core/src/index.ts",
   "@affino/tooltip-vue": "packages/tooltip-vue/src/index.ts",
+  "@affino/vue-adapter": "packages/vue-adapter/src/index.ts",
   "@affino/popover-core": "packages/popover-core/src/index.ts",
   "@affino/popover-vue": "packages/popover-vue/src/index.ts",
   "@affino/virtualization-core": "packages/virtualization-core/src/index.ts",
   "@affino/overlay-host": "packages/overlay-host/src/index.ts",
+  "@affino/overlay-kernel": "packages/overlay-kernel/src/index.ts",
   "@affino/focus-utils": "packages/focus-utils/src/index.ts",
   "@affino/aria-utils": "packages/aria-utils/src/index.ts",
 }

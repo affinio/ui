@@ -4,47 +4,123 @@ import { bootstrapAffinoPopovers } from "@affino/popover-laravel"
 import { bootstrapAffinoListboxes } from "@affino/listbox-laravel"
 import { bootstrapAffinoComboboxes } from "@affino/combobox-laravel"
 import { bootstrapAffinoMenus } from "@affino/menu-laravel"
+import {
+  AFFINO_COMBOBOX_MANUAL_EVENT,
+  AFFINO_DIALOG_MANUAL_EVENT,
+  AFFINO_LISTBOX_MANUAL_EVENT,
+  AFFINO_MENU_MANUAL_EVENT,
+  AFFINO_POPOVER_MANUAL_EVENT,
+  AFFINO_TOOLTIP_MANUAL_EVENT,
+  type AffinoComboboxManualEventDetail,
+  type AffinoDialogManualEventDetail,
+  type AffinoLaravelAdapterOptions,
+  type AffinoListboxManualEventDetail,
+  type AffinoMenuManualEventDetail,
+  type AffinoPopoverManualEventDetail,
+  type AffinoTooltipManualEventDetail,
+} from "./contracts"
+import { bindManualBridge } from "./internal/manualBridge"
+import { registerScrollGuards, type ScrollGuardTarget } from "./internal/scrollGuards"
+import { createDiagnosticsRuntime } from "./internal/diagnostics"
 
-type ManualAction = "open" | "close" | "toggle" | "select" | "clear"
-
-type ManualBridgeDetail = {
-  id?: string
-  action?: ManualAction
-  reason?: string
-  options?: unknown
-  index?: number
-  value?: string
-  toggle?: boolean
-  extend?: boolean
+export type {
+  AffinoLaravelAdapterOptions,
+  AffinoDialogManualEventDetail,
+  AffinoTooltipManualEventDetail,
+  AffinoPopoverManualEventDetail,
+  AffinoMenuManualEventDetail,
+  AffinoListboxManualEventDetail,
+  AffinoComboboxManualEventDetail,
+}
+export {
+  AFFINO_DIALOG_MANUAL_EVENT,
+  AFFINO_TOOLTIP_MANUAL_EVENT,
+  AFFINO_POPOVER_MANUAL_EVENT,
+  AFFINO_MENU_MANUAL_EVENT,
+  AFFINO_LISTBOX_MANUAL_EVENT,
+  AFFINO_COMBOBOX_MANUAL_EVENT,
 }
 
-type BootstrapOptions = {
-  registerScrollGuards?: boolean
+const COMPONENT_DESCRIPTORS = [
+  { name: "dialog", selector: "[data-affino-dialog-root]", handleProperty: "affinoDialog" },
+  { name: "tooltip", selector: "[data-affino-tooltip-root]", handleProperty: "affinoTooltip" },
+  { name: "popover", selector: "[data-affino-popover-root]", handleProperty: "affinoPopover" },
+  { name: "menu", selector: "[data-affino-menu-root]", handleProperty: "affinoMenu" },
+  { name: "listbox", selector: "[data-affino-listbox-root]", handleProperty: "affinoListbox" },
+  { name: "combobox", selector: "[data-affino-combobox-root]", handleProperty: "affinoCombobox" },
+] as const
+
+const SCROLL_GUARD_TARGETS: ReadonlyArray<ScrollGuardTarget> = [
+  {
+    selector: "[data-affino-tooltip-state='open']",
+    shouldClose: (root) => root.dataset.affinoTooltipTriggerMode !== "manual",
+    close: (root) => {
+      const handle = (root as HTMLElement & { affinoTooltip?: { close: (reason?: string) => void } }).affinoTooltip
+      handle?.close("programmatic")
+    },
+  },
+  {
+    selector: "[data-affino-popover-state='open']",
+    shouldClose: (root) => root.dataset.affinoPopoverPinned !== "true" && root.dataset.affinoPopoverModal !== "true",
+    close: (root) => {
+      const handle = (root as HTMLElement & { affinoPopover?: { close: (reason?: string) => void } }).affinoPopover
+      handle?.close("programmatic")
+    },
+  },
+  {
+    selector: "[data-affino-combobox-state='true']",
+    shouldClose: (root) => root.dataset.affinoComboboxPinned !== "true",
+    close: (root) => {
+      const handle = (root as HTMLElement & { affinoCombobox?: { close: () => void } }).affinoCombobox
+      handle?.close()
+    },
+  },
+  {
+    selector: "[data-affino-menu-state='open']",
+    shouldClose: (root) => root.dataset.affinoMenuPinned !== "true",
+    close: (root) => {
+      const handle = (root as HTMLElement & { affinoMenu?: { close: (reason?: string) => void } }).affinoMenu
+      handle?.close("programmatic")
+    },
+  },
+] as const
+
+type ManualHandle = {
+  open: (reason?: string) => void
+  close: (reason?: string, options?: unknown) => void
+  toggle: (reason?: string) => void
+} & Record<string, unknown>
+
+type ListboxManualHandle = {
+  open: () => void
+  close: () => void
+  toggle: () => void
+  selectIndex: (index: number, options?: { extend?: boolean; toggle?: boolean }) => void
+  selectValue: (value: string) => void
 }
 
-type BridgeConfig = {
-  eventName: string
-  rootAttribute: string
-  property: string
-  rehydrate?: () => void
-  supportsOptions?: boolean
-  handledFlag?: string
+type ComboboxManualHandle = ListboxManualHandle & {
+  clear: () => void
 }
 
-const MAX_MANUAL_RETRIES = 20
-const DEFAULT_HANDLED_FLAG = "__affinoManualHandled"
-
-export function bootstrapAffinoLaravelAdapters(options: BootstrapOptions = {}): void {
+/**
+ * Primary bootstrap entry point for all Affino Laravel adapters.
+ * This is the ONLY supported public API for initializing the runtime.
+ */
+export function bootstrapAffinoLaravelAdapters(options: AffinoLaravelAdapterOptions = {}): void {
   if (typeof document === "undefined" || typeof window === "undefined") {
     return
   }
 
-  const win = window as unknown as Record<string, unknown>
+  const scope = window as unknown as Record<string, unknown>
   const flag = "__affinoLaravelAdapterBootstrapped"
-  if (win[flag]) {
+  if (scope[flag]) {
     return
   }
-  win[flag] = true
+  scope[flag] = true
+
+  const diagnostics = options.diagnostics ? createDiagnosticsRuntime(COMPONENT_DESCRIPTORS) : null
+  diagnostics?.expose()
 
   bootstrapAffinoDialogs()
   bootstrapAffinoTooltips()
@@ -53,140 +129,94 @@ export function bootstrapAffinoLaravelAdapters(options: BootstrapOptions = {}): 
   bootstrapAffinoComboboxes()
   bootstrapAffinoMenus()
 
-  registerManualControllerBridge({
-    eventName: "affino-dialog:manual",
+  bindManualBridge<typeof AFFINO_DIALOG_MANUAL_EVENT, ManualHandle>({
+    component: "dialog",
+    eventName: AFFINO_DIALOG_MANUAL_EVENT,
     rootAttribute: "data-affino-dialog-root",
-    property: "affinoDialog",
+    handleProperty: "affinoDialog",
     rehydrate: bootstrapAffinoDialogs,
-    supportsOptions: true,
-  })
-  registerManualControllerBridge({
-    eventName: "affino-tooltip:manual",
-    rootAttribute: "data-affino-tooltip-root",
-    property: "affinoTooltip",
-    rehydrate: bootstrapAffinoTooltips,
-  })
-  registerManualControllerBridge({
-    eventName: "affino-popover:manual",
-    rootAttribute: "data-affino-popover-root",
-    property: "affinoPopover",
-    rehydrate: bootstrapAffinoPopovers,
-  })
-  registerManualControllerBridge({
-    eventName: "affino-menu:manual",
-    rootAttribute: "data-affino-menu-root",
-    property: "affinoMenu",
-    rehydrate: bootstrapAffinoMenus,
-  })
-  registerListboxManualBridge({
-    eventName: "affino-listbox:manual",
-    rootAttribute: "data-affino-listbox-root",
-    property: "affinoListbox",
-    rehydrate: bootstrapAffinoListboxes,
-  })
-  registerComboboxManualBridge({
-    eventName: "affino-combobox:manual",
-    rootAttribute: "data-affino-combobox-root",
-    property: "affinoCombobox",
-    rehydrate: bootstrapAffinoComboboxes,
-  })
-
-  if (options.registerScrollGuards !== false) {
-    registerScrollGuards()
-  }
-}
-
-function registerManualControllerBridge({
-  eventName,
-  rootAttribute,
-  property,
-  rehydrate,
-  supportsOptions = false,
-  handledFlag = DEFAULT_HANDLED_FLAG,
-}: BridgeConfig): void {
-  const findHandle = (id: string) => {
-    const root = findRootById(rootAttribute, id)
-    return root?.[property]
-  }
-
-  const invokeAction = (detail: ManualBridgeDetail, attempt = 0): void => {
-    const handle = findHandle(detail.id ?? "")
-    if (!handle) {
-      if (attempt < MAX_MANUAL_RETRIES) {
-        requestAnimationFrame(() => invokeAction(detail, attempt + 1))
-      }
-      return
-    }
-
-    const reason = detail.reason ?? "programmatic"
-
-    if (detail.action === "open") {
-      handle.open(reason)
-      return
-    }
-
-    if (detail.action === "close") {
-      if (supportsOptions && Object.prototype.hasOwnProperty.call(detail, "options")) {
-        handle.close(reason, detail.options)
+    diagnostics,
+    invoke: (handle, detail) => {
+      if (detail.action === "open") {
+        handle.open(detail.reason)
         return
       }
-      handle.close(reason)
-      return
-    }
-
-    handle.toggle()
-  }
-
-  const handler = (rawEvent: Event) => {
-    const event = rawEvent as Event & Record<string, unknown>
-    if (event[handledFlag]) {
-      return
-    }
-    event[handledFlag] = true
-
-    const detail = (rawEvent as CustomEvent<ManualBridgeDetail>).detail
-    if (!detail || !detail.id || !detail.action) {
-      return
-    }
-
-    rehydrate?.()
-    invokeAction(detail)
-  }
-
-  document.addEventListener(eventName, handler)
-}
-
-function registerListboxManualBridge(config: BridgeConfig): void {
-  registerSelectionBridge(config, (handle, detail) => {
-    switch (detail.action) {
-      case "open":
-        handle.open()
+      if (detail.action === "close") {
+        handle.close(detail.reason, detail.options)
         return
-      case "close":
-        handle.close()
-        return
-      case "toggle":
-        handle.toggle()
-        return
-      case "select":
-        if (typeof detail.index === "number") {
-          handle.selectIndex(detail.index, { toggle: detail.toggle, extend: detail.extend })
-          return
-        }
-        if (typeof detail.value === "string") {
-          handle.selectValue(detail.value)
-        }
-    }
-  })
-}
-
-function registerComboboxManualBridge(config: BridgeConfig): void {
-  registerSelectionBridge(
-    {
-      ...config,
-      handledFlag: "__affinoComboboxManualHandled",
+      }
+      handle.toggle(detail.reason)
     },
-    (handle, detail) => {
+  })
+
+  bindManualBridge<typeof AFFINO_TOOLTIP_MANUAL_EVENT, ManualHandle>({
+    component: "tooltip",
+    eventName: AFFINO_TOOLTIP_MANUAL_EVENT,
+    rootAttribute: "data-affino-tooltip-root",
+    handleProperty: "affinoTooltip",
+    rehydrate: bootstrapAffinoTooltips,
+    diagnostics,
+    invoke: (handle, detail) => {
+      if (detail.action === "open") {
+        handle.open(detail.reason)
+        return
+      }
+      if (detail.action === "close") {
+        handle.close(detail.reason)
+        return
+      }
+      handle.toggle(detail.reason)
+    },
+  })
+
+  bindManualBridge<typeof AFFINO_POPOVER_MANUAL_EVENT, ManualHandle>({
+    component: "popover",
+    eventName: AFFINO_POPOVER_MANUAL_EVENT,
+    rootAttribute: "data-affino-popover-root",
+    handleProperty: "affinoPopover",
+    rehydrate: bootstrapAffinoPopovers,
+    diagnostics,
+    invoke: (handle, detail) => {
+      if (detail.action === "open") {
+        handle.open(detail.reason)
+        return
+      }
+      if (detail.action === "close") {
+        handle.close(detail.reason)
+        return
+      }
+      handle.toggle(detail.reason)
+    },
+  })
+
+  bindManualBridge<typeof AFFINO_MENU_MANUAL_EVENT, ManualHandle>({
+    component: "menu",
+    eventName: AFFINO_MENU_MANUAL_EVENT,
+    rootAttribute: "data-affino-menu-root",
+    handleProperty: "affinoMenu",
+    rehydrate: bootstrapAffinoMenus,
+    diagnostics,
+    invoke: (handle, detail) => {
+      if (detail.action === "open") {
+        handle.open(detail.reason)
+        return
+      }
+      if (detail.action === "close") {
+        handle.close(detail.reason)
+        return
+      }
+      handle.toggle(detail.reason)
+    },
+  })
+
+  bindManualBridge<typeof AFFINO_LISTBOX_MANUAL_EVENT, ListboxManualHandle>({
+    component: "listbox",
+    eventName: AFFINO_LISTBOX_MANUAL_EVENT,
+    rootAttribute: "data-affino-listbox-root",
+    handleProperty: "affinoListbox",
+    rehydrate: bootstrapAffinoListboxes,
+    diagnostics,
+    invoke: (handle, detail) => {
       switch (detail.action) {
         case "open":
           handle.open()
@@ -199,11 +229,42 @@ function registerComboboxManualBridge(config: BridgeConfig): void {
           return
         case "select":
           if (typeof detail.index === "number") {
-            handle.selectIndex(detail.index, { toggle: detail.toggle, extend: detail.extend })
+            handle.selectIndex(detail.index, { extend: detail.extend, toggle: detail.toggle })
             return
           }
           if (typeof detail.value === "string") {
             handle.selectValue(detail.value)
+          }
+      }
+    },
+  })
+
+  bindManualBridge<typeof AFFINO_COMBOBOX_MANUAL_EVENT, ComboboxManualHandle>({
+    component: "combobox",
+    eventName: AFFINO_COMBOBOX_MANUAL_EVENT,
+    rootAttribute: "data-affino-combobox-root",
+    handleProperty: "affinoCombobox",
+    rehydrate: bootstrapAffinoComboboxes,
+    diagnostics,
+    invoke: (handle, detail) => {
+      switch (detail.action) {
+        case "open":
+          handle.open()
+          return
+        case "close":
+          handle.close()
+          return
+        case "toggle":
+          handle.toggle()
+          return
+        case "select":
+          if (typeof detail.index === "number") {
+            handle.selectIndex(detail.index, { extend: detail.extend, toggle: detail.toggle })
+            return
+          }
+          if (typeof detail.value === "string") {
+            handle.selectValue(detail.value)
+            return
           }
           return
         case "clear":
@@ -211,134 +272,9 @@ function registerComboboxManualBridge(config: BridgeConfig): void {
           return
       }
     },
-  )
-}
-
-function registerSelectionBridge(
-  {
-    eventName,
-    rootAttribute,
-    property,
-    rehydrate,
-    handledFlag = DEFAULT_HANDLED_FLAG,
-  }: BridgeConfig,
-  applyAction: (handle: any, detail: ManualBridgeDetail) => void,
-): void {
-  const findHandle = (id: string) => {
-    const root = findRootById(rootAttribute, id)
-    return root?.[property]
-  }
-
-  const invoke = (detail: ManualBridgeDetail, attempt = 0): void => {
-    const handle = findHandle(detail.id ?? "")
-    if (!handle) {
-      if (attempt < MAX_MANUAL_RETRIES) {
-        requestAnimationFrame(() => invoke(detail, attempt + 1))
-      }
-      return
-    }
-
-    applyAction(handle, detail)
-  }
-
-  const handler = (rawEvent: Event) => {
-    const event = rawEvent as Event & Record<string, unknown>
-    if (event[handledFlag]) {
-      return
-    }
-    event[handledFlag] = true
-
-    const detail = (rawEvent as CustomEvent<ManualBridgeDetail>).detail
-    if (!detail || !detail.id || !detail.action) {
-      return
-    }
-
-    rehydrate?.()
-    invoke(detail)
-  }
-
-  document.addEventListener(eventName, handler)
-}
-
-function registerScrollGuards(): void {
-  const win = window as unknown as Record<string, unknown>
-  const flag = "__affinoScrollGuardsRegistered"
-  if (win[flag]) {
-    return
-  }
-  win[flag] = true
-
-  let ticking = false
-
-  const closeAll = () => {
-    ticking = false
-    closeOpenTooltips()
-    closeOpenPopovers()
-    closeOpenComboboxes()
-    closeOpenMenus()
-  }
-
-  window.addEventListener(
-    "scroll",
-    () => {
-      if (ticking) {
-        return
-      }
-      ticking = true
-      requestAnimationFrame(closeAll)
-    },
-    { passive: true },
-  )
-}
-
-function closeOpenTooltips(): void {
-  const openTooltips = document.querySelectorAll<HTMLElement>("[data-affino-tooltip-state='open']")
-  openTooltips.forEach((root) => {
-    if (root.dataset.affinoTooltipTriggerMode === "manual") {
-      return
-    }
-    const handle = (root as HTMLElement & Record<string, any>).affinoTooltip
-    handle?.close("programmatic")
   })
-}
 
-function closeOpenPopovers(): void {
-  const openPopovers = document.querySelectorAll<HTMLElement>("[data-affino-popover-state='open']")
-  openPopovers.forEach((root) => {
-    const isPinned = root.dataset.affinoPopoverPinned === "true"
-    const isModal = root.dataset.affinoPopoverModal === "true"
-    if (isPinned || isModal) {
-      return
-    }
-    const handle = (root as HTMLElement & Record<string, any>).affinoPopover
-    handle?.close("programmatic")
-  })
-}
-
-function closeOpenComboboxes(): void {
-  const openComboboxes = document.querySelectorAll<HTMLElement>("[data-affino-combobox-state='true']")
-  openComboboxes.forEach((root) => {
-    if (root.dataset.affinoComboboxPinned === "true") {
-      return
-    }
-    const handle = (root as HTMLElement & Record<string, any>).affinoCombobox
-    handle?.close()
-  })
-}
-
-function closeOpenMenus(): void {
-  const openMenus = document.querySelectorAll<HTMLElement>("[data-affino-menu-state='open']")
-  openMenus.forEach((root) => {
-    if (root.dataset.affinoMenuPinned === "true") {
-      return
-    }
-    const handle = (root as HTMLElement & Record<string, any>).affinoMenu
-    handle?.close("programmatic")
-  })
-}
-
-function findRootById(rootAttribute: string, id: string): (HTMLElement & Record<string, any>) | null {
-  const escapedId = typeof CSS !== "undefined" && typeof CSS.escape === "function" ? CSS.escape(id) : id
-  const selector = `[${rootAttribute}="${escapedId}"]`
-  return document.querySelector<HTMLElement>(selector) as (HTMLElement & Record<string, any>) | null
+  if (options.registerScrollGuards !== false) {
+    registerScrollGuards(SCROLL_GUARD_TARGETS)
+  }
 }

@@ -135,4 +135,53 @@ describe("UiMenu", () => {
       expect(screen.getByText("Second Child")).toBeTruthy()
     })
   })
+
+  it("remains stable when pointer rapidly traverses sibling submenu triggers", async () => {
+    renderMenu(`
+      <UiMenu :options="{ openDelay: 0, closeDelay: 0 }">
+        <UiMenuTrigger>Root Fast</UiMenuTrigger>
+        <UiMenuContent>
+          <UiSubMenu :options="{ openDelay: 0, closeDelay: 0 }">
+            <UiSubMenuTrigger>Alpha</UiSubMenuTrigger>
+            <UiSubMenuContent>
+              <UiMenuItem id="alpha-child">Alpha Child</UiMenuItem>
+            </UiSubMenuContent>
+          </UiSubMenu>
+          <UiSubMenu :options="{ openDelay: 0, closeDelay: 0 }">
+            <UiSubMenuTrigger>Beta</UiSubMenuTrigger>
+            <UiSubMenuContent>
+              <UiMenuItem id="beta-child">Beta Child</UiMenuItem>
+            </UiSubMenuContent>
+          </UiSubMenu>
+          <UiSubMenu :options="{ openDelay: 0, closeDelay: 0 }">
+            <UiSubMenuTrigger>Gamma</UiSubMenuTrigger>
+            <UiSubMenuContent>
+              <UiMenuItem id="gamma-child">Gamma Child</UiMenuItem>
+            </UiSubMenuContent>
+          </UiSubMenu>
+        </UiMenuContent>
+      </UiMenu>
+    `)
+
+    await fireEvent.click(screen.getByRole("button", { name: /root fast/i }))
+    const rootPanel = await screen.findByRole("menu")
+    const alpha = await screen.findByRole("menuitem", { name: /alpha/i })
+    const beta = await screen.findByRole("menuitem", { name: /beta/i })
+    const gamma = await screen.findByRole("menuitem", { name: /gamma/i })
+
+    await fireEvent.pointerEnter(alpha, { relatedTarget: rootPanel })
+    await fireEvent.pointerLeave(alpha, { relatedTarget: beta })
+    await fireEvent.pointerEnter(beta, { relatedTarget: alpha })
+    await fireEvent.pointerLeave(beta, { relatedTarget: gamma })
+    await fireEvent.pointerEnter(gamma, { relatedTarget: beta })
+
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    await waitFor(() => {
+      expect(screen.getAllByRole("menu")).toHaveLength(2)
+      expect(screen.queryByText("Alpha Child")).toBeNull()
+      expect(screen.queryByText("Beta Child")).toBeNull()
+      expect(screen.getByText("Gamma Child")).toBeTruthy()
+    })
+  })
 })
