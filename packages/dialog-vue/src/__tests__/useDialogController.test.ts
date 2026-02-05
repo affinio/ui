@@ -45,7 +45,10 @@ describe("useDialogController", () => {
 
     binding.open()
     expect(register).toHaveBeenCalledTimes(1)
-    const overlay = register.mock.calls[0][0]
+    const overlay = register.mock.calls[0]?.[0]
+    if (!overlay) {
+      throw new Error("register should capture an overlay")
+    }
     expect(overlay).toMatchObject({ kind: "dialog" })
 
     await binding.close("backdrop")

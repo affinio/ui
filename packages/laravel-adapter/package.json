@@ -1,0 +1,35 @@
+{
+  "name": "@affino/laravel-adapter",
+  "version": "0.0.1",
+  "description": "Unified Laravel bootstrap and manual-bridge runtime for Affino primitives",
+  "type": "module",
+  "main": "dist/index.cjs",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup resources/js/index.ts --format esm,cjs --dts --clean",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@affino/dialog-laravel": "workspace:*",
+    "@affino/tooltip-laravel": "workspace:*",
+    "@affino/popover-laravel": "workspace:*",
+    "@affino/listbox-laravel": "workspace:*",
+    "@affino/combobox-laravel": "workspace:*",
+    "@affino/menu-laravel": "workspace:*"
+  },
+  "devDependencies": {
+    "tsup": "^8.5.1",
+    "vitest": "^4.0.15"
+  }
+}

@@ -14,11 +14,11 @@ describe("createDialogOverlayRegistrar", () => {
     expect(registrar.isTopMost("base")).toBe(false)
     expect(registrar.isTopMost("nested")).toBe(true)
 
-    disposeNested()
+    disposeNested?.()
     expect(registrar.stack.value).toHaveLength(1)
     expect(registrar.isTopMost("base")).toBe(true)
 
-    disposeBase()
+    disposeBase?.()
     expect(registrar.stack.value).toHaveLength(0)
   })
 
@@ -30,7 +30,7 @@ describe("createDialogOverlayRegistrar", () => {
     expect(onStackChange).toHaveBeenCalledTimes(1)
     expect(onStackChange).toHaveBeenLastCalledWith(expect.arrayContaining([{ id: "toast", kind: "dialog" }]))
 
-    dispose()
+    dispose?.()
     expect(onStackChange).toHaveBeenCalledTimes(2)
     expect(onStackChange).toHaveBeenLastCalledWith([])
   })

@@ -59,6 +59,9 @@ importers:
       '@affino/dialog-laravel':
         specifier: workspace:*
         version: link:../packages/dialog-laravel
+      '@affino/laravel-adapter':
+        specifier: workspace:*
+        version: link:../packages/laravel-adapter
       '@affino/listbox-laravel':
         specifier: workspace:*
         version: link:../packages/listbox-laravel
@@ -371,6 +374,34 @@ importers:
       vue:
         specifier: ^3.4.0
         version: 3.5.25(typescript@5.9.3)
+
+  packages/laravel-adapter:
+    dependencies:
+      '@affino/combobox-laravel':
+        specifier: workspace:*
+        version: link:../combobox-laravel
+      '@affino/dialog-laravel':
+        specifier: workspace:*
+        version: link:../dialog-laravel
+      '@affino/listbox-laravel':
+        specifier: workspace:*
+        version: link:../listbox-laravel
+      '@affino/menu-laravel':
+        specifier: workspace:*
+        version: link:../menu-laravel
+      '@affino/popover-laravel':
+        specifier: workspace:*
+        version: link:../popover-laravel
+      '@affino/tooltip-laravel':
+        specifier: workspace:*
+        version: link:../tooltip-laravel
+    devDependencies:
+      tsup:
+        specifier: ^8.5.1
+        version: 8.5.1(@swc/core@1.15.11)(jiti@2.6.1)(postcss@8.5.6)(typescript@5.9.3)
+      vitest:
+        specifier: ^4.0.15
+        version: 4.0.15(@types/node@24.10.4)(jiti@2.6.1)(jsdom@27.3.0(postcss@8.5.6))(lightningcss@1.30.2)(terser@5.46.0)
 
   packages/listbox-core:
     dependencies:
