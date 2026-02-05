@@ -19,7 +19,7 @@
 ])
 
 @php
-    $dialogId = $id ?: (string) \Illuminate\Support\Str::uuid();
+    $dialogId = $dialogId ?? $id ?? (string) \Illuminate\Support\Str::uuid();
     $closeStrategy = in_array($closeStrategy, ['blocking', 'optimistic'], true) ? $closeStrategy : 'blocking';
 
     $rootAttributes = [

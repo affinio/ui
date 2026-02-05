@@ -31,51 +31,51 @@ A package is 10/10 only if all are true:
 ---
 
 ## Phase 0: Baseline and Guardrails
-- [ ] Create a shared checklist document in repo for adapter rules (bootstrap, observer, livewire, cleanup, tests).
-- [ ] Add temporary benchmark script for mutation-heavy scenarios (Livewire morph simulation).
-- [ ] Capture baseline metrics:
-  - [ ] rehydrate count per package under repeated DOM updates.
-  - [ ] average bootstrap cost.
-  - [ ] open/close latency for each primitive.
+- [x] Create a shared checklist document in repo for adapter rules (bootstrap, observer, livewire, cleanup, tests).
+- [x] Add temporary benchmark script for mutation-heavy scenarios (Livewire morph simulation).
+- [x] Capture baseline metrics:
+  - [x] rehydrate count per package under repeated DOM updates.
+  - [x] average bootstrap cost.
+  - [x] open/close latency for each primitive.
 
 Deliverable:
-- Baseline report committed to `docs/`.
+- [x] Baseline report committed to `docs/`.
 
 ---
 
 ## Phase 1: Unified Adapter Contract (Cross-Package)
 
 ### 1. Bootstrap Consistency
-- [ ] Ensure every package has the same bootstrap pattern:
+- [x] Ensure every package has the same bootstrap pattern:
   - `if (typeof document === "undefined") return`
   - `scan(document)`
   - `setupMutationObserver()`
   - `setupLivewireHooks(...)`
-- [ ] Ensure all packages tolerate delayed Livewire load.
+- [x] Ensure all packages tolerate delayed Livewire load.
 
 ### 2. Observer Consistency
-- [ ] Standardize observer defaults to:
+- [x] Standardize observer defaults to:
   - `childList: true`
   - `subtree: true`
   - no `characterData` by default
-- [ ] Introduce shared helper for observer setup to avoid drift.
+- [x] Introduce shared helper for observer setup to avoid drift.
 
 ### 3. Structure-Aware Rehydrate
-- [ ] Introduce shared structural diff helper:
+- [x] Introduce shared structural diff helper:
   - compare key nodes (trigger/surface/content)
   - compare option-count or keyed identity where relevant (listbox/combobox/menu)
-- [ ] Only rehydrate when structure actually changed.
+- [x] Only rehydrate when structure actually changed.
 
 ### 4. Livewire Contract
-- [ ] Standardize hooks/events matrix (`morph.added`, `message.processed`, `livewire:navigated`, etc.).
-- [ ] Standardize late-load retry strategy (`livewire:load`).
-- [ ] Standardize navigation behavior (observer disconnect/restart if needed).
-- [ ] Ensure explicit non-Livewire path in every package (no-op hooks + identical core behavior where possible).
+- [x] Standardize hooks/events matrix (`morph.added`, `message.processed`, `livewire:navigated`, etc.).
+- [x] Standardize late-load retry strategy (`livewire:load`).
+- [x] Standardize navigation behavior (observer disconnect/restart if needed).
+- [x] Ensure explicit non-Livewire path in every package (no-op hooks + identical core behavior where possible).
 
 ### 5. Overlay and Scroll Lock Policy
-- [ ] Use centralized `overlay-kernel` lock API everywhere lock is relevant.
-- [ ] Ensure source-key usage per primitive (`dialog`, `popover`, `menu`, etc.).
-- [ ] Add regression tests for multi-overlay lock scenarios.
+- [x] Use centralized `overlay-kernel` lock API everywhere lock is relevant.
+- [x] Ensure source-key usage per primitive (`dialog`, `popover`, `menu`, etc.).
+- [x] Add regression tests for multi-overlay lock scenarios.
 
 Deliverable:
 - `adapter-contract` utilities module + package migrations.

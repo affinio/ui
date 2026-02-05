@@ -18,7 +18,9 @@ import {
   type ComboboxState,
 } from "@affino/combobox-core"
 import {
+  bindLivewireHooks,
   createOverlayIntegration,
+  ensureDocumentObserver,
   getDocumentOverlayManager,
   type OverlayCloseReason,
   type OverlayKind,
@@ -101,6 +103,9 @@ const registry = new WeakMap<RootEl, Cleanup>()
 const pinnedOpenRegistry = new Map<string, boolean>()
 
 export function bootstrapAffinoComboboxes(): void {
+  if (typeof document === "undefined") {
+    return
+  }
   scan(document)
   setupMutationObserver()
   setupLivewireHooks()
@@ -1014,46 +1019,55 @@ function scan(root: ParentNode): void {
 }
 
 function setupMutationObserver(): void {
-  if ((window as any).__affinoComboboxObserver) {
+  if (typeof document === "undefined") {
     return
   }
-  const observer = new MutationObserver((mutations) => {
-    mutations.forEach((mutation) => {
-      mutation.addedNodes.forEach((node) => {
-        if (node instanceof HTMLElement || node instanceof DocumentFragment) {
-          scan(node)
-        }
+  ensureDocumentObserver({
+    globalKey: "__affinoComboboxObserver",
+    target: document.documentElement,
+    callback: (mutations) => {
+      mutations.forEach((mutation) => {
+        mutation.addedNodes.forEach((node) => {
+          if (node instanceof HTMLElement || node instanceof DocumentFragment) {
+            scan(node)
+          }
+        })
       })
-    })
+    },
   })
-  observer.observe(document.documentElement, { childList: true, subtree: true })
-  ;(window as any).__affinoComboboxObserver = observer
 }
 
 function setupLivewireHooks(): void {
-  const livewire = (window as any).Livewire
-  if (!livewire || (window as any).__affinoComboboxLivewireHooked) {
+  if (typeof window === "undefined") {
     return
   }
-  if (typeof livewire.hook === "function") {
-    livewire.hook("morph.added", ({ el }: { el: Element }) => {
-      if (el instanceof HTMLElement || el instanceof DocumentFragment) {
-        scan(el)
-      }
-    })
-    livewire.hook("message.processed", (_message: unknown, component: { el?: Element }) => {
-      const scope = component?.el
-      if (scope instanceof HTMLElement || scope instanceof DocumentFragment) {
-        scan(scope)
-        return
-      }
+  bindLivewireHooks({
+    globalKey: "__affinoComboboxLivewireHooked",
+    hooks: [
+      {
+        name: "morph.added",
+        handler: ({ el }: { el: Element }) => {
+          if (el instanceof HTMLElement || el instanceof DocumentFragment) {
+            scan(el)
+          }
+        },
+      },
+      {
+        name: "message.processed",
+        handler: (_message: unknown, component: { el?: Element }) => {
+          const scope = component?.el
+          if (scope instanceof HTMLElement || scope instanceof DocumentFragment) {
+            scan(scope)
+            return
+          }
+          scan(document)
+        },
+      },
+    ],
+    onNavigated: () => {
       scan(document)
-    })
-  }
-  document.addEventListener("livewire:navigated", () => {
-    scan(document)
+    },
   })
-  ;(window as any).__affinoComboboxLivewireHooked = true
 }
 
 function generateId(prefix: string): string {
@@ -1068,4 +1082,12 @@ function generateComboboxOverlayId(): string {
     return crypto.randomUUID()
   }
   return `affino-combobox-${Math.random().toString(36).slice(2)}`
+}
+
+export const __testing = {
+  readBoolean,
+  resolveMode,
+  normalizeFilter,
+  optionMatches,
+  escapeIdentifier,
 }

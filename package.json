@@ -18,7 +18,8 @@
     "test:e2e": "playwright test",
     "docs:build": "pnpm --filter docs-site build",
     "check": "pnpm run lint && pnpm run type-check && pnpm run test",
-    "changeset": "changeset"
+    "changeset": "changeset",
+    "bench:laravel-morph": "node ./scripts/bench-livewire-morph.mjs"
   },
   "devDependencies": {
     "@changesets/cli": "^2.27.11",

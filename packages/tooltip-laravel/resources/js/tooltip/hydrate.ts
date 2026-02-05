@@ -1,5 +1,6 @@
 import { TooltipCore } from "@affino/tooltip-core"
 import type { TooltipTriggerProps, TooltipState, TooltipReason } from "@affino/tooltip-core"
+import { ensureDocumentObserver } from "@affino/overlay-kernel"
 
 import type {
   Cleanup,
@@ -480,31 +481,26 @@ export function scan(root: ParentNode): void {
 }
 
 export function setupMutationObserver(): void {
-  if ((window as any).__affinoTooltipObserver) {
+  if (typeof document === "undefined") {
     return
   }
-
-  const observer = new MutationObserver((mutations) => {
-    mutations.forEach((mutation) => {
-      mutation.addedNodes.forEach((node) => {
-        if (node instanceof HTMLElement || node instanceof DocumentFragment) {
-          scan(node)
-        }
+  ensureDocumentObserver({
+    globalKey: "__affinoTooltipObserver",
+    target: document.documentElement,
+    callback: (mutations) => {
+      mutations.forEach((mutation) => {
+        mutation.addedNodes.forEach((node) => {
+          if (node instanceof HTMLElement || node instanceof DocumentFragment) {
+            scan(node)
+          }
+        })
       })
-    })
 
-    if (focusedTooltipIds.size > 0) {
-      scheduleFocusSync()
-    }
+      if (focusedTooltipIds.size > 0) {
+        scheduleFocusSync()
+      }
+    },
   })
-
-  observer.observe(document.documentElement, {
-    childList: true,
-    subtree: true,
-    characterData: true,
-  })
-
-  ;(window as any).__affinoTooltipObserver = observer
 }
 
 export function setupPointerGuards(): void {

@@ -1,5 +1,10 @@
 import { PopoverCore } from "@affino/popover-core"
-import { acquireDocumentScrollLock, releaseDocumentScrollLock } from "@affino/overlay-kernel"
+import {
+  acquireDocumentScrollLock,
+  didStructureChange,
+  ensureDocumentObserver,
+  releaseDocumentScrollLock,
+} from "@affino/overlay-kernel"
 import type { SurfaceReason } from "@affino/popover-core"
 import { attachHandle, bindArrowProps, bindProps, resetArrow } from "./dom"
 import { resolveOptions } from "./options"
@@ -288,23 +293,22 @@ export function scan(node: ParentNode): void {
 }
 
 export function setupMutationObserver(): void {
-  if ((window as any).__affinoPopoverObserver) {
+  if (typeof document === "undefined") {
     return
   }
-  const observer = new MutationObserver((mutations) => {
-    mutations.forEach((mutation) => {
-      mutation.addedNodes.forEach((node) => {
-        if (node instanceof HTMLElement || node instanceof DocumentFragment) {
-          scan(node)
-        }
+  ensureDocumentObserver({
+    globalKey: "__affinoPopoverObserver",
+    target: document.documentElement,
+    callback: (mutations) => {
+      mutations.forEach((mutation) => {
+        mutation.addedNodes.forEach((node) => {
+          if (node instanceof HTMLElement || node instanceof DocumentFragment) {
+            scan(node)
+          }
+        })
       })
-    })
+    },
   })
-  observer.observe(document.documentElement, {
-    childList: true,
-    subtree: true,
-  })
-  ;(window as any).__affinoPopoverObserver = observer
 }
 
 function maybeHydratePopover(root: RootEl): void {
@@ -314,8 +318,9 @@ function maybeHydratePopover(root: RootEl): void {
     return
   }
   const previous = structureRegistry.get(root)
+  const next = { trigger: nextTrigger, content: nextContent }
   const hasBinding = registry.has(root)
-  if (hasBinding && previous && previous.trigger === nextTrigger && previous.content === nextContent) {
+  if (hasBinding && !didStructureChange(previous, next)) {
     return
   }
   hydratePopover(root)

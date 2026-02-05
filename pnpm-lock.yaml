@@ -300,6 +300,9 @@ importers:
       '@affino/overlay-host':
         specifier: workspace:*
         version: link:../overlay-host
+      '@affino/overlay-kernel':
+        specifier: workspace:*
+        version: link:../overlay-kernel
     devDependencies:
       '@vitest/coverage-v8':
         specifier: ^4.0.15
@@ -543,6 +546,9 @@ importers:
 
   packages/popover-laravel:
     dependencies:
+      '@affino/overlay-kernel':
+        specifier: workspace:*
+        version: link:../overlay-kernel
       '@affino/popover-core':
         specifier: workspace:*
         version: link:../popover-core
@@ -632,6 +638,9 @@ importers:
 
   packages/tooltip-laravel:
     dependencies:
+      '@affino/overlay-kernel':
+        specifier: workspace:*
+        version: link:../overlay-kernel
       '@affino/tooltip-core':
         specifier: workspace:*
         version: link:../tooltip-core

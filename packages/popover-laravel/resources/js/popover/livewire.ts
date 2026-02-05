@@ -1,20 +1,25 @@
+import { bindLivewireHooks } from "@affino/overlay-kernel"
 import { setActivePopoverRoot } from "./registry"
 
 export function setupLivewireHooks(scan: (node: ParentNode) => void): void {
-  const livewire = (window as any).Livewire
-  if (!livewire || (window as any).__affinoPopoverLivewireHooked) {
+  if (typeof window === "undefined") {
     return
   }
-  if (typeof livewire.hook === "function") {
-    livewire.hook("morph.added", ({ el }: { el: Element }) => {
-      if (el instanceof HTMLElement || el instanceof DocumentFragment) {
-        scan(el)
-      }
-    })
-  }
-  document.addEventListener("livewire:navigated", () => {
-    setActivePopoverRoot(document, null)
-    scan(document)
+  bindLivewireHooks({
+    globalKey: "__affinoPopoverLivewireHooked",
+    hooks: [
+      {
+        name: "morph.added",
+        handler: ({ el }: { el: Element }) => {
+          if (el instanceof HTMLElement || el instanceof DocumentFragment) {
+            scan(el)
+          }
+        },
+      },
+    ],
+    onNavigated: () => {
+      setActivePopoverRoot(document, null)
+      scan(document)
+    },
   })
-  ;(window as any).__affinoPopoverLivewireHooked = true
 }

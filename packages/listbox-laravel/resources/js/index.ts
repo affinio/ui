@@ -7,7 +7,9 @@ import {
   type ListboxState,
 } from "@affino/listbox-core"
 import {
+  bindLivewireHooks,
   createOverlayIntegration,
+  ensureDocumentObserver,
   getDocumentOverlayManager,
   type OverlayCloseReason,
   type OverlayKind,
@@ -66,6 +68,9 @@ const registry = new WeakMap<RootEl, Cleanup>()
 const openStateRegistry = new Map<string, boolean>()
 
 export function bootstrapAffinoListboxes(): void {
+  if (typeof document === "undefined") {
+    return
+  }
   scan(document)
   setupMutationObserver()
   setupLivewireHooks()
@@ -399,11 +404,27 @@ function hydrateResolvedListbox(root: RootEl, trigger: HTMLElement, surface: HTM
       if (!root.isConnected) {
         return
       }
+      if (!shouldHydrateStructure()) {
+        return
+      }
       hydrateListbox(root)
     })
   })
   structureObserver.observe(root, { childList: true, subtree: true })
   detachments.push(() => structureObserver.disconnect())
+
+  function shouldHydrateStructure(): boolean {
+    const nextTrigger = root.querySelector<HTMLElement>("[data-affino-listbox-trigger]")
+    const nextSurface = root.querySelector<HTMLElement>("[data-affino-listbox-surface]")
+    if (!nextTrigger || !nextSurface) {
+      return false
+    }
+    if (nextTrigger !== trigger || nextSurface !== surface) {
+      return true
+    }
+    const nextOptionCount = root.querySelectorAll("[data-affino-listbox-option]").length
+    return nextOptionCount !== options.length
+  }
 
   function focusActiveOption() {
     if (!open || state.activeIndex < 0) {
@@ -793,36 +814,42 @@ function scan(root: ParentNode): void {
 }
 
 function setupMutationObserver(): void {
-  if ((window as any).__affinoListboxObserver) {
+  if (typeof document === "undefined") {
     return
   }
-  const observer = new MutationObserver((mutations) => {
-    mutations.forEach((mutation) => {
-      mutation.addedNodes.forEach((node) => {
-        if (node instanceof HTMLElement || node instanceof DocumentFragment) {
-          scan(node)
-        }
+  ensureDocumentObserver({
+    globalKey: "__affinoListboxObserver",
+    target: document.documentElement,
+    callback: (mutations) => {
+      mutations.forEach((mutation) => {
+        mutation.addedNodes.forEach((node) => {
+          if (node instanceof HTMLElement || node instanceof DocumentFragment) {
+            scan(node)
+          }
+        })
       })
-    })
+    },
   })
-  observer.observe(document.documentElement, { childList: true, subtree: true })
-  ;(window as any).__affinoListboxObserver = observer
 }
 
 function setupLivewireHooks(): void {
-  const livewire = (window as any).Livewire
-  if (!livewire || (window as any).__affinoListboxLivewireHooked) {
+  if (typeof window === "undefined") {
     return
   }
-  if (typeof livewire.hook === "function") {
-    livewire.hook("morph.added", ({ el }: { el: Element }) => {
-      if (el instanceof HTMLElement || el instanceof DocumentFragment) {
-        scan(el)
-      }
-    })
-  }
-  document.addEventListener("livewire:navigated", () => {
-    scan(document)
+  bindLivewireHooks({
+    globalKey: "__affinoListboxLivewireHooked",
+    hooks: [
+      {
+        name: "morph.added",
+        handler: ({ el }: { el: Element }) => {
+          if (el instanceof HTMLElement || el instanceof DocumentFragment) {
+            scan(el)
+          }
+        },
+      },
+    ],
+    onNavigated: () => {
+      scan(document)
+    },
   })
-  ;(window as any).__affinoListboxLivewireHooked = true
 }

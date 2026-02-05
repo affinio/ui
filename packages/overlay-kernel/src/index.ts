@@ -142,6 +142,29 @@ export interface OverlayManager {
   ): () => void
 }
 
+export interface DocumentObserverOptions {
+  globalKey: string
+  target: Node | null | undefined
+  callback: MutationCallback
+  observe?: MutationObserverInit
+}
+
+export type StructureSnapshot<T extends string = string> = Record<T, Element | null>
+
+export interface LivewireHookBinding {
+  name: string
+  handler: (...args: any[]) => void
+}
+
+export interface LivewireBindingOptions {
+  globalKey: string
+  hooks?: LivewireHookBinding[]
+  onNavigating?: () => void
+  onNavigated?: () => void
+  navigateMode?: "none" | "navigated" | "navigating+navigated"
+  retryOnLoad?: boolean
+}
+
 const ACTIVE_PHASES = new Set<OverlayPhase>(["opening", "open", "closing"])
 const documentScrollLocks = typeof WeakMap !== "undefined" ? new WeakMap<Document, Map<string, number>>() : null
 const documentStoredOverflow = typeof WeakMap !== "undefined" ? new WeakMap<Document, string | null>() : null
@@ -505,6 +528,95 @@ export function getDocumentOverlayManager(doc?: Document | null): OverlayManager
   const manager = new DefaultOverlayManager({ document: doc })
   documentManagers.set(doc, manager)
   return manager
+}
+
+export function ensureDocumentObserver(options: DocumentObserverOptions): MutationObserver | null {
+  if (typeof window === "undefined" || typeof MutationObserver === "undefined") {
+    return null
+  }
+
+  const { globalKey, target, callback, observe } = options
+  if (!target) {
+    return null
+  }
+
+  const globalWindow = window as unknown as Record<string, unknown>
+  const existing = globalWindow[globalKey]
+  if (existing instanceof MutationObserver) {
+    return existing
+  }
+
+  const observer = new MutationObserver(callback)
+  observer.observe(target, {
+    childList: true,
+    subtree: true,
+    ...observe,
+  })
+  globalWindow[globalKey] = observer
+  return observer
+}
+
+export function didStructureChange<T extends string>(
+  previous: StructureSnapshot<T> | null | undefined,
+  next: StructureSnapshot<T>,
+): boolean {
+  if (!previous) {
+    return true
+  }
+  for (const key of Object.keys(next) as T[]) {
+    if (previous[key] !== next[key]) {
+      return true
+    }
+  }
+  return false
+}
+
+export function bindLivewireHooks(options: LivewireBindingOptions): boolean {
+  if (typeof window === "undefined") {
+    return false
+  }
+
+  const globalWindow = window as unknown as Record<string, unknown>
+  if (globalWindow[options.globalKey]) {
+    return true
+  }
+
+  const livewire = (window as any).Livewire
+  if (!livewire) {
+    if (options.retryOnLoad !== false) {
+      const target: EventTarget | null = typeof document !== "undefined" ? document : window
+      target?.addEventListener(
+        "livewire:load",
+        () => {
+          bindLivewireHooks({ ...options, retryOnLoad: false })
+        },
+        { once: true },
+      )
+    }
+    return false
+  }
+
+  if (typeof livewire.hook === "function") {
+    ;(options.hooks ?? []).forEach((hook) => {
+      try {
+        livewire.hook(hook.name, (...args: any[]) => hook.handler(...args))
+      } catch {
+        // ignore unknown hook names
+      }
+    })
+  }
+
+  const target: EventTarget | null = typeof document !== "undefined" ? document : window
+  const navigateMode = options.navigateMode ?? "navigated"
+  if (navigateMode === "navigating+navigated" && options.onNavigating) {
+    target?.addEventListener("livewire:navigating", () => options.onNavigating?.())
+  }
+  if (navigateMode !== "none" && options.onNavigated) {
+    target?.addEventListener("livewire:navigated", () => options.onNavigated?.())
+  }
+
+  globalWindow[options.globalKey] = true
+  return true
 }
 
 export function acquireDocumentScrollLock(doc?: Document | null, source = "overlay"): void {
