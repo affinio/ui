@@ -1,6 +1,6 @@
 {
   "name": "@affino/menu-vue",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "author": "Anton Pavlov <a.pavlov@affino.dev>",
   "type": "module",
   "description": "Headless Vue 3 menu components with smart mouse prediction and full keyboard accessibility",
@@ -15,7 +15,7 @@
     "./styles.css": "./dist/styles.css"
   },
   "peerDependencies": {
-    "@affino/menu-core": "^1.0.0",
+    "@affino/menu-core": "^1.1.0",
     "vue": "^3.3.0"
   },
   "dependencies": {
@@ -60,5 +60,11 @@
     "radix",
     "headless-ui"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/affinio/affinio/issues"
+  },
+  "types": "dist/index.d.ts",
+  "main": "dist/index.js",
+  "module": "dist/index.js"
 }

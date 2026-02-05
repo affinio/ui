@@ -1,6 +1,6 @@
 {
   "name": "@affino/tabs-vue",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "author": "Anton Pavlov <a.pavlov@affino.dev>",
   "type": "module",
   "description": "Vue 3 composables for @affino/tabs-core",
@@ -30,5 +30,22 @@
   "devDependencies": {
     "vue": "^3.4.0",
     "vitest": "^4.0.15"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/affinio/affinio/tree/main/packages/tabs-vue"
+  },
+  "homepage": "https://affino.dev",
+  "bugs": {
+    "url": "https://github.com/affinio/affinio/issues"
+  },
+  "keywords": [
+    "affino",
+    "vue",
+    "vue3",
+    "tabs",
+    "headless",
+    "accessibility"
+  ],
+  "module": "dist/index.js"
 }

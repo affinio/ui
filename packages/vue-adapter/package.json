@@ -1,6 +1,6 @@
 {
   "name": "@affino/vue-adapter",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Unified Vue integration facade for Affino overlays and primitives",
   "type": "module",
   "main": "dist/index.cjs",
@@ -31,5 +31,22 @@
     "tsup": "^8.5.1",
     "vitest": "^4.0.15",
     "vue": "^3.4.0"
-  }
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/affinio/affinio/tree/main/packages/vue-adapter"
+  },
+  "homepage": "https://affino.dev",
+  "bugs": {
+    "url": "https://github.com/affinio/affinio/issues"
+  },
+  "keywords": [
+    "affino",
+    "vue",
+    "vue3",
+    "adapter",
+    "headless",
+    "accessibility"
+  ]
 }

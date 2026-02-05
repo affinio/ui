@@ -1,6 +1,6 @@
 {
   "name": "@affino/grid-selection-vue",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "Anton Pavlov <a.pavlov@affino.dev>",
   "type": "module",
   "description": "Vue 3 adapters for @affino/grid-selection-core (stores + composables)",
@@ -44,5 +44,9 @@
     "grid",
     "headless",
     "adapter"
-  ]
+  ],
+  "bugs": {
+    "url": "https://github.com/affinio/affinio/issues"
+  },
+  "module": "dist/index.js"
 }

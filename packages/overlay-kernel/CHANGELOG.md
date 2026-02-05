@@ -1,6 +1,6 @@
-# @affino/overlay-host
+# @affino/overlay-kernel
 
-## 1.1.0
+## 0.2.0
 
 ### Minor Changes
 
@@ -38,9 +38,3 @@ Documentation and Developer Experience:
 Notes for Consumers:
 - This is a **minor** release across packages: new capabilities are introduced while preserving existing public contracts.
 - Consumers should still review package-specific changelogs for integration details and adapter-specific behavior notes.
-
-## 1.0.0
-
-### Minor Changes
-
-- 46f27ff: first changeset

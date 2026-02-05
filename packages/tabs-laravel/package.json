@@ -1,6 +1,6 @@
 {
   "name": "@affino/tabs-laravel",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Livewire tabs helper wired to @affino/tabs-core",
   "type": "module",
   "main": "dist/index.cjs",
@@ -26,5 +26,22 @@
   "devDependencies": {
     "tsup": "^8.5.1",
     "vitest": "^4.0.15"
-  }
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/affinio/affinio/tree/main/packages/tabs-laravel"
+  },
+  "homepage": "https://affino.dev",
+  "bugs": {
+    "url": "https://github.com/affinio/affinio/issues"
+  },
+  "keywords": [
+    "affino",
+    "laravel",
+    "livewire",
+    "tabs",
+    "headless",
+    "accessibility"
+  ]
 }

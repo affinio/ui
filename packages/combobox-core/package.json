@@ -1,6 +1,6 @@
 {
   "name": "@affino/combobox-core",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "author": "Anton Pavlov <a.pavlov@affino.dev>",
   "type": "module",
   "description": "Headless combobox state helpers composed with @affino/listbox-core",
@@ -40,5 +40,9 @@
     "headless",
     "listbox",
     "accessibility"
-  ]
+  ],
+  "bugs": {
+    "url": "https://github.com/affinio/affinio/issues"
+  },
+  "module": "dist/index.js"
 }

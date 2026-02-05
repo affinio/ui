@@ -22,5 +22,8 @@
     "ts-node": "^10.9.2",
     "vue": "^3.5.25",
     "wait-on": "^7.2.0"
-  }
+  },
+  "description": "@affino/visual-workbench workspace package",
+  "version": "0.0.0",
+  "license": "MIT"
 }

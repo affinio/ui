@@ -1,6 +1,6 @@
-# @affino/overlay-host
+# @affino/tooltip-laravel
 
-## 1.1.0
+## 0.1.0
 
 ### Minor Changes
 
@@ -39,8 +39,8 @@ Notes for Consumers:
 - This is a **minor** release across packages: new capabilities are introduced while preserving existing public contracts.
 - Consumers should still review package-specific changelogs for integration details and adapter-specific behavior notes.
 
-## 1.0.0
+### Patch Changes
 
-### Minor Changes
-
-- 46f27ff: first changeset
+- Updated dependencies
+  - @affino/overlay-kernel@0.2.0
+  - @affino/tooltip-core@1.1.0

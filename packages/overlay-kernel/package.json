@@ -1,6 +1,6 @@
 {
   "name": "@affino/overlay-kernel",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": "Anton Pavlov <a.pavlov@affino.dev>",
   "type": "module",
   "description": "Shared overlay interaction kernel that coordinates stacking, focus, pointer, and scroll policies across Affino primitives.",
@@ -34,5 +34,9 @@
     "a11y",
     "interaction-kernel"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/affinio/affinio/issues"
+  },
+  "module": "dist/index.js"
 }

@@ -1,6 +1,6 @@
 {
   "name": "@affino/disclosure-core",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "author": "Anton Pavlov <a.pavlov@affino.dev>",
   "type": "module",
   "description": "Headless disclosure controller for Affino primitives",
@@ -23,5 +23,22 @@
   "license": "MIT",
   "devDependencies": {
     "vitest": "^4.0.15"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/affinio/affinio/tree/main/packages/disclosure-core"
+  },
+  "homepage": "https://affino.dev",
+  "bugs": {
+    "url": "https://github.com/affinio/affinio/issues"
+  },
+  "keywords": [
+    "affino",
+    "core",
+    "headless",
+    "disclosure",
+    "accordion",
+    "accessibility"
+  ],
+  "module": "dist/index.js"
 }

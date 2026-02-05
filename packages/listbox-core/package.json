@@ -1,6 +1,6 @@
 {
   "name": "@affino/listbox-core",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "Anton Pavlov <a.pavlov@affino.dev>",
   "type": "module",
   "description": "Headless listbox state machine built on @affino/selection-core",
@@ -39,5 +39,9 @@
     "selection",
     "headless",
     "accessibility"
-  ]
+  ],
+  "bugs": {
+    "url": "https://github.com/affinio/affinio/issues"
+  },
+  "module": "dist/index.js"
 }

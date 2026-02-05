@@ -1,6 +1,6 @@
 {
   "name": "@affino/tooltip-vue",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "Anton Pavlov <a.pavlov@affino.dev>",
   "type": "module",
   "description": "Vue 3 composables for the @affino/tooltip-core controller",
@@ -44,5 +44,9 @@
     "surface",
     "controller"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/affinio/affinio/issues"
+  },
+  "module": "dist/index.js"
 }
