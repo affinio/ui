@@ -1,4 +1,5 @@
-import { createGlobalKeydownManager, createScrollLockController } from "@affino/overlay-host"
+import { acquireDocumentScrollLock, releaseDocumentScrollLock } from "@affino/overlay-kernel"
+import { createGlobalKeydownManager } from "@affino/overlay-host"
 import { trapFocus } from "@affino/focus-utils"
 import type { DialogBinding } from "./types"
 import type { OverlayRegistration, OverlayRegistrar } from "@affino/dialog-core"
@@ -9,10 +10,8 @@ type ExtendedOverlayRegistrar = OverlayRegistrar & {
 }
 
 const overlayBindings = new Map<string, DialogBinding>()
-const scrollLocker = createScrollLockController()
 const keydownManager = createGlobalKeydownManager(handleGlobalKeydown)
 const globalOverlayRegistrar: ExtendedOverlayRegistrar = createGlobalOverlayRegistrar()
-let scrollLockRefs = 0
 
 function registerBinding(binding: DialogBinding): void {
   overlayBindings.set(binding.overlayId, binding)
@@ -24,21 +23,12 @@ function unregisterBinding(binding: DialogBinding): void {
   }
 }
 
-function acquireScrollLock(): void {
-  if (scrollLockRefs === 0) {
-    scrollLocker.lock()
-  }
-  scrollLockRefs += 1
+function acquireScrollLock(ownerDocument: Document): void {
+  acquireDocumentScrollLock(ownerDocument, "dialog")
 }
 
-function releaseScrollLock(): void {
-  if (scrollLockRefs === 0) {
-    return
-  }
-  scrollLockRefs -= 1
-  if (scrollLockRefs === 0) {
-    scrollLocker.unlock()
-  }
+function releaseScrollLock(ownerDocument: Document): void {
+  releaseDocumentScrollLock(ownerDocument, "dialog")
 }
 
 function ensureGlobalGuardsActive(): void {

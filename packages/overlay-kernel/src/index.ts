@@ -143,6 +143,8 @@ export interface OverlayManager {
 }
 
 const ACTIVE_PHASES = new Set<OverlayPhase>(["opening", "open", "closing"])
+const documentScrollLocks = typeof WeakMap !== "undefined" ? new WeakMap<Document, Map<string, number>>() : null
+const documentStoredOverflow = typeof WeakMap !== "undefined" ? new WeakMap<Document, string | null>() : null
 
 const DEFAULT_KIND_PRIORITIES: Record<KnownOverlayKind, number> = {
   dialog: 100,
@@ -505,6 +507,45 @@ export function getDocumentOverlayManager(doc?: Document | null): OverlayManager
   return manager
 }
 
+export function acquireDocumentScrollLock(doc?: Document | null, source = "overlay"): void {
+  if (!doc || !documentScrollLocks || !documentStoredOverflow) {
+    return
+  }
+  const locks = getDocumentScrollLocks(doc)
+  const totalBefore = getTotalScrollLocks(locks)
+  const sourceDepth = locks.get(source) ?? 0
+  locks.set(source, sourceDepth + 1)
+  if (totalBefore === 0) {
+    const html = doc.documentElement
+    documentStoredOverflow.set(doc, html.style.overflow)
+    html.style.overflow = "hidden"
+  }
+}
+
+export function releaseDocumentScrollLock(doc?: Document | null, source = "overlay"): void {
+  if (!doc || !documentScrollLocks || !documentStoredOverflow) {
+    return
+  }
+  const locks = documentScrollLocks.get(doc)
+  if (!locks) {
+    return
+  }
+  const sourceDepth = locks.get(source) ?? 0
+  if (sourceDepth === 0) {
+    return
+  }
+  if (sourceDepth <= 1) {
+    locks.delete(source)
+  } else {
+    locks.set(source, sourceDepth - 1)
+  }
+  if (getTotalScrollLocks(locks) === 0) {
+    doc.documentElement.style.overflow = documentStoredOverflow.get(doc) ?? ""
+    documentStoredOverflow.delete(doc)
+    documentScrollLocks.delete(doc)
+  }
+}
+
 export function createStickyDependentsController(
   manager: OverlayManager,
   ownerId: string,
@@ -778,4 +819,25 @@ function isDescendantOf(manager: OverlayManager, ownerId: string, candidate: Ove
     cursor = manager.getEntry(cursor.ownerId)
   }
   return false
+}
+
+function getDocumentScrollLocks(doc: Document): Map<string, number> {
+  if (!documentScrollLocks) {
+    return new Map<string, number>()
+  }
+  const existing = documentScrollLocks.get(doc)
+  if (existing) {
+    return existing
+  }
+  const created = new Map<string, number>()
+  documentScrollLocks.set(doc, created)
+  return created
+}
+
+function getTotalScrollLocks(locks: Map<string, number>): number {
+  let total = 0
+  locks.forEach((count) => {
+    total += count
+  })
+  return total
 }

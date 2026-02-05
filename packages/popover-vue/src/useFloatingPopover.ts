@@ -103,7 +103,7 @@ export function useFloatingPopover(
   const handlePointerDown = (event: Event) => {
     if (!controller.state.value.open) return
     const target = event.target as Node | null
-    if (isWithinSurface(target, triggerRef.value, contentRef.value)) {
+    if (isWithinSurface(target, triggerRef.value, contentRef.value, controller.id)) {
       return
     }
     controller.interactOutside({ event, target })
@@ -112,7 +112,7 @@ export function useFloatingPopover(
   const handleFocusIn = (event: FocusEvent) => {
     if (!controller.state.value.open) return
     const target = event.target as Node | null
-    if (isWithinSurface(target, triggerRef.value, contentRef.value)) {
+    if (isWithinSurface(target, triggerRef.value, contentRef.value, controller.id)) {
       return
     }
     controller.interactOutside({ event, target })
@@ -217,7 +217,12 @@ function formatZIndex(value?: number | string): string | undefined {
   return typeof value === "number" ? `${value}` : value
 }
 
-function isWithinSurface(target: Node | null, trigger: HTMLElement | null, content: HTMLElement | null): boolean {
+function isWithinSurface(
+  target: Node | null,
+  trigger: HTMLElement | null,
+  content: HTMLElement | null,
+  popoverId?: string,
+): boolean {
   if (!target) {
     return false
   }
@@ -227,5 +232,34 @@ function isWithinSurface(target: Node | null, trigger: HTMLElement | null, conte
   if (content?.contains(target)) {
     return true
   }
-  return false
+  return isStickyZoneTarget(target, popoverId)
+}
+
+function isStickyZoneTarget(target: Node | null, popoverId?: string): boolean {
+  if (!target) {
+    return false
+  }
+  const element = target instanceof Element ? target : target.parentElement
+  if (!element) {
+    return false
+  }
+  const sticky = element.closest<HTMLElement>("[data-affino-popover-sticky]")
+  if (!sticky) {
+    return false
+  }
+  const attr = sticky.getAttribute("data-affino-popover-sticky")
+  if (attr == null) {
+    return true
+  }
+  const ids = attr
+    .split(",")
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0)
+  if (ids.length === 0) {
+    return true
+  }
+  if (!popoverId) {
+    return false
+  }
+  return ids.includes(popoverId)
 }

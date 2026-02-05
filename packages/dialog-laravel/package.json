@@ -23,7 +23,8 @@
   "dependencies": {
     "@affino/dialog-core": "workspace:*",
     "@affino/focus-utils": "workspace:*",
-    "@affino/overlay-host": "workspace:*"
+    "@affino/overlay-host": "workspace:*",
+    "@affino/overlay-kernel": "workspace:*"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^4.0.15",

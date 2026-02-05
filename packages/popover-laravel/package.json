@@ -21,6 +21,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@affino/overlay-kernel": "workspace:*",
     "@affino/popover-core": "workspace:*"
   },
   "devDependencies": {

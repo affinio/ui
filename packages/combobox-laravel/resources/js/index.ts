@@ -475,6 +475,9 @@ function hydrateResolvedCombobox(root: RootEl, input: InputEl, surface: SurfaceE
       if (!root.isConnected) {
         return
       }
+      if (!shouldHydrateStructure()) {
+        return
+      }
       hydrateCombobox(root)
     })
   })
@@ -719,8 +722,24 @@ function hydrateResolvedCombobox(root: RootEl, input: InputEl, surface: SurfaceE
       if (!activeOption.isConnected) {
         return
       }
+      if (!shouldScrollOptionIntoView(activeOption)) {
+        return
+      }
       activeOption.scrollIntoView({ block: "nearest", inline: "nearest" })
     })
+  }
+
+  function shouldScrollOptionIntoView(option: OptionEl): boolean {
+    const scrollContainer = option.closest<HTMLElement>("[data-affino-combobox-surface]") ?? surface
+    if (!scrollContainer) {
+      return true
+    }
+    if (scrollContainer.scrollHeight <= scrollContainer.clientHeight + 1) {
+      return false
+    }
+    const optionRect = option.getBoundingClientRect()
+    const containerRect = scrollContainer.getBoundingClientRect()
+    return optionRect.top < containerRect.top || optionRect.bottom > containerRect.bottom
   }
 
   function attachOutsideGuards() {
@@ -769,6 +788,23 @@ function hydrateResolvedCombobox(root: RootEl, input: InputEl, surface: SurfaceE
     } else {
       pinnedOpenRegistry.delete(persistenceKey)
     }
+  }
+
+  function shouldHydrateStructure(): boolean {
+    const hasOptions = root.querySelector("[data-affino-listbox-option]")
+    if (!hasOptions) {
+      return false
+    }
+    const nextInput = root.querySelector<InputEl>("[data-affino-combobox-input]")
+    const nextSurface = root.querySelector<SurfaceEl>("[data-affino-combobox-surface]")
+    if (!nextInput || !nextSurface) {
+      return false
+    }
+    if (nextInput !== input || nextSurface !== surface) {
+      return true
+    }
+    const nextOptionCount = root.querySelectorAll("[data-affino-listbox-option]").length
+    return nextOptionCount !== options.length
   }
 
   const handle: ComboboxHandle = {

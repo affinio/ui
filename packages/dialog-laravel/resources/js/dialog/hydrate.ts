@@ -148,7 +148,7 @@ function hydrateDialog(root: RootEl): void {
     binding.sentinelCleanup?.()
     binding.detachments.forEach((cleanup) => cleanup())
     if (binding.lockHeld) {
-      releaseScrollLock()
+      releaseScrollLock(binding.root.ownerDocument)
       binding.lockHeld = false
     }
     binding.teleportRestore?.()
@@ -232,11 +232,11 @@ function applySnapshot(binding: DialogBinding, snapshot: DialogSnapshot): void {
   surface.dataset.state = phase
 
   if (visible && !binding.lockHeld && options.lockScroll) {
-    acquireScrollLock()
+    acquireScrollLock(binding.root.ownerDocument)
     binding.lockHeld = true
   }
   if (!visible && binding.lockHeld) {
-    releaseScrollLock()
+    releaseScrollLock(binding.root.ownerDocument)
     binding.lockHeld = false
   }
 
