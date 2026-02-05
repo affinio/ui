@@ -16,6 +16,10 @@ const WORKSPACE_ALIAS_TARGETS: Record<string, string> = {
   "@affino/menu-vue": "packages/menu-vue/src/index.ts",
   "@affino/selection-core": "packages/selection-core/src/index.ts",
   "@affino/selection-vue": "packages/selection-vue/src/index.ts",
+  "@affino/tabs-core": "packages/tabs-core/src/index.ts",
+  "@affino/tabs-vue": "packages/tabs-vue/src/index.ts",
+  "@affino/disclosure-core": "packages/disclosure-core/src/index.ts",
+  "@affino/disclosure-vue": "packages/disclosure-vue/src/index.ts",
   "@affino/surface-core": "packages/surface-core/src/index.ts",
   "@affino/tooltip-core": "packages/tooltip-core/src/index.ts",
   "@affino/tooltip-vue": "packages/tooltip-vue/src/index.ts",
@@ -27,6 +31,14 @@ const WORKSPACE_ALIAS_TARGETS: Record<string, string> = {
   "@affino/overlay-kernel": "packages/overlay-kernel/src/index.ts",
   "@affino/focus-utils": "packages/focus-utils/src/index.ts",
   "@affino/aria-utils": "packages/aria-utils/src/index.ts",
+  "@affino/dialog-laravel": "packages/dialog-laravel/resources/js/index.ts",
+  "@affino/tooltip-laravel": "packages/tooltip-laravel/resources/js/index.ts",
+  "@affino/popover-laravel": "packages/popover-laravel/resources/js/index.ts",
+  "@affino/listbox-laravel": "packages/listbox-laravel/resources/js/index.ts",
+  "@affino/combobox-laravel": "packages/combobox-laravel/resources/js/index.ts",
+  "@affino/menu-laravel": "packages/menu-laravel/resources/js/index.ts",
+  "@affino/tabs-laravel": "packages/tabs-laravel/resources/js/index.ts",
+  "@affino/disclosure-laravel": "packages/disclosure-laravel/resources/js/index.ts",
 }
 
 export type AliasOverrides = Record<string, string>

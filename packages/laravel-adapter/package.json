@@ -27,6 +27,8 @@
     "@affino/listbox-laravel": "workspace:*",
     "@affino/combobox-laravel": "workspace:*",
     "@affino/menu-laravel": "workspace:*",
+    "@affino/tabs-laravel": "workspace:*",
+    "@affino/disclosure-laravel": "workspace:*",
     "@affino/dialog-core": "workspace:*",
     "@affino/tooltip-core": "workspace:*",
     "@affino/popover-core": "workspace:*",

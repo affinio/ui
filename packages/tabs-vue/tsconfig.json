@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.core.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "declaration": true,
+    "emitDeclarationOnly": false,
+    "declarationMap": true
+  },
+  "include": ["src"],
+  "references": [{ "path": "../tabs-core" }]
+}

@@ -19,6 +19,8 @@ const PACKAGES = [
   { name: "combobox", root: "[data-affino-combobox-root]", trigger: "[data-affino-combobox-input]", content: "[data-affino-combobox-surface]" },
   { name: "listbox", root: "[data-affino-listbox-root]", trigger: "[data-affino-listbox-trigger]", content: "[data-affino-listbox-surface]" },
   { name: "tooltip", root: "[data-affino-tooltip-root]", trigger: "[data-affino-tooltip-trigger]", content: "[data-affino-tooltip-surface]" },
+  { name: "tabs", root: "[data-affino-tabs-root]", trigger: "[data-affino-tabs-trigger]", content: "[data-affino-tabs-content]" },
+  { name: "disclosure", root: "[data-affino-disclosure-root]", trigger: "[data-affino-disclosure-trigger]", content: "[data-affino-disclosure-content]" },
 ]
 
 function assertFiniteInt(value, label) {
@@ -119,6 +121,15 @@ function hydrateLike(pkg, root) {
   return true
 }
 
+function resolveStructure(pkg, root) {
+  const trigger = root.querySelector(pkg.trigger)
+  const content = root.querySelector(pkg.content)
+  if (!trigger || !content) {
+    return null
+  }
+  return { trigger, content }
+}
+
 function scanNode(pkg, node) {
   const start = performance.now()
   let hydrated = 0
@@ -190,10 +201,26 @@ function runMorphIteration() {
 function runBootstrapProxy(pkg) {
   const host = document.querySelector(`[data-bench-host=\"${pkg.name}\"]`)
   if (!host) return
-  const start = performance.now()
-  const nodes = host.querySelectorAll(pkg.root)
+  const nodes = [...host.querySelectorAll(pkg.root)]
+
+  // Warmup pass to reduce "first package" JIT/cold-start bias.
   for (const node of nodes) {
-    hydrateLike(pkg, node)
+    const structure = resolveStructure(pkg, node)
+    if (structure) {
+      structureRegistry.set(node, structure)
+    }
+  }
+
+  for (const node of nodes) {
+    structureRegistry.delete(node)
+  }
+
+  const start = performance.now()
+  for (const node of nodes) {
+    const structure = resolveStructure(pkg, node)
+    if (structure) {
+      structureRegistry.set(node, structure)
+    }
   }
   const end = performance.now()
   metrics.get(pkg.name).bootstrapMs = end - start
@@ -203,15 +230,31 @@ function runOpenCloseProxy(pkg) {
   const host = document.querySelector(`[data-bench-host=\"${pkg.name}\"]`)
   if (!host) return
   const contents = host.querySelectorAll(pkg.content)
-  const start = performance.now()
-  for (const content of contents) {
-    content.hidden = false
-    content.setAttribute("data-state", "open")
-    content.hidden = true
-    content.setAttribute("data-state", "closed")
+  const samples = []
+  const sampleCount = 5
+  const warmupCount = 1
+
+  const runSample = () => {
+    const start = performance.now()
+    for (const content of contents) {
+      content.hidden = false
+      content.setAttribute("data-state", "open")
+      content.hidden = true
+      content.setAttribute("data-state", "closed")
+    }
+    return performance.now() - start
   }
-  const end = performance.now()
-  metrics.get(pkg.name).openCloseMs = end - start
+
+  for (let i = 0; i < warmupCount; i += 1) {
+    runSample()
+  }
+  for (let i = 0; i < sampleCount; i += 1) {
+    samples.push(runSample())
+  }
+
+  samples.sort((a, b) => a - b)
+  const middle = Math.floor(samples.length / 2)
+  metrics.get(pkg.name).openCloseMs = samples[middle]
 }
 
 const t0 = performance.now()

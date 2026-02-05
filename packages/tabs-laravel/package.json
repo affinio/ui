@@ -1,0 +1,30 @@
+{
+  "name": "@affino/tabs-laravel",
+  "version": "0.0.1",
+  "description": "Livewire tabs helper wired to @affino/tabs-core",
+  "type": "module",
+  "main": "dist/index.cjs",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup resources/js/index.ts --format esm,cjs --dts --clean",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@affino/tabs-core": "workspace:*"
+  },
+  "devDependencies": {
+    "tsup": "^8.5.1",
+    "vitest": "^4.0.15"
+  }
+}

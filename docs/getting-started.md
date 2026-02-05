@@ -195,3 +195,4 @@ The Vue version swaps `onSelect` for `@select`, but the structure stays the same
 - Explore the [component reference](./reference/components.md) for full prop and event lists.
 - Learn about the [controller API](./reference/controller.md) when you need programmatic control.
 - Study the [virtualization guide](./guide/virtualization.md) before rendering thousands of rows.
+- Use the [adapter triad pipeline](./adapter-triad-pipeline.md) when adding new primitives (for example: tabs/disclosure).

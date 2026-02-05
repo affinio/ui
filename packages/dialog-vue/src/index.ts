@@ -1,17 +1,17 @@
 export * from "@affino/dialog-core"
-export { useDialogController } from "./useDialogController.js"
-export type { UseDialogControllerOptions, DialogControllerBinding } from "./useDialogController.js"
-export { createDialogFocusOrchestrator } from "./createDialogFocusOrchestrator.js"
+export { useDialogController } from "./useDialogController"
+export type { UseDialogControllerOptions, DialogControllerBinding } from "./useDialogController"
+export { createDialogFocusOrchestrator } from "./createDialogFocusOrchestrator"
 export type {
   DialogFocusOrchestratorOptions,
   MaybeElementAccessor,
-} from "./createDialogFocusOrchestrator.js"
+} from "./createDialogFocusOrchestrator"
 export {
   createDialogOverlayRegistrar,
   provideDialogOverlayRegistrar,
   useDialogOverlayRegistrar,
-} from "./overlayRegistrar.js"
+} from "./overlayRegistrar"
 export type {
   DialogOverlayRegistrar,
   DialogOverlayRegistrarOptions,
-} from "./overlayRegistrar.js"
+} from "./overlayRegistrar"

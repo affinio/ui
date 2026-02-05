@@ -1,0 +1,27 @@
+{
+  "name": "@affino/disclosure-core",
+  "version": "0.0.1",
+  "author": "Anton Pavlov <a.pavlov@affino.dev>",
+  "type": "module",
+  "description": "Headless disclosure controller for Affino primitives",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "vitest": "^4.0.15"
+  }
+}

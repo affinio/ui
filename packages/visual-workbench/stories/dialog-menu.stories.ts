@@ -9,7 +9,7 @@ import {
 } from "@affino/menu-vue"
 
 const meta = {
-  title: "Overlays/Dialog Menu",
+  title: "Vue Adapters/Overlays/Dialog Menu",
   tags: ["autodocs"],
   render: () => ({
     components: { UiMenu, UiMenuTrigger, UiMenuContent, UiMenuItem, UiMenuSeparator, UiMenuLabel },

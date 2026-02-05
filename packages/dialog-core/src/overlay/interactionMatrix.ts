@@ -3,7 +3,7 @@ import type {
   OverlayInteractionRule,
   OverlayInteractionTelemetryEvent,
   OverlayKind,
-} from "../types.js"
+} from "../types"
 
 const defaultRules: OverlayInteractionRule[] = [
   { source: "dialog", target: "dialog", allowStack: true, closeStrategy: "single" },

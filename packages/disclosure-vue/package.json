@@ -1,0 +1,34 @@
+{
+  "name": "@affino/disclosure-vue",
+  "version": "0.0.1",
+  "author": "Anton Pavlov <a.pavlov@affino.dev>",
+  "type": "module",
+  "description": "Vue 3 composables for @affino/disclosure-core",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "peerDependencies": {
+    "vue": "^3.3.0"
+  },
+  "dependencies": {
+    "@affino/disclosure-core": "workspace:^"
+  },
+  "scripts": {
+    "build": "tsc --build tsconfig.json",
+    "test": "vitest run"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "vue": "^3.4.0",
+    "vitest": "^4.0.15"
+  }
+}

@@ -28,7 +28,15 @@ export type AffinoLaravelAdapterOptions = {
   diagnostics?: boolean
 }
 
-export type AffinoAdapterComponent = "dialog" | "tooltip" | "popover" | "menu" | "listbox" | "combobox"
+export type AffinoAdapterComponent =
+  | "dialog"
+  | "tooltip"
+  | "popover"
+  | "menu"
+  | "listbox"
+  | "combobox"
+  | "tabs"
+  | "disclosure"
 
 export const AFFINO_DIALOG_MANUAL_EVENT = "affino-dialog:manual" as const
 export const AFFINO_TOOLTIP_MANUAL_EVENT = "affino-tooltip:manual" as const
@@ -36,6 +44,8 @@ export const AFFINO_POPOVER_MANUAL_EVENT = "affino-popover:manual" as const
 export const AFFINO_MENU_MANUAL_EVENT = "affino-menu:manual" as const
 export const AFFINO_LISTBOX_MANUAL_EVENT = "affino-listbox:manual" as const
 export const AFFINO_COMBOBOX_MANUAL_EVENT = "affino-combobox:manual" as const
+export const AFFINO_TABS_MANUAL_EVENT = "affino-tabs:manual" as const
+export const AFFINO_DISCLOSURE_MANUAL_EVENT = "affino-disclosure:manual" as const
 
 export type AffinoManualEventName =
   | typeof AFFINO_DIALOG_MANUAL_EVENT
@@ -44,6 +54,8 @@ export type AffinoManualEventName =
   | typeof AFFINO_MENU_MANUAL_EVENT
   | typeof AFFINO_LISTBOX_MANUAL_EVENT
   | typeof AFFINO_COMBOBOX_MANUAL_EVENT
+  | typeof AFFINO_TABS_MANUAL_EVENT
+  | typeof AFFINO_DISCLOSURE_MANUAL_EVENT
 
 export type AffinoDialogManualAction = "open" | "close" | "toggle"
 export type AffinoTooltipManualAction = "open" | "close" | "toggle"
@@ -51,6 +63,8 @@ export type AffinoPopoverManualAction = "open" | "close" | "toggle"
 export type AffinoMenuManualAction = "open" | "close" | "toggle"
 export type AffinoListboxManualAction = "open" | "close" | "toggle" | "select"
 export type AffinoComboboxManualAction = AffinoListboxManualAction | "clear"
+export type AffinoTabsManualAction = "select" | "clear"
+export type AffinoDisclosureManualAction = "open" | "close" | "toggle"
 
 /**
  * Manual event payload for dialogs. Supported actions: open, close, toggle.
@@ -119,6 +133,28 @@ export type AffinoComboboxManualEventDetail = {
   toggle?: boolean
 }
 
+/**
+ * Manual event payload for tabs.
+ * Actions:
+ *  - select: requires `value`
+ *  - clear
+ */
+export type AffinoTabsManualEventDetail = {
+  id: string
+  action: AffinoTabsManualAction
+  value?: string
+}
+
+/**
+ * Manual event payload for disclosure primitives.
+ * Supported actions: open, close, toggle.
+ */
+export type AffinoDisclosureManualEventDetail = {
+  id: string
+  action: AffinoDisclosureManualAction
+  reason?: string
+}
+
 export type AffinoManualEventMap = {
   [AFFINO_DIALOG_MANUAL_EVENT]: AffinoDialogManualEventDetail
   [AFFINO_TOOLTIP_MANUAL_EVENT]: AffinoTooltipManualEventDetail
@@ -126,6 +162,8 @@ export type AffinoManualEventMap = {
   [AFFINO_MENU_MANUAL_EVENT]: AffinoMenuManualEventDetail
   [AFFINO_LISTBOX_MANUAL_EVENT]: AffinoListboxManualEventDetail
   [AFFINO_COMBOBOX_MANUAL_EVENT]: AffinoComboboxManualEventDetail
+  [AFFINO_TABS_MANUAL_EVENT]: AffinoTabsManualEventDetail
+  [AFFINO_DISCLOSURE_MANUAL_EVENT]: AffinoDisclosureManualEventDetail
 }
 
 export type ManualDetailOf<EventName extends AffinoManualEventName> = AffinoManualEventMap[EventName]

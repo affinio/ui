@@ -22,6 +22,11 @@ const runtime = bootstrapAffinoVueAdapters({
 - `createAffinoVuePlugin` is provided for plugin-style Vue integration.
 - `createAffinoVueAdapter` remains available for advanced/manual runtime wiring.
 
+### Scope Note
+
+`@affino/vue-adapter` is intentionally an overlay runtime facade (overlay host + stack manager integration).
+Non-overlay primitives such as `tabs` and `disclosure` are consumed directly via their Vue packages (`@affino/tabs-vue`, `@affino/disclosure-vue`) and do not require adapter bootstrap wiring.
+
 ### Options
 
 | Option | Default | Description |

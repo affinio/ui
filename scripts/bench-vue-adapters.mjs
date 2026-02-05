@@ -19,6 +19,8 @@ const PACKAGES = [
   { name: "tooltip-vue", rootAttr: "data-affino-tooltip-root", kind: "surface" },
   { name: "selection-vue", rootAttr: "data-affino-selection-root", kind: "selection" },
   { name: "grid-selection-vue", rootAttr: "data-affino-grid-selection-root", kind: "selection" },
+  { name: "tabs-vue", rootAttr: "data-affino-tabs-root", kind: "tabs" },
+  { name: "disclosure-vue", rootAttr: "data-affino-disclosure-root", kind: "disclosure" },
 ]
 
 assertPositive(ROOTS_PER_KIND, "ROOTS_PER_KIND")
@@ -86,6 +88,7 @@ function runControllerChurnProxy(pkg) {
     let state = {
       open: false,
       highlighted: null,
+      value: null,
       seq: index,
     }
     const listeners = []
@@ -102,8 +105,10 @@ function runControllerChurnProxy(pkg) {
       state = next
     })
 
-    if (pkg.kind === "surface") {
+    if (pkg.kind === "surface" || pkg.kind === "disclosure") {
       state = { ...state, open: index % 2 === 0 }
+    } else if (pkg.kind === "tabs") {
+      state = { ...state, value: index % 3 === 0 ? `tab-${index % 7}` : null }
     } else {
       state = { ...state, highlighted: index % 5 === 0 ? `item-${index}` : null }
     }

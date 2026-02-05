@@ -4,19 +4,25 @@ import { bootstrapAffinoPopovers } from "@affino/popover-laravel"
 import { bootstrapAffinoListboxes } from "@affino/listbox-laravel"
 import { bootstrapAffinoComboboxes } from "@affino/combobox-laravel"
 import { bootstrapAffinoMenus } from "@affino/menu-laravel"
+import { bootstrapAffinoTabs } from "@affino/tabs-laravel"
+import { bootstrapAffinoDisclosure } from "@affino/disclosure-laravel"
 import {
   AFFINO_COMBOBOX_MANUAL_EVENT,
+  AFFINO_DISCLOSURE_MANUAL_EVENT,
   AFFINO_DIALOG_MANUAL_EVENT,
   AFFINO_LISTBOX_MANUAL_EVENT,
   AFFINO_MENU_MANUAL_EVENT,
   AFFINO_POPOVER_MANUAL_EVENT,
+  AFFINO_TABS_MANUAL_EVENT,
   AFFINO_TOOLTIP_MANUAL_EVENT,
   type AffinoComboboxManualEventDetail,
+  type AffinoDisclosureManualEventDetail,
   type AffinoDialogManualEventDetail,
   type AffinoLaravelAdapterOptions,
   type AffinoListboxManualEventDetail,
   type AffinoMenuManualEventDetail,
   type AffinoPopoverManualEventDetail,
+  type AffinoTabsManualEventDetail,
   type AffinoTooltipManualEventDetail,
 } from "./contracts"
 import { bindManualBridge } from "./internal/manualBridge"
@@ -31,6 +37,8 @@ export type {
   AffinoMenuManualEventDetail,
   AffinoListboxManualEventDetail,
   AffinoComboboxManualEventDetail,
+  AffinoTabsManualEventDetail,
+  AffinoDisclosureManualEventDetail,
 }
 export {
   AFFINO_DIALOG_MANUAL_EVENT,
@@ -39,6 +47,8 @@ export {
   AFFINO_MENU_MANUAL_EVENT,
   AFFINO_LISTBOX_MANUAL_EVENT,
   AFFINO_COMBOBOX_MANUAL_EVENT,
+  AFFINO_TABS_MANUAL_EVENT,
+  AFFINO_DISCLOSURE_MANUAL_EVENT,
 }
 
 const COMPONENT_DESCRIPTORS = [
@@ -48,6 +58,8 @@ const COMPONENT_DESCRIPTORS = [
   { name: "menu", selector: "[data-affino-menu-root]", handleProperty: "affinoMenu" },
   { name: "listbox", selector: "[data-affino-listbox-root]", handleProperty: "affinoListbox" },
   { name: "combobox", selector: "[data-affino-combobox-root]", handleProperty: "affinoCombobox" },
+  { name: "tabs", selector: "[data-affino-tabs-root]", handleProperty: "affinoTabs" },
+  { name: "disclosure", selector: "[data-affino-disclosure-root]", handleProperty: "affinoDisclosure" },
 ] as const
 
 const SCROLL_GUARD_TARGETS: ReadonlyArray<ScrollGuardTarget> = [
@@ -103,6 +115,17 @@ type ComboboxManualHandle = ListboxManualHandle & {
   clear: () => void
 }
 
+type TabsManualHandle = {
+  select: (value: string) => void
+  clear: () => void
+}
+
+type DisclosureManualHandle = {
+  open: (reason?: string) => void
+  close: (reason?: string) => void
+  toggle: (reason?: string) => void
+}
+
 /**
  * Primary bootstrap entry point for all Affino Laravel adapters.
  * This is the ONLY supported public API for initializing the runtime.
@@ -128,6 +151,8 @@ export function bootstrapAffinoLaravelAdapters(options: AffinoLaravelAdapterOpti
   bootstrapAffinoListboxes()
   bootstrapAffinoComboboxes()
   bootstrapAffinoMenus()
+  bootstrapAffinoTabs()
+  bootstrapAffinoDisclosure()
 
   bindManualBridge<typeof AFFINO_DIALOG_MANUAL_EVENT, ManualHandle>({
     component: "dialog",
@@ -271,6 +296,44 @@ export function bootstrapAffinoLaravelAdapters(options: AffinoLaravelAdapterOpti
           handle.clear()
           return
       }
+    },
+  })
+
+  bindManualBridge<typeof AFFINO_TABS_MANUAL_EVENT, TabsManualHandle>({
+    component: "tabs",
+    eventName: AFFINO_TABS_MANUAL_EVENT,
+    rootAttribute: "data-affino-tabs-root",
+    handleProperty: "affinoTabs",
+    rehydrate: bootstrapAffinoTabs,
+    diagnostics,
+    invoke: (handle, detail) => {
+      if (detail.action === "clear") {
+        handle.clear()
+        return
+      }
+      if (detail.action === "select" && typeof detail.value === "string" && detail.value.length > 0) {
+        handle.select(detail.value)
+      }
+    },
+  })
+
+  bindManualBridge<typeof AFFINO_DISCLOSURE_MANUAL_EVENT, DisclosureManualHandle>({
+    component: "disclosure",
+    eventName: AFFINO_DISCLOSURE_MANUAL_EVENT,
+    rootAttribute: "data-affino-disclosure-root",
+    handleProperty: "affinoDisclosure",
+    rehydrate: bootstrapAffinoDisclosure,
+    diagnostics,
+    invoke: (handle, detail) => {
+      if (detail.action === "open") {
+        handle.open(detail.reason)
+        return
+      }
+      if (detail.action === "close") {
+        handle.close(detail.reason)
+        return
+      }
+      handle.toggle(detail.reason)
     },
   })
 

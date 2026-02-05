@@ -59,6 +59,9 @@ importers:
       '@affino/dialog-laravel':
         specifier: workspace:*
         version: link:../packages/dialog-laravel
+      '@affino/disclosure-laravel':
+        specifier: workspace:*
+        version: link:../packages/disclosure-laravel
       '@affino/laravel-adapter':
         specifier: workspace:*
         version: link:../packages/laravel-adapter
@@ -74,6 +77,9 @@ importers:
       '@affino/popover-laravel':
         specifier: workspace:*
         version: link:../packages/popover-laravel
+      '@affino/tabs-laravel':
+        specifier: workspace:*
+        version: link:../packages/tabs-laravel
       '@affino/tooltip-laravel':
         specifier: workspace:*
         version: link:../packages/tooltip-laravel
@@ -108,6 +114,9 @@ importers:
       '@affino/dialog-vue':
         specifier: workspace:*
         version: link:../packages/dialog-vue
+      '@affino/disclosure-vue':
+        specifier: workspace:*
+        version: link:../packages/disclosure-vue
       '@affino/focus-utils':
         specifier: workspace:*
         version: link:../packages/focus-utils
@@ -135,6 +144,9 @@ importers:
       '@affino/selection-vue':
         specifier: workspace:*
         version: link:../packages/selection-vue
+      '@affino/tabs-vue':
+        specifier: workspace:*
+        version: link:../packages/tabs-vue
       '@affino/tooltip-vue':
         specifier: workspace:*
         version: link:../packages/tooltip-vue
@@ -351,6 +363,38 @@ importers:
         specifier: ^3.4.0
         version: 3.5.25(typescript@5.9.3)
 
+  packages/disclosure-core:
+    devDependencies:
+      vitest:
+        specifier: ^4.0.15
+        version: 4.0.15(@types/node@24.10.4)(jiti@2.6.1)(jsdom@27.3.0(postcss@8.5.6))(lightningcss@1.30.2)(terser@5.46.0)
+
+  packages/disclosure-laravel:
+    dependencies:
+      '@affino/disclosure-core':
+        specifier: workspace:*
+        version: link:../disclosure-core
+    devDependencies:
+      tsup:
+        specifier: ^8.5.1
+        version: 8.5.1(@swc/core@1.15.11)(jiti@2.6.1)(postcss@8.5.6)(typescript@5.9.3)
+      vitest:
+        specifier: ^4.0.15
+        version: 4.0.15(@types/node@24.10.4)(jiti@2.6.1)(jsdom@27.3.0(postcss@8.5.6))(lightningcss@1.30.2)(terser@5.46.0)
+
+  packages/disclosure-vue:
+    dependencies:
+      '@affino/disclosure-core':
+        specifier: workspace:^
+        version: link:../disclosure-core
+    devDependencies:
+      vitest:
+        specifier: ^4.0.15
+        version: 4.0.15(@types/node@24.10.4)(jiti@2.6.1)(jsdom@27.3.0(postcss@8.5.6))(lightningcss@1.30.2)(terser@5.46.0)
+      vue:
+        specifier: ^3.4.0
+        version: 3.5.25(typescript@5.9.3)
+
   packages/focus-utils: {}
 
   packages/grid-selection-core:
@@ -389,6 +433,9 @@ importers:
       '@affino/dialog-laravel':
         specifier: workspace:*
         version: link:../dialog-laravel
+      '@affino/disclosure-laravel':
+        specifier: workspace:*
+        version: link:../disclosure-laravel
       '@affino/listbox-laravel':
         specifier: workspace:*
         version: link:../listbox-laravel
@@ -404,6 +451,9 @@ importers:
       '@affino/surface-core':
         specifier: workspace:*
         version: link:../surface-core
+      '@affino/tabs-laravel':
+        specifier: workspace:*
+        version: link:../tabs-laravel
       '@affino/tooltip-core':
         specifier: workspace:*
         version: link:../tooltip-core
@@ -665,6 +715,38 @@ importers:
       vitest:
         specifier: ^4.0.15
         version: 4.0.15(@types/node@24.10.4)(jiti@2.6.1)(jsdom@27.3.0(postcss@8.5.6))(lightningcss@1.30.2)(terser@5.46.0)
+
+  packages/tabs-core:
+    devDependencies:
+      vitest:
+        specifier: ^4.0.15
+        version: 4.0.15(@types/node@24.10.4)(jiti@2.6.1)(jsdom@27.3.0(postcss@8.5.6))(lightningcss@1.30.2)(terser@5.46.0)
+
+  packages/tabs-laravel:
+    dependencies:
+      '@affino/tabs-core':
+        specifier: workspace:*
+        version: link:../tabs-core
+    devDependencies:
+      tsup:
+        specifier: ^8.5.1
+        version: 8.5.1(@swc/core@1.15.11)(jiti@2.6.1)(postcss@8.5.6)(typescript@5.9.3)
+      vitest:
+        specifier: ^4.0.15
+        version: 4.0.15(@types/node@24.10.4)(jiti@2.6.1)(jsdom@27.3.0(postcss@8.5.6))(lightningcss@1.30.2)(terser@5.46.0)
+
+  packages/tabs-vue:
+    dependencies:
+      '@affino/tabs-core':
+        specifier: workspace:^
+        version: link:../tabs-core
+    devDependencies:
+      vitest:
+        specifier: ^4.0.15
+        version: 4.0.15(@types/node@24.10.4)(jiti@2.6.1)(jsdom@27.3.0(postcss@8.5.6))(lightningcss@1.30.2)(terser@5.46.0)
+      vue:
+        specifier: ^3.4.0
+        version: 3.5.25(typescript@5.9.3)
 
   packages/tooltip-core:
     dependencies:

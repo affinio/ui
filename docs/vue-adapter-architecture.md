@@ -21,6 +21,7 @@ Default app-level integration should be minimal:
 - Overlay hosts are provisioned centrally through `@affino/vue-adapter`.
 - Overlay stack subscription is exposed as a single utility.
 - Debug exposure to `window` is opt-in (`exposeManagerOnWindow`).
+- Non-overlay primitives (for example `tabs` and `disclosure`) are intentionally out of scope for adapter bootstrap and are consumed through their own Vue packages.
 
 ## Build/Test Contract
 - Shared Vitest config must exclude `dist/**` by default to avoid duplicate test runs.

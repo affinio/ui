@@ -19,9 +19,9 @@ import type {
   OverlayRegistration,
   OverlayRegistrar,
   DialogOverlayTraits,
-} from "./types.js"
-import { createOverlayInteractionMatrix } from "./overlay/interactionMatrix.js"
-import type { OverlayInteractionMatrix } from "./overlay/interactionMatrix.js"
+} from "./types"
+import { createOverlayInteractionMatrix } from "./overlay/interactionMatrix"
+import type { OverlayInteractionMatrix } from "./overlay/interactionMatrix"
 import {
   createOverlayIntegration,
   type OverlayIntegration,
