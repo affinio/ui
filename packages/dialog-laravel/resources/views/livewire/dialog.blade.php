@@ -68,13 +68,13 @@
             @if ($descriptionId) aria-describedby="{{ $descriptionId }}" @endif
         >
             @if ($modal)
-                <span class="affino-dialog__sentinel" data-affino-dialog-sentinel="start" tabindex="0"></span>
+                <span class="affino-dialog__sentinel focus-sentinel" data-affino-dialog-sentinel="start" tabindex="0"></span>
             @endif
 
             {{ $slot }}
 
             @if ($modal)
-                <span class="affino-dialog__sentinel" data-affino-dialog-sentinel="end" tabindex="0"></span>
+                <span class="affino-dialog__sentinel focus-sentinel" data-affino-dialog-sentinel="end" tabindex="0"></span>
             @endif
         </div>
     </div>

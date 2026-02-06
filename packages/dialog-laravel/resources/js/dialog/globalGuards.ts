@@ -1,4 +1,4 @@
-import { acquireDocumentScrollLock, releaseDocumentScrollLock } from "@affino/overlay-kernel"
+import { acquireDocumentScrollLock, getDocumentOverlayManager, releaseDocumentScrollLock } from "@affino/overlay-kernel"
 import { createGlobalKeydownManager } from "@affino/overlay-host"
 import { trapFocus } from "@affino/focus-utils"
 import type { DialogBinding } from "./types"
@@ -38,7 +38,7 @@ function ensureGlobalGuardsActive(): void {
 }
 
 function handleGlobalKeydown(event: KeyboardEvent): void {
-  const topEntry = getTopMostBinding()
+  const topEntry = getTopMostBinding(event)
   if (!topEntry) {
     return
   }
@@ -61,7 +61,27 @@ function handleGlobalKeydown(event: KeyboardEvent): void {
   }
 }
 
-function getTopMostBinding(): DialogBinding | null {
+function getTopMostBinding(event: KeyboardEvent): DialogBinding | null {
+  const ownerDocument = resolveEventDocument(event)
+  const managerBinding = resolveTopMostBindingFromManager(ownerDocument)
+  if (managerBinding) {
+    return managerBinding
+  }
+
+  const seenDocuments = new Set<Document>()
+  seenDocuments.add(ownerDocument)
+  for (const binding of overlayBindings.values()) {
+    const candidateDocument = binding.root.ownerDocument
+    if (!candidateDocument || seenDocuments.has(candidateDocument)) {
+      continue
+    }
+    seenDocuments.add(candidateDocument)
+    const candidate = resolveTopMostBindingFromManager(candidateDocument)
+    if (candidate) {
+      return candidate
+    }
+  }
+
   const topId = globalOverlayRegistrar.getTopMostId()
   if (!topId) {
     return null
@@ -70,10 +90,39 @@ function getTopMostBinding(): DialogBinding | null {
   if (!candidate) {
     return null
   }
-  const snapshot = candidate.controller.snapshot
+  return isBindingVisible(candidate) ? candidate : null
+}
+
+function resolveTopMostBindingFromManager(ownerDocument: Document): DialogBinding | null {
+  const manager = getDocumentOverlayManager(ownerDocument)
+  const stack = manager.getStack()
+  if (!stack.length) {
+    return null
+  }
+  const topEntry = stack[stack.length - 1]
+  if (!topEntry) {
+    return null
+  }
+  const candidate = overlayBindings.get(topEntry.id)
+  if (!candidate) {
+    return null
+  }
+  return isBindingVisible(candidate) ? candidate : null
+}
+
+function resolveEventDocument(event: KeyboardEvent): Document {
+  const target = event.target
+  if (target instanceof Node && target.ownerDocument) {
+    return target.ownerDocument
+  }
+  return document
+}
+
+function isBindingVisible(binding: DialogBinding): boolean {
+  const snapshot = binding.controller.snapshot
   const visible =
     snapshot.isOpen || snapshot.phase === "opening" || snapshot.phase === "closing" || snapshot.optimisticCloseInFlight
-  return visible ? candidate : null
+  return visible
 }
 
 function createGlobalOverlayRegistrar(): ExtendedOverlayRegistrar {

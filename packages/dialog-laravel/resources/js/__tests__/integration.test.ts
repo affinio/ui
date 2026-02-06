@@ -7,17 +7,24 @@ import { maybeTeleportOverlay } from "../dialog/teleport"
 import { scan, setupMutationObserver } from "../dialog/hydrate"
 
 type DialogTestRoot = HTMLDivElement & {
-  affinoDialog?: unknown
+  affinoDialog?: {
+    open: (reason?: string) => void
+    close: (reason?: string) => void
+    toggle: (reason?: string) => void
+  }
 }
 
 let rootCounter = 0
 
-function createDialogFixture(options?: { teleport?: string }) {
+function createDialogFixture(options?: { teleport?: string; id?: string; modal?: boolean }) {
   rootCounter += 1
   const root = document.createElement("div") as DialogTestRoot
-  root.dataset.affinoDialogRoot = `dialog-spec-${rootCounter}`
+  root.dataset.affinoDialogRoot = options?.id ?? `dialog-spec-${rootCounter}`
   if (options?.teleport) {
     root.dataset.affinoDialogTeleport = options.teleport
+  }
+  if (typeof options?.modal === "boolean") {
+    root.dataset.affinoDialogModal = options.modal ? "true" : "false"
   }
 
   const trigger = document.createElement("button")
@@ -34,7 +41,7 @@ function createDialogFixture(options?: { teleport?: string }) {
   root.appendChild(overlay)
   document.body.appendChild(root)
 
-  return { root, overlay }
+  return { root, overlay, trigger, surface }
 }
 
 describe("dialog hydration integration", () => {
@@ -114,6 +121,42 @@ describe("dialog hydration integration", () => {
     expect(root.dataset.affinoDialogState).toBe("closed")
   })
 
+  it("closes on Escape when top-most dialog is managed by overlay kernel", async () => {
+    const { root, surface, overlay } = createDialogFixture({ modal: true })
+    hydrateDialog(root as any)
+    root.affinoDialog?.open("programmatic")
+    expect(overlay.hidden).toBe(false)
+
+    const escapeEvent = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })
+    surface.dispatchEvent(escapeEvent)
+    await Promise.resolve()
+
+    expect(escapeEvent.defaultPrevented).toBe(true)
+    expect(overlay.hidden).toBe(true)
+  })
+
+  it("loops focus with Tab inside modal dialog", async () => {
+    const { root, surface } = createDialogFixture({ modal: true })
+    const first = document.createElement("button")
+    first.textContent = "first"
+    const second = document.createElement("button")
+    second.textContent = "second"
+    surface.append(first, second)
+
+    hydrateDialog(root as any)
+    root.affinoDialog?.open("programmatic")
+    await Promise.resolve()
+
+    second.focus()
+    expect(document.activeElement).toBe(second)
+
+    const tabEvent = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true })
+    second.dispatchEvent(tabEvent)
+
+    expect(tabEvent.defaultPrevented).toBe(true)
+    expect(document.activeElement).toBe(first)
+  })
+
   it("handles teleport restore edge case when placeholder is gone and parent is detached", () => {
     const root = document.createElement("div") as any
     const parent = document.createElement("div")
@@ -153,5 +196,22 @@ describe("dialog hydration integration", () => {
     root.affinoDialog?.close("programmatic")
     const closedEntry = manager.getStack().find((entry) => entry.id === root.dataset.affinoDialogRoot)
     expect(closedEntry).toBeUndefined()
+  })
+
+  it("reclaims stale owner root before hydrating replacement with same id", () => {
+    const sharedId = "dialog-owner-shared"
+    const manager = getDocumentOverlayManager(document)
+    const { root: originalRoot } = createDialogFixture({ id: sharedId })
+    hydrateDialog(originalRoot as any)
+    originalRoot.affinoDialog?.open("programmatic")
+    expect(manager.getStack().filter((entry) => entry.id === sharedId)).toHaveLength(1)
+
+    const { root: replacementRoot } = createDialogFixture({ id: sharedId })
+    expect(() => hydrateDialog(replacementRoot as any)).not.toThrow()
+    replacementRoot.affinoDialog?.open("programmatic")
+
+    expect(manager.getStack().filter((entry) => entry.id === sharedId)).toHaveLength(1)
+    expect(originalRoot.affinoDialog).toBeUndefined()
+    expect(replacementRoot.affinoDialog).toBeDefined()
   })
 })

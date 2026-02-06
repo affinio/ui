@@ -1,4 +1,4 @@
-import { MenuCore } from "@affino/menu-core"
+import { MenuCore, SubmenuCore, type PointerEventLike, type PointerMeta } from "@affino/menu-core"
 import type { MenuOverlayTraits } from "@affino/menu-core"
 import type { SurfaceReason } from "@affino/surface-core"
 import {
@@ -28,11 +28,25 @@ const MENU_TRIGGER_SELECTOR = "[data-affino-menu-trigger]"
 const MENU_PANEL_SELECTOR = "[data-affino-menu-panel]"
 const MENU_ITEM_SELECTOR = "[data-affino-menu-item]"
 const MENU_CLOSE_SELECTOR = "[data-affino-menu-close]"
+const MENU_ID_ATTR = "data-affino-menu-id"
+const MENU_ROOT_ID_ATTR = "data-affino-menu-root-id"
+const MENU_PARENT_ID_ATTR = "data-affino-menu-parent-id"
 
 const registry = new Map<RootEl, MenuInstance>()
+const menuById = new Map<string, MenuInstance>()
+const submenuByParentItemId = new Map<string, MenuInstance>()
 const structureRegistry = new WeakMap<RootEl, MenuStructureSnapshot>()
 let mutationObserver: MutationObserver | null = null
 let refreshScheduled = false
+
+type PointerLikeEvent = PointerEvent | MouseEvent
+
+type MenuRelation = {
+  kind: "panel" | "trigger" | null
+  menuId: string | null
+  rootId: string | null
+  parentMenuId: string | null
+}
 
 type OverlayWindow = Window & { __affinoOverlayManager?: OverlayManager }
 
@@ -65,14 +79,28 @@ export function hydrateMenu(root: RootEl): void {
     structureRegistry.delete(root)
     return
   }
+  const parentId = root.dataset.affinoMenuParent
+  const parentItemId = root.dataset.affinoMenuParentItem
+  if (parentId && parentItemId && !resolveMenuInstanceById(parentId)) {
+    scheduleRefresh()
+    return
+  }
   const nextStructure = captureMenuStructure(root, trigger, panel)
   const previousStructure = structureRegistry.get(root)
   if (registry.has(root) && previousStructure && !didMenuStructureChange(previousStructure, nextStructure)) {
     return
   }
   tearDownInstance(root)
-  const instance = new MenuInstance(root, trigger, panel)
+  const parentInstance = parentId ? resolveMenuInstanceById(parentId) : null
+  const instance = new MenuInstance(root, trigger, panel, parentInstance?.getCore() ?? null, parentItemId ?? null)
   registry.set(root, instance)
+  if (root.dataset.affinoMenuRoot) {
+    menuById.set(root.dataset.affinoMenuRoot, instance)
+  }
+  if (parentItemId) {
+    submenuByParentItemId.set(parentItemId, instance)
+    parentInstance?.bindSubmenuToItem(parentItemId, instance)
+  }
   structureRegistry.set(root, nextStructure)
   root.affinoMenu = instance.getHandle()
 }
@@ -99,6 +127,20 @@ export function scheduleRefresh(): void {
   } else {
     setTimeout(invoke, 16)
   }
+}
+
+export function refreshMenusInScope(scope: ParentNode): void {
+  if (typeof document === "undefined") {
+    return
+  }
+  registry.forEach((instance, root) => {
+    if (!document.body.contains(root)) {
+      instance.destroy()
+      registry.delete(root)
+      structureRegistry.delete(root)
+    }
+  })
+  scan(scope)
 }
 
 export function setupMutationObserver(): void {
@@ -155,6 +197,9 @@ function mutationTouchesMenu(mutation: MutationRecord): boolean {
   if (mutation.type !== "childList") {
     return false
   }
+  if (isPortalMoveMutation(mutation)) {
+    return false
+  }
   if (mutation.target instanceof Element && elementTouchesRegisteredMenu(mutation.target)) {
     return true
   }
@@ -171,6 +216,33 @@ function mutationTouchesMenu(mutation: MutationRecord): boolean {
     }
     return Boolean(node.querySelector?.(MENU_ROOT_SELECTOR))
   })
+}
+
+function isPortalMoveMutation(mutation: MutationRecord): boolean {
+  const nodes = [...Array.from(mutation.addedNodes), ...Array.from(mutation.removedNodes)]
+  if (!nodes.length) {
+    return false
+  }
+  let hasPanel = false
+  for (const node of nodes) {
+    if (node.nodeType === Node.COMMENT_NODE) {
+      continue
+    }
+    if (!(node instanceof Element)) {
+      return false
+    }
+    if (!isPortalManagedPanel(node)) {
+      return false
+    }
+    hasPanel = true
+  }
+  return hasPanel
+}
+
+function isPortalManagedPanel(node: Element): boolean {
+  return node instanceof HTMLElement
+    && node.matches(MENU_PANEL_SELECTOR)
+    && node.dataset.affinoMenuPortalManaged === "true"
 }
 
 function elementTouchesRegisteredMenu(node: Element): boolean {
@@ -200,16 +272,35 @@ function tearDownInstance(root: RootEl): void {
     instance.destroy()
     registry.delete(root)
     structureRegistry.delete(root)
+    if (root.dataset.affinoMenuRoot) {
+      menuById.delete(root.dataset.affinoMenuRoot)
+    }
+    const parentItemId = instance.getParentItemId()
+    if (parentItemId) {
+      submenuByParentItemId.delete(parentItemId)
+    }
     delete root.affinoMenu
   }
+}
+
+function resolveMenuInstanceById(id: string): MenuInstance | null {
+  return menuById.get(id) ?? null
+}
+
+function resolveSubmenuByParentItemId(id: string): MenuInstance | null {
+  return submenuByParentItemId.get(id) ?? null
 }
 
 function captureMenuStructure(root: RootEl, trigger: TriggerEl, panel: PanelEl): MenuStructureSnapshot {
   return {
     trigger,
     panel,
-    itemCount: panel.querySelectorAll(MENU_ITEM_SELECTOR).length,
-    closeCount: root.querySelectorAll(MENU_CLOSE_SELECTOR).length,
+    itemCount: Array.from(panel.querySelectorAll(MENU_ITEM_SELECTOR))
+      .filter((node): node is HTMLElement => node instanceof HTMLElement)
+      .filter((node) => isOwnedPanelNode(node, panel)).length,
+    closeCount: Array.from(root.querySelectorAll(MENU_CLOSE_SELECTOR))
+      .filter((node): node is HTMLElement => node instanceof HTMLElement)
+      .filter((node) => isOwnedPanelNode(node, panel)).length,
     configSignature: buildMenuConfigSignature(root),
   }
 }
@@ -233,14 +324,53 @@ function buildMenuConfigSignature(root: RootEl): string {
     .join("|")
 }
 
+function resolveMenuRelation(element: HTMLElement | null): MenuRelation {
+  if (!element) {
+    return { kind: null, menuId: null, rootId: null, parentMenuId: null }
+  }
+  const panel = element.closest<HTMLElement>(MENU_PANEL_SELECTOR)
+  if (panel) {
+    return {
+      kind: "panel",
+      menuId: panel.dataset.affinoMenuId ?? null,
+      rootId: panel.dataset.affinoMenuRootId ?? null,
+      parentMenuId: panel.dataset.affinoMenuParentId ?? null,
+    }
+  }
+  const trigger = element.closest<HTMLElement>(MENU_TRIGGER_SELECTOR)
+  if (trigger) {
+    return {
+      kind: "trigger",
+      menuId: trigger.dataset.affinoMenuId ?? null,
+      rootId: trigger.dataset.affinoMenuRootId ?? null,
+      parentMenuId: trigger.dataset.affinoMenuParentId ?? null,
+    }
+  }
+  return { kind: null, menuId: null, rootId: null, parentMenuId: null }
+}
+
+function toPointerPayload(event: PointerLikeEvent, meta: PointerMeta = {}): PointerEventLike {
+  return {
+    clientX: event.clientX,
+    clientY: event.clientY,
+    meta,
+    preventDefault: () => event.preventDefault(),
+  }
+}
+
 class MenuInstance {
   private readonly root: RootEl
   private readonly trigger: TriggerEl
   private readonly panel: PanelEl
+  private readonly rootMenuId: string
+  private readonly parentMenuId: string | null
+  private readonly parentItemId: string | null
   private readonly closeTargets: HTMLElement[]
   private readonly cleanup: Cleanup[] = []
   private readonly itemReleases: Cleanup[] = []
   private readonly itemsById = new Map<string, ItemEl>()
+  private readonly submenuBindings = new Map<string, Cleanup[]>()
+  private submenuTriggerCleanup: Cleanup[] = []
   private readonly positioning: PositioningOptions
   private readonly loopFocus: boolean
   private readonly autofocusTarget: AutofocusTarget
@@ -259,12 +389,21 @@ class MenuInstance {
   private scrollLockHeld = false
   private pendingMeasureFrame: number | null = null
   private pendingPositionSync: number | null = null
+  private restoreCloseGuard: (() => void) | null = null
 
-  constructor(root: RootEl, trigger: TriggerEl, panel: PanelEl) {
+  constructor(
+    root: RootEl,
+    trigger: TriggerEl,
+    panel: PanelEl,
+    parentCore: MenuCore | null,
+    parentItemId: string | null,
+  ) {
     this.root = root
     this.trigger = trigger
     this.panel = panel
     this.closeTargets = Array.from(root.querySelectorAll(MENU_CLOSE_SELECTOR))
+      .filter((node): node is HTMLElement => node instanceof HTMLElement)
+      .filter((node) => isOwnedPanelNode(node, panel))
 
     this.positioning = {
       placement: (root.dataset.affinoMenuPlacement as PositioningOptions["placement"]) ?? "bottom",
@@ -282,8 +421,12 @@ class MenuInstance {
     this.portalMode = root.dataset.affinoMenuPortal === "inline" ? "inline" : "body"
 
     this.mountPortal()
-    this.core = this.createMenuCore()
+    this.core = this.createMenuCore(parentCore, parentItemId)
+    this.parentMenuId = parentCore?.id ?? null
+    this.parentItemId = parentItemId
+    this.rootMenuId = this.resolveRootMenuId()
     this.installHandle()
+    this.installCloseGuard()
     this.initialize()
   }
 
@@ -296,6 +439,10 @@ class MenuInstance {
     if (this.pendingPositionSync !== null) {
       cancelAnimationFrame(this.pendingPositionSync)
       this.pendingPositionSync = null
+    }
+    if (this.restoreCloseGuard) {
+      this.restoreCloseGuard()
+      this.restoreCloseGuard = null
     }
     this.cleanup.forEach((dispose) => dispose())
     this.itemReleases.forEach((release) => release?.())
@@ -328,11 +475,152 @@ class MenuInstance {
     }
   }
 
+  getCore(): MenuCore {
+    return this.core
+  }
+
+  focusItem(itemId: string): void {
+    const node = this.itemsById.get(itemId)
+    if (node) {
+      this.focusElement(node)
+    }
+  }
+
+  getParentItemId(): string | null {
+    return this.parentItemId
+  }
+
   private installHandle(): void {
     this.root.affinoMenu = this.getHandle()
   }
 
-  private createMenuCore(): MenuCore {
+  private attachSubmenuHandlers(
+    itemId: string,
+    itemProps: { onPointerEnter?: (event: PointerEventLike) => void; onClick?: (event: MouseEvent) => void; onKeyDown?: (event: KeyboardEvent) => void },
+    submenuInstance: MenuInstance,
+  ): void {
+    const openSubmenu = (reason: SurfaceReason) => {
+      this.core.highlight(itemId)
+      submenuInstance.getHandle().open(reason)
+    }
+    const pointerEnter = itemProps.onPointerEnter
+    itemProps.onPointerEnter = (event) => {
+      pointerEnter?.(event)
+      openSubmenu("pointer")
+    }
+    const click = itemProps.onClick
+    itemProps.onClick = (event) => {
+      event.preventDefault?.()
+      openSubmenu("pointer")
+      click?.(event)
+    }
+    const keydown = itemProps.onKeyDown
+    itemProps.onKeyDown = (event) => {
+      if (event.key === "ArrowRight" || event.key === "Enter" || event.key === " ") {
+        event.preventDefault()
+        event.stopPropagation()
+        openSubmenu("keyboard")
+        return
+      }
+      keydown?.(event)
+    }
+  }
+
+  bindSubmenuToItem(itemId: string, submenuInstance: MenuInstance): void {
+    if (this.submenuBindings.has(itemId)) {
+      return
+    }
+    const node = this.itemsById.get(itemId)
+      ?? (typeof document !== "undefined" ? document.getElementById(itemId) : null)
+    if (!node) {
+      return
+    }
+    const openSubmenu = (reason: SurfaceReason) => {
+      this.core.highlight(itemId)
+      submenuInstance.getHandle().open(reason)
+    }
+    const onPointerEnter = (_event: PointerEvent) => {
+      this.inputIntent = "pointer"
+      openSubmenu("pointer")
+    }
+    const onClick = (event: MouseEvent) => {
+      event.preventDefault()
+      openSubmenu("pointer")
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "ArrowRight" || event.key === "Enter" || event.key === " ") {
+        event.preventDefault()
+        event.stopPropagation()
+        openSubmenu("keyboard")
+      }
+    }
+    node.addEventListener("pointerenter", onPointerEnter)
+    node.addEventListener("click", onClick)
+    node.addEventListener("keydown", onKeyDown)
+    const cleanup: Cleanup[] = [
+      () => node.removeEventListener("pointerenter", onPointerEnter),
+      () => node.removeEventListener("click", onClick),
+      () => node.removeEventListener("keydown", onKeyDown),
+    ]
+    cleanup.forEach((fn) => this.cleanup.push(fn))
+    this.submenuBindings.set(itemId, cleanup)
+  }
+
+  private attachSubmenuPanelKeydown(panelProps: Record<string, unknown>): void {
+    const keydown = panelProps.onKeyDown
+    panelProps.onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" || event.key === "ArrowLeft") {
+        event.preventDefault()
+        event.stopPropagation()
+        this.core.close("keyboard")
+        if (this.parentItemId) {
+          const parentInstance = this.parentMenuId ? resolveMenuInstanceById(this.parentMenuId) : null
+          parentInstance?.getCore().highlight(this.parentItemId)
+          parentInstance?.focusItem(this.parentItemId)
+        }
+        return
+      }
+      if (typeof keydown === "function") {
+        keydown(event)
+      }
+    }
+  }
+
+  private bindSubmenuTriggerFallback(): void {
+    const openSubmenu = (reason: SurfaceReason) => {
+      if (this.parentItemId && this.parentMenuId) {
+        const parentInstance = resolveMenuInstanceById(this.parentMenuId)
+        parentInstance?.getCore().highlight(this.parentItemId)
+      }
+      this.core.open(reason)
+    }
+    const onPointerEnter = (_event: PointerEvent) => {
+      this.inputIntent = "pointer"
+      openSubmenu("pointer")
+    }
+    const onClick = (event: MouseEvent) => {
+      event.preventDefault()
+      openSubmenu("pointer")
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "ArrowRight" || event.key === "Enter" || event.key === " ") {
+        event.preventDefault()
+        event.stopPropagation()
+        openSubmenu("keyboard")
+      }
+    }
+    this.trigger.addEventListener("pointerenter", onPointerEnter)
+    this.trigger.addEventListener("click", onClick)
+    this.trigger.addEventListener("keydown", onKeyDown)
+    this.submenuTriggerCleanup = [
+      () => this.trigger.removeEventListener("pointerenter", onPointerEnter),
+      () => this.trigger.removeEventListener("click", onClick),
+      () => this.trigger.removeEventListener("keydown", onKeyDown),
+    ]
+    this.submenuTriggerCleanup.forEach((fn) => this.cleanup.push(fn))
+  }
+
+  private createMenuCore(parentCore: MenuCore | null, parentItemId: string | null): MenuCore {
     const overlayManager = resolveSharedOverlayManager(this.root.ownerDocument ?? document)
     const overlayKind = (this.root.dataset.affinoMenuOverlayKind as OverlayKind | undefined) ?? "menu"
     const overlayEntryTraits: Partial<MenuOverlayTraits> = {}
@@ -354,7 +642,7 @@ class MenuInstance {
     const defaultOpen = stateOpen || readBoolean(this.root.dataset.affinoMenuDefaultOpen, false)
     const closeOnSelect = readBoolean(this.root.dataset.affinoMenuCloseSelect, true)
 
-    return new MenuCore({
+    const options = {
       id: this.root.dataset.affinoMenuRoot,
       openDelay,
       closeDelay,
@@ -364,18 +652,32 @@ class MenuInstance {
       overlayManager,
       overlayKind,
       overlayEntryTraits: Object.keys(overlayEntryTraits).length ? overlayEntryTraits : undefined,
-    })
+    }
+    if (parentCore && parentItemId) {
+      return new SubmenuCore(parentCore, { ...options, parentItemId })
+    }
+    return new MenuCore(options)
   }
 
   private initialize(): void {
     this.panel.dataset.state = "closed"
     this.panel.hidden = true
     this.panel.setAttribute("aria-hidden", "true")
-    const triggerProps = this.stripHoverHandlers(this.core.getTriggerProps())
-    const panelProps = this.stripHoverDismiss(this.withDomKeydown(this.core.getPanelProps()))
+    this.applyRelationAttributes()
+    const triggerProps = this.core instanceof SubmenuCore
+      ? this.withPointerMeta(this.core.getTriggerProps())
+      : this.withPointerMeta(this.stripHoverHandlers(this.core.getTriggerProps()))
+    const panelProps = this.withPointerMeta(this.stripHoverDismiss(this.withDomKeydown(this.core.getPanelProps())))
+    if (this.core instanceof SubmenuCore) {
+      this.attachSubmenuPanelKeydown(panelProps)
+    }
+    this.normalizeTriggerBindings(triggerProps, panelProps)
 
     this.bindProps(this.trigger, triggerProps)
     this.bindProps(this.panel, panelProps)
+    if (this.core instanceof SubmenuCore) {
+      this.bindSubmenuTriggerFallback()
+    }
     this.registerItems()
     this.registerCloseTargets()
     this.bindIntentListeners()
@@ -389,6 +691,20 @@ class MenuInstance {
     this.syncOpenFromDomState()
   }
 
+  private installCloseGuard(): void {
+    const core = this.core
+    const original = core.requestClose.bind(core)
+    core.requestClose = (reason: SurfaceReason = "programmatic") => {
+      if (reason === "pointer" && this.inputIntent === "keyboard" && this.isFocusWithinMenu()) {
+        return
+      }
+      original(reason)
+    }
+    this.restoreCloseGuard = () => {
+      core.requestClose = original
+    }
+  }
+
   private registerItems(): void {
     const nodes = this.collectItems(true)
     nodes.forEach((node, index) => {
@@ -397,6 +713,11 @@ class MenuInstance {
       const release = this.core.registerItem(id, { disabled: this.isDisabled(node) })
       this.itemReleases.push(release)
       const itemProps = this.withDomKeydown(this.core.getItemProps(id))
+      const submenuInstance = resolveSubmenuByParentItemId(id)
+      if (submenuInstance && submenuInstance !== this) {
+        this.attachSubmenuHandlers(id, itemProps, submenuInstance)
+        this.bindSubmenuToItem(id, submenuInstance)
+      }
       this.bindProps(node, itemProps)
       node.dataset.state = "idle"
       node.tabIndex = -1
@@ -493,6 +814,8 @@ class MenuInstance {
     this.panel.hidden = !this.isOpen
 
     if (this.isOpen) {
+      this.panel.style.visibility = ""
+      this.panel.style.pointerEvents = ""
       if (!this.scrollLockHeld && this.lockScroll) {
         acquireDocumentScrollLock(this.root.ownerDocument, "menu")
         this.scrollLockHeld = true
@@ -530,6 +853,12 @@ class MenuInstance {
     if (!this.itemsById.size) {
       return
     }
+    if (itemId && this.inputIntent === "pointer") {
+      const submenuInstance = resolveSubmenuByParentItemId(itemId)
+      if (submenuInstance && submenuInstance !== this) {
+        submenuInstance.getHandle().open("pointer")
+      }
+    }
     this.itemsById.forEach((node, id) => {
       const highlighted = id === itemId
       node.dataset.state = highlighted ? "highlighted" : "idle"
@@ -543,17 +872,19 @@ class MenuInstance {
     }
   }
 
-  private positionPanel(): void {
+  private positionPanel(hideWhileMeasuring = true): void {
     const anchor = this.trigger.getBoundingClientRect()
-    this.panel.style.visibility = "hidden"
-    this.panel.style.pointerEvents = "none"
+    if (hideWhileMeasuring) {
+      this.panel.style.visibility = "hidden"
+      this.panel.style.pointerEvents = "none"
+    }
     const surface = this.panel.getBoundingClientRect()
     if (surface.width === 0 || surface.height === 0) {
       if (this.pendingMeasureFrame === null) {
         this.pendingMeasureFrame = requestAnimationFrame(() => {
           this.pendingMeasureFrame = null
           if (this.isOpen && !this.panel.hidden) {
-            this.positionPanel()
+            this.positionPanel(hideWhileMeasuring)
           }
         })
       }
@@ -567,26 +898,30 @@ class MenuInstance {
       viewportWidth: window.innerWidth,
       viewportHeight: window.innerHeight,
     })
+    if (this.core instanceof SubmenuCore) {
+      this.core.setTriggerRect(anchor)
+      this.core.setPanelRect(surface)
+    }
     this.panel.style.position = "fixed"
     this.panel.style.left = `${Math.round(position.left)}px`
     this.panel.style.top = `${Math.round(position.top)}px`
     this.panel.dataset.placement = position.placement
     this.panel.dataset.align = position.align
-    this.panel.style.visibility = ""
-    this.panel.style.pointerEvents = ""
+    if (hideWhileMeasuring) {
+      this.panel.style.visibility = ""
+      this.panel.style.pointerEvents = ""
+    }
   }
 
   private syncPanelPosition(): void {
-    this.panel.style.visibility = "hidden"
-    this.panel.style.pointerEvents = "none"
-    this.positionPanel()
+    this.positionPanel(false)
     if (this.pendingPositionSync !== null) {
       cancelAnimationFrame(this.pendingPositionSync)
     }
     this.pendingPositionSync = requestAnimationFrame(() => {
       this.pendingPositionSync = null
       if (this.isOpen && !this.panel.hidden) {
-        this.positionPanel()
+        this.positionPanel(false)
       }
     })
   }
@@ -615,8 +950,23 @@ class MenuInstance {
       return
     }
     if (!domOpen && snapshotOpen) {
+      if (this.isFocusWithinMenu()) {
+        this.root.dataset.affinoMenuState = "open"
+        return
+      }
       this.core.close("programmatic")
     }
+  }
+
+  private isFocusWithinMenu(): boolean {
+    if (typeof document === "undefined") {
+      return false
+    }
+    const active = document.activeElement
+    if (!active) {
+      return false
+    }
+    return this.root.contains(active) || this.panel.contains(active)
   }
 
   private collectItems(forceRefresh = false): ItemEl[] {
@@ -624,6 +974,8 @@ class MenuInstance {
       return this.orderedItems
     }
     const nodes = Array.from(this.panel.querySelectorAll<ItemEl>(MENU_ITEM_SELECTOR))
+      .filter((node): node is ItemEl => node instanceof HTMLElement)
+      .filter((node) => isOwnedPanelNode(node, this.panel))
     if (typeof Node === "undefined") {
       this.orderedItems = nodes
       return this.orderedItems
@@ -667,6 +1019,22 @@ class MenuInstance {
       }
       element.setAttribute(key, String(value))
     })
+  }
+
+  private normalizeTriggerBindings(
+    triggerProps: Record<string, unknown>,
+    panelProps: Record<string, unknown>,
+  ): void {
+    if (!this.trigger.id) {
+      return
+    }
+    const nextId = triggerProps.id
+    if (typeof nextId === "string" && nextId !== this.trigger.id) {
+      triggerProps.id = this.trigger.id
+      if (typeof panelProps["aria-labelledby"] === "string") {
+        panelProps["aria-labelledby"] = this.trigger.id
+      }
+    }
   }
 
   private withDomKeydown<T extends { onKeyDown?: (event: KeyboardEvent) => void }>(props: T): T {
@@ -762,6 +1130,93 @@ class MenuInstance {
     return clone
   }
 
+  private withPointerMeta(props: unknown): Record<string, unknown> {
+    if (!props) {
+      return {}
+    }
+    const clone = { ...(props as Record<string, unknown>) }
+    const onPointerEnter = clone.onPointerEnter
+    const onPointerLeave = clone.onPointerLeave
+    if (typeof onPointerEnter === "function") {
+      clone.onPointerEnter = (event: PointerLikeEvent) => {
+        ;(onPointerEnter as (event: PointerEventLike) => void)(toPointerPayload(event))
+      }
+    }
+    if (typeof onPointerLeave === "function") {
+      clone.onPointerLeave = (event: PointerLikeEvent) => {
+        const meta = this.buildPointerMeta(event)
+        ;(onPointerLeave as (event: PointerEventLike) => void)(toPointerPayload(event, meta))
+      }
+    }
+    return clone
+  }
+
+  private buildPointerMeta(event: PointerLikeEvent): PointerMeta {
+    let related = event.relatedTarget instanceof HTMLElement ? event.relatedTarget : null
+    if (!related && typeof document !== "undefined" && typeof event.clientX === "number" && typeof event.clientY === "number") {
+      const fallback = document.elementFromPoint(event.clientX, event.clientY)
+      related = fallback instanceof HTMLElement ? fallback : null
+    }
+    if (!related) {
+      return {
+        isInsidePanel: false,
+        enteredChildPanel: false,
+        relatedTargetId: null,
+        isWithinTree: false,
+        relatedMenuId: null,
+      }
+    }
+    const relation = resolveMenuRelation(related)
+    const isSameTree = Boolean(relation.rootId && relation.rootId === this.rootMenuId)
+    const relatedMenuId = relation.kind === "trigger"
+      ? relation.parentMenuId ?? relation.menuId
+      : relation.menuId
+    return {
+      isInsidePanel: this.panel.contains(related),
+      enteredChildPanel: isSameTree ? this.isDescendant(relation.menuId) : false,
+      relatedTargetId: related.id || null,
+      isWithinTree: isSameTree,
+      relatedMenuId,
+    }
+  }
+
+  private isDescendant(menuId: string | null): boolean {
+    if (!menuId) return false
+    const path = this.core.getTree().snapshot.openPath
+    const index = path.indexOf(this.core.id)
+    if (index === -1) return false
+    const targetIndex = path.indexOf(menuId)
+    return targetIndex > index
+  }
+
+  private resolveRootMenuId(): string {
+    const treeRoot = this.core.getTree().snapshot.openPath[0]
+    if (treeRoot) {
+      return treeRoot
+    }
+    if (this.root.dataset.affinoMenuRoot) {
+      return this.root.dataset.affinoMenuRoot
+    }
+    return this.core.id
+  }
+
+  private applyRelationAttributes(): void {
+    this.trigger.setAttribute(MENU_ID_ATTR, this.core.id)
+    this.trigger.setAttribute(MENU_ROOT_ID_ATTR, this.rootMenuId)
+    if (this.parentMenuId) {
+      this.trigger.setAttribute(MENU_PARENT_ID_ATTR, this.parentMenuId)
+    } else {
+      this.trigger.removeAttribute(MENU_PARENT_ID_ATTR)
+    }
+    this.panel.setAttribute(MENU_ID_ATTR, this.core.id)
+    this.panel.setAttribute(MENU_ROOT_ID_ATTR, this.rootMenuId)
+    if (this.parentMenuId) {
+      this.panel.setAttribute(MENU_PARENT_ID_ATTR, this.parentMenuId)
+    } else {
+      this.panel.removeAttribute(MENU_PARENT_ID_ATTR)
+    }
+  }
+
   private isDisabled(node: Element): boolean {
     if ("disabled" in node && typeof (node as HTMLButtonElement).disabled === "boolean") {
       return Boolean((node as HTMLButtonElement).disabled)
@@ -777,6 +1232,7 @@ class MenuInstance {
     if (!this.panelHost) {
       return
     }
+    this.panel.dataset.affinoMenuPortalManaged = "true"
     this.placeholder = document.createComment("affino-menu-panel")
     this.panelHost.replaceChild(this.placeholder, this.panel)
     document.body.appendChild(this.panel)
@@ -794,6 +1250,7 @@ class MenuInstance {
     if (this.placeholder?.parentNode) {
       this.placeholder.parentNode.removeChild(this.placeholder)
     }
+    delete this.panel.dataset.affinoMenuPortalManaged
     this.placeholder = null
     this.panelHost = null
   }
@@ -857,6 +1314,10 @@ class MenuInstance {
       target.focus()
     }
   }
+}
+
+function isOwnedPanelNode(node: Element, panel: PanelEl): boolean {
+  return node.closest(MENU_PANEL_SELECTOR) === panel
 }
 
 function readBoolean(value: string | undefined, fallback: boolean): boolean {

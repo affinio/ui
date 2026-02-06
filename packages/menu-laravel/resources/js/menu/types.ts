@@ -18,6 +18,8 @@ export type RootEl = HTMLElement & {
   dataset: DOMStringMap & {
     affinoMenuRoot?: string
     affinoMenuState?: string
+    affinoMenuParent?: string
+    affinoMenuParentItem?: string
     affinoMenuPlacement?: string
     affinoMenuAlign?: string
     affinoMenuGutter?: string

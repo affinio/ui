@@ -19,11 +19,17 @@ function createListboxFixture() {
   surface.dataset.affinoListboxSurface = ""
   root.appendChild(surface)
 
-  const option = document.createElement("button")
-  option.dataset.affinoListboxOption = ""
-  option.dataset.affinoListboxValue = "alpha"
-  option.textContent = "Alpha"
-  surface.appendChild(option)
+  const optionAlpha = document.createElement("button")
+  optionAlpha.dataset.affinoListboxOption = ""
+  optionAlpha.dataset.affinoListboxValue = "alpha"
+  optionAlpha.textContent = "Alpha"
+  surface.appendChild(optionAlpha)
+
+  const optionBeta = document.createElement("button")
+  optionBeta.dataset.affinoListboxOption = ""
+  optionBeta.dataset.affinoListboxValue = "beta"
+  optionBeta.textContent = "Beta"
+  surface.appendChild(optionBeta)
 
   document.body.appendChild(root)
   return { root, trigger, surface }
@@ -198,5 +204,29 @@ describe("listbox integration", () => {
 
     expect(root.affinoListbox).toBeDefined()
     expect(root.affinoListbox).not.toBe(handleBefore)
+  })
+
+  it("does not commit selection when navigating with arrows in single mode", () => {
+    const { root, trigger } = createListboxFixture()
+    hydrateListbox(root as any)
+
+    trigger.click()
+
+    const handle = (root as any).affinoListbox as {
+      getSnapshot(): { open: boolean; values: string[]; state: { activeIndex: number } }
+    }
+    expect(handle.getSnapshot().open).toBe(true)
+    expect(handle.getSnapshot().values).toEqual([])
+
+    trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }))
+    const afterArrow = handle.getSnapshot()
+    expect(afterArrow.open).toBe(true)
+    expect(afterArrow.values).toEqual([])
+    expect(afterArrow.state.activeIndex).toBe(0)
+
+    trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }))
+    const afterEnter = handle.getSnapshot()
+    expect(afterEnter.values).toEqual(["alpha"])
+    expect(afterEnter.open).toBe(false)
   })
 })

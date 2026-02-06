@@ -252,13 +252,30 @@ function hydrateResolvedListbox(root: RootEl, trigger: HTMLElement, surface: HTM
   }
 
   const moveActiveIndex = (delta: number, options?: { extend?: boolean }) => {
+    const shouldExtendSelection = mode === "multiple" && (options?.extend ?? false)
+
     const next = moveListboxFocus({
       state,
       context,
       delta,
-      extend: mode === "multiple" && (options?.extend ?? false),
+      extend: shouldExtendSelection,
       loop,
     })
+
+    if (next.activeIndex === state.activeIndex) {
+      return
+    }
+
+    // Keyboard navigation should move active option without committing selection.
+    // Selection is committed explicitly via Enter/Space/click (or shift-extend in multiple mode).
+    if (!shouldExtendSelection) {
+      applyState({
+        selection: state.selection,
+        activeIndex: next.activeIndex,
+      })
+      return
+    }
+
     applyState(next)
   }
 

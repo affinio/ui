@@ -244,12 +244,33 @@ function hydrateResolvedCombobox(root: RootEl, input: InputEl, surface: SurfaceE
     if (!hasNavigableOptions) {
       return
     }
+    const shouldExtendSelection = mode === "multiple" && (options?.extend ?? false)
     const next = moveComboboxFocus({
       state,
       context,
       delta,
-      extend: mode === "multiple" && (options?.extend ?? false),
+      extend: shouldExtendSelection,
     })
+
+    if (next.listbox.activeIndex === state.listbox.activeIndex) {
+      return
+    }
+
+    // Arrow navigation should only move the active option.
+    // Selection is committed explicitly via Enter/Space/click (or shift-extend in multiple mode).
+    if (!shouldExtendSelection) {
+      const nextListbox = cloneListboxState(state.listbox)
+      nextListbox.activeIndex = next.listbox.activeIndex
+      applyComboboxState(
+        {
+          ...state,
+          listbox: nextListbox,
+        },
+        { silentSelection: true },
+      )
+      return
+    }
+
     applyComboboxState(next)
   }
 

@@ -41,6 +41,7 @@ const CLOSE_REASONS = new Set<DialogCloseReason>([
 
 const registry = new WeakMap<RootEl, Cleanup>()
 const pinnedOpenRegistry = new Map<string, boolean>()
+const dialogOwnerRegistry = new WeakMap<Document, Map<string, RootEl>>()
 let dialogOverlayIdCounter = 0
 
 type OverlayWindow = Window & { __affinoOverlayManager?: OverlayManager }
@@ -73,6 +74,12 @@ function hydrateDialog(root: RootEl): void {
   const domStateOpen = root.dataset.affinoDialogState === "open"
   tagOverlayOwner(root, overlay)
   const teleportRestore = maybeTeleportOverlay(root, overlay, options.teleportTarget)
+  const ownerDocument = root.ownerDocument ?? document
+  const rootId = root.dataset.affinoDialogRoot ?? ""
+  const staleRoot = claimDialogOwner(ownerDocument, rootId, root)
+  if (staleRoot) {
+    registry.get(staleRoot)?.()
+  }
   const overlayId = resolveOverlayId(root)
 
   const binding: DialogBinding = {
@@ -96,7 +103,7 @@ function hydrateDialog(root: RootEl): void {
     pendingNavigationMessage: options.pendingMessage ?? undefined,
     maxPendingAttempts: options.maxPendingAttempts ?? undefined,
     focusOrchestrator: createFocusOrchestrator(surface, root, options),
-    overlayManager: resolveSharedOverlayManager(root.ownerDocument ?? document),
+    overlayManager: resolveSharedOverlayManager(ownerDocument),
     overlayRegistrar: globalOverlayRegistrar,
   })
   registerBinding(binding)
@@ -169,7 +176,6 @@ function hydrateDialog(root: RootEl): void {
   binding.detachments.push(() => stateObserver.disconnect())
   syncOpenFromDomState()
 
-  const rootId = root.dataset.affinoDialogRoot
   if (options.pinned && rootId && pinnedOpenRegistry.get(rootId)) {
     binding.controller.open("programmatic")
   }
@@ -200,6 +206,7 @@ function hydrateDialog(root: RootEl): void {
       releaseScrollLock(binding.root.ownerDocument)
       binding.lockHeld = false
     }
+    releaseDialogOwner(ownerDocument, rootId, root)
     binding.teleportRestore?.()
     unregisterBinding(binding)
     registry.delete(root)
@@ -455,6 +462,46 @@ function resolveOverlayElement(root: RootEl): OverlayEl | null {
   const selector = `[data-affino-dialog-overlay][data-affino-dialog-owner="${escapeAttributeValue(ownerId)}"]`
   const doc = root.ownerDocument ?? document
   return doc.querySelector<OverlayEl>(selector)
+}
+
+function claimDialogOwner(ownerDocument: Document, rootId: string, root: RootEl): RootEl | null {
+  if (!rootId) {
+    return null
+  }
+  const owners = dialogOwnersFor(ownerDocument)
+  const previous = owners.get(rootId)
+  owners.set(rootId, root)
+  if (previous === root) {
+    return null
+  }
+  return previous ?? null
+}
+
+function releaseDialogOwner(ownerDocument: Document, rootId: string, root: RootEl): void {
+  if (!rootId) {
+    return
+  }
+  const owners = dialogOwnerRegistry.get(ownerDocument)
+  if (!owners) {
+    return
+  }
+  if (owners.get(rootId) !== root) {
+    return
+  }
+  owners.delete(rootId)
+  if (!owners.size) {
+    dialogOwnerRegistry.delete(ownerDocument)
+  }
+}
+
+function dialogOwnersFor(ownerDocument: Document): Map<string, RootEl> {
+  const existing = dialogOwnerRegistry.get(ownerDocument)
+  if (existing) {
+    return existing
+  }
+  const created = new Map<string, RootEl>()
+  dialogOwnerRegistry.set(ownerDocument, created)
+  return created
 }
 
 function escapeAttributeValue(value: string): string {

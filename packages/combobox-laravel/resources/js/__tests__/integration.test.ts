@@ -5,7 +5,7 @@ import { bootstrapAffinoComboboxes, hydrateCombobox } from "../index"
 
 type ComboboxTestRoot = HTMLDivElement & {
   affinoCombobox?: {
-    getSnapshot(): { open: boolean }
+    getSnapshot(): { open: boolean; values: string[]; state: { activeIndex: number } }
   } | undefined
 }
 
@@ -21,11 +21,17 @@ function createComboboxFixture() {
   surface.dataset.affinoComboboxSurface = ""
   root.appendChild(surface)
 
-  const option = document.createElement("button")
-  option.dataset.affinoListboxOption = ""
-  option.dataset.affinoListboxValue = "alpha"
-  option.textContent = "Alpha"
-  surface.appendChild(option)
+  const optionAlpha = document.createElement("button")
+  optionAlpha.dataset.affinoListboxOption = ""
+  optionAlpha.dataset.affinoListboxValue = "alpha"
+  optionAlpha.textContent = "Alpha"
+  surface.appendChild(optionAlpha)
+
+  const optionBeta = document.createElement("button")
+  optionBeta.dataset.affinoListboxOption = ""
+  optionBeta.dataset.affinoListboxValue = "beta"
+  optionBeta.textContent = "Beta"
+  surface.appendChild(optionBeta)
 
   document.body.appendChild(root)
   return { root, input, surface }
@@ -193,5 +199,28 @@ describe("combobox integration", () => {
 
     expect(root.affinoCombobox).toBeDefined()
     expect(root.affinoCombobox).not.toBe(handleBefore)
+  })
+
+  it("does not commit selection when navigating with arrows in single mode", () => {
+    const { root, input } = createComboboxFixture()
+    hydrateCombobox(root as any)
+
+    input.value = "a"
+    input.dispatchEvent(new Event("input", { bubbles: true }))
+
+    const handle = root.affinoCombobox
+    expect(handle?.getSnapshot().open).toBe(true)
+    expect(handle?.getSnapshot().values).toEqual([])
+
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }))
+    const afterArrow = handle?.getSnapshot()
+    expect(afterArrow?.open).toBe(true)
+    expect(afterArrow?.values).toEqual([])
+    expect(afterArrow?.state.activeIndex).toBe(0)
+
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }))
+    const afterEnter = handle?.getSnapshot()
+    expect(afterEnter?.values).toEqual(["alpha"])
+    expect(afterEnter?.open).toBe(false)
   })
 })
