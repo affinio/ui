@@ -24,6 +24,7 @@ const PACKAGES = [
   { name: "popover", root: "[data-affino-popover-root]", trigger: "[data-affino-popover-trigger]", content: "[data-affino-popover-content]" },
   { name: "combobox", root: "[data-affino-combobox-root]", trigger: "[data-affino-combobox-input]", content: "[data-affino-combobox-surface]" },
   { name: "listbox", root: "[data-affino-listbox-root]", trigger: "[data-affino-listbox-trigger]", content: "[data-affino-listbox-surface]" },
+  { name: "treeview", root: "[data-affino-treeview-root]", trigger: "[data-affino-treeview-item]", content: "[data-affino-treeview-item]" },
   { name: "tooltip", root: "[data-affino-tooltip-root]", trigger: "[data-affino-tooltip-trigger]", content: "[data-affino-tooltip-surface]" },
   { name: "tabs", root: "[data-affino-tabs-root]", trigger: "[data-affino-tabs-trigger]", content: "[data-affino-tabs-content]" },
   { name: "disclosure", root: "[data-affino-disclosure-root]", trigger: "[data-affino-disclosure-trigger]", content: "[data-affino-disclosure-content]" },

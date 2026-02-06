@@ -26,6 +26,7 @@ const PACKAGES = [
   { name: "selection-vue", rootAttr: "data-affino-selection-root", kind: "selection" },
   { name: "grid-selection-vue", rootAttr: "data-affino-grid-selection-root", kind: "selection" },
   { name: "tabs-vue", rootAttr: "data-affino-tabs-root", kind: "tabs" },
+  { name: "treeview-vue", rootAttr: "data-affino-treeview-root", kind: "treeview" },
   { name: "disclosure-vue", rootAttr: "data-affino-disclosure-root", kind: "disclosure" },
 ]
 
@@ -158,6 +159,13 @@ function runBench(seed) {
         state = { ...state, open: index % 2 === 0 }
       } else if (pkg.kind === "tabs") {
         state = { ...state, value: index % 3 === 0 ? `tab-${index % 7}` : null }
+      } else if (pkg.kind === "treeview") {
+        state = {
+          ...state,
+          open: index % 2 === 0,
+          highlighted: index % 4 === 0 ? `node-${index % 9}` : null,
+          value: index % 3 === 0 ? `node-${(index + 1) % 11}` : null,
+        }
       } else {
         state = { ...state, highlighted: index % 5 === 0 ? `item-${index}` : null }
       }

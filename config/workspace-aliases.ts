@@ -18,6 +18,8 @@ const WORKSPACE_ALIAS_TARGETS: Record<string, string> = {
   "@affino/selection-vue": "packages/selection-vue/src/index.ts",
   "@affino/tabs-core": "packages/tabs-core/src/index.ts",
   "@affino/tabs-vue": "packages/tabs-vue/src/index.ts",
+  "@affino/treeview-core": "packages/treeview-core/src/index.ts",
+  "@affino/treeview-vue": "packages/treeview-vue/src/index.ts",
   "@affino/disclosure-core": "packages/disclosure-core/src/index.ts",
   "@affino/disclosure-vue": "packages/disclosure-vue/src/index.ts",
   "@affino/surface-core": "packages/surface-core/src/index.ts",
@@ -38,6 +40,7 @@ const WORKSPACE_ALIAS_TARGETS: Record<string, string> = {
   "@affino/combobox-laravel": "packages/combobox-laravel/resources/js/index.ts",
   "@affino/menu-laravel": "packages/menu-laravel/resources/js/index.ts",
   "@affino/tabs-laravel": "packages/tabs-laravel/resources/js/index.ts",
+  "@affino/treeview-laravel": "packages/treeview-laravel/resources/js/index.ts",
   "@affino/disclosure-laravel": "packages/disclosure-laravel/resources/js/index.ts",
 }
 

@@ -36,6 +36,7 @@ export type AffinoAdapterComponent =
   | "listbox"
   | "combobox"
   | "tabs"
+  | "treeview"
   | "disclosure"
 
 export const AFFINO_DIALOG_MANUAL_EVENT = "affino-dialog:manual" as const
@@ -45,6 +46,7 @@ export const AFFINO_MENU_MANUAL_EVENT = "affino-menu:manual" as const
 export const AFFINO_LISTBOX_MANUAL_EVENT = "affino-listbox:manual" as const
 export const AFFINO_COMBOBOX_MANUAL_EVENT = "affino-combobox:manual" as const
 export const AFFINO_TABS_MANUAL_EVENT = "affino-tabs:manual" as const
+export const AFFINO_TREEVIEW_MANUAL_EVENT = "affino-treeview:manual" as const
 export const AFFINO_DISCLOSURE_MANUAL_EVENT = "affino-disclosure:manual" as const
 
 export type AffinoManualEventName =
@@ -55,6 +57,7 @@ export type AffinoManualEventName =
   | typeof AFFINO_LISTBOX_MANUAL_EVENT
   | typeof AFFINO_COMBOBOX_MANUAL_EVENT
   | typeof AFFINO_TABS_MANUAL_EVENT
+  | typeof AFFINO_TREEVIEW_MANUAL_EVENT
   | typeof AFFINO_DISCLOSURE_MANUAL_EVENT
 
 export type AffinoDialogManualAction = "open" | "close" | "toggle"
@@ -64,6 +67,17 @@ export type AffinoMenuManualAction = "open" | "close" | "toggle"
 export type AffinoListboxManualAction = "open" | "close" | "toggle" | "select"
 export type AffinoComboboxManualAction = AffinoListboxManualAction | "clear"
 export type AffinoTabsManualAction = "select" | "clear"
+export type AffinoTreeviewManualAction =
+  | "select"
+  | "clear"
+  | "focus"
+  | "focusFirst"
+  | "focusLast"
+  | "focusNext"
+  | "focusPrevious"
+  | "expand"
+  | "collapse"
+  | "toggle"
 export type AffinoDisclosureManualAction = "open" | "close" | "toggle"
 
 /**
@@ -146,6 +160,18 @@ export type AffinoTabsManualEventDetail = {
 }
 
 /**
+ * Manual event payload for treeviews.
+ * Actions:
+ *  - select / focus / expand / collapse / toggle: requires `value`
+ *  - clear / focusFirst / focusLast / focusNext / focusPrevious
+ */
+export type AffinoTreeviewManualEventDetail = {
+  id: string
+  action: AffinoTreeviewManualAction
+  value?: string
+}
+
+/**
  * Manual event payload for disclosure primitives.
  * Supported actions: open, close, toggle.
  */
@@ -163,6 +189,7 @@ export type AffinoManualEventMap = {
   [AFFINO_LISTBOX_MANUAL_EVENT]: AffinoListboxManualEventDetail
   [AFFINO_COMBOBOX_MANUAL_EVENT]: AffinoComboboxManualEventDetail
   [AFFINO_TABS_MANUAL_EVENT]: AffinoTabsManualEventDetail
+  [AFFINO_TREEVIEW_MANUAL_EVENT]: AffinoTreeviewManualEventDetail
   [AFFINO_DISCLOSURE_MANUAL_EVENT]: AffinoDisclosureManualEventDetail
 }
 

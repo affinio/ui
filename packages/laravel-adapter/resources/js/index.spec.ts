@@ -7,6 +7,7 @@ import {
   AFFINO_MENU_MANUAL_EVENT,
   AFFINO_POPOVER_MANUAL_EVENT,
   AFFINO_TABS_MANUAL_EVENT,
+  AFFINO_TREEVIEW_MANUAL_EVENT,
   AFFINO_TOOLTIP_MANUAL_EVENT,
   bootstrapAffinoLaravelAdapters,
 } from "./index"
@@ -20,6 +21,7 @@ describe("@affino/laravel-adapter", () => {
     expect(AFFINO_LISTBOX_MANUAL_EVENT).toBe("affino-listbox:manual")
     expect(AFFINO_COMBOBOX_MANUAL_EVENT).toBe("affino-combobox:manual")
     expect(AFFINO_TABS_MANUAL_EVENT).toBe("affino-tabs:manual")
+    expect(AFFINO_TREEVIEW_MANUAL_EVENT).toBe("affino-treeview:manual")
     expect(AFFINO_DISCLOSURE_MANUAL_EVENT).toBe("affino-disclosure:manual")
   })
 

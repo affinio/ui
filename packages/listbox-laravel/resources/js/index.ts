@@ -860,13 +860,16 @@ function isFocusableCandidate(element: HTMLElement): boolean {
 }
 
 function setElementInert(element: HTMLElement, inert: boolean): void {
-  if ("inert" in element) {
-    ;(element as HTMLElement & { inert: boolean }).inert = inert
-  } else if (inert) {
-    element.setAttribute("inert", "")
-  } else {
-    element.removeAttribute("inert")
+  const inertTarget = element as HTMLElement & { inert?: boolean }
+  if (typeof inertTarget.inert === "boolean") {
+    inertTarget.inert = inert
+    return
   }
+  if (inert) {
+    element.setAttribute("inert", "")
+    return
+  }
+  element.removeAttribute("inert")
 }
 
 function generateListboxOverlayId(): string {

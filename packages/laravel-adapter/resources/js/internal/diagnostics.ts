@@ -100,6 +100,7 @@ function createZeroRecord(): ManualCounters {
     listbox: 0,
     combobox: 0,
     tabs: 0,
+    treeview: 0,
     disclosure: 0,
   }
 }

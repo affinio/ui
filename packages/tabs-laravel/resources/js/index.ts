@@ -84,6 +84,7 @@ function hydrateResolvedTabs(root: RootEl, structure: TabsStructure): void {
       const active = activeValue != null && model.value === activeValue
       const { trigger, panel } = model
       trigger.setAttribute("aria-selected", active ? "true" : "false")
+      trigger.classList.toggle("is-active", active)
       trigger.dataset.state = active ? "active" : "inactive"
       trigger.tabIndex = active ? 0 : -1
       panel.hidden = !active

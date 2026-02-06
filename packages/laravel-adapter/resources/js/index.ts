@@ -5,6 +5,7 @@ import { bootstrapAffinoListboxes } from "@affino/listbox-laravel"
 import { bootstrapAffinoComboboxes } from "@affino/combobox-laravel"
 import { bootstrapAffinoMenus } from "@affino/menu-laravel"
 import { bootstrapAffinoTabs } from "@affino/tabs-laravel"
+import { bootstrapAffinoTreeviews } from "@affino/treeview-laravel"
 import { bootstrapAffinoDisclosure } from "@affino/disclosure-laravel"
 import { getDocumentOverlayManager, type OverlayManager } from "@affino/overlay-kernel"
 import {
@@ -15,6 +16,7 @@ import {
   AFFINO_MENU_MANUAL_EVENT,
   AFFINO_POPOVER_MANUAL_EVENT,
   AFFINO_TABS_MANUAL_EVENT,
+  AFFINO_TREEVIEW_MANUAL_EVENT,
   AFFINO_TOOLTIP_MANUAL_EVENT,
   type AffinoComboboxManualEventDetail,
   type AffinoDisclosureManualEventDetail,
@@ -24,6 +26,7 @@ import {
   type AffinoMenuManualEventDetail,
   type AffinoPopoverManualEventDetail,
   type AffinoTabsManualEventDetail,
+  type AffinoTreeviewManualEventDetail,
   type AffinoTooltipManualEventDetail,
 } from "./contracts"
 import { bindManualBridge } from "./internal/manualBridge"
@@ -39,6 +42,7 @@ export type {
   AffinoListboxManualEventDetail,
   AffinoComboboxManualEventDetail,
   AffinoTabsManualEventDetail,
+  AffinoTreeviewManualEventDetail,
   AffinoDisclosureManualEventDetail,
 }
 export {
@@ -49,6 +53,7 @@ export {
   AFFINO_LISTBOX_MANUAL_EVENT,
   AFFINO_COMBOBOX_MANUAL_EVENT,
   AFFINO_TABS_MANUAL_EVENT,
+  AFFINO_TREEVIEW_MANUAL_EVENT,
   AFFINO_DISCLOSURE_MANUAL_EVENT,
 }
 
@@ -68,6 +73,7 @@ const COMPONENT_DESCRIPTORS = [
   { name: "listbox", selector: "[data-affino-listbox-root]", handleProperty: "affinoListbox" },
   { name: "combobox", selector: "[data-affino-combobox-root]", handleProperty: "affinoCombobox" },
   { name: "tabs", selector: "[data-affino-tabs-root]", handleProperty: "affinoTabs" },
+  { name: "treeview", selector: "[data-affino-treeview-root]", handleProperty: "affinoTreeview" },
   { name: "disclosure", selector: "[data-affino-disclosure-root]", handleProperty: "affinoDisclosure" },
 ] as const
 
@@ -130,6 +136,19 @@ type TabsManualHandle = {
   clear: () => void
 }
 
+type TreeviewManualHandle = {
+  select: (value: string) => void
+  clearSelection: () => void
+  focus: (value: string) => void
+  focusFirst: () => void
+  focusLast: () => void
+  focusNext: () => void
+  focusPrevious: () => void
+  expand: (value: string) => void
+  collapse: (value: string) => void
+  toggle: (value: string) => void
+}
+
 type DisclosureManualHandle = {
   open: (reason?: string) => void
   close: (reason?: string) => void
@@ -166,6 +185,7 @@ export function bootstrapAffinoLaravelAdapters(options: AffinoLaravelAdapterOpti
   bootstrapAffinoComboboxes()
   bootstrapAffinoMenus()
   bootstrapAffinoTabs()
+  bootstrapAffinoTreeviews()
   bootstrapAffinoDisclosure()
 
   bindManualBridge<typeof AFFINO_DIALOG_MANUAL_EVENT, ManualHandle>({
@@ -327,6 +347,58 @@ export function bootstrapAffinoLaravelAdapters(options: AffinoLaravelAdapterOpti
       }
       if (detail.action === "select" && typeof detail.value === "string" && detail.value.length > 0) {
         handle.select(detail.value)
+      }
+    },
+  })
+
+  bindManualBridge<typeof AFFINO_TREEVIEW_MANUAL_EVENT, TreeviewManualHandle>({
+    component: "treeview",
+    eventName: AFFINO_TREEVIEW_MANUAL_EVENT,
+    rootAttribute: "data-affino-treeview-root",
+    handleProperty: "affinoTreeview",
+    rehydrate: bootstrapAffinoTreeviews,
+    diagnostics,
+    invoke: (handle, detail) => {
+      switch (detail.action) {
+        case "clear":
+          handle.clearSelection()
+          return
+        case "focusFirst":
+          handle.focusFirst()
+          return
+        case "focusLast":
+          handle.focusLast()
+          return
+        case "focusNext":
+          handle.focusNext()
+          return
+        case "focusPrevious":
+          handle.focusPrevious()
+          return
+        case "select":
+          if (typeof detail.value === "string" && detail.value.length > 0) {
+            handle.select(detail.value)
+          }
+          return
+        case "focus":
+          if (typeof detail.value === "string" && detail.value.length > 0) {
+            handle.focus(detail.value)
+          }
+          return
+        case "expand":
+          if (typeof detail.value === "string" && detail.value.length > 0) {
+            handle.expand(detail.value)
+          }
+          return
+        case "collapse":
+          if (typeof detail.value === "string" && detail.value.length > 0) {
+            handle.collapse(detail.value)
+          }
+          return
+        case "toggle":
+          if (typeof detail.value === "string" && detail.value.length > 0) {
+            handle.toggle(detail.value)
+          }
       }
     },
   })

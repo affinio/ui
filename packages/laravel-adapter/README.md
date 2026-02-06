@@ -1,6 +1,6 @@
 # @affino/laravel-adapter
 
-Production bootstrap runtime for Affino's Laravel (Livewire) adapters. This package wires up every headless component adapter (dialog, menu, popover, tooltip, listbox, combobox, tabs, disclosure) and exposes a single, explicit entry point for frameworks to call.
+Production bootstrap runtime for Affino's Laravel (Livewire) adapters. This package wires up every headless component adapter (dialog, menu, popover, tooltip, listbox, combobox, tabs, treeview, disclosure) and exposes a single, explicit entry point for frameworks to call.
 
 ## Installation
 
@@ -48,6 +48,7 @@ Dispatch custom events when you need imperative control. TypeScript helpers are 
 | Listbox | `affino-listbox:manual` | `open`, `close`, `toggle`, `select` | `index?: number`, `value?: string`, `extend?: boolean`, `toggle?: boolean` |
 | Combobox | `affino-combobox:manual` | `open`, `close`, `toggle`, `select`, `clear` | same as listbox, plus `clear` |
 | Tabs | `affino-tabs:manual` | `select`, `clear` | `value?: string` (required for `select`) |
+| Treeview | `affino-treeview:manual` | `select`, `clear`, `focus`, `focusFirst`, `focusLast`, `focusNext`, `focusPrevious`, `expand`, `collapse`, `toggle` | `value?: string` (required for node-specific actions) |
 | Disclosure | `affino-disclosure:manual` | `open`, `close`, `toggle` | `reason?: string` |
 
 Example manual dialog close:

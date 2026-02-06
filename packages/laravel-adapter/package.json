@@ -28,6 +28,7 @@
     "@affino/combobox-laravel": "workspace:*",
     "@affino/menu-laravel": "workspace:*",
     "@affino/tabs-laravel": "workspace:*",
+    "@affino/treeview-laravel": "workspace:*",
     "@affino/disclosure-laravel": "workspace:*",
     "@affino/overlay-kernel": "workspace:*",
     "@affino/dialog-core": "workspace:*",
