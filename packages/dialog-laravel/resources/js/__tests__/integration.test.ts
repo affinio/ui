@@ -1,5 +1,6 @@
 /** @vitest-environment jsdom */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { getDocumentOverlayManager } from "@affino/overlay-kernel"
 
 import { bootstrapAffinoDialogs, hydrateDialog } from "../index"
 import { maybeTeleportOverlay } from "../dialog/teleport"
@@ -97,6 +98,22 @@ describe("dialog hydration integration", () => {
     expect(root.affinoDialog).not.toBe(handleBefore)
   })
 
+  it("syncs dialog state from data-affino-dialog-state updates", async () => {
+    const { root, overlay } = createDialogFixture()
+    hydrateDialog(root as any)
+    expect(overlay.hidden).toBe(true)
+
+    root.dataset.affinoDialogState = "open"
+    await Promise.resolve()
+    expect(overlay.hidden).toBe(false)
+    expect(root.dataset.affinoDialogState).toBe("open")
+
+    root.dataset.affinoDialogState = "closed"
+    await Promise.resolve()
+    expect(overlay.hidden).toBe(true)
+    expect(root.dataset.affinoDialogState).toBe("closed")
+  })
+
   it("handles teleport restore edge case when placeholder is gone and parent is detached", () => {
     const root = document.createElement("div") as any
     const parent = document.createElement("div")
@@ -119,5 +136,22 @@ describe("dialog hydration integration", () => {
     restore?.()
 
     expect(overlay.isConnected).toBe(false)
+  })
+
+  it("registers dialog in document overlay manager while open", () => {
+    const { root } = createDialogFixture()
+    const manager = getDocumentOverlayManager(document)
+    hydrateDialog(root as any)
+
+    const trigger = root.querySelector("[data-affino-dialog-trigger]") as HTMLButtonElement
+    trigger.click()
+
+    const openEntry = manager.getStack().find((entry) => entry.id === root.dataset.affinoDialogRoot)
+    expect(openEntry?.kind).toBe("dialog")
+    expect(openEntry?.state).toBe("open")
+
+    root.affinoDialog?.close("programmatic")
+    const closedEntry = manager.getStack().find((entry) => entry.id === root.dataset.affinoDialogRoot)
+    expect(closedEntry).toBeUndefined()
   })
 })

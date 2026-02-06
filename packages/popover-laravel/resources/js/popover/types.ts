@@ -27,6 +27,7 @@ export type RootEl = HTMLElement & {
     affinoPopoverPinned?: string
     affinoPopoverDefaultOpen?: string
     affinoPopoverManual?: string
+    affinoPopoverState?: string
   }
   affinoPopover?: PopoverHandle
 }

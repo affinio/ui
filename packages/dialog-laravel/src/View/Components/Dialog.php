@@ -46,6 +46,7 @@ class Dialog extends Component
 
     public function __construct(
         ?string $dialogId = null,
+        ?string $id = null,
         bool $modal = true,
         bool $closeOnBackdrop = true,
         bool $closeOnEscape = true,
@@ -56,6 +57,7 @@ class Dialog extends Component
         string $overlayKind = OverlayKind::DIALOG,
         string $closeStrategy = CloseStrategy::BLOCKING,
         ?string $teleport = '#affino-dialog-host',
+        ?string $teleportTarget = null,
         ?string $pendingMessage = null,
         ?int $maxPendingAttempts = null,
         ?string $labelledBy = null,
@@ -63,7 +65,10 @@ class Dialog extends Component
         string $surfaceRole = 'dialog',
         ?string $descriptionId = null,
     ) {
-        $this->dialogId = $dialogId ?: 'affino-dialog-' . Str::uuid();
+        $resolvedDialogId = $dialogId ?: $id;
+        $resolvedTeleportTarget = $teleportTarget ?? $teleport;
+
+        $this->dialogId = $resolvedDialogId ?: 'affino-dialog-' . Str::uuid();
         $this->modal = $modal;
         $this->closeOnBackdrop = $closeOnBackdrop;
         $this->closeOnEscape = $closeOnEscape;
@@ -73,7 +78,7 @@ class Dialog extends Component
         $this->defaultOpen = $defaultOpen;
         $this->overlayKind = OverlayKind::normalize($overlayKind);
         $this->closeStrategy = CloseStrategy::normalize($closeStrategy);
-        $this->teleportTarget = $teleport && $teleport !== '' ? $teleport : null;
+        $this->teleportTarget = $resolvedTeleportTarget && $resolvedTeleportTarget !== '' ? $resolvedTeleportTarget : null;
         $this->pendingMessage = $pendingMessage;
         $this->maxPendingAttempts = $maxPendingAttempts;
         $this->labelledBy = $labelledBy;

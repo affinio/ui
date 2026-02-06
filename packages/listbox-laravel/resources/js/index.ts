@@ -11,6 +11,7 @@ import {
   createOverlayIntegration,
   ensureDocumentObserver,
   getDocumentOverlayManager,
+  type OverlayManager,
   type OverlayCloseReason,
   type OverlayKind,
 } from "@affino/overlay-kernel"
@@ -66,6 +67,21 @@ type OptionSnapshot = {
 
 const registry = new WeakMap<RootEl, Cleanup>()
 const openStateRegistry = new Map<string, boolean>()
+
+type OverlayWindow = Window & { __affinoOverlayManager?: OverlayManager }
+
+function resolveSharedOverlayManager(ownerDocument: Document): OverlayManager {
+  const scope = ownerDocument.defaultView as OverlayWindow | null
+  const existing = scope?.__affinoOverlayManager
+  if (existing) {
+    return existing
+  }
+  const manager = getDocumentOverlayManager(ownerDocument)
+  if (scope) {
+    scope.__affinoOverlayManager = manager
+  }
+  return manager
+}
 
 export function bootstrapAffinoListboxes(): void {
   if (typeof document === "undefined") {
@@ -126,7 +142,7 @@ function hydrateResolvedListbox(root: RootEl, trigger: HTMLElement, surface: HTM
   const overlayIntegration = createOverlayIntegration({
     id: overlayId,
     kind: overlayKind,
-    overlayManager: getDocumentOverlayManager(root.ownerDocument ?? document),
+    overlayManager: resolveSharedOverlayManager(root.ownerDocument ?? document),
     traits: {
       root: surface,
       returnFocus: true,

@@ -5,6 +5,7 @@ import {
   acquireDocumentScrollLock,
   getDocumentOverlayManager,
   releaseDocumentScrollLock,
+  type OverlayManager,
   type OverlayKind,
 } from "@affino/overlay-kernel"
 
@@ -32,6 +33,22 @@ const registry = new Map<RootEl, MenuInstance>()
 const structureRegistry = new WeakMap<RootEl, MenuStructureSnapshot>()
 let mutationObserver: MutationObserver | null = null
 let refreshScheduled = false
+
+type OverlayWindow = Window & { __affinoOverlayManager?: OverlayManager }
+
+function resolveSharedOverlayManager(ownerDocument: Document): OverlayManager {
+  const scope = ownerDocument.defaultView as OverlayWindow | null
+  const existing = scope?.__affinoOverlayManager
+  if (existing) {
+    return existing
+  }
+  const manager = getDocumentOverlayManager(ownerDocument)
+  if (scope) {
+    scope.__affinoOverlayManager = manager
+  }
+  return manager
+}
+
 type MenuStructureSnapshot = {
   trigger: TriggerEl
   panel: PanelEl
@@ -240,6 +257,8 @@ class MenuInstance {
   private viewportHandler: (() => void) | null = null
   private docPointerHandler: ((event: PointerEvent) => void) | null = null
   private scrollLockHeld = false
+  private pendingMeasureFrame: number | null = null
+  private pendingPositionSync: number | null = null
 
   constructor(root: RootEl, trigger: TriggerEl, panel: PanelEl) {
     this.root = root
@@ -270,6 +289,14 @@ class MenuInstance {
 
   destroy(): void {
     this.cancelFocusRequest()
+    if (this.pendingMeasureFrame !== null) {
+      cancelAnimationFrame(this.pendingMeasureFrame)
+      this.pendingMeasureFrame = null
+    }
+    if (this.pendingPositionSync !== null) {
+      cancelAnimationFrame(this.pendingPositionSync)
+      this.pendingPositionSync = null
+    }
     this.cleanup.forEach((dispose) => dispose())
     this.itemReleases.forEach((release) => release?.())
     this.itemsById.clear()
@@ -306,7 +333,7 @@ class MenuInstance {
   }
 
   private createMenuCore(): MenuCore {
-    const overlayManager = getDocumentOverlayManager(this.root.ownerDocument ?? document)
+    const overlayManager = resolveSharedOverlayManager(this.root.ownerDocument ?? document)
     const overlayKind = (this.root.dataset.affinoMenuOverlayKind as OverlayKind | undefined) ?? "menu"
     const overlayEntryTraits: Partial<MenuOverlayTraits> = {}
     if (this.root.dataset.affinoMenuOverlayOwner) {
@@ -323,7 +350,8 @@ class MenuInstance {
     }
     const openDelay = readNumber(this.root.dataset.affinoMenuOpenDelay, 80)
     const closeDelay = readNumber(this.root.dataset.affinoMenuCloseDelay, 120)
-    const defaultOpen = readBoolean(this.root.dataset.affinoMenuDefaultOpen, false)
+    const stateOpen = this.root.dataset.affinoMenuState === "open"
+    const defaultOpen = stateOpen || readBoolean(this.root.dataset.affinoMenuDefaultOpen, false)
     const closeOnSelect = readBoolean(this.root.dataset.affinoMenuCloseSelect, true)
 
     return new MenuCore({
@@ -357,6 +385,8 @@ class MenuInstance {
     const subscription = this.core.subscribe((snapshot) => this.syncState(snapshot))
     this.cleanup.push(() => subscription.unsubscribe())
     this.syncState(this.core.getSnapshot())
+    this.observeDomState()
+    this.syncOpenFromDomState()
   }
 
   private registerItems(): void {
@@ -468,7 +498,7 @@ class MenuInstance {
         this.scrollLockHeld = true
       }
       if (!prev) {
-        this.positionPanel()
+        this.syncPanelPosition()
         this.focusOnOpen()
       }
       this.syncActiveItem(snapshot.activeItemId)
@@ -478,6 +508,14 @@ class MenuInstance {
     if (this.scrollLockHeld) {
       releaseDocumentScrollLock(this.root.ownerDocument, "menu")
       this.scrollLockHeld = false
+    }
+    if (this.pendingMeasureFrame !== null) {
+      cancelAnimationFrame(this.pendingMeasureFrame)
+      this.pendingMeasureFrame = null
+    }
+    if (this.pendingPositionSync !== null) {
+      cancelAnimationFrame(this.pendingPositionSync)
+      this.pendingPositionSync = null
     }
     this.panel.style.visibility = "hidden"
     this.panel.style.pointerEvents = "none"
@@ -510,6 +548,17 @@ class MenuInstance {
     this.panel.style.visibility = "hidden"
     this.panel.style.pointerEvents = "none"
     const surface = this.panel.getBoundingClientRect()
+    if (surface.width === 0 || surface.height === 0) {
+      if (this.pendingMeasureFrame === null) {
+        this.pendingMeasureFrame = requestAnimationFrame(() => {
+          this.pendingMeasureFrame = null
+          if (this.isOpen && !this.panel.hidden) {
+            this.positionPanel()
+          }
+        })
+      }
+      return
+    }
     const position = this.core.computePosition(anchor, surface, {
       placement: this.positioning.placement,
       align: this.positioning.align,
@@ -525,6 +574,49 @@ class MenuInstance {
     this.panel.dataset.align = position.align
     this.panel.style.visibility = ""
     this.panel.style.pointerEvents = ""
+  }
+
+  private syncPanelPosition(): void {
+    this.panel.style.visibility = "hidden"
+    this.panel.style.pointerEvents = "none"
+    this.positionPanel()
+    if (this.pendingPositionSync !== null) {
+      cancelAnimationFrame(this.pendingPositionSync)
+    }
+    this.pendingPositionSync = requestAnimationFrame(() => {
+      this.pendingPositionSync = null
+      if (this.isOpen && !this.panel.hidden) {
+        this.positionPanel()
+      }
+    })
+  }
+
+  private observeDomState(): void {
+    const observer = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        if (mutation.type === "attributes" && mutation.attributeName === "data-affino-menu-state") {
+          this.syncOpenFromDomState()
+          return
+        }
+      }
+    })
+    observer.observe(this.root, {
+      attributes: true,
+      attributeFilter: ["data-affino-menu-state"],
+    })
+    this.cleanup.push(() => observer.disconnect())
+  }
+
+  private syncOpenFromDomState(): void {
+    const domOpen = this.root.dataset.affinoMenuState === "open"
+    const snapshotOpen = this.core.getSnapshot().open
+    if (domOpen && !snapshotOpen) {
+      this.core.open("programmatic")
+      return
+    }
+    if (!domOpen && snapshotOpen) {
+      this.core.close("programmatic")
+    }
   }
 
   private collectItems(forceRefresh = false): ItemEl[] {

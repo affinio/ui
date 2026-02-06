@@ -9,7 +9,7 @@ import type {
   OverlayKind,
 } from "@affino/dialog-core"
 import { focusEdge, getFocusableElements } from "@affino/focus-utils"
-import { ensureDocumentObserver } from "@affino/overlay-kernel"
+import { ensureDocumentObserver, getDocumentOverlayManager, type OverlayManager } from "@affino/overlay-kernel"
 import type {
   BindingOptions,
   Cleanup,
@@ -43,6 +43,21 @@ const registry = new WeakMap<RootEl, Cleanup>()
 const pinnedOpenRegistry = new Map<string, boolean>()
 let dialogOverlayIdCounter = 0
 
+type OverlayWindow = Window & { __affinoOverlayManager?: OverlayManager }
+
+function resolveSharedOverlayManager(ownerDocument: Document): OverlayManager {
+  const scope = ownerDocument.defaultView as OverlayWindow | null
+  const existing = scope?.__affinoOverlayManager
+  if (existing) {
+    return existing
+  }
+  const manager = getDocumentOverlayManager(ownerDocument)
+  if (scope) {
+    scope.__affinoOverlayManager = manager
+  }
+  return manager
+}
+
 function hydrateDialog(root: RootEl): void {
   const resolveOverlay = () => resolveOverlayElement(root)
   const overlay = resolveOverlay()
@@ -55,6 +70,7 @@ function hydrateDialog(root: RootEl): void {
   teardown?.()
 
   const options = resolveOptions(root)
+  const domStateOpen = root.dataset.affinoDialogState === "open"
   tagOverlayOwner(root, overlay)
   const teleportRestore = maybeTeleportOverlay(root, overlay, options.teleportTarget)
   const overlayId = resolveOverlayId(root)
@@ -74,12 +90,13 @@ function hydrateDialog(root: RootEl): void {
 
   binding.controller = new DialogController({
     id: overlayId,
-    defaultOpen: options.defaultOpen,
+    defaultOpen: options.defaultOpen || domStateOpen,
     overlayKind: options.overlayKind,
     closeStrategy: options.closeStrategy,
     pendingNavigationMessage: options.pendingMessage ?? undefined,
     maxPendingAttempts: options.maxPendingAttempts ?? undefined,
     focusOrchestrator: createFocusOrchestrator(surface, root, options),
+    overlayManager: resolveSharedOverlayManager(root.ownerDocument ?? document),
     overlayRegistrar: globalOverlayRegistrar,
   })
   registerBinding(binding)
@@ -119,6 +136,38 @@ function hydrateDialog(root: RootEl): void {
   })
   structureObserver.observe(root, { childList: true, subtree: true })
   binding.detachments.push(() => structureObserver.disconnect())
+
+  const syncOpenFromDomState = () => {
+    const domState = root.dataset.affinoDialogState
+    const snapshot = binding.controller.snapshot
+    if (domState === "open") {
+      if (!snapshot.isOpen && snapshot.phase !== "opening") {
+        binding.controller.open("programmatic")
+      }
+      return
+    }
+    if (domState !== "closed" && domState !== "idle") {
+      return
+    }
+    if (snapshot.isOpen || snapshot.phase === "opening" || snapshot.optimisticCloseInFlight) {
+      binding.controller.close("programmatic")
+    }
+  }
+
+  const stateObserver = new MutationObserver((mutations) => {
+    for (const mutation of mutations) {
+      if (mutation.type === "attributes" && mutation.attributeName === "data-affino-dialog-state") {
+        syncOpenFromDomState()
+        return
+      }
+    }
+  })
+  stateObserver.observe(root, {
+    attributes: true,
+    attributeFilter: ["data-affino-dialog-state"],
+  })
+  binding.detachments.push(() => stateObserver.disconnect())
+  syncOpenFromDomState()
 
   const rootId = root.dataset.affinoDialogRoot
   if (options.pinned && rootId && pinnedOpenRegistry.get(rootId)) {

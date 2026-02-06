@@ -133,6 +133,33 @@ describe("hydratePopover", () => {
     expect(root.affinoPopover).not.toBe(handleBefore)
   })
 
+  it("respects initial open state from data-affino-popover-state", () => {
+    const { root, content } = setupPopoverFixture()
+    root.dataset.affinoPopoverState = "open"
+    content.hidden = false
+    content.dataset.state = "open"
+
+    hydratePopover(root as any)
+
+    expect(content.hidden).toBe(false)
+    expect(root.dataset.affinoPopoverState).toBe("open")
+    expect(content.dataset.state).toBe("open")
+  })
+
+  it("syncs open state from data-affino-popover-state updates", async () => {
+    const { root, content } = setupPopoverFixture()
+    hydratePopover(root as any)
+    expect(content.hidden).toBe(true)
+
+    root.dataset.affinoPopoverState = "open"
+    await Promise.resolve()
+    expect(content.hidden).toBe(false)
+
+    root.dataset.affinoPopoverState = "closed"
+    await Promise.resolve()
+    expect(content.hidden).toBe(true)
+  })
+
   it("keeps document scroll locked when another overlay source still holds lock", () => {
     const { root } = setupPopoverFixture({ lockScroll: true })
     acquireDocumentScrollLock(document, "menu")

@@ -6,6 +6,7 @@ import { bootstrapAffinoComboboxes } from "@affino/combobox-laravel"
 import { bootstrapAffinoMenus } from "@affino/menu-laravel"
 import { bootstrapAffinoTabs } from "@affino/tabs-laravel"
 import { bootstrapAffinoDisclosure } from "@affino/disclosure-laravel"
+import { getDocumentOverlayManager, type OverlayManager } from "@affino/overlay-kernel"
 import {
   AFFINO_COMBOBOX_MANUAL_EVENT,
   AFFINO_DISCLOSURE_MANUAL_EVENT,
@@ -51,6 +52,14 @@ export {
   AFFINO_DISCLOSURE_MANUAL_EVENT,
 }
 
+export function getAffinoOverlayManager(doc?: Document | null): OverlayManager | null {
+  const target = doc ?? (typeof document !== "undefined" ? document : null)
+  if (!target) {
+    return null
+  }
+  return getDocumentOverlayManager(target)
+}
+
 const COMPONENT_DESCRIPTORS = [
   { name: "dialog", selector: "[data-affino-dialog-root]", handleProperty: "affinoDialog" },
   { name: "tooltip", selector: "[data-affino-tooltip-root]", handleProperty: "affinoTooltip" },
@@ -65,7 +74,8 @@ const COMPONENT_DESCRIPTORS = [
 const SCROLL_GUARD_TARGETS: ReadonlyArray<ScrollGuardTarget> = [
   {
     selector: "[data-affino-tooltip-state='open']",
-    shouldClose: (root) => root.dataset.affinoTooltipTriggerMode !== "manual",
+    shouldClose: (root) =>
+      root.dataset.affinoTooltipTriggerMode !== "manual" && root.dataset.affinoTooltipPinned !== "true",
     close: (root) => {
       const handle = (root as HTMLElement & { affinoTooltip?: { close: (reason?: string) => void } }).affinoTooltip
       handle?.close("programmatic")
@@ -136,6 +146,10 @@ export function bootstrapAffinoLaravelAdapters(options: AffinoLaravelAdapterOpti
   }
 
   const scope = window as unknown as Record<string, unknown>
+  const overlayManager = getAffinoOverlayManager(document)
+  if (overlayManager) {
+    scope.__affinoOverlayManager = overlayManager
+  }
   const flag = "__affinoLaravelAdapterBootstrapped"
   if (scope[flag]) {
     return

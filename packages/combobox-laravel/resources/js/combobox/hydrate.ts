@@ -15,6 +15,7 @@ import {
   createOverlayIntegration,
   ensureDocumentObserver,
   getDocumentOverlayManager,
+  type OverlayManager,
   type OverlayCloseReason,
 } from "@affino/overlay-kernel"
 import {
@@ -45,6 +46,21 @@ import type {
 
 const registry = new WeakMap<RootEl, Cleanup>()
 const pinnedOpenRegistry = new Map<string, boolean>()
+
+type OverlayWindow = Window & { __affinoOverlayManager?: OverlayManager }
+
+function resolveSharedOverlayManager(ownerDocument: Document): OverlayManager {
+  const scope = ownerDocument.defaultView as OverlayWindow | null
+  const existing = scope?.__affinoOverlayManager
+  if (existing) {
+    return existing
+  }
+  const manager = getDocumentOverlayManager(ownerDocument)
+  if (scope) {
+    scope.__affinoOverlayManager = manager
+  }
+  return manager
+}
 
 export function hydrateCombobox(root: RootEl): void {
   const input = root.querySelector<InputEl>("[data-affino-combobox-input]")
@@ -101,7 +117,7 @@ function hydrateResolvedCombobox(root: RootEl, input: InputEl, surface: SurfaceE
   overlayIntegration = createOverlayIntegration({
     id: overlayId,
     kind: overlayKind,
-    overlayManager: getDocumentOverlayManager(root.ownerDocument ?? document),
+    overlayManager: resolveSharedOverlayManager(root.ownerDocument ?? document),
     traits: {
       root: surface,
       returnFocus: true,
@@ -423,6 +439,32 @@ function hydrateResolvedCombobox(root: RootEl, input: InputEl, surface: SurfaceE
   })
   structureObserver.observe(root, { childList: true, subtree: true })
   detachments.push(() => structureObserver.disconnect())
+
+  const syncOpenFromDomState = () => {
+    const domOpen = readBoolean(root.dataset.affinoComboboxState, false)
+    if (domOpen && !state.open) {
+      openCombobox()
+      return
+    }
+    if (!domOpen && state.open) {
+      closeCombobox({ restoreInput: true })
+    }
+  }
+
+  const stateObserver = new MutationObserver((mutations) => {
+    for (const mutation of mutations) {
+      if (mutation.type === "attributes" && mutation.attributeName === "data-affino-combobox-state") {
+        syncOpenFromDomState()
+        return
+      }
+    }
+  })
+  stateObserver.observe(root, {
+    attributes: true,
+    attributeFilter: ["data-affino-combobox-state"],
+  })
+  detachments.push(() => stateObserver.disconnect())
+  syncOpenFromDomState()
 
   function applyComboboxState(next: ComboboxState, options?: { silentSelection?: boolean }) {
     if (next === state) {

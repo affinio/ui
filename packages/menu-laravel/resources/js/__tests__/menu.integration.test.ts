@@ -14,6 +14,36 @@ type FixtureOptions = {
 
 let fixtureId = 0
 
+type RectInit = {
+  x?: number
+  y?: number
+  width?: number
+  height?: number
+}
+
+function createRect(init: RectInit): DOMRect {
+  const { x = 0, y = 0, width = 0, height = 0 } = init
+  return {
+    x,
+    y,
+    width,
+    height,
+    top: y,
+    left: x,
+    right: x + width,
+    bottom: y + height,
+    toJSON: () => ({ x, y, width, height, top: y, left: x, right: x + width, bottom: y + height }),
+  } as DOMRect
+}
+
+function mockRect(element: HTMLElement, rectInit: RectInit) {
+  const rect = createRect(rectInit)
+  Object.defineProperty(element, "getBoundingClientRect", {
+    value: vi.fn(() => rect),
+    configurable: true,
+  })
+}
+
 function createMenuFixture(options?: FixtureOptions) {
   fixtureId += 1
   const root = document.createElement("div") as MenuTestRoot
@@ -35,6 +65,9 @@ function createMenuFixture(options?: FixtureOptions) {
   item.dataset.affinoMenuItem = ""
   item.textContent = "Item A"
   panel.appendChild(item)
+
+  mockRect(trigger, { x: 200, y: 120, width: 80, height: 36 })
+  mockRect(panel, { x: 0, y: 0, width: 180, height: 120 })
 
   document.body.appendChild(root)
   return { root, panel }
@@ -71,6 +104,26 @@ describe("menu refresh interactions", () => {
 
     scan(document)
     expect(root.affinoMenu).not.toBe(firstHandle)
+  })
+
+  it("syncs menu state from data-affino-menu-state updates", async () => {
+    ;(globalThis as any).requestAnimationFrame = (callback: FrameRequestCallback) => {
+      callback(0)
+      return 1
+    }
+    const { root, panel } = createMenuFixture({ portal: "inline" })
+    hydrateMenu(root as any)
+    expect(panel.hidden).toBe(true)
+
+    root.dataset.affinoMenuState = "open"
+    await Promise.resolve()
+    expect(panel.hidden).toBe(false)
+    expect(root.dataset.affinoMenuState).toBe("open")
+
+    root.dataset.affinoMenuState = "closed"
+    await Promise.resolve()
+    expect(panel.hidden).toBe(true)
+    expect(root.dataset.affinoMenuState).toBe("closed")
   })
 
   it("cleans up body-portal panel after refresh removes detached root", () => {

@@ -29,6 +29,7 @@
     "@affino/menu-laravel": "workspace:*",
     "@affino/tabs-laravel": "workspace:*",
     "@affino/disclosure-laravel": "workspace:*",
+    "@affino/overlay-kernel": "workspace:*",
     "@affino/dialog-core": "workspace:*",
     "@affino/tooltip-core": "workspace:*",
     "@affino/popover-core": "workspace:*",

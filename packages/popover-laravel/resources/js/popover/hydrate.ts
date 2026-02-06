@@ -24,12 +24,13 @@ export function hydratePopover(root: RootEl): void {
   teardown?.()
 
   const options = resolveOptions(root)
+  const initialStateOpen = root.dataset.affinoPopoverState === "open"
   const popover = new PopoverCore({
     id: root.dataset.affinoPopoverRoot,
     closeOnEscape: options.closeOnEscape,
     closeOnInteractOutside: options.closeOnInteractOutside,
     modal: options.modal,
-    defaultOpen: options.defaultOpen,
+    defaultOpen: options.defaultOpen || initialStateOpen,
   })
 
   const detachments: Detachment[] = []
@@ -44,6 +45,7 @@ export function hydratePopover(root: RootEl): void {
 
   const arrow = content.querySelector<HTMLElement>("[data-affino-popover-arrow]")
   let pendingMeasureFrame: number | null = null
+  let pendingPositionSync: number | null = null
   let outsideCleanup: (() => void) | null = null
   let relayoutCleanup: (() => void) | null = null
   let resizeObserver: ResizeObserver | null = null
@@ -98,15 +100,35 @@ export function hydratePopover(root: RootEl): void {
       cancelAnimationFrame(pendingMeasureFrame)
       pendingMeasureFrame = null
     }
+    if (pendingPositionSync !== null) {
+      cancelAnimationFrame(pendingPositionSync)
+      pendingPositionSync = null
+    }
     content.style.position = options.strategy
     content.style.left = "-9999px"
     content.style.top = "-9999px"
     content.style.transform = "translate3d(0, 0, 0)"
+    content.style.visibility = ""
     delete content.dataset.placement
     delete content.dataset.align
     if (arrow) {
       resetArrow(arrow)
     }
+  }
+
+  const syncPosition = () => {
+    content.style.visibility = "hidden"
+    updatePosition()
+    if (pendingPositionSync !== null) {
+      cancelAnimationFrame(pendingPositionSync)
+    }
+    pendingPositionSync = requestAnimationFrame(() => {
+      pendingPositionSync = null
+      if (!content.hidden) {
+        updatePosition()
+        content.style.visibility = ""
+      }
+    })
   }
 
   const attachOutsideGuards = () => {
@@ -177,6 +199,18 @@ export function hydratePopover(root: RootEl): void {
     relayoutCleanup?.()
   }
 
+  const syncOpenFromDomState = () => {
+    const domOpen = root.dataset.affinoPopoverState === "open"
+    const snapshotOpen = popover.getSnapshot().open
+    if (domOpen && !snapshotOpen) {
+      popover.open("programmatic")
+      return
+    }
+    if (!domOpen && snapshotOpen) {
+      popover.close("programmatic")
+    }
+  }
+
   if (typeof ResizeObserver !== "undefined") {
     resizeObserver = new ResizeObserver(() => {
       if (!content.hidden) {
@@ -218,6 +252,10 @@ export function hydratePopover(root: RootEl): void {
     content.hidden = !open
 
     if (open) {
+      content.style.position = options.strategy
+      content.style.left = "0px"
+      content.style.top = "0px"
+      content.style.visibility = "hidden"
       ensureSingleActivePopover(root)
       attachOutsideGuards()
       attachRelayoutHandlers()
@@ -225,7 +263,7 @@ export function hydratePopover(root: RootEl): void {
         acquireDocumentScrollLock(root.ownerDocument, "popover")
         scrollLocked = true
       }
-      requestAnimationFrame(updatePosition)
+      syncPosition()
     } else {
       detachOutsideGuards()
       detachRelayoutHandlers()
@@ -252,6 +290,21 @@ export function hydratePopover(root: RootEl): void {
     applyState(snapshot.open)
   })
 
+  const stateObserver = new MutationObserver((mutations) => {
+    for (const mutation of mutations) {
+      if (mutation.type === "attributes" && mutation.attributeName === "data-affino-popover-state") {
+        syncOpenFromDomState()
+        return
+      }
+    }
+  })
+  stateObserver.observe(root, {
+    attributes: true,
+    attributeFilter: ["data-affino-popover-state"],
+  })
+  detachments.push(() => stateObserver.disconnect())
+  syncOpenFromDomState()
+
   detachments.push(() => {
     unsubscribe.unsubscribe()
     resizeObserver?.disconnect()
@@ -260,9 +313,9 @@ export function hydratePopover(root: RootEl): void {
     resetPosition()
   })
 
-  if (options.pinned || options.defaultOpen) {
+  if (options.pinned || options.defaultOpen || initialStateOpen) {
     requestAnimationFrame(() => {
-      if (root.isConnected && (options.pinned || options.defaultOpen)) {
+      if (root.isConnected && (options.pinned || options.defaultOpen || root.dataset.affinoPopoverState === "open")) {
         popover.open("programmatic")
       }
     })

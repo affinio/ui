@@ -88,6 +88,20 @@ describe("combobox integration", () => {
     expect(root.affinoCombobox).not.toBe(handleBefore)
   })
 
+  it("syncs open state from data-affino-combobox-state updates", async () => {
+    const { root } = createComboboxFixture()
+    hydrateCombobox(root as any)
+    expect(root.affinoCombobox?.getSnapshot().open).toBe(false)
+
+    root.dataset.affinoComboboxState = "true"
+    await Promise.resolve()
+    expect(root.affinoCombobox?.getSnapshot().open).toBe(true)
+
+    root.dataset.affinoComboboxState = "false"
+    await Promise.resolve()
+    expect(root.affinoCombobox?.getSnapshot().open).toBe(false)
+  })
+
   it("does not rehydrate on text-only mutations", () => {
     const { root, surface } = createComboboxFixture()
     hydrateCombobox(root as any)
