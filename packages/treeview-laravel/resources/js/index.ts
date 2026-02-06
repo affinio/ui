@@ -65,6 +65,7 @@ type TreeviewItemModel = {
 const TREEVIEW_ROOT_SELECTOR = "[data-affino-treeview-root]"
 const TREEVIEW_ITEM_SELECTOR = "[data-affino-treeview-item]"
 const TREEVIEW_TOGGLE_SELECTOR = "[data-affino-treeview-toggle]"
+const TREEVIEW_GUIDES_SELECTOR = "[data-affino-treeview-guides]"
 const registry = new WeakMap<RootEl, Cleanup>()
 const structureRegistry = new WeakMap<RootEl, TreeviewStructure>()
 const pendingScanScopes = new Set<ParentNode>()
@@ -142,6 +143,7 @@ function hydrateResolvedTreeview(root: RootEl, structure: TreeviewStructure): vo
       model.element.dataset.affinoTreeviewLast =
         model.siblingIndex === model.siblingCount - 1 ? "true" : "false"
       model.element.style.setProperty("--affino-tree-level", String(model.level))
+      syncGuideLayer(model, byValue)
 
       if (!model.children.length) {
         model.element.removeAttribute("aria-expanded")
@@ -644,6 +646,51 @@ function parseCsv(value: string | undefined): string[] {
     .split(",")
     .map((entry) => entry.trim())
     .filter((entry) => entry.length > 0)
+}
+
+function syncGuideLayer(
+  model: TreeviewItemModel,
+  byValue: ReadonlyMap<string, TreeviewItemModel>,
+): void {
+  let guides = model.element.querySelector<HTMLElement>(TREEVIEW_GUIDES_SELECTOR)
+  if (!guides) {
+    guides = model.element.ownerDocument.createElement("span")
+    guides.className = "treeview-node__guides"
+    guides.setAttribute("data-affino-treeview-guides", "")
+    guides.setAttribute("aria-hidden", "true")
+    model.element.prepend(guides)
+  }
+  guides.innerHTML = ""
+  const guideFlags = getAncestorGuideFlags(model, byValue)
+  guideFlags.forEach((draw, index) => {
+    const guide = model.element.ownerDocument.createElement("span")
+    guide.className = "treeview-node__guide"
+    guide.dataset.draw = draw ? "true" : "false"
+    guide.style.setProperty("--guide-index", String(index))
+    guides.append(guide)
+  })
+}
+
+function getAncestorGuideFlags(
+  model: TreeviewItemModel,
+  byValue: ReadonlyMap<string, TreeviewItemModel>,
+): boolean[] {
+  const flags: boolean[] = []
+  let cursor = model.parent
+  const visited = new Set<string>()
+  while (cursor !== null) {
+    if (visited.has(cursor)) {
+      break
+    }
+    visited.add(cursor)
+    const parent = byValue.get(cursor)
+    if (!parent) {
+      break
+    }
+    flags.unshift(parent.siblingIndex < parent.siblingCount - 1)
+    cursor = parent.parent
+  }
+  return flags
 }
 
 function arrayEquals<Value>(left: ReadonlyArray<Value>, right: ReadonlyArray<Value>): boolean {
