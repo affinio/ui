@@ -73,6 +73,58 @@ function createMenuFixture(options?: FixtureOptions) {
   return { root, panel }
 }
 
+function createSubmenuFixture() {
+  fixtureId += 1
+  const parentRoot = document.createElement("div") as MenuTestRoot
+  parentRoot.dataset.affinoMenuRoot = `menu-parent-${fixtureId}`
+  parentRoot.dataset.affinoMenuPortal = "inline"
+
+  const parentTrigger = document.createElement("button")
+  parentTrigger.dataset.affinoMenuTrigger = ""
+  parentTrigger.type = "button"
+  parentRoot.appendChild(parentTrigger)
+
+  const parentPanel = document.createElement("div")
+  parentPanel.dataset.affinoMenuPanel = ""
+  parentRoot.appendChild(parentPanel)
+
+  const parentItem = document.createElement("button")
+  parentItem.dataset.affinoMenuItem = ""
+  parentItem.id = `menu-parent-item-${fixtureId}`
+  parentItem.textContent = "Parent Item"
+  parentPanel.appendChild(parentItem)
+
+  const submenuRoot = document.createElement("div") as MenuTestRoot
+  submenuRoot.dataset.affinoMenuRoot = `menu-submenu-${fixtureId}`
+  submenuRoot.dataset.affinoMenuPortal = "inline"
+  submenuRoot.dataset.affinoMenuParent = parentRoot.dataset.affinoMenuRoot
+  submenuRoot.dataset.affinoMenuParentItem = parentItem.id
+
+  const submenuTrigger = document.createElement("button")
+  submenuTrigger.dataset.affinoMenuTrigger = ""
+  submenuTrigger.type = "button"
+  submenuRoot.appendChild(submenuTrigger)
+
+  const submenuPanel = document.createElement("div")
+  submenuPanel.dataset.affinoMenuPanel = ""
+  submenuRoot.appendChild(submenuPanel)
+
+  const submenuItem = document.createElement("button")
+  submenuItem.dataset.affinoMenuItem = ""
+  submenuItem.textContent = "Child Item"
+  submenuPanel.appendChild(submenuItem)
+
+  mockRect(parentTrigger, { x: 200, y: 120, width: 80, height: 36 })
+  mockRect(parentPanel, { x: 0, y: 0, width: 180, height: 120 })
+  mockRect(submenuTrigger, { x: 300, y: 140, width: 80, height: 36 })
+  mockRect(submenuPanel, { x: 0, y: 0, width: 180, height: 120 })
+
+  document.body.appendChild(parentRoot)
+  document.body.appendChild(submenuRoot)
+
+  return { parentRoot, submenuRoot }
+}
+
 describe("menu refresh interactions", () => {
   let originalRaf: typeof requestAnimationFrame | undefined
 
@@ -120,10 +172,28 @@ describe("menu refresh interactions", () => {
     expect(panel.hidden).toBe(false)
     expect(root.dataset.affinoMenuState).toBe("open")
 
+    const outside = document.createElement("button")
+    outside.textContent = "outside"
+    document.body.appendChild(outside)
+    outside.focus()
+
     root.dataset.affinoMenuState = "closed"
     await Promise.resolve()
     expect(panel.hidden).toBe(true)
     expect(root.dataset.affinoMenuState).toBe("closed")
+  })
+
+  it("clears detached parent cache before submenu rehydrate", () => {
+    const { parentRoot, submenuRoot } = createSubmenuFixture()
+    hydrateMenu(parentRoot as any)
+    hydrateMenu(submenuRoot as any)
+    expect(submenuRoot.dataset.affinoMenuParentResolved).toBe("true")
+
+    parentRoot.remove()
+    refreshAffinoMenus()
+    vi.runAllTimers()
+
+    expect(submenuRoot.dataset.affinoMenuParentResolved).toBe("false")
   })
 
   it("cleans up body-portal panel after refresh removes detached root", () => {

@@ -5,6 +5,7 @@ import type {
   CloseStrategy,
   DialogCloseReason,
   DialogControllerOptions,
+  DialogControllerErrorEvent,
   DialogEventListener,
   DialogEventName,
   DialogEventMap,
@@ -30,6 +31,7 @@ import {
 } from "@affino/overlay-kernel"
 
 const DEFAULT_PENDING_MESSAGE = "Dialog close pending"
+const DEFAULT_GUARD_ERROR_MESSAGE = "Close guard failed"
 let controllerId = 0
 
 function createDialogId(prefix = "affino-dialog") {
@@ -337,6 +339,11 @@ export class DialogController {
     })
   }
 
+  private emitError(event: DialogControllerErrorEvent): void {
+    this.options.onError?.(event)
+    this.emitEvent("error", event)
+  }
+
   private maybeNotifyPendingLimit(reason: DialogCloseReason): void {
     const limit = this.options.maxPendingAttempts
     if (!limit) return
@@ -455,18 +462,20 @@ export class DialogController {
       this.options.onPendingCloseAttempt?.({ reason, attempt: this.pendingAttempts })
       this.maybeNotifyPendingLimit(reason)
       this.emit()
-      return this.guardOutcomePromise ?? this.guardPromise.then((decision) => decision.outcome === "allow")
+      return this.guardOutcomePromise ?? Promise.resolve(false)
     }
 
     this.pendingAttempts = 0
     this.guardMessage = undefined
     const strategy = request.strategy ?? this.defaultStrategy
 
-    const pendingDecision = Promise.resolve(
-      this.closeGuard({ reason, metadata: request.metadata })
+    const pendingDecision = Promise.resolve().then(() =>
+      this.closeGuard!({ reason, metadata: request.metadata })
     )
     this.guardPromise = pendingDecision
-    this.guardOutcomePromise = pendingDecision.then((decision) => decision.outcome === "allow")
+    this.guardOutcomePromise = pendingDecision
+      .then((decision) => decision.outcome === "allow")
+      .catch(() => false)
 
     if (strategy === "optimistic") {
       this.optimisticClose = true
@@ -492,6 +501,22 @@ export class DialogController {
       } else {
         this.emit()
       }
+      return false
+    } catch (error) {
+      const message = resolveErrorMessage(error, DEFAULT_GUARD_ERROR_MESSAGE)
+      this.guardMessage = message
+      if (strategy === "optimistic") {
+        this.transition("open")
+      } else {
+        this.emit()
+      }
+      this.emitError({
+        code: "close-guard-error",
+        phase: this.phase,
+        reason,
+        error,
+        message,
+      })
       return false
     } finally {
       this.guardPromise = null
@@ -530,4 +555,17 @@ export class DialogController {
     this.overlayIntegration.destroy()
     this.unregisterLegacyOverlay()
   }
+}
+
+function resolveErrorMessage(error: unknown, fallback: string): string {
+  if (typeof error === "string" && error.trim()) {
+    return error
+  }
+  if (error && typeof error === "object" && "message" in error) {
+    const message = (error as { message?: unknown }).message
+    if (typeof message === "string" && message.trim()) {
+      return message
+    }
+  }
+  return fallback
 }

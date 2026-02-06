@@ -7,6 +7,7 @@ const noopCallbacks = {
   onClose: vi.fn(),
   onSelect: vi.fn(),
   onHighlight: vi.fn(),
+  onDebug: vi.fn(),
 }
 
 describe("MenuCore", () => {
@@ -107,5 +108,61 @@ describe("MenuCore", () => {
     menu.open("programmatic")
     menu.requestClose("keyboard")
     expect(requestSpy).toHaveBeenLastCalledWith("kernel-menu", "escape-key")
+  })
+
+  it("falls back to local close and emits diagnostics when overlay close mediation throws", () => {
+    const manager = createOverlayManager()
+    const menu = new MenuCore({ id: "menu-overlay-failure", defaultOpen: true, overlayManager: manager }, { ...noopCallbacks })
+    vi.spyOn(manager, "requestClose").mockImplementation(() => {
+      throw new Error("overlay-close-failure")
+    })
+
+    expect(() => menu.requestClose("pointer")).not.toThrow()
+    expect(menu.getSnapshot().open).toBe(false)
+    expect(noopCallbacks.onDebug).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "overlay-error",
+        menuId: "menu-overlay-failure",
+        operation: "request-close",
+      }),
+    )
+  })
+
+  it("returns null and emits diagnostics when dynamic overlay manager resolution throws", () => {
+    const menu = new MenuCore(
+      {
+        id: "menu-manager-failure",
+        getOverlayManager: () => {
+          throw new Error("manager-resolution-failure")
+        },
+      },
+      { ...noopCallbacks },
+    )
+
+    expect(menu.getOverlayManager()).toBeNull()
+    expect(noopCallbacks.onDebug).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "overlay-error",
+        menuId: "menu-manager-failure",
+        operation: "get-manager",
+      }),
+    )
+  })
+
+  it("swallows overlay destroy failures and emits diagnostics", () => {
+    const manager = createOverlayManager()
+    const menu = new MenuCore({ id: "menu-destroy-failure", overlayManager: manager }, { ...noopCallbacks })
+    vi.spyOn(manager, "unregister").mockImplementation(() => {
+      throw new Error("overlay-destroy-failure")
+    })
+
+    expect(() => menu.destroy()).not.toThrow()
+    expect(noopCallbacks.onDebug).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "overlay-error",
+        menuId: "menu-destroy-failure",
+        operation: "destroy",
+      }),
+    )
   })
 })

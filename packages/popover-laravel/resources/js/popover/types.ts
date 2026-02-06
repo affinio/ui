@@ -1,4 +1,4 @@
-import type { PopoverState, SurfaceReason } from "@affino/popover-core"
+import type { PopoverArrowOptions, PopoverContentOptions, PopoverState, PositionOptions, SurfaceReason } from "@affino/popover-core"
 
 export type PopoverHandle = {
   open: (reason?: SurfaceReason) => void
@@ -37,18 +37,18 @@ export type RootCleanup = () => void
 export type Detachment = () => void
 
 export type PopoverOptions = {
-  placement: any
-  align: any
+  placement: NonNullable<PositionOptions["placement"]>
+  align: NonNullable<PositionOptions["align"]>
   gutter: number
   viewportPadding: number
   strategy: "fixed" | "absolute"
-  role: any
+  role: NonNullable<PopoverContentOptions["role"]>
   modal: boolean
   closeOnEscape: boolean
   closeOnInteractOutside: boolean
   returnFocus: boolean
   lockScroll: boolean
-  arrow: import("@affino/popover-core").PopoverArrowOptions | null
+  arrow: PopoverArrowOptions | null
   pinned: boolean
   defaultOpen: boolean
 }

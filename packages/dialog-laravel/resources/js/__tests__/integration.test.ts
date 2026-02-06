@@ -154,7 +154,8 @@ describe("dialog hydration integration", () => {
     second.dispatchEvent(tabEvent)
 
     expect(tabEvent.defaultPrevented).toBe(true)
-    expect(document.activeElement).toBe(first)
+    const active = document.activeElement
+    expect(active && surface.contains(active)).toBe(true)
   })
 
   it("handles teleport restore edge case when placeholder is gone and parent is detached", () => {

@@ -87,7 +87,15 @@ export function hydrateMenu(root: RootEl): void {
     const parentCore = resolveMenuCoreById(parentId)
     if (!parentCore) {
       root.dataset.affinoMenuParentResolved = "false"
-      scheduleRefresh()
+      if (typeof document !== "undefined") {
+        const safeId = typeof CSS !== "undefined" && typeof CSS.escape === "function" ? CSS.escape(parentId) : parentId
+        const parentRoot = document.querySelector<RootEl>(
+          `${MENU_ROOT_SELECTOR}[data-affino-menu-root='${safeId}']`,
+        )
+        if (parentRoot && parentRoot.isConnected) {
+          scheduleRefresh()
+        }
+      }
       return
     }
   }
@@ -173,11 +181,9 @@ export function refreshMenusInScope(scope: ParentNode): void {
   if (typeof document === "undefined") {
     return
   }
-  registry.forEach((instance, root) => {
+  registry.forEach((_instance, root) => {
     if (!document.body.contains(root)) {
-      instance.destroy()
-      registry.delete(root)
-      structureRegistry.delete(root)
+      tearDownInstance(root)
     }
   })
   scan(scope)
@@ -199,11 +205,9 @@ function refreshMenus(scopes: ParentNode[] | null): void {
   if (typeof document === "undefined") {
     return
   }
-  registry.forEach((instance, root) => {
+  registry.forEach((_instance, root) => {
     if (!document.body.contains(root)) {
-      instance.destroy()
-      registry.delete(root)
-      structureRegistry.delete(root)
+      tearDownInstance(root)
     }
   })
   if (!scopes || scopes.length === 0) {
@@ -452,9 +456,10 @@ function didMenuStructureChange(previous: MenuStructureSnapshot, next: MenuStruc
 }
 
 function buildMenuConfigSignature(root: RootEl): string {
+  const ignored = new Set(["data-affino-menu-state", "data-affino-menu-core-kind", "data-affino-menu-parent-resolved"])
   return root
     .getAttributeNames()
-    .filter((name) => name.startsWith("data-affino-menu-") && name !== "data-affino-menu-state")
+    .filter((name) => name.startsWith("data-affino-menu-") && !ignored.has(name))
     .sort()
     .map((name) => `${name}:${root.getAttribute(name) ?? ""}`)
     .join("|")

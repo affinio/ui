@@ -12,6 +12,7 @@ import {
   normalizeGridSelectionRange,
   normalizeSelectionArea,
   removeRange,
+  resolveSelectionUpdate,
   selectSingleCell,
   toggleCellSelection,
   type GridSelectionContext,
@@ -105,6 +106,12 @@ describe("grid-selection-core range", () => {
     const point = clampGridSelectionPoint({ rowIndex: Number.NaN, colIndex: 5 }, context)
     expect(point).toEqual({ rowIndex: 0, colIndex: 1, rowId: "row-0" })
   })
+
+  it("normalizes fractional grid coordinates to integer indexes", () => {
+    const context = createContext(4, 4)
+    const point = clampGridSelectionPoint({ rowIndex: 2.9, colIndex: 1.4 }, context)
+    expect(point).toEqual({ rowIndex: 2, colIndex: 1, rowId: "row-2" })
+  })
 })
 
 describe("grid-selection-core operations", () => {
@@ -151,6 +158,31 @@ describe("grid-selection-core operations", () => {
     expect(range.endRow).toBeLessThanOrEqual(9)
     expect(range.startCol).toBeGreaterThanOrEqual(0)
     expect(range.endCol).toBeLessThanOrEqual(9)
+  })
+
+  it("resolves fractional active range index without invariant violations", () => {
+    const context = createContext(6, 6)
+    const first = createGridSelectionRange(
+      { rowIndex: 0, colIndex: 0 },
+      { rowIndex: 1, colIndex: 1 },
+      context,
+    )
+    const second = createGridSelectionRange(
+      { rowIndex: 3, colIndex: 3 },
+      { rowIndex: 4, colIndex: 4 },
+      context,
+    )
+
+    const state = resolveSelectionUpdate({
+      ranges: [first, second],
+      activeRangeIndex: 1.9,
+      context,
+    })
+
+    expect(state.activeRangeIndex).toBe(1)
+    expect(state.selectedPoint).toEqual(
+      expect.objectContaining({ rowIndex: 4, colIndex: 4 }),
+    )
   })
 
   it("clearSelection resets state", () => {

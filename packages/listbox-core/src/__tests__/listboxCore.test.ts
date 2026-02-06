@@ -84,4 +84,38 @@ describe("listbox-core", () => {
     expect(state.selection.ranges).toEqual([])
     expect(state.activeIndex).toBe(1)
   })
+
+  it("treats non-finite option counts as empty contexts", () => {
+    const infinityContext: ListboxContext = {
+      optionCount: Number.POSITIVE_INFINITY,
+      isDisabled: () => false,
+    }
+    const nanContext: ListboxContext = {
+      optionCount: Number.NaN,
+      isDisabled: () => false,
+    }
+
+    const base = createListboxState({ activeIndex: 0 })
+    const moved = moveListboxFocus({ state: base, context: infinityContext, delta: 1 })
+    const selected = selectAllListboxOptions({ context: nanContext })
+
+    expect(moved).toBe(base)
+    expect(selected.selection.ranges).toEqual([])
+    expect(selected.activeIndex).toBe(-1)
+  })
+
+  it("falls back to enabled behavior when isDisabled throws", () => {
+    const context: ListboxContext = {
+      optionCount: 3,
+      isDisabled: () => {
+        throw new Error("isDisabled failure")
+      },
+    }
+
+    expect(() => activateListboxIndex({ state: createListboxState(), context, index: 1 })).not.toThrow()
+    const state = activateListboxIndex({ state: createListboxState(), context, index: 1 })
+
+    expect(state.activeIndex).toBe(1)
+    expect(state.selection.ranges).toEqual([{ start: 1, end: 1 }])
+  })
 })

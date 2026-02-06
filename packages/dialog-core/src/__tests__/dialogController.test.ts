@@ -61,6 +61,44 @@ describe("DialogController", () => {
     expect(controller.snapshot.guardMessage).toBe("Unsaved edits")
   })
 
+  it("converts throwing close guards into denied close with diagnostics", async () => {
+    const onError = vi.fn()
+    const controller = new DialogController({ defaultOpen: true, onError })
+    const errorListener = vi.fn()
+    controller.on("error", errorListener)
+    controller.setCloseGuard(() => {
+      throw new Error("Guard crashed")
+    })
+
+    const didClose = await controller.requestClose("programmatic")
+    expect(didClose).toBe(false)
+    expect(controller.snapshot.isOpen).toBe(true)
+    expect(controller.snapshot.guardMessage).toBe("Guard crashed")
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        code: "close-guard-error",
+        reason: "programmatic",
+        message: "Guard crashed",
+      }),
+    )
+    expect(errorListener).toHaveBeenCalledTimes(1)
+  })
+
+  it("handles rejected close guards without rejecting callers", async () => {
+    const controller = new DialogController({ defaultOpen: true })
+    controller.setCloseGuard(async () => {
+      throw new Error("Async guard rejected")
+    })
+
+    const first = controller.requestClose("escape-key")
+    const second = controller.requestClose("escape-key")
+
+    await expect(first).resolves.toBe(false)
+    await expect(second).resolves.toBe(false)
+    expect(controller.snapshot.isOpen).toBe(true)
+    expect(controller.snapshot.guardMessage).toBe("Async guard rejected")
+  })
+
   it("optimistically closes and reopens when guard rejects", async () => {
     const controller = new DialogController({ defaultOpen: true })
     const closeGate = deferred<CloseGuardDecision>()

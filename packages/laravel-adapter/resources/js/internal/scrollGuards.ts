@@ -4,10 +4,21 @@ export type ScrollGuardTarget = {
   close: (root: HTMLElement & Record<string, unknown>) => void
 }
 
+type ScrollGuardErrorPhase = "selector-query" | "selector-match" | "should-close" | "close" | "raf"
+
 type TrackedScrollGuardTarget = ScrollGuardTarget & {
   roots: Set<HTMLElement>
   dirty: boolean
   attributeName: string | null
+}
+
+type ScrollGuardDiagnostics = {
+  errorCount: number
+  lastError: {
+    phase: ScrollGuardErrorPhase
+    selector: string
+    message: string
+  } | null
 }
 
 export function registerScrollGuards(targets: readonly ScrollGuardTarget[]): void {
@@ -23,6 +34,7 @@ export function registerScrollGuards(targets: readonly ScrollGuardTarget[]): voi
     return
   }
   globalScope[flag] = true
+  const diagnostics = resolveDiagnostics(globalScope)
 
   const trackedTargets: TrackedScrollGuardTarget[] = targets.map((target) => ({
     ...target,
@@ -91,14 +103,25 @@ export function registerScrollGuards(targets: readonly ScrollGuardTarget[]): voi
           target.roots.delete(root)
           return
         }
-        if (!target.shouldClose(root)) {
+        let shouldClose = false
+        try {
+          shouldClose = target.shouldClose(root)
+        } catch (error) {
+          recordGuardError(diagnostics, "should-close", target.selector, error)
+        }
+        if (!shouldClose) {
           return
         }
-        target.close(root as HTMLElement & Record<string, unknown>)
+        try {
+          target.close(root as HTMLElement & Record<string, unknown>)
+        } catch (error) {
+          recordGuardError(diagnostics, "close", target.selector, error)
+        }
       })
     })
   }
 
+  const scheduleFrame = resolveFrameScheduler(diagnostics)
   window.addEventListener(
     "scroll",
     () => {
@@ -106,7 +129,7 @@ export function registerScrollGuards(targets: readonly ScrollGuardTarget[]): voi
         return
       }
       ticking = true
-      requestAnimationFrame(closeAll)
+      scheduleFrame(closeAll)
     },
     { passive: true },
   )
@@ -117,26 +140,103 @@ export function registerScrollGuards(targets: readonly ScrollGuardTarget[]): voi
     }
     target.dirty = false
     target.roots.clear()
-    document.querySelectorAll<HTMLElement>(target.selector).forEach((root) => {
-      target.roots.add(root)
-    })
+    try {
+      document.querySelectorAll<HTMLElement>(target.selector).forEach((root) => {
+        target.roots.add(root)
+      })
+    } catch (error) {
+      recordGuardError(diagnostics, "selector-query", target.selector, error)
+    }
   }
 }
 
 function containsSelector(node: Node, selector: string): boolean {
-  if (node instanceof Element) {
-    if (node.matches(selector)) {
-      return true
+  try {
+    if (node instanceof Element) {
+      if (node.matches(selector)) {
+        return true
+      }
+      return node.querySelector(selector) !== null
     }
-    return node.querySelector(selector) !== null
+    if (node instanceof DocumentFragment) {
+      return node.querySelector(selector) !== null
+    }
+    return false
+  } catch {
+    return false
   }
-  if (node instanceof DocumentFragment) {
-    return node.querySelector(selector) !== null
-  }
-  return false
 }
 
 function extractSingleAttributeSelector(selector: string): string | null {
   const match = /^\[\s*([^\s=\]]+)\s*(?:=\s*["'][^"']*["']\s*)?\]$/.exec(selector.trim())
   return match?.[1] ?? null
+}
+
+function resolveDiagnostics(scope: Record<string, unknown>): ScrollGuardDiagnostics {
+  const key = "__affinoScrollGuardsDiagnostics"
+  const existing = scope[key]
+  if (existing && typeof existing === "object") {
+    return existing as ScrollGuardDiagnostics
+  }
+  const diagnostics: ScrollGuardDiagnostics = {
+    errorCount: 0,
+    lastError: null,
+  }
+  try {
+    Object.defineProperty(scope, key, {
+      value: diagnostics,
+      configurable: true,
+      enumerable: false,
+      writable: true,
+    })
+  } catch {
+    scope[key] = diagnostics
+  }
+  return diagnostics
+}
+
+function recordGuardError(
+  diagnostics: ScrollGuardDiagnostics,
+  phase: ScrollGuardErrorPhase,
+  selector: string,
+  error: unknown,
+): void {
+  diagnostics.errorCount += 1
+  diagnostics.lastError = {
+    phase,
+    selector,
+    message: toErrorMessage(error),
+  }
+}
+
+function toErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message || error.name
+  }
+  if (typeof error === "string") {
+    return error
+  }
+  try {
+    return JSON.stringify(error)
+  } catch {
+    return String(error)
+  }
+}
+
+function resolveFrameScheduler(
+  diagnostics: ScrollGuardDiagnostics,
+): (callback: FrameRequestCallback) => void {
+  if (typeof requestAnimationFrame === "function") {
+    return (callback) => {
+      try {
+        requestAnimationFrame(callback)
+      } catch (error) {
+        recordGuardError(diagnostics, "raf", "__frame__", error)
+        callback(0)
+      }
+    }
+  }
+  return (callback) => {
+    setTimeout(() => callback(0), 16)
+  }
 }

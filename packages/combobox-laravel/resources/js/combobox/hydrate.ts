@@ -71,9 +71,26 @@ export function hydrateCombobox(root: RootEl): void {
   const input = root.querySelector<InputEl>("[data-affino-combobox-input]")
   const surface = root.querySelector<SurfaceEl>("[data-affino-combobox-surface]")
   if (!input || !surface) {
+    cleanupInvalidStructure(root, input, surface)
     return
   }
   hydrateResolvedCombobox(root, input, surface)
+}
+
+function cleanupInvalidStructure(root: RootEl, input: InputEl | null, surface: SurfaceEl | null): void {
+  registry.get(root)?.()
+  if (root.affinoCombobox) {
+    delete root.affinoCombobox
+  }
+  root.dataset.affinoComboboxState = "false"
+  if (input) {
+    input.setAttribute("aria-expanded", "false")
+    input.removeAttribute("aria-activedescendant")
+  }
+  if (surface) {
+    surface.dataset.state = "closed"
+    surface.hidden = true
+  }
 }
 
 function hydrateResolvedCombobox(root: RootEl, input: InputEl, surface: SurfaceEl): void {
@@ -685,7 +702,7 @@ function hydrateResolvedCombobox(root: RootEl, input: InputEl, surface: SurfaceE
       isDisabled: (index) => isOptionDisabled(options[index]),
     }
     hasNavigableOptions = navigableCount > 0
-    const needsRealign = state.listbox.activeIndex < 0 || isOptionDisabled(options[state.listbox.activeIndex])
+    const needsRealign = state.listbox.activeIndex >= 0 && isOptionDisabled(options[state.listbox.activeIndex])
     if (needsRealign) {
       const target = firstVisibleIndex ?? -1
       const nextListbox = cloneListboxState(state.listbox)

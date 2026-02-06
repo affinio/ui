@@ -7,9 +7,12 @@ type ListboxTestRoot = HTMLDivElement & {
   affinoListbox?: unknown
 }
 
+let fixtureId = 0
+
 function createListboxFixture() {
+  fixtureId += 1
   const root = document.createElement("div") as ListboxTestRoot
-  root.dataset.affinoListboxRoot = "listbox-spec"
+  root.dataset.affinoListboxRoot = `listbox-spec-${fixtureId}`
 
   const trigger = document.createElement("button")
   trigger.dataset.affinoListboxTrigger = ""
@@ -33,6 +36,40 @@ function createListboxFixture() {
 
   document.body.appendChild(root)
   return { root, trigger, surface }
+}
+
+function createWrappedTriggerFixture() {
+  fixtureId += 1
+  const root = document.createElement("div") as ListboxTestRoot
+  root.dataset.affinoListboxRoot = `listbox-wrapped-spec-${fixtureId}`
+
+  const triggerWrapper = document.createElement("div")
+  triggerWrapper.dataset.affinoListboxTrigger = ""
+  root.appendChild(triggerWrapper)
+
+  const triggerButton = document.createElement("button")
+  triggerButton.type = "button"
+  triggerButton.textContent = "Open"
+  triggerWrapper.appendChild(triggerButton)
+
+  const surface = document.createElement("div")
+  surface.dataset.affinoListboxSurface = ""
+  root.appendChild(surface)
+
+  const optionAlpha = document.createElement("div")
+  optionAlpha.dataset.affinoListboxOption = ""
+  optionAlpha.dataset.affinoListboxValue = "alpha"
+  optionAlpha.textContent = "Alpha"
+  surface.appendChild(optionAlpha)
+
+  const optionBeta = document.createElement("div")
+  optionBeta.dataset.affinoListboxOption = ""
+  optionBeta.dataset.affinoListboxValue = "beta"
+  optionBeta.textContent = "Beta"
+  surface.appendChild(optionBeta)
+
+  document.body.appendChild(root)
+  return { root, triggerWrapper, triggerButton, surface }
 }
 
 describe("listbox integration", () => {
@@ -79,6 +116,40 @@ describe("listbox integration", () => {
     expect(click.defaultPrevented).toBe(true)
     expect(root.dataset.affinoListboxState).toBe("closed")
     expect(surface.hidden).toBe(true)
+  })
+
+  it("moves focus out of surface before hiding it on single-select commit", () => {
+    const { root, trigger, surface } = createListboxFixture()
+    hydrateListbox(root as any)
+
+    trigger.click()
+    const option = surface.querySelector("[data-affino-listbox-option]") as HTMLButtonElement
+    option.focus()
+    expect(document.activeElement).toBe(option)
+
+    option.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }))
+
+    expect(root.dataset.affinoListboxState).toBe("closed")
+    expect(surface.hidden).toBe(true)
+    expect(surface.getAttribute("aria-hidden")).toBe("true")
+    expect(document.activeElement).toBe(trigger)
+  })
+
+  it("returns focus to nested trigger control before aria-hidden when trigger root is a wrapper", () => {
+    const { root, triggerButton, surface } = createWrappedTriggerFixture()
+    hydrateListbox(root as any)
+
+    triggerButton.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }))
+    const option = surface.querySelector("[data-affino-listbox-option]") as HTMLDivElement
+    option.focus()
+    expect(document.activeElement).toBe(option)
+
+    option.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }))
+
+    expect(root.dataset.affinoListboxState).toBe("closed")
+    expect(surface.hidden).toBe(true)
+    expect(surface.getAttribute("aria-hidden")).toBe("true")
+    expect(document.activeElement).toBe(triggerButton)
   })
 
   it("cancels option mousedown default to avoid label-triggered trigger activation", () => {
@@ -157,6 +228,18 @@ describe("listbox integration", () => {
     expect(root.affinoListbox).toBeUndefined()
   })
 
+  it("cleans up stale handle when required structure is missing", () => {
+    const { root, surface } = createListboxFixture()
+    hydrateListbox(root as any)
+    expect(root.affinoListbox).toBeDefined()
+
+    surface.remove()
+    hydrateListbox(root as any)
+
+    expect(root.affinoListbox).toBeUndefined()
+    expect(root.dataset.affinoListboxState).toBe("closed")
+  })
+
   it("binds Livewire hooks after late livewire:load and hydrates morph additions", () => {
     createListboxFixture()
     bootstrapAffinoListboxes()
@@ -228,5 +311,30 @@ describe("listbox integration", () => {
     const afterEnter = handle.getSnapshot()
     expect(afterEnter.values).toEqual(["alpha"])
     expect(afterEnter.open).toBe(false)
+  })
+
+  it("applies listbox ARIA semantics and tracks active descendant", () => {
+    const { root, trigger, surface } = createListboxFixture()
+    root.dataset.affinoListboxMode = "multiple"
+    const options = surface.querySelectorAll<HTMLButtonElement>("[data-affino-listbox-option]")
+    const optionAlpha = options[0]
+    const optionBeta = options[1]
+    optionBeta.dataset.affinoListboxDisabled = "true"
+
+    hydrateListbox(root as any)
+
+    expect(surface.getAttribute("role")).toBe("listbox")
+    expect(surface.getAttribute("aria-multiselectable")).toBe("true")
+    expect(trigger.getAttribute("aria-haspopup")).toBe("listbox")
+    expect(trigger.getAttribute("aria-disabled")).toBe("false")
+    expect(optionBeta.getAttribute("aria-disabled")).toBe("true")
+
+    trigger.click()
+    trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }))
+
+    expect(surface.getAttribute("aria-activedescendant")).toBe(optionAlpha.id)
+    expect(optionAlpha.getAttribute("role")).toBe("option")
+    expect(optionAlpha.getAttribute("aria-selected")).toBe("false")
+    expect(surface.getAttribute("aria-hidden")).toBe("false")
   })
 })

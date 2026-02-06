@@ -60,14 +60,22 @@ export function createAxisVirtualizer<TMeta, TPayload>(
   }
 
   function update(context: AxisVirtualizerContext<TMeta>): AxisVirtualizerState<TPayload> {
-    const totalCount = context.totalCount
-    const viewportSize = context.viewportSize
-    const scrollOffset = context.scrollOffset
-    const estimatedItemSize = context.estimatedItemSize
-    const overscanInput = context.overscan
-    const virtualizationEnabled = context.virtualizationEnabled && totalCount > 0
+    const totalCount = Math.max(0, Math.floor(normalizeFiniteNumber(context.totalCount, 0)))
+    const viewportSize = Math.max(0, normalizeFiniteNumber(context.viewportSize, 0))
+    const scrollOffset = normalizeFiniteNumber(context.scrollOffset, 0)
+    const estimatedItemSize = Math.max(0, normalizeFiniteNumber(context.estimatedItemSize, 0))
+    const overscanInput = normalizeFiniteNumber(context.overscan, 0)
+    const virtualizationEnabled = Boolean(context.virtualizationEnabled) && totalCount > 0
+    const normalizedContext: AxisVirtualizerContext<TMeta> = {
+      ...context,
+      totalCount,
+      viewportSize,
+      scrollOffset,
+      estimatedItemSize,
+      overscan: overscanInput,
+    }
     const visibleCount = virtualizationEnabled
-      ? Math.max(1, strategy.computeVisibleCount(context))
+      ? Math.max(1, Math.min(totalCount, Math.floor(normalizeFiniteNumber(strategy.computeVisibleCount(normalizedContext), 1))))
       : totalCount
     const overscanBase = virtualizationEnabled ? Math.max(0, Math.round(overscanInput)) : 0
     const poolSize = virtualizationEnabled
@@ -114,11 +122,13 @@ export function createAxisVirtualizer<TMeta, TPayload>(
     internalContext.overscanLeading = overscanLeading
     internalContext.overscanTrailing = overscanTrailing
 
-    const offset = strategy.clampScroll(scrollOffset, internalContext)
+    const offset = normalizeFiniteNumber(strategy.clampScroll(scrollOffset, internalContext), 0)
     const rangeResult = strategy.computeRange(offset, internalContext, range)
     const maxPoolStart = Math.max(totalCount - internalContext.poolSize, 0)
-    const normalizedStart = clamp(rangeResult.start, 0, maxPoolStart)
-    const normalizedEnd = Math.min(totalCount, Math.max(rangeResult.end, normalizedStart))
+    const rawStart = normalizeFiniteNumber(rangeResult.start, 0)
+    const rawEnd = normalizeFiniteNumber(rangeResult.end, rawStart + internalContext.poolSize)
+    const normalizedStart = clamp(Math.floor(rawStart), 0, maxPoolStart)
+    const normalizedEnd = clamp(Math.ceil(rawEnd), normalizedStart, totalCount)
     const computedPoolSize = Math.max(normalizedEnd - normalizedStart, 0)
 
     state.offset = offset
@@ -153,4 +163,8 @@ export function createAxisVirtualizer<TMeta, TPayload>(
     getOffsetForIndex,
     isIndexVisible,
   }
+}
+
+function normalizeFiniteNumber(value: number, fallback = 0): number {
+  return Number.isFinite(value) ? value : fallback
 }

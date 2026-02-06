@@ -86,6 +86,91 @@ describe("PopoverCore", () => {
     expect(core.getSnapshot().open).toBe(false)
   })
 
+  it("falls back to local close when overlay manager throws during close mediation", () => {
+    const manager = createOverlayManager()
+    const onOverlayError = vi.fn()
+    const core = new PopoverCore({ id: "fallback-close", defaultOpen: true, overlayManager: manager }, { onOverlayError })
+
+    vi.spyOn(manager, "requestClose").mockImplementation(() => {
+      throw new Error("request-close-failure")
+    })
+
+    expect(() => core.requestClose("pointer")).not.toThrow()
+    expect(core.getSnapshot().open).toBe(false)
+    expect(onOverlayError).toHaveBeenCalledTimes(1)
+    expect(onOverlayError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        popoverId: "fallback-close",
+        operation: "request-close",
+      }),
+    )
+  })
+
+  it("keeps local lifecycle stable when overlay sync fails", () => {
+    const manager = createOverlayManager()
+    const onOverlayError = vi.fn()
+    const core = new PopoverCore({ id: "sync-failure", overlayManager: manager }, { onOverlayError })
+
+    vi.spyOn(manager, "update").mockImplementation(() => {
+      throw new Error("sync-failure")
+    })
+
+    expect(() => core.open()).not.toThrow()
+    expect(core.getSnapshot().open).toBe(true)
+    expect(() => core.close("programmatic")).not.toThrow()
+    expect(core.getSnapshot().open).toBe(false)
+    expect(onOverlayError).toHaveBeenCalledTimes(2)
+    expect(onOverlayError).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        popoverId: "sync-failure",
+        operation: "sync-state",
+      }),
+    )
+  })
+
+  it("swallows overlay destroy failures and remains idempotent", () => {
+    const manager = createOverlayManager()
+    const onOverlayError = vi.fn()
+    const core = new PopoverCore({ id: "destroy-failure", overlayManager: manager }, { onOverlayError })
+
+    vi.spyOn(manager, "unregister").mockImplementation(() => {
+      throw new Error("destroy-failure")
+    })
+
+    expect(() => core.destroy()).not.toThrow()
+    expect(() => core.destroy()).not.toThrow()
+    expect(onOverlayError).toHaveBeenCalledTimes(1)
+    expect(onOverlayError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        popoverId: "destroy-failure",
+        operation: "destroy",
+      }),
+    )
+  })
+
+  it("returns null and reports diagnostics when dynamic overlay manager resolution throws", () => {
+    const onOverlayError = vi.fn()
+    const core = new PopoverCore(
+      {
+        id: "manager-failure",
+        getOverlayManager: () => {
+          throw new Error("manager-resolution-failure")
+        },
+      },
+      { onOverlayError },
+    )
+
+    expect(core.getOverlayManager()).toBeNull()
+    expect(onOverlayError).toHaveBeenCalled()
+    expect(onOverlayError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        popoverId: "manager-failure",
+        operation: "get-manager",
+      }),
+    )
+  })
+
   it("computes arrow props with defaults", () => {
     const core = new PopoverCore({ id: "arrow" })
     const arrow = core.getArrowProps({

@@ -162,4 +162,39 @@ describe("hydrateTooltip", () => {
 
     expect(document.activeElement).toBe(nextTrigger)
   })
+
+  it("cleans up stale handle when required tooltip structure is missing", () => {
+    const { root, surface } = setupTooltipFixture()
+    const typedRoot = root as HTMLElement & { affinoTooltip?: unknown }
+
+    hydrateTooltip(typedRoot)
+    expect(typedRoot.affinoTooltip).toBeDefined()
+
+    surface.remove()
+    hydrateTooltip(typedRoot)
+
+    expect(typedRoot.affinoTooltip).toBeUndefined()
+    expect(root.dataset.affinoTooltipState).toBe("closed")
+  })
+
+  it("keeps aria wiring synced across open/close and surface id changes", async () => {
+    const { root, trigger, surface } = setupTooltipFixture()
+    hydrateTooltip(root as HTMLElement & { dataset: DOMStringMap })
+
+    expect(trigger.getAttribute("aria-describedby")).toBe(surface.id)
+    expect(surface.getAttribute("aria-hidden")).toBe("true")
+
+    trigger.dispatchEvent(new Event("pointerenter"))
+    vi.runAllTimers()
+    expect(surface.getAttribute("aria-hidden")).toBe("false")
+
+    surface.id = "tooltip-surface-renamed"
+    await Promise.resolve()
+    expect(trigger.getAttribute("aria-describedby")).toBe("tooltip-surface-renamed")
+
+    root.dataset.affinoTooltipState = "closed"
+    await Promise.resolve()
+    vi.runAllTimers()
+    expect(surface.getAttribute("aria-hidden")).toBe("true")
+  })
 })

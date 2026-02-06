@@ -182,7 +182,7 @@ export function hasStructureChanged(root: RootEl, cache: StructureCache): boolea
   const nextInput = root.querySelector<InputEl>("[data-affino-combobox-input]")
   const nextSurface = root.querySelector<SurfaceEl>("[data-affino-combobox-surface]")
   if (!nextInput || !nextSurface) {
-    return false
+    return true
   }
   if (nextInput !== cache.input || nextSurface !== cache.surface) {
     return true

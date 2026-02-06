@@ -56,4 +56,24 @@ describe("combobox laravel helpers", () => {
     optionCount = 2
     expect(hasStructureChanged(root as any, cache as any)).toBe(true)
   })
+
+  it("treats missing key nodes as structural changes", () => {
+    const input = {} as HTMLInputElement
+    const surface = {} as HTMLElement
+    const root = {
+      querySelector: (selector: string) => {
+        if (selector === "[data-affino-combobox-input]") {
+          return null
+        }
+        if (selector === "[data-affino-combobox-surface]") {
+          return surface
+        }
+        return null
+      },
+      querySelectorAll: () => ({ length: 1 }),
+    }
+
+    const cache = { input, surface, optionCount: 1 }
+    expect(hasStructureChanged(root as any, cache as any)).toBe(true)
+  })
 })

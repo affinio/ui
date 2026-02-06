@@ -54,7 +54,7 @@ export interface ActivateListboxIndexInput {
 }
 
 export function activateListboxIndex(input: ActivateListboxIndexInput): ListboxState {
-  const count = input.context.optionCount
+  const count = resolveOptionCount(input.context)
   if (count <= 0) {
     return createListboxState()
   }
@@ -134,7 +134,22 @@ export function selectAllListboxOptions(input: SelectAllListboxOptionsInput): Li
 }
 
 function isIndexDisabled(context: ListboxContext, index: number): boolean {
-  return context.isDisabled?.(index) ?? false
+  try {
+    return context.isDisabled?.(index) ?? false
+  } catch {
+    return false
+  }
+}
+
+function resolveOptionCount(context: ListboxContext): number {
+  const raw = context.optionCount
+  if (!Number.isFinite(raw)) {
+    return 0
+  }
+  if (raw <= 0) {
+    return 0
+  }
+  return Math.trunc(raw)
 }
 
 function clampIndex(index: number, count: number): number {
@@ -154,7 +169,7 @@ function resolveTargetIndex(
   context: ListboxContext,
   loop: boolean,
 ): number {
-  const count = context.optionCount
+  const count = resolveOptionCount(context)
   if (count <= 0) {
     return -1
   }
@@ -184,7 +199,7 @@ function resolveTargetIndex(
 }
 
 function buildEnabledIndexes(context: ListboxContext): number[] {
-  const count = context.optionCount
+  const count = resolveOptionCount(context)
   if (count <= 0) return []
 
   const enabledIndexes: number[] = []

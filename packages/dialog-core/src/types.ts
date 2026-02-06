@@ -106,6 +106,7 @@ export interface DialogEventMap {
   close: { reason: DialogCloseReason; snapshot: DialogSnapshot }
   "overlay-registered": OverlayRegistration
   "overlay-unregistered": OverlayRegistration
+  error: DialogControllerErrorEvent
 }
 
 export type DialogEventName = keyof DialogEventMap
@@ -141,6 +142,16 @@ export interface DialogSnapshot {
   pendingNavigationMessage?: string
 }
 
+export type DialogControllerErrorCode = "close-guard-error"
+
+export interface DialogControllerErrorEvent {
+  code: DialogControllerErrorCode
+  phase: DialogPhase
+  reason: DialogCloseReason
+  error: unknown
+  message?: string
+}
+
 export interface DialogControllerOptions {
   id?: string
   defaultOpen?: boolean
@@ -151,6 +162,7 @@ export interface DialogControllerOptions {
   onSnapshot?: (snapshot: DialogSnapshot) => void
   onPendingCloseAttempt?: (info: PendingCloseAttemptInfo) => void
   onPendingCloseLimitReached?: (info: PendingCloseAttemptLimitInfo) => void
+  onError?: (event: DialogControllerErrorEvent) => void
   lifecycle?: DialogLifecycleHooks
   focusOrchestrator?: DialogFocusOrchestrator
   overlayRegistrar?: OverlayRegistrar

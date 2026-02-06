@@ -95,6 +95,23 @@ describe("TooltipCore", () => {
     expect(tooltip.getSnapshot().open).toBe(true)
   })
 
+  it("cancels pending close when trigger receives focus", () => {
+    const tooltip = createTooltip({ openDelay: 10, closeDelay: 40 })
+    const trigger = tooltip.getTriggerProps()
+
+    trigger.onPointerEnter?.({})
+    vi.advanceTimersByTime(10)
+    expect(tooltip.getSnapshot().open).toBe(true)
+
+    trigger.onPointerLeave?.({})
+    vi.advanceTimersByTime(20)
+    expect(tooltip.getSnapshot().open).toBe(true)
+
+    trigger.onFocus?.({} as FocusEvent)
+    vi.advanceTimersByTime(40)
+    expect(tooltip.getSnapshot().open).toBe(true)
+  })
+
   it("returns arrow props for vertical placement", () => {
     const tooltip = createTooltip()
     const arrow = tooltip.getArrowProps({

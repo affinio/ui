@@ -52,7 +52,14 @@ export interface MenuMousePredictionDebugEvent {
   payload: MousePredictionDebugPayload
 }
 
-export type MenuDebugEvent = MenuMousePredictionDebugEvent
+export interface MenuOverlayErrorDebugEvent {
+  type: "overlay-error"
+  menuId: string
+  operation: "sync-state" | "request-close" | "destroy" | "get-manager"
+  error: unknown
+}
+
+export type MenuDebugEvent = MenuMousePredictionDebugEvent | MenuOverlayErrorDebugEvent
 
 export interface MenuCallbacks extends SurfaceCallbacks {
   onSelect?: (itemId: string, menuId: string) => void

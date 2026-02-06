@@ -52,6 +52,9 @@ export function hydrateTooltip(root: RootEl): void {
   const surface = resolveSurfaceElement()
 
   if (!trigger || !surface) {
+    registry.get(root)?.()
+    structureRegistry.delete(root)
+    root.dataset.affinoTooltipState = "closed"
     return
   }
 
@@ -172,6 +175,7 @@ export function hydrateTooltip(root: RootEl): void {
   detachments.push(attachTooltipHandle(root, tooltip))
   const tooltipProps = tooltip.getTooltipProps() as unknown as Record<string, unknown>
   bindTooltipProps(surface, tooltipProps)
+  syncA11yState(trigger, surface, tooltip.getSnapshot().open)
 
   const syncPosition = () => {
     surface.style.visibility = "hidden"
@@ -204,6 +208,7 @@ export function hydrateTooltip(root: RootEl): void {
     const state = snapshot.open ? "open" : "closed"
     root.dataset.affinoTooltipState = state
     surface.dataset.state = state
+    syncA11yState(trigger, surface, snapshot.open)
     if (snapshot.open) {
       surface.style.position = (root.dataset.affinoTooltipStrategy as CSSPosition) ?? "fixed"
       surface.style.left = "0px"
@@ -227,6 +232,20 @@ export function hydrateTooltip(root: RootEl): void {
   })
 
   detachments.push(() => unsubscribe.unsubscribe())
+
+  const a11yObserver = new MutationObserver((mutations) => {
+    for (const mutation of mutations) {
+      if (mutation.type === "attributes" && mutation.attributeName === "id") {
+        syncA11yState(trigger, surface, tooltip.getSnapshot().open)
+        return
+      }
+    }
+  })
+  a11yObserver.observe(surface, {
+    attributes: true,
+    attributeFilter: ["id"],
+  })
+  detachments.push(() => a11yObserver.disconnect())
 
   const stateObserver = new MutationObserver((mutations) => {
     for (const mutation of mutations) {
@@ -550,6 +569,9 @@ function maybeHydrateTooltip(root: RootEl): void {
   const trigger = root.querySelector<HTMLElement>("[data-affino-tooltip-trigger]")
   const surface = root.querySelector<HTMLElement>("[data-affino-tooltip-surface]")
   if (!trigger || !surface) {
+    registry.get(root)?.()
+    structureRegistry.delete(root)
+    root.dataset.affinoTooltipState = "closed"
     return
   }
   const hasBinding = registry.has(root)
@@ -712,4 +734,11 @@ function toKebabCase(key: string): string {
     .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
     .replace(/_/g, "-")
     .toLowerCase()
+}
+
+function syncA11yState(trigger: HTMLElement, surface: HTMLElement, open: boolean): void {
+  if (surface.id) {
+    trigger.setAttribute("aria-describedby", surface.id)
+  }
+  surface.setAttribute("aria-hidden", open ? "false" : "true")
 }

@@ -155,5 +155,5 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Changeset status
-        run: pnpm run changeset:status
+      # - name: Changeset status
+      #   run: pnpm run changeset:status

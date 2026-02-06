@@ -43,7 +43,7 @@ export class PopoverCore extends SurfaceCore<PopoverState, PopoverCallbacks> {
   private readonly triggerElementId: string
   private readonly contentElementId: string
   private readonly overlayIntegration: OverlayIntegration
-  private destroyed = false
+  private destroyedLocal = false
 
   constructor(options: PopoverOptions = {}, callbacks: PopoverCallbacks = {}) {
     super(options, callbacks)
@@ -76,7 +76,7 @@ export class PopoverCore extends SurfaceCore<PopoverState, PopoverCallbacks> {
       initialState: this.surfaceState.open ? "open" : "closed",
       releaseOnIdle: false,
     })
-    this.overlayIntegration.syncState(this.surfaceState.open ? "open" : "closed")
+    this.syncOverlayStateSafely(this.surfaceState.open ? "open" : "closed")
   }
 
   protected override composeState(surface: SurfaceState): PopoverState {
@@ -84,20 +84,20 @@ export class PopoverCore extends SurfaceCore<PopoverState, PopoverCallbacks> {
   }
 
   override destroy(): void {
-    if (this.destroyed) {
+    if (this.destroyedLocal) {
       return
     }
-    this.destroyed = true
-    this.overlayIntegration.destroy()
+    this.destroyedLocal = true
+    this.destroyOverlaySafely()
     super.destroy()
   }
 
   protected override onOpened(_reason: SurfaceReason): void {
-    this.overlayIntegration.syncState("open")
+    this.syncOverlayStateSafely("open")
   }
 
   protected override onClosed(_reason: SurfaceReason): void {
-    this.overlayIntegration.syncState("closed")
+    this.syncOverlayStateSafely("closed")
   }
 
   override close(reason: SurfaceReason = "programmatic"): void {
@@ -109,7 +109,7 @@ export class PopoverCore extends SurfaceCore<PopoverState, PopoverCallbacks> {
   }
 
   getOverlayManager(): OverlayManager | null {
-    return this.overlayIntegration.getManager()
+    return this.getOverlayManagerSafely()
   }
 
   getTriggerProps(options?: PopoverTriggerOptions): PopoverTriggerProps {
@@ -179,12 +179,12 @@ export class PopoverCore extends SurfaceCore<PopoverState, PopoverCallbacks> {
   }
 
   private closeWithSource(reason: SurfaceReason, source: "local" | "kernel"): void {
-    if (this.destroyed || !this.surfaceState.open) {
+    if (this.destroyedLocal || !this.surfaceState.open) {
       return
     }
     if (source === "local" && this.isKernelManagedReason(reason)) {
       const overlayReason = this.mapSurfaceReasonToOverlay(reason)
-      if (this.overlayIntegration.requestClose(overlayReason)) {
+      if (this.requestOverlayCloseSafely(overlayReason)) {
         return
       }
     }
@@ -210,6 +210,48 @@ export class PopoverCore extends SurfaceCore<PopoverState, PopoverCallbacks> {
   private handleKernelCloseRequest(reason: OverlayCloseReason): void {
     const surfaceReason = this.mapOverlayReasonToSurface(reason)
     this.closeWithSource(surfaceReason, "kernel")
+  }
+
+  private syncOverlayStateSafely(state: "open" | "closed"): void {
+    try {
+      this.overlayIntegration.syncState(state)
+    } catch (error) {
+      this.emitOverlayError("sync-state", error)
+    }
+  }
+
+  private requestOverlayCloseSafely(reason: OverlayCloseReason): boolean {
+    try {
+      return this.overlayIntegration.requestClose(reason)
+    } catch (error) {
+      this.emitOverlayError("request-close", error)
+      return false
+    }
+  }
+
+  private destroyOverlaySafely(): void {
+    try {
+      this.overlayIntegration.destroy()
+    } catch (error) {
+      this.emitOverlayError("destroy", error)
+    }
+  }
+
+  private getOverlayManagerSafely(): OverlayManager | null {
+    try {
+      return this.overlayIntegration.getManager()
+    } catch (error) {
+      this.emitOverlayError("get-manager", error)
+      return null
+    }
+  }
+
+  private emitOverlayError(operation: "sync-state" | "request-close" | "destroy" | "get-manager", error: unknown): void {
+    this.callbacks.onOverlayError?.({
+      popoverId: this.id,
+      operation,
+      error,
+    })
   }
 }
 

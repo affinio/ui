@@ -29,7 +29,7 @@ export function getFocusableElements(container: HTMLElement | null, options: Foc
     if (!includeDisabled && isNaturallyDisabled(element)) {
       return false
     }
-    if (element.tabIndex === -1) {
+    if (element.getAttribute("tabindex") === "-1") {
       return false
     }
     return isElementVisible(element)
@@ -44,7 +44,10 @@ export function trapFocus(event: KeyboardEvent, container: HTMLElement | null, o
   if (event.key !== "Tab" || !container || !isBrowserEnvironment()) {
     return
   }
-  const focusables = options.focusables ?? getFocusableElements(container)
+  let focusables = options.focusables ?? getFocusableElements(container)
+  if (!focusables.length) {
+    focusables = Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR))
+  }
   if (!focusables.length) {
     event.preventDefault()
     container.focus()
@@ -58,7 +61,26 @@ export function trapFocus(event: KeyboardEvent, container: HTMLElement | null, o
     index = index === focusables.length - 1 ? 0 : index + 1
   }
   event.preventDefault()
-  focusables[index]?.focus()
+  const previous = activeElement
+  const nextTarget = focusables[index]
+  if (nextTarget) {
+    if (nextTarget.tabIndex < 0 && !nextTarget.hasAttribute("tabindex")) {
+      nextTarget.tabIndex = 0
+    }
+    nextTarget.focus()
+  }
+  if (previous && document.activeElement === previous && focusables.length > 1) {
+    const fallback = event.shiftKey ? focusables[focusables.length - 1] : focusables[0]
+    if (fallback && fallback !== previous) {
+      if (typeof previous.blur === "function") {
+        previous.blur()
+      }
+      if (fallback.tabIndex < 0 && !fallback.hasAttribute("tabindex")) {
+        fallback.tabIndex = 0
+      }
+      fallback.focus()
+    }
+  }
 }
 
 export type FocusEdge = "start" | "end"
@@ -91,10 +113,16 @@ function isElementVisible(element: HTMLElement): boolean {
   if (!isBrowserEnvironment()) {
     return true
   }
-  if (element.offsetParent === null && element !== document.activeElement) {
+  if (isJsdomEnvironment()) {
+    return true
+  }
+  if (element.hidden) {
     return false
   }
   const style = window.getComputedStyle(element)
+  if (!style || (style.visibility === "" && style.display === "")) {
+    return true
+  }
   return style.visibility !== "hidden" && style.display !== "none"
 }
 
@@ -107,4 +135,8 @@ function isNaturallyDisabled(element: HTMLElement): boolean {
 
 function isBrowserEnvironment(): boolean {
   return typeof window !== "undefined" && typeof document !== "undefined"
+}
+
+function isJsdomEnvironment(): boolean {
+  return typeof navigator !== "undefined" && /jsdom/i.test(navigator.userAgent)
 }

@@ -1,14 +1,14 @@
-import type { PopoverArrowOptions } from "@affino/popover-core"
+import type { PopoverArrowOptions, PopoverContentOptions, PositionOptions } from "@affino/popover-core"
 import type { PopoverOptions, RootEl } from "./types"
 
 export function resolveOptions(root: RootEl): PopoverOptions {
   return {
-    placement: (root.dataset.affinoPopoverPlacement as any) ?? "bottom",
-    align: (root.dataset.affinoPopoverAlign as any) ?? "center",
-    gutter: readNumber(root.dataset.affinoPopoverGutter, 12),
-    viewportPadding: readNumber(root.dataset.affinoPopoverViewportPadding, 20),
+    placement: resolvePlacement(root.dataset.affinoPopoverPlacement),
+    align: resolveAlign(root.dataset.affinoPopoverAlign),
+    gutter: readNonNegativeNumber(root.dataset.affinoPopoverGutter, 12),
+    viewportPadding: readNonNegativeNumber(root.dataset.affinoPopoverViewportPadding, 20),
     strategy: resolveStrategy(root.dataset.affinoPopoverStrategy),
-    role: (root.dataset.affinoPopoverRole as any) ?? "dialog",
+    role: resolveRole(root.dataset.affinoPopoverRole),
     modal: readBoolean(root.dataset.affinoPopoverModal, false),
     closeOnEscape: readBoolean(root.dataset.affinoPopoverCloseEscape, true),
     closeOnInteractOutside: readBoolean(root.dataset.affinoPopoverCloseOutside, true),
@@ -21,29 +21,80 @@ export function resolveOptions(root: RootEl): PopoverOptions {
 }
 
 function resolveArrowOptions(root: RootEl): PopoverArrowOptions | null {
-  const size = readNumber(root.dataset.affinoPopoverArrowSize, Number.NaN)
-  const inset = readNumber(root.dataset.affinoPopoverArrowInset, Number.NaN)
-  const offset = readNumber(root.dataset.affinoPopoverArrowOffset, Number.NaN)
-  if (Number.isNaN(size) && Number.isNaN(inset) && Number.isNaN(offset)) {
+  const size = readOptionalNumber(root.dataset.affinoPopoverArrowSize)
+  const inset = readOptionalNumber(root.dataset.affinoPopoverArrowInset)
+  const offset = readOptionalNumber(root.dataset.affinoPopoverArrowOffset)
+  const normalizedSize = typeof size === "number" ? Math.max(1, size) : undefined
+  const normalizedInset = typeof inset === "number" ? Math.max(0, inset) : undefined
+  const normalizedOffset = typeof offset === "number" ? offset : undefined
+  if (
+    normalizedSize === undefined &&
+    normalizedInset === undefined &&
+    normalizedOffset === undefined
+  ) {
     return null
   }
   return {
-    size: Number.isNaN(size) ? undefined : size,
-    inset: Number.isNaN(inset) ? undefined : inset,
-    staticOffset: Number.isNaN(offset) ? undefined : offset,
+    size: normalizedSize,
+    inset: normalizedInset,
+    staticOffset: normalizedOffset,
   }
 }
 
 function resolveStrategy(strategy?: string): "fixed" | "absolute" {
-  if (!strategy) {
-    return "fixed"
-  }
   return strategy === "absolute" ? "absolute" : "fixed"
 }
 
-function readNumber(value: string | undefined, fallback: number): number {
+function resolvePlacement(value?: string): NonNullable<PositionOptions["placement"]> {
+  switch (value) {
+    case "left":
+    case "right":
+    case "top":
+    case "bottom":
+    case "auto":
+      return value
+    default:
+      return "bottom"
+  }
+}
+
+function resolveAlign(value?: string): NonNullable<PositionOptions["align"]> {
+  switch (value) {
+    case "start":
+    case "center":
+    case "end":
+    case "auto":
+      return value
+    default:
+      return "center"
+  }
+}
+
+function resolveRole(value?: string): NonNullable<PopoverContentOptions["role"]> {
+  switch (value) {
+    case "dialog":
+    case "menu":
+    case "listbox":
+    case "tree":
+    case "grid":
+    case "region":
+      return value
+    default:
+      return "dialog"
+  }
+}
+
+function readOptionalNumber(value: string | undefined): number | undefined {
   const parsed = Number(value)
-  return Number.isFinite(parsed) ? parsed : fallback
+  return Number.isFinite(parsed) ? parsed : undefined
+}
+
+function readNonNegativeNumber(value: string | undefined, fallback: number): number {
+  const parsed = readOptionalNumber(value)
+  if (parsed === undefined) {
+    return fallback
+  }
+  return Math.max(parsed, 0)
 }
 
 function readBoolean(value: string | undefined, fallback: boolean): boolean {

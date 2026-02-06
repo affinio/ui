@@ -39,6 +39,7 @@ export class SurfaceCore<
   protected readonly timers: SurfaceTimers
   protected readonly stateMachine: SurfaceStateMachine
   private readonly subscribers = new Set<SurfaceSubscriber<State>>()
+  private destroyed = false
 
   constructor(options: SurfaceOptions = {}, callbacks: Callbacks = {} as Callbacks) {
     const resolvedId = options.id ?? `surface-${++idCounter}`
@@ -59,6 +60,10 @@ export class SurfaceCore<
   }
 
   destroy() {
+    if (this.destroyed) {
+      return
+    }
+    this.destroyed = true
     this.subscribers.clear()
     this.timers.clearAll()
   }
@@ -68,6 +73,11 @@ export class SurfaceCore<
   }
 
   subscribe(listener: SurfaceSubscriber<State>): Subscription {
+    if (this.destroyed) {
+      return {
+        unsubscribe: () => {},
+      }
+    }
     this.subscribers.add(listener)
     listener(this.getSnapshot())
     return {
@@ -78,6 +88,7 @@ export class SurfaceCore<
   }
 
   open(reason: SurfaceReason = "programmatic") {
+    if (this.destroyed) return
     const result = this.stateMachine.open()
     if (!result.changed) return
     this.timers.cancelClose()
@@ -87,6 +98,7 @@ export class SurfaceCore<
   }
 
   close(reason: SurfaceReason = "programmatic") {
+    if (this.destroyed) return
     const result = this.stateMachine.close()
     if (!result.changed) return
     this.timers.cancelOpen()
@@ -96,6 +108,7 @@ export class SurfaceCore<
   }
 
   toggle() {
+    if (this.destroyed) return
     const result = this.stateMachine.toggle()
     if (!result.changed) return
     if (result.state.open) {
@@ -112,11 +125,14 @@ export class SurfaceCore<
 
   computePosition(anchor: Rect, surface: Rect, options: PositionOptions = {}): PositionResult {
     const position = computePosition(anchor, surface, options)
-    this.events.emitPosition(position)
+    if (!this.destroyed) {
+      this.events.emitPosition(position)
+    }
     return position
   }
 
   cancelPendingClose() {
+    if (this.destroyed) return
     this.timers.cancelClose()
   }
 
@@ -129,6 +145,7 @@ export class SurfaceCore<
   }
 
   protected emitState() {
+    if (this.destroyed) return
     const next = this.getSnapshot()
     this.subscribers.forEach((listener) => listener(next))
   }
@@ -138,6 +155,7 @@ export class SurfaceCore<
   protected onClosed(_reason: SurfaceReason) {}
 
   protected handlePointerEnter(_event?: PointerEventLike) {
+    if (this.destroyed) return
     this.timers.cancelClose()
   }
 
@@ -146,6 +164,7 @@ export class SurfaceCore<
   }
 
   protected handlePointerLeave(event?: PointerEventLike) {
+    if (this.destroyed) return
     if (this.shouldIgnorePointerLeave(event)) {
       this.cancelPendingClose()
       return

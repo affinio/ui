@@ -77,6 +77,20 @@ describe("combobox integration", () => {
     expect(root.affinoCombobox?.getSnapshot().open).toBe(true)
   })
 
+  it("cleans stale handle when required structure is missing", () => {
+    const { root, input, surface } = createComboboxFixture()
+    hydrateCombobox(root as any)
+    expect(root.affinoCombobox).toBeDefined()
+
+    input.remove()
+    hydrateCombobox(root as any)
+
+    expect(root.affinoCombobox).toBeUndefined()
+    expect(root.dataset.affinoComboboxState).toBe("false")
+    expect(surface.dataset.state).toBe("closed")
+    expect(surface.hidden).toBe(true)
+  })
+
   it("rehydrates on structural option changes", async () => {
     const { root, surface } = createComboboxFixture()
     hydrateCombobox(root as any)

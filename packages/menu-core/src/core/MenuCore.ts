@@ -43,7 +43,7 @@ export class MenuCore extends SurfaceCore<MenuState, MenuCallbacks> {
   private pointerHighlightLock: { id: string; timer: ReturnType<typeof setTimeout> | null } | null = null
   private readonly overlayKind: OverlayKind
   private readonly overlayIntegration: OverlayIntegration
-  private destroyed = false
+  private destroyedLocal = false
 
   constructor(options: MenuOptions = {}, callbacks: MenuCallbacks = {}, tree?: MenuTree, parentLink?: ParentLink) {
     super(options, callbacks)
@@ -90,10 +90,10 @@ export class MenuCore extends SurfaceCore<MenuState, MenuCallbacks> {
   }
 
   override destroy() {
-    if (this.destroyed) {
+    if (this.destroyedLocal) {
       return
     }
-    this.destroyed = true
+    this.destroyedLocal = true
     this.tree.unregister(this.id)
     this.releasePointerHighlightHold()
     this.teardownOverlayIntegration()
@@ -170,12 +170,12 @@ export class MenuCore extends SurfaceCore<MenuState, MenuCallbacks> {
   }
 
   private closeWithSource(reason: SurfaceReason, source: "local" | "kernel") {
-    if (this.destroyed) {
+    if (this.destroyedLocal) {
       return
     }
     if (source === "local" && this.isKernelManagedReason(reason)) {
       const overlayReason = this.mapSurfaceReasonToOverlay(reason)
-      if (overlayReason && this.overlayIntegration.requestClose(overlayReason)) {
+      if (overlayReason && this.requestOverlayClose(overlayReason)) {
         return
       }
     }
@@ -477,7 +477,12 @@ export class MenuCore extends SurfaceCore<MenuState, MenuCallbacks> {
   }
 
   getOverlayManager(): OverlayManager | null {
-    return this.overlayIntegration.getManager()
+    try {
+      return this.overlayIntegration.getManager()
+    } catch (error) {
+      this.emitOverlayDebug("get-manager", error)
+      return null
+    }
   }
 
   getOverlayKind(): OverlayKind {
@@ -485,7 +490,11 @@ export class MenuCore extends SurfaceCore<MenuState, MenuCallbacks> {
   }
 
   private syncOverlayState(isOpen: boolean) {
-    this.overlayIntegration.syncState(isOpen ? "open" : "closed")
+    try {
+      this.overlayIntegration.syncState(isOpen ? "open" : "closed")
+    } catch (error) {
+      this.emitOverlayDebug("sync-state", error)
+    }
   }
 
   private getEnabledItemIds(): readonly string[] {
@@ -493,6 +502,28 @@ export class MenuCore extends SurfaceCore<MenuState, MenuCallbacks> {
   }
 
   private teardownOverlayIntegration() {
-    this.overlayIntegration.destroy()
+    try {
+      this.overlayIntegration.destroy()
+    } catch (error) {
+      this.emitOverlayDebug("destroy", error)
+    }
+  }
+
+  private requestOverlayClose(reason: OverlayCloseReason): boolean {
+    try {
+      return this.overlayIntegration.requestClose(reason)
+    } catch (error) {
+      this.emitOverlayDebug("request-close", error)
+      return false
+    }
+  }
+
+  private emitOverlayDebug(operation: "sync-state" | "request-close" | "destroy" | "get-manager", error: unknown) {
+    this.menuEvents.emitDebug({
+      type: "overlay-error",
+      menuId: this.id,
+      operation,
+      error,
+    })
   }
 }

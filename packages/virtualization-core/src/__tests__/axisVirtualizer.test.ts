@@ -107,4 +107,45 @@ describe("axis virtualizer", () => {
 
     expect(virtualizer.getOffsetForIndex(10, internalContext)).toBe(10 * context.estimatedItemSize)
   })
+
+  it("normalizes non-finite input context values", () => {
+    const virtualizer = createAxisVirtualizer("vertical", strategy, { window: [0, 0] })
+    const state = virtualizer.update(
+      createContext({
+        totalCount: Number.NaN as unknown as number,
+        viewportSize: Number.NaN as unknown as number,
+        scrollOffset: Number.POSITIVE_INFINITY,
+        estimatedItemSize: Number.NaN as unknown as number,
+        overscan: Number.NaN as unknown as number,
+        virtualizationEnabled: true,
+      }),
+    )
+
+    expect(state.totalCount).toBe(0)
+    expect(state.viewportSize).toBe(0)
+    expect(state.offset).toBe(0)
+    expect(state.startIndex).toBe(0)
+    expect(state.endIndex).toBe(0)
+    expect(state.poolSize).toBe(0)
+  })
+
+  it("clamps malformed strategy output to safe range bounds", () => {
+    const unstableStrategy: AxisVirtualizerStrategy<Meta, Payload> = {
+      computeVisibleCount: () => Number.NaN as unknown as number,
+      clampScroll: () => Number.NaN as unknown as number,
+      computeRange: (_offset, _context, target) => {
+        target.start = Number.NaN as unknown as number
+        target.end = Number.POSITIVE_INFINITY
+        return target
+      },
+    }
+    const virtualizer = createAxisVirtualizer("vertical", unstableStrategy, { window: [0, 0] })
+    const state = virtualizer.update(createContext())
+
+    expect(state.offset).toBe(0)
+    expect(state.visibleCount).toBeGreaterThanOrEqual(1)
+    expect(state.startIndex).toBeGreaterThanOrEqual(0)
+    expect(state.endIndex).toBeLessThanOrEqual(state.totalCount)
+    expect(state.poolSize).toBe(state.endIndex - state.startIndex)
+  })
 })

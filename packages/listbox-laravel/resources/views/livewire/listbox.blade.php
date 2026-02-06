@@ -21,7 +21,7 @@
         @isset($trigger)
             {{ $trigger }}
         @else
-            <button type="button" class="affino-listbox__button" @if ($label) aria-label="{{ $label }}" @endif>
+            <button type="button" class="affino-listbox__button" data-affino-listbox-trigger-control @if ($label) aria-label="{{ $label }}" @endif>
                 @if ($label)
                     <span class="affino-listbox__button-label">{{ $label }}</span>
                 @endif

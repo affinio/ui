@@ -99,6 +99,20 @@ describe("linear selection state", () => {
     expect(state.focus).toBe(10)
   })
 
+  it("normalizes fractional activeRangeIndex values", () => {
+    const state = resolveLinearSelectionUpdate({
+      ranges: [
+        { start: 0, end: 2 },
+        { start: 10, end: 20 },
+      ],
+      activeRangeIndex: 1.9,
+    })
+
+    expect(state.activeRangeIndex).toBe(1)
+    expect(state.anchor).toBe(10)
+    expect(state.focus).toBe(20)
+  })
+
   it("returns an empty snapshot when no ranges are provided", () => {
     const state = resolveLinearSelectionUpdate({ ranges: [], activeRangeIndex: 0 })
     expect(state).toEqual(emptyLinearSelectionState())
@@ -119,6 +133,29 @@ describe("linear selection operations", () => {
     expect(extended.ranges).toEqual([{ start: 2, end: 6 }])
     expect(extended.anchor).toBe(2)
     expect(extended.focus).toBe(6)
+  })
+
+  it("extends safely when state carries a fractional active index", () => {
+    const extended = extendLinearSelectionToIndex({
+      state: {
+        ranges: [
+          { start: 0, end: 1 },
+          { start: 4, end: 5 },
+        ],
+        activeRangeIndex: 1.2,
+        anchor: 4,
+        focus: 5,
+      },
+      index: 8,
+    })
+
+    expect(extended.ranges).toEqual([
+      { start: 0, end: 1 },
+      { start: 4, end: 8 },
+    ])
+    expect(extended.activeRangeIndex).toBe(1)
+    expect(extended.anchor).toBe(4)
+    expect(extended.focus).toBe(8)
   })
 
   it("toggles individual indices and clears when empty", () => {

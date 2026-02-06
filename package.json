@@ -25,7 +25,8 @@
     "bench:laravel-morph": "node ./scripts/bench-livewire-morph.mjs",
     "bench:laravel-morph:assert": "PERF_BUDGET_TOTAL_MS=3000 PERF_BUDGET_MAX_HYDRATE_RATE_PCT=25 PERF_BUDGET_MAX_BOOTSTRAP_MS=12 PERF_BUDGET_MAX_OPEN_CLOSE_MS=2 node ./scripts/bench-livewire-morph.mjs",
     "bench:vue-adapters": "node ./scripts/bench-vue-adapters.mjs",
-    "bench:vue-adapters:assert": "PERF_BUDGET_TOTAL_MS=1200 PERF_BUDGET_MAX_BOOTSTRAP_MS=8 PERF_BUDGET_MAX_CONTROLLER_MS=30 PERF_BUDGET_MAX_RELAYOUT_MS=6 node ./scripts/bench-vue-adapters.mjs"
+    "bench:vue-adapters:assert": "PERF_BUDGET_TOTAL_MS=1200 PERF_BUDGET_MAX_BOOTSTRAP_MS=8 PERF_BUDGET_MAX_CONTROLLER_MS=30 PERF_BUDGET_MAX_RELAYOUT_MS=6 node ./scripts/bench-vue-adapters.mjs",
+    "quality:max": "node ./scripts/quality-max-pipeline.mjs"
   },
   "devDependencies": {
     "@changesets/cli": "^2.27.11",

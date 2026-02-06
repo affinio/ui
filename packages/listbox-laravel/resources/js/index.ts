@@ -102,6 +102,8 @@ export function hydrateListbox(root: RootEl): void {
   const trigger = root.querySelector<HTMLElement>("[data-affino-listbox-trigger]")
   const surface = root.querySelector<HTMLElement>("[data-affino-listbox-surface]")
   if (!trigger || !surface) {
+    registry.get(root)?.()
+    root.dataset.affinoListboxState = "closed"
     return
   }
 
@@ -124,6 +126,7 @@ function hydrateResolvedListbox(root: RootEl, trigger: HTMLElement, surface: HTM
   const loop = readBoolean(root.dataset.affinoListboxLoop, true)
   const placeholder = root.dataset.affinoListboxPlaceholder ?? "Select"
   const disabled = readBoolean(root.dataset.affinoListboxDisabled, false)
+  const triggerControl = resolveTriggerControl(trigger)
   const triggerLabelEl = trigger.querySelector<HTMLElement>("[data-affino-listbox-display]")
   const hiddenInput = root.querySelector<HTMLInputElement>("[data-affino-listbox-input]")
 
@@ -142,7 +145,7 @@ function hydrateResolvedListbox(root: RootEl, trigger: HTMLElement, surface: HTM
   let pendingStructureRehydrate = false
 
   surface.hidden = !open
-  applyTriggerAria(trigger, surface, open)
+  applyTriggerAria(triggerControl, surface, open, mode, disabled)
   const overlayId = rootId || surface.dataset.affinoListboxSurface || surface.id || generateListboxOverlayId()
   const ownerDocument = root.ownerDocument ?? document
   const staleRoot = claimOverlayOwner(ownerDocument, overlayId, root)
@@ -185,7 +188,7 @@ function hydrateResolvedListbox(root: RootEl, trigger: HTMLElement, surface: HTM
     rememberOpenState(true)
     root.dataset.affinoListboxState = "open"
     surface.hidden = false
-    applyTriggerAria(trigger, surface, true)
+    applyTriggerAria(triggerControl, surface, true, mode, disabled)
     syncOverlayState()
     attachOutsideGuards()
     requestAnimationFrame(() => focusActiveOption())
@@ -198,15 +201,38 @@ function hydrateResolvedListbox(root: RootEl, trigger: HTMLElement, surface: HTM
     open = false
     rememberOpenState(false)
     root.dataset.affinoListboxState = "closed"
+    moveFocusAwayFromSurface()
     surface.hidden = true
-    applyTriggerAria(trigger, surface, false)
+    applyTriggerAria(triggerControl, surface, false, mode, disabled)
     syncOverlayState()
     detachOutsideGuards()
     requestAnimationFrame(() => {
-      if (trigger.isConnected) {
-        trigger.focus({ preventScroll: true })
-      }
+      focusTriggerControl()
     })
+  }
+
+  const focusTriggerControl = () => {
+    if (!triggerControl.isConnected) {
+      return false
+    }
+    try {
+      triggerControl.focus({ preventScroll: true })
+    } catch {
+      return false
+    }
+    const activeElement = ownerDocument.activeElement
+    return activeElement === triggerControl || (activeElement instanceof Node && triggerControl.contains(activeElement))
+  }
+
+  const moveFocusAwayFromSurface = () => {
+    const activeElement = ownerDocument.activeElement
+    if (!(activeElement instanceof HTMLElement) || !surface.contains(activeElement)) {
+      return
+    }
+    if (!disabled && focusTriggerControl()) {
+      return
+    }
+    activeElement.blur()
   }
 
   function handleKernelClose(reason: OverlayCloseReason) {
@@ -485,7 +511,7 @@ function hydrateResolvedListbox(root: RootEl, trigger: HTMLElement, surface: HTM
     const nextTrigger = root.querySelector<HTMLElement>("[data-affino-listbox-trigger]")
     const nextSurface = root.querySelector<HTMLElement>("[data-affino-listbox-surface]")
     if (!nextTrigger || !nextSurface) {
-      return false
+      return true
     }
     if (nextTrigger !== trigger || nextSurface !== surface) {
       return true
@@ -613,14 +639,21 @@ function hydrateResolvedListbox(root: RootEl, trigger: HTMLElement, surface: HTM
 
   function syncSelectionAttributes() {
     valueToIndex.clear()
+    const optionIdPrefix = surface.id || rootId || "affino-listbox"
+    let activeOptionId: string | null = null
     options.forEach((option, index) => {
       option.tabIndex = -1
       option.setAttribute("role", "option")
       option.dataset.affinoListboxOptionIndex = String(index)
+      if (!option.id) {
+        option.id = `${optionIdPrefix}-option-${index + 1}`
+      }
       const value = option.dataset.affinoListboxValue
       if (value !== undefined && !valueToIndex.has(value)) {
         valueToIndex.set(value, index)
       }
+      const optionDisabled = option.dataset.affinoListboxDisabled === "true"
+      option.setAttribute("aria-disabled", optionDisabled ? "true" : "false")
       const selected = isIndexSelected(state.selection, index)
       option.dataset.affinoListboxOptionSelected = selected ? "true" : "false"
       option.setAttribute("aria-selected", selected ? "true" : "false")
@@ -631,10 +664,16 @@ function hydrateResolvedListbox(root: RootEl, trigger: HTMLElement, surface: HTM
       }
       if (index === state.activeIndex) {
         option.dataset.active = "true"
+        activeOptionId = option.id
       } else {
         delete option.dataset.active
       }
     })
+    if (activeOptionId) {
+      surface.setAttribute("aria-activedescendant", activeOptionId)
+    } else {
+      surface.removeAttribute("aria-activedescendant")
+    }
     updateDisplay()
   }
 
@@ -746,9 +785,30 @@ function collectOptions(root: RootEl): OptionEl[] {
   return Array.from(root.querySelectorAll<OptionEl>("[data-affino-listbox-option]"))
 }
 
-function applyTriggerAria(trigger: HTMLElement, surface: HTMLElement, open: boolean): void {
+function applyTriggerAria(
+  trigger: HTMLElement,
+  surface: HTMLElement,
+  open: boolean,
+  mode: ListboxMode,
+  disabled: boolean,
+): void {
+  if (!isNativeButtonControl(trigger) && !trigger.hasAttribute("role")) {
+    trigger.setAttribute("role", "button")
+  }
+  if (trigger.tabIndex < 0 && !disabled) {
+    trigger.tabIndex = 0
+  }
+  trigger.setAttribute("aria-disabled", disabled ? "true" : "false")
   trigger.setAttribute("aria-haspopup", "listbox")
   trigger.setAttribute("aria-expanded", open ? "true" : "false")
+  surface.setAttribute("role", "listbox")
+  setElementInert(surface, !open)
+  surface.setAttribute("aria-hidden", open ? "false" : "true")
+  if (mode === "multiple") {
+    surface.setAttribute("aria-multiselectable", "true")
+  } else {
+    surface.removeAttribute("aria-multiselectable")
+  }
   if (!surface.id) {
     const fallbackId = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
       ? crypto.randomUUID()
@@ -759,6 +819,53 @@ function applyTriggerAria(trigger: HTMLElement, surface: HTMLElement, open: bool
   trigger.setAttribute("aria-controls", surface.id)
   if (!surface.hasAttribute("tabindex")) {
     surface.tabIndex = -1
+  }
+}
+
+function resolveTriggerControl(trigger: HTMLElement): HTMLElement {
+  const explicitControl = trigger.querySelector<HTMLElement>("[data-affino-listbox-trigger-control]")
+  if (explicitControl) {
+    return explicitControl
+  }
+  if (isFocusableCandidate(trigger)) {
+    return trigger
+  }
+  return trigger.querySelector<HTMLElement>(
+    "button, [href], input, select, textarea, [tabindex], [contenteditable='true']",
+  ) ?? trigger
+}
+
+function isNativeButtonControl(element: HTMLElement): boolean {
+  return element.tagName === "BUTTON"
+}
+
+function isFocusableCandidate(element: HTMLElement): boolean {
+  if (element.hasAttribute("tabindex")) {
+    return true
+  }
+  if (element.hasAttribute("contenteditable")) {
+    return true
+  }
+  switch (element.tagName) {
+    case "BUTTON":
+    case "INPUT":
+    case "SELECT":
+    case "TEXTAREA":
+      return true
+    case "A":
+      return element.hasAttribute("href")
+    default:
+      return false
+  }
+}
+
+function setElementInert(element: HTMLElement, inert: boolean): void {
+  if ("inert" in element) {
+    ;(element as HTMLElement & { inert: boolean }).inert = inert
+  } else if (inert) {
+    element.setAttribute("inert", "")
+  } else {
+    element.removeAttribute("inert")
   }
 }
 

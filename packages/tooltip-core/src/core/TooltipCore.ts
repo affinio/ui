@@ -38,7 +38,7 @@ export class TooltipCore extends SurfaceCore<TooltipState, TooltipCallbacks> {
   private readonly contentElementId: string
   private readonly descriptionElementId: string
   private readonly overlayIntegration: OverlayIntegration
-  private destroyed = false
+  private destroyedLocal = false
 
   constructor(options: TooltipOptions = {}, callbacks: TooltipCallbacks = {}) {
     super(options, callbacks)
@@ -75,10 +75,10 @@ export class TooltipCore extends SurfaceCore<TooltipState, TooltipCallbacks> {
   }
 
   override destroy(): void {
-    if (this.destroyed) {
+    if (this.destroyedLocal) {
       return
     }
-    this.destroyed = true
+    this.destroyedLocal = true
     this.overlayIntegration.destroy()
     super.destroy()
   }
@@ -130,6 +130,7 @@ export class TooltipCore extends SurfaceCore<TooltipState, TooltipCallbacks> {
       onPointerLeave: (event) => this.handlePointerLeave(event),
       onFocus: () => {
         this.focusWithin = true
+        this.cancelPendingClose()
         this.open("keyboard")
       },
       onBlur: () => {
@@ -171,7 +172,7 @@ export class TooltipCore extends SurfaceCore<TooltipState, TooltipCallbacks> {
   }
 
   private closeWithSource(reason: SurfaceReason, source: "local" | "kernel"): void {
-    if (this.destroyed || !this.surfaceState.open) {
+    if (this.destroyedLocal || !this.surfaceState.open) {
       return
     }
     if (source === "local" && this.isKernelManagedReason(reason)) {

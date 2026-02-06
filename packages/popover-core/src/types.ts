@@ -28,11 +28,18 @@ export interface PopoverOptions extends SurfaceOptions {
 
 export interface PopoverCallbacks extends SurfaceCallbacks {
   onInteractOutside?: (event: PopoverInteractOutsideEvent) => void
+  onOverlayError?: (event: PopoverOverlayErrorEvent) => void
 }
 
 export interface PopoverInteractOutsideEvent {
   event: Event
   target: EventTarget | null
+}
+
+export interface PopoverOverlayErrorEvent {
+  popoverId: string
+  operation: "sync-state" | "request-close" | "destroy" | "get-manager"
+  error: unknown
 }
 
 export interface PopoverState extends SurfaceState {}
@@ -105,4 +112,3 @@ export type PopoverOverlayTraits = Partial<
     | "data"
   >
 >
-

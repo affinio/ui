@@ -57,11 +57,16 @@ export interface MoveComboboxFocusInput {
 }
 
 export function moveComboboxFocus(input: MoveComboboxFocusInput): ComboboxState {
+  if (input.context.disabled) {
+    return input.state
+  }
+
+  const shouldExtend = input.context.mode === "multiple" ? input.extend : false
   const nextListbox = moveListboxFocus({
     state: input.state.listbox,
     context: input.context,
     delta: input.delta,
-    extend: input.extend,
+    extend: shouldExtend,
     loop: input.context.loop,
   })
   if (nextListbox === input.state.listbox) {
@@ -82,12 +87,17 @@ export interface ActivateComboboxIndexInput {
 }
 
 export function activateComboboxIndex(input: ActivateComboboxIndexInput): ComboboxState {
+  if (input.context.disabled) {
+    return input.state
+  }
+
+  const canToggleSelection = input.context.mode === "multiple"
   const nextListbox = activateListboxIndex({
     state: input.state.listbox,
     context: input.context,
     index: input.index,
-    toggle: input.toggle,
-    extend: input.extend,
+    toggle: canToggleSelection ? input.toggle : false,
+    extend: canToggleSelection ? input.extend : false,
   })
   if (nextListbox === input.state.listbox) {
     return input.state
@@ -113,11 +123,11 @@ export function clearComboboxSelection(state: ComboboxState): ComboboxState {
 export function getSelectedIndexCount(selection: LinearSelectionState): number {
   let total = 0
   for (const range of selection.ranges) {
-    const start = Math.min(range.start, range.end)
-    const end = Math.max(range.start, range.end)
-    if (!Number.isFinite(start) || !Number.isFinite(end)) {
+    const normalized = normalizeSelectionRange(range)
+    if (!normalized) {
       continue
     }
+    const { start, end } = normalized
     total += end - start + 1
   }
   return Math.max(total, 0)
@@ -134,11 +144,11 @@ export function mapSelectedIndexes<T>(
   const mapped = new Array<T>(total)
   let cursor = 0
   for (const range of selection.ranges) {
-    const start = Math.min(range.start, range.end)
-    const end = Math.max(range.start, range.end)
-    if (!Number.isFinite(start) || !Number.isFinite(end)) {
+    const normalized = normalizeSelectionRange(range)
+    if (!normalized) {
       continue
     }
+    const { start, end } = normalized
     for (let index = start; index <= end; index += 1) {
       mapped[cursor] = map(index, cursor)
       cursor += 1
@@ -155,11 +165,11 @@ export function getSelectedIndexes(selection: LinearSelectionState): number[] {
   const indexes = new Array<number>(total)
   let cursor = 0
   for (const range of selection.ranges) {
-    const start = Math.min(range.start, range.end)
-    const end = Math.max(range.start, range.end)
-    if (!Number.isFinite(start) || !Number.isFinite(end)) {
+    const normalized = normalizeSelectionRange(range)
+    if (!normalized) {
       continue
     }
+    const { start, end } = normalized
     for (let index = start; index <= end; index += 1) {
       indexes[cursor] = index
       cursor += 1
@@ -169,7 +179,17 @@ export function getSelectedIndexes(selection: LinearSelectionState): number[] {
 }
 
 export function isIndexSelected(selection: LinearSelectionState, index: number): boolean {
-  return selection.ranges.some((range: LinearRange) => index >= range.start && index <= range.end)
+  if (!Number.isFinite(index)) {
+    return false
+  }
+  const normalizedIndex = Math.trunc(index)
+  return selection.ranges.some((range: LinearRange) => {
+    const normalized = normalizeSelectionRange(range)
+    if (!normalized) {
+      return false
+    }
+    return normalizedIndex >= normalized.start && normalizedIndex <= normalized.end
+  })
 }
 
 export function cloneListboxState(state: ListboxState): ListboxState {
@@ -181,5 +201,17 @@ export function cloneListboxState(state: ListboxState): ListboxState {
       anchor: state.selection.anchor,
       focus: state.selection.focus,
     },
+  }
+}
+
+function normalizeSelectionRange(range: LinearRange): { start: number; end: number } | null {
+  if (!Number.isFinite(range.start) || !Number.isFinite(range.end)) {
+    return null
+  }
+  const normalizedStart = Math.trunc(range.start)
+  const normalizedEnd = Math.trunc(range.end)
+  return {
+    start: Math.min(normalizedStart, normalizedEnd),
+    end: Math.max(normalizedStart, normalizedEnd),
   }
 }

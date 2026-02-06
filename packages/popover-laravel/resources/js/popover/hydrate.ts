@@ -89,7 +89,7 @@ export function hydratePopover(root: RootEl): void {
   const hasStoredFocusSnapshot = (id: string) => Boolean(id && focusSnapshotRegistry.has(id))
   let pendingFocusRestore = captureFocusSnapshot(root, popoverId) || hasStoredFocusSnapshot(popoverId)
   teardown?.()
-  const stateSyncEnabled = root.dataset.affinoPopoverStateSync === "true"
+  const stateSyncEnabled = root.dataset.affinoPopoverStateSync !== "false"
   const persistedOpen = popoverId ? openStateRegistry.get(popoverId) : undefined
   const resolvedDefaultOpen = stateSyncEnabled
     ? options.defaultOpen || initialStateOpen
