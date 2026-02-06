@@ -67,6 +67,7 @@ type OptionSnapshot = {
 
 const registry = new WeakMap<RootEl, Cleanup>()
 const openStateRegistry = new Map<string, boolean>()
+const overlayOwnersByDocument = new WeakMap<Document, Map<string, RootEl>>()
 
 type OverlayWindow = Window & { __affinoOverlayManager?: OverlayManager }
 
@@ -138,11 +139,16 @@ function hydrateResolvedListbox(root: RootEl, trigger: HTMLElement, surface: HTM
   surface.hidden = !open
   applyTriggerAria(trigger, surface, open)
   const overlayId = rootId || surface.dataset.affinoListboxSurface || surface.id || generateListboxOverlayId()
+  const ownerDocument = root.ownerDocument ?? document
+  const staleRoot = claimOverlayOwner(ownerDocument, overlayId, root)
+  if (staleRoot) {
+    registry.get(staleRoot)?.()
+  }
   const overlayKind = (root.dataset.affinoListboxOverlayKind as OverlayKind) ?? "listbox"
   const overlayIntegration = createOverlayIntegration({
     id: overlayId,
     kind: overlayKind,
-    overlayManager: resolveSharedOverlayManager(root.ownerDocument ?? document),
+    overlayManager: resolveSharedOverlayManager(ownerDocument),
     traits: {
       root: surface,
       returnFocus: true,
@@ -700,6 +706,7 @@ function hydrateResolvedListbox(root: RootEl, trigger: HTMLElement, surface: HTM
   })
 
   registry.set(root, () => {
+    releaseOverlayOwner(ownerDocument, overlayId, root)
     detachments.forEach((cleanup) => cleanup())
     registry.delete(root)
   })
@@ -908,6 +915,42 @@ function collectListboxRoots(node: Node): RootEl[] {
     node.querySelectorAll<RootEl>("[data-affino-listbox-root]").forEach((root) => roots.push(root))
   }
   return roots
+}
+
+function claimOverlayOwner(ownerDocument: Document, overlayId: string, nextRoot: RootEl): RootEl | null {
+  if (!overlayId) {
+    return null
+  }
+  const owners = getOverlayOwners(ownerDocument)
+  const existing = owners.get(overlayId) ?? null
+  owners.set(overlayId, nextRoot)
+  return existing && existing !== nextRoot ? existing : null
+}
+
+function releaseOverlayOwner(ownerDocument: Document, overlayId: string, root: RootEl): void {
+  if (!overlayId) {
+    return
+  }
+  const owners = overlayOwnersByDocument.get(ownerDocument)
+  if (!owners) {
+    return
+  }
+  if (owners.get(overlayId) === root) {
+    owners.delete(overlayId)
+  }
+  if (!owners.size) {
+    overlayOwnersByDocument.delete(ownerDocument)
+  }
+}
+
+function getOverlayOwners(ownerDocument: Document): Map<string, RootEl> {
+  const existing = overlayOwnersByDocument.get(ownerDocument)
+  if (existing) {
+    return existing
+  }
+  const created = new Map<string, RootEl>()
+  overlayOwnersByDocument.set(ownerDocument, created)
+  return created
 }
 
 function setupLivewireHooks(): void {

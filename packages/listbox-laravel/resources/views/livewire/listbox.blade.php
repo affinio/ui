@@ -32,6 +32,7 @@
     </div>
 
     <div
+        wire:ignore.self
         data-affino-listbox-surface
         role="listbox"
         @if ($mode === 'multiple') aria-multiselectable="true" @endif

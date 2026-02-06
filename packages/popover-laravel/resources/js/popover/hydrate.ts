@@ -3,13 +3,65 @@ import {
   acquireDocumentScrollLock,
   didStructureChange,
   ensureDocumentObserver,
+  getDocumentOverlayManager,
   releaseDocumentScrollLock,
+  type OverlayManager,
 } from "@affino/overlay-kernel"
 import type { SurfaceReason } from "@affino/popover-core"
 import { attachHandle, bindArrowProps, bindProps, resetArrow } from "./dom"
 import { resolveOptions } from "./options"
-import { getActivePopoverRoot, registry, setActivePopoverRoot, structureRegistry } from "./registry"
+import {
+  claimPopoverOwner,
+  getActivePopoverRoot,
+  registry,
+  releasePopoverOwner,
+  setActivePopoverRoot,
+  structureRegistry,
+} from "./registry"
 import type { Detachment, RootEl } from "./types"
+
+type OverlayWindow = Window & { __affinoOverlayManager?: OverlayManager }
+const openStateRegistry = new Map<string, boolean>()
+const focusSnapshotRegistry = new Map<string, FocusSnapshot>()
+const FOCUSABLE_WITHIN_SELECTOR = [
+  '[data-affino-focus-key]',
+  "input:not([disabled])",
+  "textarea:not([disabled])",
+  "select:not([disabled])",
+  "button:not([disabled])",
+  "a[href]",
+  '[tabindex]:not([tabindex="-1"])',
+  '[contenteditable="true"]',
+  '[contenteditable=""]',
+].join(",")
+const NON_TEXT_INPUT_TYPES = new Set(["button", "submit", "reset", "checkbox", "radio", "file", "range", "color", "image", "hidden"])
+
+type FocusSnapshot = {
+  key: FocusSnapshotKey | null
+  fallbackIndex: number
+  selectionStart: number | null
+  selectionEnd: number | null
+  priority: number
+}
+
+type FocusSnapshotKey =
+  | { type: "data"; value: string }
+  | { type: "id"; value: string }
+  | { type: "name"; value: string }
+  | { type: "wire"; value: string }
+
+function resolveSharedOverlayManager(ownerDocument: Document): OverlayManager {
+  const scope = ownerDocument.defaultView as OverlayWindow | null
+  const existing = scope?.__affinoOverlayManager
+  if (existing) {
+    return existing
+  }
+  const manager = getDocumentOverlayManager(ownerDocument)
+  if (scope) {
+    scope.__affinoOverlayManager = manager
+  }
+  return manager
+}
 
 export function hydratePopover(root: RootEl): void {
   const resolveTrigger = () => root.querySelector<HTMLElement>("[data-affino-popover-trigger]")
@@ -20,17 +72,35 @@ export function hydratePopover(root: RootEl): void {
     return
   }
 
-  const teardown = registry.get(root)
-  teardown?.()
-
   const options = resolveOptions(root)
   const initialStateOpen = root.dataset.affinoPopoverState === "open"
+  const ownerDocument = root.ownerDocument ?? document
+  const popoverId = root.dataset.affinoPopoverRoot ?? ""
+  const teardown = registry.get(root)
+  const hasStoredFocusSnapshot = (id: string) => Boolean(id && focusSnapshotRegistry.has(id))
+  let pendingFocusRestore = captureFocusSnapshot(root, popoverId) || hasStoredFocusSnapshot(popoverId)
+  teardown?.()
+  const stateSyncEnabled = root.dataset.affinoPopoverStateSync === "true"
+  const persistedOpen = popoverId ? openStateRegistry.get(popoverId) : undefined
+  const resolvedDefaultOpen = stateSyncEnabled
+    ? options.defaultOpen || initialStateOpen
+    : (typeof persistedOpen === "boolean" ? persistedOpen : options.defaultOpen || initialStateOpen)
+  const staleRoot = claimPopoverOwner(ownerDocument, popoverId, root)
+  if (staleRoot) {
+    pendingFocusRestore = captureFocusSnapshot(staleRoot, popoverId) || pendingFocusRestore || hasStoredFocusSnapshot(popoverId)
+    registry.get(staleRoot)?.()
+  }
   const popover = new PopoverCore({
-    id: root.dataset.affinoPopoverRoot,
+    id: popoverId,
     closeOnEscape: options.closeOnEscape,
     closeOnInteractOutside: options.closeOnInteractOutside,
     modal: options.modal,
-    defaultOpen: options.defaultOpen || initialStateOpen,
+    defaultOpen: resolvedDefaultOpen,
+    overlayManager: resolveSharedOverlayManager(ownerDocument),
+    overlayEntryTraits: {
+      root: content,
+      returnFocus: options.returnFocus,
+    },
   })
 
   const detachments: Detachment[] = []
@@ -200,6 +270,9 @@ export function hydratePopover(root: RootEl): void {
   }
 
   const syncOpenFromDomState = () => {
+    if (!stateSyncEnabled) {
+      return
+    }
     const domOpen = root.dataset.affinoPopoverState === "open"
     const snapshotOpen = popover.getSnapshot().open
     if (domOpen && !snapshotOpen) {
@@ -250,6 +323,7 @@ export function hydratePopover(root: RootEl): void {
     root.dataset.affinoPopoverState = state
     content.dataset.state = state
     content.hidden = !open
+    rememberOpenState(popoverId, open)
 
     if (open) {
       content.style.position = options.strategy
@@ -264,6 +338,12 @@ export function hydratePopover(root: RootEl): void {
         scrollLocked = true
       }
       syncPosition()
+      if (pendingFocusRestore) {
+        requestAnimationFrame(() => {
+          pendingFocusRestore = false
+          restoreFocusSnapshot(popoverId, content)
+        })
+      }
     } else {
       detachOutsideGuards()
       detachRelayoutHandlers()
@@ -298,12 +378,14 @@ export function hydratePopover(root: RootEl): void {
       }
     }
   })
-  stateObserver.observe(root, {
-    attributes: true,
-    attributeFilter: ["data-affino-popover-state"],
-  })
-  detachments.push(() => stateObserver.disconnect())
-  syncOpenFromDomState()
+  if (stateSyncEnabled) {
+    stateObserver.observe(root, {
+      attributes: true,
+      attributeFilter: ["data-affino-popover-state"],
+    })
+    detachments.push(() => stateObserver.disconnect())
+    syncOpenFromDomState()
+  }
 
   detachments.push(() => {
     unsubscribe.unsubscribe()
@@ -313,9 +395,9 @@ export function hydratePopover(root: RootEl): void {
     resetPosition()
   })
 
-  if (options.pinned || options.defaultOpen || initialStateOpen) {
+  if (options.pinned || resolvedDefaultOpen || initialStateOpen) {
     requestAnimationFrame(() => {
-      if (root.isConnected && (options.pinned || options.defaultOpen || root.dataset.affinoPopoverState === "open")) {
+      if (root.isConnected && (options.pinned || resolvedDefaultOpen || root.dataset.affinoPopoverState === "open")) {
         popover.open("programmatic")
       }
     })
@@ -324,6 +406,7 @@ export function hydratePopover(root: RootEl): void {
   detachments.push(() => popover.destroy())
 
   registry.set(root, () => {
+    releasePopoverOwner(ownerDocument, popoverId, root)
     if (getActivePopoverRoot(root.ownerDocument) === root) {
       setActivePopoverRoot(root.ownerDocument, null)
     }
@@ -343,6 +426,26 @@ export function scan(node: ParentNode): void {
   }
   const roots = node.querySelectorAll<RootEl>("[data-affino-popover-root]")
   roots.forEach((root) => maybeHydratePopover(root))
+}
+
+export function captureFocusSnapshotForNode(node: Node): void {
+  collectRelatedPopoverRoots(node).forEach((root) => {
+    const popoverId = root.dataset.affinoPopoverRoot ?? ""
+    captureFocusSnapshot(root, popoverId)
+  })
+}
+
+export function restoreFocusSnapshotForNode(node: Node): void {
+  collectRelatedPopoverRoots(node).forEach((root) => {
+    const popoverId = root.dataset.affinoPopoverRoot ?? ""
+    const content = root.querySelector<HTMLElement>("[data-affino-popover-content]")
+    if (!content) {
+      return
+    }
+    requestAnimationFrame(() => {
+      restoreFocusSnapshot(popoverId, content)
+    })
+  })
 }
 
 export function setupMutationObserver(): void {
@@ -390,6 +493,18 @@ function collectPopoverRoots(node: Node): RootEl[] {
     node.querySelectorAll<RootEl>("[data-affino-popover-root]").forEach((root) => roots.push(root))
   }
   return roots
+}
+
+function collectRelatedPopoverRoots(node: Node): RootEl[] {
+  const seen = new Set<RootEl>()
+  if (node instanceof HTMLElement) {
+    const nearest = node.closest<RootEl>("[data-affino-popover-root]")
+    if (nearest) {
+      seen.add(nearest)
+    }
+  }
+  collectPopoverRoots(node).forEach((root) => seen.add(root))
+  return Array.from(seen)
 }
 
 function maybeHydratePopover(root: RootEl): void {
@@ -447,4 +562,203 @@ function isManualPopover(root: RootEl): boolean {
 
 function isPersistentPopover(root: RootEl): boolean {
   return isPinnedPopover(root) || isModalPopover(root) || isManualPopover(root)
+}
+
+function rememberOpenState(popoverId: string, open: boolean): void {
+  if (!popoverId) {
+    return
+  }
+  openStateRegistry.set(popoverId, open)
+}
+
+function captureFocusSnapshot(root: RootEl, popoverId: string): boolean {
+  if (!popoverId) {
+    return false
+  }
+  const content = root.querySelector<HTMLElement>("[data-affino-popover-content]")
+  if (!content) {
+    return false
+  }
+  const ownerDocument = root.ownerDocument ?? document
+  const active = ownerDocument.activeElement
+  if (!(active instanceof HTMLElement) || !content.contains(active)) {
+    return false
+  }
+  if (active === content) {
+    return false
+  }
+
+  const focusables = collectFocusableNodes(content)
+  const fallbackIndex = focusables.indexOf(active)
+  const selection = readSelection(active)
+  const key = resolveFocusKey(active)
+  const priority = resolveFocusPriority(active, key)
+  if (priority <= 0) {
+    return false
+  }
+
+  const existing = focusSnapshotRegistry.get(popoverId)
+  if (existing) {
+    if (existing.priority > priority) {
+      return false
+    }
+    if (existing.priority === priority && existing.key && !key) {
+      return false
+    }
+  }
+
+  focusSnapshotRegistry.set(popoverId, {
+    key,
+    fallbackIndex,
+    selectionStart: selection.start,
+    selectionEnd: selection.end,
+    priority,
+  })
+
+  return true
+}
+
+function restoreFocusSnapshot(popoverId: string, content: HTMLElement): void {
+  if (!popoverId || content.hidden) {
+    return
+  }
+  const snapshot = focusSnapshotRegistry.get(popoverId)
+  if (!snapshot) {
+    return
+  }
+
+  const ownerDocument = content.ownerDocument
+  const active = ownerDocument.activeElement
+  if (active instanceof HTMLElement && content.contains(active) && active !== content) {
+    return
+  }
+
+  const target = resolveFocusTarget(content, snapshot)
+  if (!target) {
+    return
+  }
+
+  target.focus({ preventScroll: true })
+  applySelection(target, snapshot.selectionStart, snapshot.selectionEnd)
+}
+
+function resolveFocusTarget(content: HTMLElement, snapshot: FocusSnapshot): HTMLElement | null {
+  const byKey = resolveByKey(content, snapshot.key)
+  if (byKey) {
+    return byKey
+  }
+  if (snapshot.fallbackIndex < 0) {
+    return null
+  }
+  const focusables = collectFocusableNodes(content)
+  return focusables[snapshot.fallbackIndex] ?? null
+}
+
+function resolveByKey(content: HTMLElement, key: FocusSnapshotKey | null): HTMLElement | null {
+  if (!key) {
+    return null
+  }
+  switch (key.type) {
+    case "data":
+      return content.querySelector<HTMLElement>(`[data-affino-focus-key="${escapeSelectorValue(key.value)}"]`)
+    case "id":
+      return content.querySelector<HTMLElement>(`#${escapeSelectorValue(key.value)}`)
+    case "name":
+      return content.querySelector<HTMLElement>(`[name="${escapeSelectorValue(key.value)}"]`)
+    case "wire":
+      return (
+        content.querySelector<HTMLElement>(`[wire\\:model\\.live="${escapeSelectorValue(key.value)}"]`) ??
+        content.querySelector<HTMLElement>(`[wire\\:model="${escapeSelectorValue(key.value)}"]`) ??
+        content.querySelector<HTMLElement>(`[wire\\:model\\.blur="${escapeSelectorValue(key.value)}"]`) ??
+        content.querySelector<HTMLElement>(`[wire\\:model\\.defer="${escapeSelectorValue(key.value)}"]`)
+      )
+    default:
+      return null
+  }
+}
+
+function resolveFocusKey(target: HTMLElement): FocusSnapshotKey | null {
+  const dataKey = target.dataset.affinoFocusKey
+  if (dataKey) {
+    return { type: "data", value: dataKey }
+  }
+  const wireModel = target.getAttribute("wire:model.live")
+    ?? target.getAttribute("wire:model")
+    ?? target.getAttribute("wire:model.blur")
+    ?? target.getAttribute("wire:model.defer")
+  if (wireModel) {
+    return { type: "wire", value: wireModel }
+  }
+  const name = target.getAttribute("name")
+  if (name && isFormFieldElement(target)) {
+    return { type: "name", value: name }
+  }
+  if (target.id && isFormFieldElement(target)) {
+    return { type: "id", value: target.id }
+  }
+  return null
+}
+
+function resolveFocusPriority(target: HTMLElement, key: FocusSnapshotKey | null): number {
+  if (isTextEntryElement(target)) {
+    return 3
+  }
+  if (isFormFieldElement(target)) {
+    return 2
+  }
+  return key ? 1 : 0
+}
+
+function collectFocusableNodes(content: HTMLElement): HTMLElement[] {
+  return Array.from(content.querySelectorAll<HTMLElement>(FOCUSABLE_WITHIN_SELECTOR))
+}
+
+function readSelection(target: HTMLElement): { start: number | null; end: number | null } {
+  if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
+    return {
+      start: target.selectionStart,
+      end: target.selectionEnd,
+    }
+  }
+  return { start: null, end: null }
+}
+
+function applySelection(target: HTMLElement, start: number | null, end: number | null): void {
+  if (!(target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement)) {
+    return
+  }
+  if (start === null || end === null) {
+    return
+  }
+  try {
+    target.setSelectionRange(start, end)
+  } catch {
+    // ignore for unsupported input types
+  }
+}
+
+function escapeSelectorValue(value: string): string {
+  if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
+    return CSS.escape(value)
+  }
+  return value.replace(/["\\]/g, "\\$&")
+}
+
+function isFormFieldElement(target: HTMLElement): boolean {
+  return (
+    target instanceof HTMLInputElement
+    || target instanceof HTMLTextAreaElement
+    || target instanceof HTMLSelectElement
+    || target instanceof HTMLButtonElement
+  )
+}
+
+function isTextEntryElement(target: HTMLElement): boolean {
+  if (target instanceof HTMLTextAreaElement) {
+    return true
+  }
+  if (target instanceof HTMLInputElement) {
+    return !NON_TEXT_INPUT_TYPES.has(target.type)
+  }
+  return target.isContentEditable
 }

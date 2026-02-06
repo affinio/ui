@@ -48,7 +48,7 @@
         {{ $trigger ?? '' }}
     </div>
 
-    <div data-affino-popover-content data-state="{{ $initialState }}" @class(['is-open' => $defaultOpen]) @unless($defaultOpen) hidden @endunless>
+    <div wire:ignore.self data-affino-popover-content data-state="{{ $initialState }}" @class(['is-open' => $defaultOpen]) @unless($defaultOpen) hidden @endunless>
         {{ $slot }}
 
         @isset($arrow)
