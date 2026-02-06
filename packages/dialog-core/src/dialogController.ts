@@ -72,6 +72,7 @@ export class DialogController {
   private phase: DialogPhase
   private closeGuard?: CloseGuard
   private guardPromise: Promise<CloseGuardDecision> | null = null
+  private guardOutcomePromise: Promise<boolean> | null = null
   private optimisticClose = false
   private optimisticReason?: DialogCloseReason
   private lastReason?: DialogCloseReason
@@ -88,7 +89,7 @@ export class DialogController {
   private readonly overlayId: string
   private readonly overlayIntegration: OverlayIntegration
   private legacyOverlayDisposer: (() => void) | null = null
-  private readonly pendingKernelCloseResolvers: Array<(result: boolean) => void> = []
+  private readonly pendingKernelCloseResolvers = new Set<(result: boolean) => void>()
   private focusActive = false
   private destroyed = false
 
@@ -152,6 +153,7 @@ export class DialogController {
     this.subscribers.clear()
     this.eventListeners.clear()
     this.guardPromise = null
+    this.guardOutcomePromise = null
     this.closeGuard = undefined
     this.optimisticClose = false
     this.optimisticReason = undefined
@@ -211,11 +213,7 @@ export class DialogController {
       return false
     }
 
-    if (this.phase === "idle" || this.phase === "closed") {
-      return false
-    }
-
-    if (this.phase === "closing" && !this.guardPromise) {
+    if (!this.canAttemptClose()) {
       return false
     }
 
@@ -411,26 +409,25 @@ export class DialogController {
         settled = true
         resolve(result)
       }
-      this.pendingKernelCloseResolvers.push(resolver)
+      this.pendingKernelCloseResolvers.add(resolver)
       manager.requestClose(this.overlayId, overlayReason)
       queueMicrotask(() => {
         if (settled) {
           return
         }
-        const index = this.pendingKernelCloseResolvers.indexOf(resolver)
-        if (index !== -1) {
-          this.pendingKernelCloseResolvers.splice(index, 1)
+        if (this.pendingKernelCloseResolvers.delete(resolver)) {
+          resolver(false)
         }
-        resolver(false)
       })
     })
   }
 
   private resolveKernelCloseRequests(result: boolean): void {
-    if (!this.pendingKernelCloseResolvers.length) {
+    if (!this.pendingKernelCloseResolvers.size) {
       return
     }
-    const resolvers = this.pendingKernelCloseResolvers.splice(0)
+    const resolvers = Array.from(this.pendingKernelCloseResolvers)
+    this.pendingKernelCloseResolvers.clear()
     resolvers.forEach((resolve) => resolve(result))
   }
 
@@ -441,10 +438,7 @@ export class DialogController {
     if (this.destroyed) {
       return false
     }
-    if (this.phase === "idle" || this.phase === "closed") {
-      return false
-    }
-    if (this.phase === "closing" && !this.guardPromise) {
+    if (!this.canAttemptClose()) {
       return false
     }
 
@@ -461,17 +455,18 @@ export class DialogController {
       this.options.onPendingCloseAttempt?.({ reason, attempt: this.pendingAttempts })
       this.maybeNotifyPendingLimit(reason)
       this.emit()
-      return this.guardPromise.then((decision) => decision.outcome === "allow")
+      return this.guardOutcomePromise ?? this.guardPromise.then((decision) => decision.outcome === "allow")
     }
 
     this.pendingAttempts = 0
     this.guardMessage = undefined
     const strategy = request.strategy ?? this.defaultStrategy
 
-    const pending = Promise.resolve(
+    const pendingDecision = Promise.resolve(
       this.closeGuard({ reason, metadata: request.metadata })
     )
-    this.guardPromise = pending
+    this.guardPromise = pendingDecision
+    this.guardOutcomePromise = pendingDecision.then((decision) => decision.outcome === "allow")
 
     if (strategy === "optimistic") {
       this.optimisticClose = true
@@ -482,7 +477,7 @@ export class DialogController {
     }
 
     try {
-      const decision = await pending
+      const decision = await pendingDecision
       if (decision.outcome === "allow") {
         if (strategy === "blocking") {
           this.enterClosing(reason)
@@ -500,10 +495,21 @@ export class DialogController {
       return false
     } finally {
       this.guardPromise = null
+      this.guardOutcomePromise = null
       this.optimisticClose = false
       this.optimisticReason = undefined
       this.emit()
     }
+  }
+
+  private canAttemptClose(): boolean {
+    if (this.phase === "idle" || this.phase === "closed") {
+      return false
+    }
+    if (this.phase === "closing" && !this.guardPromise) {
+      return false
+    }
+    return true
   }
 
   private canHandleCloseLegacy(reason: DialogCloseReason): boolean {

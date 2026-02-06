@@ -442,6 +442,9 @@ importers:
       '@affino/menu-laravel':
         specifier: workspace:*
         version: link:../menu-laravel
+      '@affino/overlay-kernel':
+        specifier: workspace:*
+        version: link:../overlay-kernel
       '@affino/popover-core':
         specifier: workspace:*
         version: link:../popover-core

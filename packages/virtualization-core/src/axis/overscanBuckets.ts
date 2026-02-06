@@ -24,32 +24,33 @@ export function resolveOverscanBuckets({ available, direction }: OverscanBuckets
 
   let leadCount = Math.floor(leadRaw)
   let trailCount = Math.floor(trailRaw)
-  let assigned = leadCount + trailCount
-  let remaining = Math.max(0, safeAvailable - assigned)
+  const remaining = Math.max(0, safeAvailable - (leadCount + trailCount))
 
-  const fractions = [
-    { side: "lead" as const, frac: leadRaw - Math.floor(leadRaw) },
-    { side: "trail" as const, frac: trailRaw - Math.floor(trailRaw) },
-  ]
+  if (remaining > 0) {
+    const leadFraction = leadRaw - leadCount
+    const trailFraction = trailRaw - trailCount
+    let preferLead = leadFraction > trailFraction
 
-  fractions.sort((a, b) => {
-    if (Math.abs(a.frac - b.frac) < Number.EPSILON) {
-      if (normalizedDirection > 0) return a.side === "lead" ? -1 : 1
-      if (normalizedDirection < 0) return a.side === "trail" ? -1 : 1
+    if (Math.abs(leadFraction - trailFraction) <= Number.EPSILON) {
+      if (normalizedDirection > 0) {
+        preferLead = true
+      } else if (normalizedDirection < 0) {
+        preferLead = false
+      } else {
+        preferLead = true
+      }
     }
-    return b.frac - a.frac
-  })
 
-  let fractionIndex = 0
-  while (remaining > 0) {
-    const target = fractions[fractionIndex % fractions.length]!
-    if (target.side === "lead") {
-      leadCount += 1
+    const preferredShare = Math.ceil(remaining / 2)
+    const secondaryShare = remaining - preferredShare
+
+    if (preferLead) {
+      leadCount += preferredShare
+      trailCount += secondaryShare
     } else {
-      trailCount += 1
+      trailCount += preferredShare
+      leadCount += secondaryShare
     }
-    remaining -= 1
-    fractionIndex += 1
   }
 
   if (safeAvailable > 1) {

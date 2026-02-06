@@ -44,8 +44,13 @@ import type {
   SurfaceEl,
 } from "./types"
 
+const COMBOBOX_ROOT_SELECTOR = "[data-affino-combobox-root]"
 const registry = new WeakMap<RootEl, Cleanup>()
 const pinnedOpenRegistry = new Map<string, boolean>()
+const pendingScanScopes = new Set<ParentNode>()
+const pendingRemovedRoots = new Set<RootEl>()
+let scanFlushScheduled = false
+let removedCleanupScheduled = false
 
 type OverlayWindow = Window & { __affinoOverlayManager?: OverlayManager }
 
@@ -104,6 +109,7 @@ function hydrateResolvedCombobox(root: RootEl, input: InputEl, surface: SurfaceE
   const hiddenInput = root.querySelector<HTMLInputElement>("[data-affino-combobox-value]")
   let outsideCleanup: Cleanup | null = null
   let pendingStructureRehydrate = false
+  let optionsDirty = false
   let overlayIntegration: ReturnType<typeof createOverlayIntegration> | null = null
 
   let openState = readBoolean(root.dataset.affinoComboboxState, false)
@@ -442,7 +448,10 @@ function hydrateResolvedCombobox(root: RootEl, input: InputEl, surface: SurfaceE
   surface.addEventListener("click", handleSurfaceClick)
   detachments.push(() => surface.removeEventListener("click", handleSurfaceClick))
 
-  const structureObserver = new MutationObserver(() => {
+  const structureObserver = new MutationObserver((mutations) => {
+    if (mutations.length > 0) {
+      optionsDirty = true
+    }
     if (pendingStructureRehydrate) {
       return
     }
@@ -711,10 +720,11 @@ function hydrateResolvedCombobox(root: RootEl, input: InputEl, surface: SurfaceE
   }
 
   function maybeRefreshOptionsFromDom() {
-    const optionCount = root.querySelectorAll("[data-affino-listbox-option]").length
-    if (optionCount !== options.length) {
-      options = collectOptions(root)
+    if (!optionsDirty) {
+      return
     }
+    optionsDirty = false
+    options = collectOptions(root)
   }
 
   function scrollActiveOptionIntoView() {
@@ -857,10 +867,10 @@ function syncLivewireModel(root: RootEl, value: unknown): void {
 }
 
 export function scan(root: ParentNode): void {
-  if (root instanceof HTMLElement && root.matches("[data-affino-combobox-root]")) {
+  if (root instanceof HTMLElement && root.matches(COMBOBOX_ROOT_SELECTOR)) {
     hydrateCombobox(root as RootEl)
   }
-  const nodes = root.querySelectorAll<RootEl>("[data-affino-combobox-root]")
+  const nodes = root.querySelectorAll<RootEl>(COMBOBOX_ROOT_SELECTOR)
   nodes.forEach((node) => hydrateCombobox(node))
 }
 
@@ -875,38 +885,80 @@ export function setupMutationObserver(): void {
       mutations.forEach((mutation) => {
         mutation.addedNodes.forEach((node) => {
           if (node instanceof HTMLElement || node instanceof DocumentFragment) {
-            scan(node)
+            scheduleScan(node)
           }
         })
         mutation.removedNodes.forEach((node) => {
-          cleanupRemovedNode(node)
+          scheduleRemovedCleanup(node)
         })
       })
     },
   })
 }
 
-function cleanupRemovedNode(node: Node): void {
+function scheduleScan(scope: ParentNode): void {
+  pendingScanScopes.add(scope)
+  if (scanFlushScheduled) {
+    return
+  }
+  scanFlushScheduled = true
+  enqueueMicrotask(flushPendingScans)
+}
+
+function flushPendingScans(): void {
+  scanFlushScheduled = false
+  const scopes = Array.from(pendingScanScopes)
+  pendingScanScopes.clear()
+  scopes.forEach((scope) => {
+    if (scope instanceof Element && !scope.isConnected) {
+      return
+    }
+    if (scope instanceof DocumentFragment && !scope.isConnected) {
+      return
+    }
+    scan(scope)
+  })
+}
+
+function scheduleRemovedCleanup(node: Node): void {
   const roots = collectComboboxRoots(node)
   if (!roots.length) {
     return
   }
-  queueMicrotask(() => {
-    roots.forEach((root) => {
-      if (!root.isConnected) {
-        registry.get(root)?.()
-      }
-    })
+  roots.forEach((root) => pendingRemovedRoots.add(root))
+  if (removedCleanupScheduled) {
+    return
+  }
+  removedCleanupScheduled = true
+  enqueueMicrotask(flushRemovedRoots)
+}
+
+function flushRemovedRoots(): void {
+  removedCleanupScheduled = false
+  const roots = Array.from(pendingRemovedRoots)
+  pendingRemovedRoots.clear()
+  roots.forEach((root) => {
+    if (!root.isConnected) {
+      registry.get(root)?.()
+    }
   })
+}
+
+function enqueueMicrotask(task: () => void): void {
+  if (typeof queueMicrotask === "function") {
+    queueMicrotask(task)
+    return
+  }
+  Promise.resolve().then(task)
 }
 
 function collectComboboxRoots(node: Node): RootEl[] {
   const roots: RootEl[] = []
-  if (node instanceof HTMLElement && node.matches("[data-affino-combobox-root]")) {
+  if (node instanceof HTMLElement && node.matches(COMBOBOX_ROOT_SELECTOR)) {
     roots.push(node as RootEl)
   }
   if (node instanceof HTMLElement || node instanceof DocumentFragment) {
-    node.querySelectorAll<RootEl>("[data-affino-combobox-root]").forEach((root) => roots.push(root))
+    node.querySelectorAll<RootEl>(COMBOBOX_ROOT_SELECTOR).forEach((root) => roots.push(root))
   }
   return roots
 }

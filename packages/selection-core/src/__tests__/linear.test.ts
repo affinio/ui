@@ -32,6 +32,29 @@ describe("linear selection ranges", () => {
     expect(removed).toEqual([{ start: 2, end: 2 }])
   })
 
+  it("handles unsorted input when toggling and removing", () => {
+    const toggled = toggleLinearRange(
+      [
+        { start: 10, end: 12 },
+        { start: 0, end: 2 },
+      ],
+      { start: 3, end: 9 },
+    )
+    expect(toggled).toEqual([{ start: 0, end: 12 }])
+
+    const removed = removeLinearRange(
+      [
+        { start: 10, end: 12 },
+        { start: 0, end: 4 },
+      ],
+      { start: 3, end: 10 },
+    )
+    expect(removed).toEqual([
+      { start: 0, end: 2 },
+      { start: 11, end: 12 },
+    ])
+  })
+
   it("toggles coverage and splits ranges when needed", () => {
     const base = mergeLinearRanges([
       { start: 0, end: 2 },

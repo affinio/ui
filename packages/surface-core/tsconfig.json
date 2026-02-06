@@ -5,10 +5,11 @@
     "outDir": "dist",
     "declaration": true,
     "emitDeclarationOnly": false,
-    "declarationMap": true
+    "declarationMap": true,
+    "allowJs": false
   },
   "include": [
-    "src"
+    "src/**/*.ts"
   ],
   "exclude": [
     "src/__tests__"

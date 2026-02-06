@@ -128,14 +128,19 @@ export class MenuCore extends SurfaceCore<MenuState, MenuCallbacks> {
   registerItem(id: string, options: { disabled?: boolean } = {}) {
     const disabled = Boolean(options.disabled)
     const allowUpdate = this.registry.has(id)
-    this.registry.register(id, disabled, allowUpdate)
-    const change = this.selectionMachine.handleItemsChanged(this.registry.getEnabledItemIds(), this.surfaceState.open)
-    if (this.handleHighlightChange(change)) {
-      this.emitState()
+    const registration = this.registry.register(id, disabled, allowUpdate)
+    if (registration.changed) {
+      const change = this.selectionMachine.handleItemsChanged(this.getEnabledItemIds(), this.surfaceState.open)
+      if (this.handleHighlightChange(change)) {
+        this.emitState()
+      }
     }
     return () => {
-      this.registry.unregister(id)
-      const invalidation = this.selectionMachine.handleItemsChanged(this.registry.getEnabledItemIds(), this.surfaceState.open)
+      const removed = this.registry.unregister(id)
+      if (!removed) {
+        return
+      }
+      const invalidation = this.selectionMachine.handleItemsChanged(this.getEnabledItemIds(), this.surfaceState.open)
       if (this.handleHighlightChange(invalidation)) {
         this.emitState()
       }
@@ -143,14 +148,14 @@ export class MenuCore extends SurfaceCore<MenuState, MenuCallbacks> {
   }
 
   highlight(id: string | null) {
-    const change = this.selectionMachine.highlight(id, this.registry.getEnabledItemIds())
+    const change = this.selectionMachine.highlight(id, this.getEnabledItemIds())
     if (this.handleHighlightChange(change)) {
       this.emitState()
     }
   }
 
   moveFocus(delta: 1 | -1) {
-    const change = this.selectionMachine.moveFocus(delta, this.registry.getEnabledItemIds())
+    const change = this.selectionMachine.moveFocus(delta, this.getEnabledItemIds())
     if (this.handleHighlightChange(change)) {
       this.emitState()
     }
@@ -296,7 +301,7 @@ export class MenuCore extends SurfaceCore<MenuState, MenuCallbacks> {
   }
 
   protected ensureInitialHighlight() {
-    const change = this.selectionMachine.ensureInitialHighlight(this.registry.getEnabledItemIds(), this.surfaceState.open)
+    const change = this.selectionMachine.ensureInitialHighlight(this.getEnabledItemIds(), this.surfaceState.open)
     if (this.handleHighlightChange(change)) {
       this.emitState()
     }
@@ -389,7 +394,7 @@ export class MenuCore extends SurfaceCore<MenuState, MenuCallbacks> {
     if (event.key === "ArrowUp") {
       event.preventDefault()
       this.open("keyboard")
-      const enabled = this.registry.getEnabledItemIds()
+      const enabled = this.getEnabledItemIds()
       if (enabled.length) {
         const last = enabled[enabled.length - 1] ?? null
         this.highlight(last)
@@ -418,7 +423,7 @@ export class MenuCore extends SurfaceCore<MenuState, MenuCallbacks> {
 
     if (event.key === "Home") {
       event.preventDefault()
-      const enabled = this.registry.getEnabledItemIds()
+      const enabled = this.getEnabledItemIds()
       if (enabled.length) {
         const first = enabled[0] ?? null
         this.highlight(first)
@@ -428,7 +433,7 @@ export class MenuCore extends SurfaceCore<MenuState, MenuCallbacks> {
 
     if (event.key === "End") {
       event.preventDefault()
-      const enabled = this.registry.getEnabledItemIds()
+      const enabled = this.getEnabledItemIds()
       if (enabled.length) {
         const last = enabled[enabled.length - 1] ?? null
         this.highlight(last)
@@ -481,6 +486,10 @@ export class MenuCore extends SurfaceCore<MenuState, MenuCallbacks> {
 
   private syncOverlayState(isOpen: boolean) {
     this.overlayIntegration.syncState(isOpen ? "open" : "closed")
+  }
+
+  private getEnabledItemIds(): readonly string[] {
+    return this.registry.getEnabledItemIdsSnapshot()
   }
 
   private teardownOverlayIntegration() {

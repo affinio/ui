@@ -40,6 +40,7 @@ export type RootEl = HTMLElement & {
     affinoMenuAutofocus?: string
   }
   affinoMenu?: MenuHandle
+  affinoMenuCore?: import("@affino/menu-core").MenuCore
 }
 
 export type TriggerEl = HTMLElement

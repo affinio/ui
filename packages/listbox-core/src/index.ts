@@ -119,11 +119,12 @@ export interface SelectAllListboxOptionsInput {
 }
 
 export function selectAllListboxOptions(input: SelectAllListboxOptionsInput): ListboxState {
-  const first = findEdgeIndex(input.context, +1)
-  if (first === -1) {
+  const enabledIndexes = buildEnabledIndexes(input.context)
+  if (enabledIndexes.length === 0) {
     return createListboxState()
   }
-  const last = findEdgeIndex(input.context, -1)
+  const first = enabledIndexes[0]!
+  const last = enabledIndexes[enabledIndexes.length - 1]!
   let selection = selectLinearIndex({ index: first })
   selection = extendLinearSelectionToIndex({ state: selection, index: last })
   return {
@@ -160,8 +161,12 @@ function resolveTargetIndex(
   if (delta === 0 && currentIndex >= 0 && currentIndex < count && !isIndexDisabled(context, currentIndex)) {
     return currentIndex
   }
+  const enabledIndexes = buildEnabledIndexes(context)
+  if (enabledIndexes.length === 0) {
+    return -1
+  }
   if (!Number.isFinite(delta)) {
-    return findEdgeIndex(context, delta > 0 ? 1 : -1)
+    return delta > 0 ? enabledIndexes[0]! : enabledIndexes[enabledIndexes.length - 1]!
   }
   const direction = delta > 0 ? 1 : -1
   let steps = Math.abs(Math.trunc(delta))
@@ -169,52 +174,98 @@ function resolveTargetIndex(
   if (cursor < 0 || cursor >= count) {
     cursor = direction > 0 ? -1 : count
   }
-  while (steps > 0) {
-    const nextIndex = advance(cursor, direction, context, loop)
-    if (nextIndex === cursor) {
-      break
+  if (steps === 0) {
+    if (cursor === -1) {
+      return direction > 0 ? enabledIndexes[0]! : enabledIndexes[enabledIndexes.length - 1]!
     }
-    cursor = nextIndex
-    steps -= 1
+    return cursor
   }
-  if (cursor === -1) {
-    return findEdgeIndex(context, direction)
-  }
-  return cursor
+  return navigateEnabledIndexes(cursor, direction, steps, enabledIndexes, loop)
 }
 
-function advance(
-  start: number,
+function buildEnabledIndexes(context: ListboxContext): number[] {
+  const count = context.optionCount
+  if (count <= 0) return []
+
+  const enabledIndexes: number[] = []
+  for (let index = 0; index < count; index += 1) {
+    if (!isIndexDisabled(context, index)) {
+      enabledIndexes.push(index)
+    }
+  }
+  return enabledIndexes
+}
+
+function navigateEnabledIndexes(
+  cursor: number,
   direction: 1 | -1,
-  context: ListboxContext,
+  steps: number,
+  enabledIndexes: number[],
   loop: boolean,
 ): number {
-  const count = context.optionCount
-  if (count <= 0) return -1
-  let next = start
-  let visited = 0
-  while (visited < count) {
-    next += direction
-    if (next < 0 || next >= count) {
-      if (!loop) {
-        return start
-      }
-      next = ((next % count) + count) % count
-    }
-    if (!isIndexDisabled(context, next)) {
-      return next
-    }
-    visited += 1
+  const total = enabledIndexes.length
+  if (total === 0) {
+    return cursor
   }
-  return start
+  if (direction > 0) {
+    let start = upperBound(enabledIndexes, cursor)
+    if (start >= total) {
+      if (!loop) {
+        return cursor
+      }
+      start = 0
+    }
+    if (!loop) {
+      const target = start + steps - 1
+      return enabledIndexes[target >= total ? total - 1 : target]!
+    }
+    const target = (start + steps - 1) % total
+    return enabledIndexes[target]!
+  }
+
+  let start = lowerBound(enabledIndexes, cursor) - 1
+  if (start < 0) {
+    if (!loop) {
+      return cursor
+    }
+    start = total - 1
+  }
+  if (!loop) {
+    const target = start - (steps - 1)
+    return enabledIndexes[target < 0 ? 0 : target]!
+  }
+  const target = modulo(start - (steps - 1), total)
+  return enabledIndexes[target]!
 }
 
-function findEdgeIndex(context: ListboxContext, direction: 1 | -1): number {
-  const count = context.optionCount
-  if (count <= 0) {
-    return -1
+function lowerBound(values: number[], value: number): number {
+  let lo = 0
+  let hi = values.length
+  while (lo < hi) {
+    const mid = lo + Math.floor((hi - lo) / 2)
+    if (values[mid]! < value) {
+      lo = mid + 1
+    } else {
+      hi = mid
+    }
   }
-  const start = direction > 0 ? -1 : count
-  const edge = advance(start, direction, context, false)
-  return edge
+  return lo
+}
+
+function upperBound(values: number[], value: number): number {
+  let lo = 0
+  let hi = values.length
+  while (lo < hi) {
+    const mid = lo + Math.floor((hi - lo) / 2)
+    if (values[mid]! <= value) {
+      lo = mid + 1
+    } else {
+      hi = mid
+    }
+  }
+  return lo
+}
+
+function modulo(value: number, mod: number): number {
+  return ((value % mod) + mod) % mod
 }

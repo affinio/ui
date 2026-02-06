@@ -75,4 +75,28 @@ describe("PopoverCore", () => {
     core.requestClose("keyboard")
     expect(requestSpy).toHaveBeenLastCalledWith("kernel-popover", "escape-key")
   })
+
+  it("skips overlay close mediation when already closed", () => {
+    const manager = createOverlayManager()
+    const requestSpy = vi.spyOn(manager, "requestClose")
+    const core = new PopoverCore({ id: "already-closed", overlayManager: manager })
+
+    core.requestClose("pointer")
+    expect(requestSpy).not.toHaveBeenCalled()
+    expect(core.getSnapshot().open).toBe(false)
+  })
+
+  it("computes arrow props with defaults", () => {
+    const core = new PopoverCore({ id: "arrow" })
+    const arrow = core.getArrowProps({
+      anchorRect: { x: 100, y: 20, width: 40, height: 20 },
+      popoverRect: { x: 80, y: 50, width: 100, height: 60 },
+      position: { left: 80, top: 50, placement: "top", align: "center" },
+    })
+
+    expect(arrow["data-placement"]).toBe("top")
+    expect(arrow["data-align"]).toBe("center")
+    expect(arrow.style.left).toBe("35px")
+    expect(arrow.style.bottom).toBe("-5px")
+  })
 })

@@ -4,8 +4,10 @@ import {
   clearComboboxSelection,
   cloneListboxState,
   createComboboxState,
+  getSelectedIndexCount,
   getSelectedIndexes,
   isIndexSelected,
+  mapSelectedIndexes,
 } from "../index"
 
 describe("combobox core helpers", () => {
@@ -65,5 +67,25 @@ describe("combobox core helpers", () => {
     expect(getSelectedIndexes(selection)).toEqual([0, 1, 3])
     expect(isIndexSelected(selection, 1)).toBe(true)
     expect(isIndexSelected(selection, 2)).toBe(false)
+  })
+
+  it("counts and maps selected indexes efficiently", () => {
+    const selection = {
+      ranges: [
+        { start: 4, end: 6 },
+        { start: 9, end: 9 },
+      ],
+      activeRangeIndex: 0,
+      anchor: 4,
+      focus: 9,
+    }
+
+    expect(getSelectedIndexCount(selection)).toBe(4)
+    expect(mapSelectedIndexes(selection, (index) => `v:${index}`)).toEqual([
+      "v:4",
+      "v:5",
+      "v:6",
+      "v:9",
+    ])
   })
 })

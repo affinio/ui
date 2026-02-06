@@ -72,6 +72,12 @@ describe("TooltipCore", () => {
     expect(trigger["aria-describedby"]).toBe("tooltip-content tooltip-extra")
   })
 
+  it("ignores empty describedBy values in arrays", () => {
+    const tooltip = createTooltip()
+    const trigger = tooltip.getTriggerProps({ describedBy: ["", "external-a", "", "external-b"] })
+    expect(trigger["aria-describedby"]).toBe("tooltip-content external-a external-b")
+  })
+
   it("cancels close timers when pointer re-enters", () => {
     const tooltip = createTooltip({ openDelay: 10, closeDelay: 40 })
     const trigger = tooltip.getTriggerProps()
@@ -155,5 +161,15 @@ describe("TooltipCore", () => {
     tooltip.open("programmatic")
     tooltip.requestClose("keyboard")
     expect(requestSpy).toHaveBeenLastCalledWith("kernel-tooltip", "escape-key")
+  })
+
+  it("skips overlay close mediation when already closed", () => {
+    const manager = createOverlayManager()
+    const requestSpy = vi.spyOn(manager, "requestClose")
+    const tooltip = new TooltipCore({ id: "closed-tooltip", overlayManager: manager })
+
+    tooltip.requestClose("pointer")
+    expect(requestSpy).not.toHaveBeenCalled()
+    expect(tooltip.getSnapshot().open).toBe(false)
   })
 })

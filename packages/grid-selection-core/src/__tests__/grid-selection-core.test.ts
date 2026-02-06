@@ -49,6 +49,18 @@ describe("grid-selection-core geometry", () => {
     ])
   })
 
+  it("merges transitive overlaps created by expanded bounds", () => {
+    const merged = mergeRanges([
+      { startRow: 0, endRow: 10, startCol: 0, endCol: 1 },
+      { startRow: 0, endRow: 8, startCol: 2, endCol: 3 },
+      { startRow: 9, endRow: 20, startCol: 1, endCol: 2 },
+    ])
+
+    expect(merged).toEqual([
+      { startRow: 0, endRow: 20, startCol: 0, endCol: 3 },
+    ])
+  })
+
   it("removes overlapping segments from a range", () => {
     const result = removeRange(
       [{ startRow: 0, endRow: 2, startCol: 0, endCol: 2 }],

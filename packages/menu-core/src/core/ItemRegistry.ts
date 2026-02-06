@@ -1,12 +1,12 @@
 interface ItemEntry {
   id: string
   disabled: boolean
-  order: number
 }
 
 export interface RegistrationResult {
   created: boolean
   disabled: boolean
+  changed: boolean
 }
 
 /**
@@ -16,7 +16,8 @@ export interface RegistrationResult {
  */
 export class ItemRegistry {
   private readonly items = new Map<string, ItemEntry>()
-  private orderCursor = 0
+  private orderedItemsCache: ItemEntry[] | null = null
+  private enabledItemIdsCache: readonly string[] | null = null
 
   register(id: string, disabled: boolean, allowUpdate = false): RegistrationResult {
     const existing = this.items.get(id)
@@ -24,16 +25,25 @@ export class ItemRegistry {
       if (!allowUpdate) {
         throw new Error(`Menu item with id "${id}" is already registered`)
       }
+      if (existing.disabled === disabled) {
+        return { created: false, disabled: existing.disabled, changed: false }
+      }
       existing.disabled = disabled
-      return { created: false, disabled: existing.disabled }
+      this.enabledItemIdsCache = null
+      return { created: false, disabled: existing.disabled, changed: true }
     }
 
-    this.items.set(id, { id, disabled, order: this.orderCursor++ })
-    return { created: true, disabled }
+    this.items.set(id, { id, disabled })
+    this.invalidateAllCaches()
+    return { created: true, disabled, changed: true }
   }
 
   unregister(id: string): boolean {
-    return this.items.delete(id)
+    const removed = this.items.delete(id)
+    if (removed) {
+      this.invalidateAllCaches()
+    }
+    return removed
   }
 
   has(id: string): boolean {
@@ -45,20 +55,44 @@ export class ItemRegistry {
     if (!entry) {
       throw new Error(`Cannot update unknown menu item with id "${id}"`)
     }
+    if (entry.disabled === disabled) {
+      return
+    }
     entry.disabled = disabled
+    this.enabledItemIdsCache = null
   }
 
   getOrderedItems(): ItemEntry[] {
-    return [...this.items.values()].sort((a, b) => a.order - b.order)
+    if (!this.orderedItemsCache) {
+      this.orderedItemsCache = [...this.items.values()]
+    }
+    return [...this.orderedItemsCache]
+  }
+
+  getEnabledItemIdsSnapshot(): readonly string[] {
+    if (this.enabledItemIdsCache) {
+      return this.enabledItemIdsCache
+    }
+    const enabled: string[] = []
+    this.items.forEach((entry) => {
+      if (!entry.disabled) {
+        enabled.push(entry.id)
+      }
+    })
+    this.enabledItemIdsCache = Object.freeze(enabled.slice())
+    return this.enabledItemIdsCache
   }
 
   getEnabledItemIds(): string[] {
-    return this.getOrderedItems()
-      .filter((entry) => !entry.disabled)
-      .map((entry) => entry.id)
+    return [...this.getEnabledItemIdsSnapshot()]
   }
 
   isDisabled(id: string): boolean {
     return this.items.get(id)?.disabled ?? false
+  }
+
+  private invalidateAllCaches() {
+    this.orderedItemsCache = null
+    this.enabledItemIdsCache = null
   }
 }

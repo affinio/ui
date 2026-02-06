@@ -65,9 +65,14 @@ type OptionSnapshot = {
   label: string
 }
 
+const LISTBOX_ROOT_SELECTOR = "[data-affino-listbox-root]"
 const registry = new WeakMap<RootEl, Cleanup>()
 const openStateRegistry = new Map<string, boolean>()
 const overlayOwnersByDocument = new WeakMap<Document, Map<string, RootEl>>()
+const pendingScanScopes = new Set<ParentNode>()
+const pendingRemovedRoots = new Set<RootEl>()
+let scanFlushScheduled = false
+let removedCleanupScheduled = false
 
 type OverlayWindow = Window & { __affinoOverlayManager?: OverlayManager }
 
@@ -880,10 +885,10 @@ function syncLivewireModel(root: RootEl, value: unknown): void {
 }
 
 function scan(root: ParentNode): void {
-  if (root instanceof HTMLElement && root.matches("[data-affino-listbox-root]")) {
+  if (root instanceof HTMLElement && root.matches(LISTBOX_ROOT_SELECTOR)) {
     hydrateListbox(root as RootEl)
   }
-  const nodes = root.querySelectorAll<RootEl>("[data-affino-listbox-root]")
+  const nodes = root.querySelectorAll<RootEl>(LISTBOX_ROOT_SELECTOR)
   nodes.forEach((node) => hydrateListbox(node))
 }
 
@@ -898,38 +903,80 @@ function setupMutationObserver(): void {
       mutations.forEach((mutation) => {
         mutation.addedNodes.forEach((node) => {
           if (node instanceof HTMLElement || node instanceof DocumentFragment) {
-            scan(node)
+            scheduleScan(node)
           }
         })
         mutation.removedNodes.forEach((node) => {
-          cleanupRemovedNode(node)
+          scheduleRemovedCleanup(node)
         })
       })
     },
   })
 }
 
-function cleanupRemovedNode(node: Node): void {
+function scheduleScan(scope: ParentNode): void {
+  pendingScanScopes.add(scope)
+  if (scanFlushScheduled) {
+    return
+  }
+  scanFlushScheduled = true
+  enqueueMicrotask(flushPendingScans)
+}
+
+function flushPendingScans(): void {
+  scanFlushScheduled = false
+  const scopes = Array.from(pendingScanScopes)
+  pendingScanScopes.clear()
+  scopes.forEach((scope) => {
+    if (scope instanceof Element && !scope.isConnected) {
+      return
+    }
+    if (scope instanceof DocumentFragment && !scope.isConnected) {
+      return
+    }
+    scan(scope)
+  })
+}
+
+function scheduleRemovedCleanup(node: Node): void {
   const roots = collectListboxRoots(node)
   if (!roots.length) {
     return
   }
-  queueMicrotask(() => {
-    roots.forEach((root) => {
-      if (!root.isConnected) {
-        registry.get(root)?.()
-      }
-    })
+  roots.forEach((root) => pendingRemovedRoots.add(root))
+  if (removedCleanupScheduled) {
+    return
+  }
+  removedCleanupScheduled = true
+  enqueueMicrotask(flushRemovedRoots)
+}
+
+function flushRemovedRoots(): void {
+  removedCleanupScheduled = false
+  const roots = Array.from(pendingRemovedRoots)
+  pendingRemovedRoots.clear()
+  roots.forEach((root) => {
+    if (!root.isConnected) {
+      registry.get(root)?.()
+    }
   })
+}
+
+function enqueueMicrotask(task: () => void): void {
+  if (typeof queueMicrotask === "function") {
+    queueMicrotask(task)
+    return
+  }
+  Promise.resolve().then(task)
 }
 
 function collectListboxRoots(node: Node): RootEl[] {
   const roots: RootEl[] = []
-  if (node instanceof HTMLElement && node.matches("[data-affino-listbox-root]")) {
+  if (node instanceof HTMLElement && node.matches(LISTBOX_ROOT_SELECTOR)) {
     roots.push(node as RootEl)
   }
   if (node instanceof HTMLElement || node instanceof DocumentFragment) {
-    node.querySelectorAll<RootEl>("[data-affino-listbox-root]").forEach((root) => roots.push(root))
+    node.querySelectorAll<RootEl>(LISTBOX_ROOT_SELECTOR).forEach((root) => roots.push(root))
   }
   return roots
 }

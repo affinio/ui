@@ -38,6 +38,8 @@ const submenuByParentItemId = new Map<string, MenuInstance>()
 const structureRegistry = new WeakMap<RootEl, MenuStructureSnapshot>()
 let mutationObserver: MutationObserver | null = null
 let refreshScheduled = false
+let fullRefreshRequested = false
+const pendingRefreshScopes = new Set<ParentNode>()
 
 type PointerLikeEvent = PointerEvent | MouseEvent
 
@@ -81,25 +83,46 @@ export function hydrateMenu(root: RootEl): void {
   }
   const parentId = root.dataset.affinoMenuParent
   const parentItemId = root.dataset.affinoMenuParentItem
-  if (parentId && parentItemId && !resolveMenuInstanceById(parentId)) {
-    scheduleRefresh()
-    return
+  if (parentId && parentItemId) {
+    const parentCore = resolveMenuCoreById(parentId)
+    if (!parentCore) {
+      root.dataset.affinoMenuParentResolved = "false"
+      scheduleRefresh()
+      return
+    }
   }
   const nextStructure = captureMenuStructure(root, trigger, panel)
   const previousStructure = structureRegistry.get(root)
   if (registry.has(root) && previousStructure && !didMenuStructureChange(previousStructure, nextStructure)) {
-    return
+    const existing = registry.get(root)
+    if (existing && parentId && parentItemId) {
+      const parentInstance = resolveMenuInstanceById(parentId)
+      const needsUpgrade = parentInstance && !(existing.getCore() instanceof SubmenuCore)
+      if (!needsUpgrade) {
+        return
+      }
+    } else {
+      return
+    }
   }
   tearDownInstance(root)
   const parentInstance = parentId ? resolveMenuInstanceById(parentId) : null
-  const instance = new MenuInstance(root, trigger, panel, parentInstance?.getCore() ?? null, parentItemId ?? null)
+  const parentCore = parentId ? resolveMenuCoreById(parentId) : null
+  if (parentId && parentItemId) {
+    root.dataset.affinoMenuParentResolved = parentCore ? "true" : "false"
+  }
+  const instance = new MenuInstance(root, trigger, panel, parentCore ?? null, parentItemId ?? null)
   registry.set(root, instance)
   if (root.dataset.affinoMenuRoot) {
     menuById.set(root.dataset.affinoMenuRoot, instance)
   }
   if (parentItemId) {
     submenuByParentItemId.set(parentItemId, instance)
-    parentInstance?.bindSubmenuToItem(parentItemId, instance)
+    if (parentInstance) {
+      parentInstance.bindSubmenuToItem(parentItemId, instance)
+    } else if (parentCore) {
+      bindSubmenuToParentElement(parentItemId, parentCore, instance)
+    }
   }
   structureRegistry.set(root, nextStructure)
   root.affinoMenu = instance.getHandle()
@@ -114,13 +137,30 @@ export function scan(scope: ParentNode): void {
 }
 
 export function scheduleRefresh(): void {
+  fullRefreshRequested = true
+  pendingRefreshScopes.clear()
+  scheduleRefreshInternal()
+}
+
+function scheduleRefreshScope(scope: ParentNode): void {
+  if (fullRefreshRequested) {
+    return
+  }
+  pendingRefreshScopes.add(scope)
+  scheduleRefreshInternal()
+}
+
+function scheduleRefreshInternal(): void {
   if (refreshScheduled) {
     return
   }
   refreshScheduled = true
   const invoke = () => {
     refreshScheduled = false
-    refreshMenus()
+    const scopes = fullRefreshRequested ? null : Array.from(pendingRefreshScopes)
+    fullRefreshRequested = false
+    pendingRefreshScopes.clear()
+    refreshMenus(scopes)
   }
   if (typeof requestAnimationFrame === "function") {
     requestAnimationFrame(invoke)
@@ -155,7 +195,7 @@ export function disconnectMutationObserver(): void {
   mutationObserver?.disconnect()
 }
 
-function refreshMenus(): void {
+function refreshMenus(scopes: ParentNode[] | null): void {
   if (typeof document === "undefined") {
     return
   }
@@ -166,7 +206,19 @@ function refreshMenus(): void {
       structureRegistry.delete(root)
     }
   })
-  scan(document)
+  if (!scopes || scopes.length === 0) {
+    scan(document)
+    return
+  }
+  scopes.forEach((scope) => {
+    if (scope instanceof Element && !scope.isConnected) {
+      return
+    }
+    if (scope instanceof DocumentFragment && !scope.isConnected) {
+      return
+    }
+    scan(scope)
+  })
 }
 
 function observeDocument(): void {
@@ -186,7 +238,22 @@ function observeDocument(): void {
     mutationObserver.disconnect()
   }
   mutationObserver = new MutationObserver((mutations) => {
-    if (mutations.some((mutation) => mutationTouchesMenu(mutation))) {
+    let touched = false
+    mutations.forEach((mutation) => {
+      if (!mutationTouchesMenu(mutation)) {
+        return
+      }
+      touched = true
+      if (mutation.target instanceof Element || mutation.target instanceof Document || mutation.target instanceof DocumentFragment) {
+        scheduleRefreshScope(mutation.target)
+      }
+      mutation.addedNodes.forEach((node) => {
+        if (node instanceof Element || node instanceof DocumentFragment) {
+          scheduleRefreshScope(node)
+        }
+      })
+    })
+    if (touched && !pendingRefreshScopes.size) {
       scheduleRefresh()
     }
   })
@@ -284,7 +351,76 @@ function tearDownInstance(root: RootEl): void {
 }
 
 function resolveMenuInstanceById(id: string): MenuInstance | null {
-  return menuById.get(id) ?? null
+  const cached = menuById.get(id)
+  if (cached) {
+    return cached
+  }
+  if (typeof document === "undefined") {
+    return null
+  }
+  const safeId = typeof CSS !== "undefined" && typeof CSS.escape === "function" ? CSS.escape(id) : id
+  const root = document.querySelector<RootEl>(`${MENU_ROOT_SELECTOR}[data-affino-menu-root='${safeId}']`)
+  if (root) {
+    if (!registry.has(root)) {
+      hydrateMenu(root)
+    }
+    if (registry.has(root)) {
+      return registry.get(root) ?? null
+    }
+  }
+  return null
+}
+
+function resolveMenuCoreById(id: string): MenuCore | null {
+  const instance = resolveMenuInstanceById(id)
+  if (instance) {
+    return instance.getCore()
+  }
+  if (typeof document === "undefined") {
+    return null
+  }
+  const safeId = typeof CSS !== "undefined" && typeof CSS.escape === "function" ? CSS.escape(id) : id
+  const root = document.querySelector<RootEl>(`${MENU_ROOT_SELECTOR}[data-affino-menu-root='${safeId}']`)
+  return root?.affinoMenuCore ?? null
+}
+
+function bindSubmenuToParentElement(
+  parentItemId: string,
+  parentCore: MenuCore | null,
+  submenuInstance: MenuInstance,
+): void {
+  if (typeof document === "undefined") {
+    return
+  }
+  const node = document.getElementById(parentItemId)
+  if (!node) {
+    return
+  }
+  if (node.dataset.affinoMenuSubmenuBound === "true") {
+    return
+  }
+  const openSubmenu = (reason: SurfaceReason) => {
+    parentCore?.highlight(parentItemId)
+    submenuInstance.getHandle().open(reason)
+  }
+  const onPointerEnter = () => openSubmenu("pointer")
+  const onMouseEnter = () => openSubmenu("pointer")
+  const onClick = (event: MouseEvent) => {
+    event.preventDefault()
+    openSubmenu("pointer")
+  }
+  const onKeyDown = (event: KeyboardEvent) => {
+    if (event.key === "ArrowRight" || event.key === "Enter" || event.key === " ") {
+      event.preventDefault()
+      event.stopPropagation()
+      openSubmenu("keyboard")
+    }
+  }
+  node.addEventListener("pointerenter", onPointerEnter)
+  node.addEventListener("mouseenter", onMouseEnter)
+  node.addEventListener("click", onClick)
+  node.addEventListener("keydown", onKeyDown)
+  node.dataset.affinoMenuSubmenuBound = "true"
 }
 
 function resolveSubmenuByParentItemId(id: string): MenuInstance | null {
@@ -492,6 +628,8 @@ class MenuInstance {
 
   private installHandle(): void {
     this.root.affinoMenu = this.getHandle()
+    this.root.affinoMenuCore = this.core
+    this.root.dataset.affinoMenuCoreKind = this.core instanceof SubmenuCore ? "submenu" : "menu"
   }
 
   private attachSubmenuHandlers(
@@ -500,8 +638,7 @@ class MenuInstance {
     submenuInstance: MenuInstance,
   ): void {
     const openSubmenu = (reason: SurfaceReason) => {
-      this.core.highlight(itemId)
-      submenuInstance.getHandle().open(reason)
+      this.openSubmenuAfterHighlight(itemId, submenuInstance, reason)
     }
     const pointerEnter = itemProps.onPointerEnter
     itemProps.onPointerEnter = (event) => {
@@ -536,10 +673,13 @@ class MenuInstance {
       return
     }
     const openSubmenu = (reason: SurfaceReason) => {
-      this.core.highlight(itemId)
-      submenuInstance.getHandle().open(reason)
+      this.openSubmenuAfterHighlight(itemId, submenuInstance, reason)
     }
     const onPointerEnter = (_event: PointerEvent) => {
+      this.inputIntent = "pointer"
+      openSubmenu("pointer")
+    }
+    const onMouseEnter = (_event: MouseEvent) => {
       this.inputIntent = "pointer"
       openSubmenu("pointer")
     }
@@ -555,13 +695,16 @@ class MenuInstance {
       }
     }
     node.addEventListener("pointerenter", onPointerEnter)
+    node.addEventListener("mouseenter", onMouseEnter)
     node.addEventListener("click", onClick)
     node.addEventListener("keydown", onKeyDown)
     const cleanup: Cleanup[] = [
       () => node.removeEventListener("pointerenter", onPointerEnter),
+      () => node.removeEventListener("mouseenter", onMouseEnter),
       () => node.removeEventListener("click", onClick),
       () => node.removeEventListener("keydown", onKeyDown),
     ]
+    node.dataset.affinoMenuSubmenuBound = "true"
     cleanup.forEach((fn) => this.cleanup.push(fn))
     this.submenuBindings.set(itemId, cleanup)
   }
@@ -586,15 +729,37 @@ class MenuInstance {
     }
   }
 
+  private openSubmenuAfterHighlight(
+    itemId: string,
+    submenuInstance: MenuInstance,
+    reason: SurfaceReason,
+    parentInstance?: MenuInstance,
+  ): void {
+    const parent = parentInstance ?? this
+    parent.getCore().highlight(itemId)
+    if (typeof queueMicrotask === "function") {
+      queueMicrotask(() => submenuInstance.getHandle().open(reason))
+      return
+    }
+    requestAnimationFrame(() => submenuInstance.getHandle().open(reason))
+  }
+
   private bindSubmenuTriggerFallback(): void {
     const openSubmenu = (reason: SurfaceReason) => {
       if (this.parentItemId && this.parentMenuId) {
         const parentInstance = resolveMenuInstanceById(this.parentMenuId)
-        parentInstance?.getCore().highlight(this.parentItemId)
+        if (parentInstance) {
+          this.openSubmenuAfterHighlight(this.parentItemId, this, reason, parentInstance)
+          return
+        }
       }
       this.core.open(reason)
     }
     const onPointerEnter = (_event: PointerEvent) => {
+      this.inputIntent = "pointer"
+      openSubmenu("pointer")
+    }
+    const onMouseEnter = (_event: MouseEvent) => {
       this.inputIntent = "pointer"
       openSubmenu("pointer")
     }
@@ -610,10 +775,13 @@ class MenuInstance {
       }
     }
     this.trigger.addEventListener("pointerenter", onPointerEnter)
+    this.trigger.addEventListener("mouseenter", onMouseEnter)
     this.trigger.addEventListener("click", onClick)
     this.trigger.addEventListener("keydown", onKeyDown)
+    this.trigger.dataset.affinoMenuSubmenuTriggerBound = "true"
     this.submenuTriggerCleanup = [
       () => this.trigger.removeEventListener("pointerenter", onPointerEnter),
+      () => this.trigger.removeEventListener("mouseenter", onMouseEnter),
       () => this.trigger.removeEventListener("click", onClick),
       () => this.trigger.removeEventListener("keydown", onKeyDown),
     ]
@@ -821,6 +989,8 @@ class MenuInstance {
         this.scrollLockHeld = true
       }
       if (!prev) {
+        const nestedRoots = Array.from(this.panel.querySelectorAll<RootEl>(MENU_ROOT_SELECTOR))
+        nestedRoots.forEach((node) => hydrateMenu(node))
         this.syncPanelPosition()
         this.focusOnOpen()
       }

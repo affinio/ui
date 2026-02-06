@@ -110,14 +110,62 @@ export function clearComboboxSelection(state: ComboboxState): ComboboxState {
   }
 }
 
-export function getSelectedIndexes(selection: LinearSelectionState): number[] {
-  const indexes: number[] = []
+export function getSelectedIndexCount(selection: LinearSelectionState): number {
+  let total = 0
   for (const range of selection.ranges) {
-    for (let index = range.start; index <= range.end; index += 1) {
-      indexes.push(index)
+    const start = Math.min(range.start, range.end)
+    const end = Math.max(range.start, range.end)
+    if (!Number.isFinite(start) || !Number.isFinite(end)) {
+      continue
+    }
+    total += end - start + 1
+  }
+  return Math.max(total, 0)
+}
+
+export function mapSelectedIndexes<T>(
+  selection: LinearSelectionState,
+  map: (index: number, position: number) => T,
+): T[] {
+  const total = getSelectedIndexCount(selection)
+  if (total === 0) {
+    return []
+  }
+  const mapped = new Array<T>(total)
+  let cursor = 0
+  for (const range of selection.ranges) {
+    const start = Math.min(range.start, range.end)
+    const end = Math.max(range.start, range.end)
+    if (!Number.isFinite(start) || !Number.isFinite(end)) {
+      continue
+    }
+    for (let index = start; index <= end; index += 1) {
+      mapped[cursor] = map(index, cursor)
+      cursor += 1
     }
   }
-  return indexes
+  return cursor === mapped.length ? mapped : mapped.slice(0, cursor)
+}
+
+export function getSelectedIndexes(selection: LinearSelectionState): number[] {
+  const total = getSelectedIndexCount(selection)
+  if (total === 0) {
+    return []
+  }
+  const indexes = new Array<number>(total)
+  let cursor = 0
+  for (const range of selection.ranges) {
+    const start = Math.min(range.start, range.end)
+    const end = Math.max(range.start, range.end)
+    if (!Number.isFinite(start) || !Number.isFinite(end)) {
+      continue
+    }
+    for (let index = start; index <= end; index += 1) {
+      indexes[cursor] = index
+      cursor += 1
+    }
+  }
+  return cursor === indexes.length ? indexes : indexes.slice(0, cursor)
 }
 
 export function isIndexSelected(selection: LinearSelectionState, index: number): boolean {

@@ -7,6 +7,8 @@ import type {
 } from "./types"
 import { clampScalar } from "./utils"
 
+const ROW_BUCKET_SIZE = 32
+
 export function normalizeSelectionArea(area: SelectionArea): SelectionArea {
   const startRow = Math.min(area.startRow, area.endRow)
   const endRow = Math.max(area.startRow, area.endRow)
@@ -94,87 +96,92 @@ function mergePair(a: SelectionArea, b: SelectionArea): SelectionArea {
 }
 
 export function mergeRanges(ranges: readonly SelectionArea[]): SelectionArea[] {
+  if (!ranges.length) {
+    return []
+  }
   const normalized = ranges.map(normalizeSelectionArea)
-  const result: SelectionArea[] = []
+  const mergedAreas: Array<SelectionArea | null> = []
+  const rowBuckets = new Map<number, Set<number>>()
 
   for (const range of normalized) {
     let merged = range
-    let keepMerging = true
+    let changed = true
 
-    while (keepMerging) {
-      keepMerging = false
-      for (let index = 0; index < result.length; index += 1) {
-        const current = result[index]
+    while (changed) {
+      changed = false
+      const candidates = collectCandidateIndexes(merged, rowBuckets)
+      for (const index of candidates) {
+        const current = mergedAreas[index]
         if (!current) {
           continue
         }
-        if (areasOverlap(current, merged)) {
-          merged = mergePair(current, merged)
-          result.splice(index, 1)
-          keepMerging = true
-          break
+        if (!areasOverlap(current, merged)) {
+          continue
         }
+        merged = mergePair(current, merged)
+        mergedAreas[index] = null
+        removeAreaFromBuckets(current, index, rowBuckets)
+        changed = true
       }
     }
 
-    result.push(merged)
+    const mergedIndex = mergedAreas.length
+    mergedAreas.push(merged)
+    addAreaToBuckets(merged, mergedIndex, rowBuckets)
   }
 
-  return result
+  return mergedAreas.filter((area): area is SelectionArea => area !== null)
 }
 
-function subtractArea(base: SelectionArea, removal: SelectionArea): SelectionArea[] {
-  const normalizedBase = normalizeSelectionArea(base)
-  const normalizedRemoval = normalizeSelectionArea(removal)
-
-  if (!areasOverlap(normalizedBase, normalizedRemoval)) {
-    return [normalizedBase]
+function subtractAreaNormalized(base: SelectionArea, normalizedRemoval: SelectionArea): SelectionArea[] {
+  if (!areasOverlap(base, normalizedRemoval)) {
+    return [base]
   }
 
-  const overlapStartRow = Math.max(normalizedBase.startRow, normalizedRemoval.startRow)
-  const overlapEndRow = Math.min(normalizedBase.endRow, normalizedRemoval.endRow)
-  const overlapStartCol = Math.max(normalizedBase.startCol, normalizedRemoval.startCol)
-  const overlapEndCol = Math.min(normalizedBase.endCol, normalizedRemoval.endCol)
+  const overlapStartRow = Math.max(base.startRow, normalizedRemoval.startRow)
+  const overlapEndRow = Math.min(base.endRow, normalizedRemoval.endRow)
+  const overlapStartCol = Math.max(base.startCol, normalizedRemoval.startCol)
+  const overlapEndCol = Math.min(base.endCol, normalizedRemoval.endCol)
 
   const pieces: SelectionArea[] = []
 
-  if (normalizedBase.startRow <= overlapStartRow - 1) {
+  if (base.startRow <= overlapStartRow - 1) {
     pieces.push({
-      startRow: normalizedBase.startRow,
+      startRow: base.startRow,
       endRow: overlapStartRow - 1,
-      startCol: normalizedBase.startCol,
-      endCol: normalizedBase.endCol,
+      startCol: base.startCol,
+      endCol: base.endCol,
     })
   }
 
-  if (overlapEndRow + 1 <= normalizedBase.endRow) {
+  if (overlapEndRow + 1 <= base.endRow) {
     pieces.push({
       startRow: overlapEndRow + 1,
-      endRow: normalizedBase.endRow,
-      startCol: normalizedBase.startCol,
-      endCol: normalizedBase.endCol,
+      endRow: base.endRow,
+      startCol: base.startCol,
+      endCol: base.endCol,
     })
   }
 
-  const middleRowStart = Math.max(normalizedBase.startRow, overlapStartRow)
-  const middleRowEnd = Math.min(normalizedBase.endRow, overlapEndRow)
+  const middleRowStart = Math.max(base.startRow, overlapStartRow)
+  const middleRowEnd = Math.min(base.endRow, overlapEndRow)
 
   if (middleRowStart <= middleRowEnd) {
-    if (normalizedBase.startCol <= overlapStartCol - 1) {
+    if (base.startCol <= overlapStartCol - 1) {
       pieces.push({
         startRow: middleRowStart,
         endRow: middleRowEnd,
-        startCol: normalizedBase.startCol,
+        startCol: base.startCol,
         endCol: overlapStartCol - 1,
       })
     }
 
-    if (overlapEndCol + 1 <= normalizedBase.endCol) {
+    if (overlapEndCol + 1 <= base.endCol) {
       pieces.push({
         startRow: middleRowStart,
         endRow: middleRowEnd,
         startCol: overlapEndCol + 1,
-        endCol: normalizedBase.endCol,
+        endCol: base.endCol,
       })
     }
   }
@@ -191,7 +198,7 @@ export function removeRange(ranges: readonly SelectionArea[], target: SelectionA
   const result: SelectionArea[] = []
 
   for (const range of ranges) {
-    const pieces = subtractArea(range, normalizedTarget)
+    const pieces = subtractAreaNormalized(normalizeSelectionArea(range), normalizedTarget)
     for (const piece of pieces) {
       result.push(piece)
     }
@@ -240,4 +247,47 @@ export function areaContainsCell(area: SelectionArea, rowIndex: number, colIndex
     colIndex >= normalized.startCol &&
     colIndex <= normalized.endCol
   )
+}
+
+function areaRowBucketRange(area: SelectionArea): { start: number; end: number } {
+  return {
+    start: Math.floor(area.startRow / ROW_BUCKET_SIZE),
+    end: Math.floor(area.endRow / ROW_BUCKET_SIZE),
+  }
+}
+
+function addAreaToBuckets(area: SelectionArea, index: number, buckets: Map<number, Set<number>>): void {
+  const { start, end } = areaRowBucketRange(area)
+  for (let bucket = start; bucket <= end; bucket += 1) {
+    const entries = buckets.get(bucket) ?? new Set<number>()
+    entries.add(index)
+    buckets.set(bucket, entries)
+  }
+}
+
+function removeAreaFromBuckets(area: SelectionArea, index: number, buckets: Map<number, Set<number>>): void {
+  const { start, end } = areaRowBucketRange(area)
+  for (let bucket = start; bucket <= end; bucket += 1) {
+    const entries = buckets.get(bucket)
+    if (!entries) {
+      continue
+    }
+    entries.delete(index)
+    if (!entries.size) {
+      buckets.delete(bucket)
+    }
+  }
+}
+
+function collectCandidateIndexes(area: SelectionArea, buckets: Map<number, Set<number>>): number[] {
+  const { start, end } = areaRowBucketRange(area)
+  const indexes = new Set<number>()
+  for (let bucket = start; bucket <= end; bucket += 1) {
+    const entries = buckets.get(bucket)
+    if (!entries) {
+      continue
+    }
+    entries.forEach((index) => indexes.add(index))
+  }
+  return Array.from(indexes)
 }

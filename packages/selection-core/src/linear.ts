@@ -47,47 +47,46 @@ export function mergeLinearRanges(ranges: readonly LinearRange[]): LinearRange[]
   if (!ranges.length) {
     return []
   }
-  const normalized = ranges.map(normalizeLinearRange).sort((a, b) => a.start - b.start)
-  const merged: LinearRange[] = []
-  for (const range of normalized) {
-    const last = merged[merged.length - 1]
-    if (!last) {
-      merged.push({ ...range })
-      continue
+  const normalized: LinearRange[] = []
+  let nonDecreasingStart = true
+  let previousStart = Number.NEGATIVE_INFINITY
+
+  for (const range of ranges) {
+    const next = normalizeLinearRange(range)
+    if (next.start < previousStart) {
+      nonDecreasingStart = false
     }
-    if (range.start <= last.end + 1) {
-      last.end = Math.max(last.end, range.end)
-    } else {
-      merged.push({ ...range })
-    }
+    previousStart = next.start
+    normalized.push(next)
   }
-  return merged
+
+  if (!nonDecreasingStart) {
+    normalized.sort((a, b) => a.start - b.start)
+  }
+
+  return mergeSortedLinearRanges(normalized)
 }
 
 export function addLinearRange(ranges: readonly LinearRange[], next: LinearRange): LinearRange[] {
-  return mergeLinearRanges([...ranges, normalizeLinearRange(next)])
+  const merged = mergeLinearRanges(ranges)
+  return addLinearRangeToMerged(merged, normalizeLinearRange(next))
 }
 
 export function removeLinearRange(ranges: readonly LinearRange[], target: LinearRange): LinearRange[] {
-  const normalizedTarget = normalizeLinearRange(target)
-  const result: LinearRange[] = []
-  for (const range of mergeLinearRanges(ranges)) {
-    const pieces = subtractLinearRange(range, normalizedTarget)
-    for (const piece of pieces) {
-      result.push(piece)
-    }
-  }
-  return mergeLinearRanges(result)
+  const merged = mergeLinearRanges(ranges)
+  return removeLinearRangeFromMerged(merged, normalizeLinearRange(target))
 }
 
 export function toggleLinearRange(ranges: readonly LinearRange[], target: LinearRange): LinearRange[] {
   const normalizedTarget = normalizeLinearRange(target)
   const merged = mergeLinearRanges(ranges)
-  const fullyCovered = merged.some(range => range.start <= normalizedTarget.start && range.end >= normalizedTarget.end)
+  const fullyCovered = merged.some(
+    (range) => range.start <= normalizedTarget.start && range.end >= normalizedTarget.end,
+  )
   if (fullyCovered) {
-    return removeLinearRange(merged, normalizedTarget)
+    return removeLinearRangeFromMerged(merged, normalizedTarget)
   }
-  return addLinearRange(merged, normalizedTarget)
+  return addLinearRangeToMerged(merged, normalizedTarget)
 }
 
 export function resolveLinearSelectionUpdate(input: ResolveLinearSelectionInput): ResolveLinearSelectionResult {
@@ -186,8 +185,69 @@ function sanitizeIndex(value: number): number {
   return Math.trunc(value)
 }
 
+function mergeSortedLinearRanges(sortedRanges: readonly LinearRange[]): LinearRange[] {
+  const merged: LinearRange[] = []
+  for (const range of sortedRanges) {
+    const last = merged[merged.length - 1]
+    if (!last) {
+      merged.push({ ...range })
+      continue
+    }
+    if (range.start <= last.end + 1) {
+      last.end = Math.max(last.end, range.end)
+      continue
+    }
+    merged.push({ ...range })
+  }
+  return merged
+}
+
+function addLinearRangeToMerged(mergedRanges: readonly LinearRange[], next: LinearRange): LinearRange[] {
+  const result: LinearRange[] = []
+  let mergedNext = { ...next }
+  let inserted = false
+
+  for (const range of mergedRanges) {
+    if (range.end + 1 < mergedNext.start) {
+      result.push({ ...range })
+      continue
+    }
+
+    if (mergedNext.end + 1 < range.start) {
+      if (!inserted) {
+        result.push(mergedNext)
+        inserted = true
+      }
+      result.push({ ...range })
+      continue
+    }
+
+    mergedNext = {
+      start: Math.min(mergedNext.start, range.start),
+      end: Math.max(mergedNext.end, range.end),
+    }
+  }
+
+  if (!inserted) {
+    result.push(mergedNext)
+  }
+
+  return result
+}
+
+function removeLinearRangeFromMerged(mergedRanges: readonly LinearRange[], normalizedTarget: LinearRange): LinearRange[] {
+  const result: LinearRange[] = []
+  for (const range of mergedRanges) {
+    const pieces = subtractLinearRange(range, normalizedTarget)
+    for (const piece of pieces) {
+      result.push(piece)
+    }
+  }
+  return result
+}
+
 function subtractLinearRange(base: LinearRange, removal: LinearRange): LinearRange[] {
-  if (!rangesOverlap(base, removal)) {
+  if (base.start > removal.end || base.end < removal.start) {
     return [{ ...base }]
   }
   const pieces: LinearRange[] = []
@@ -208,10 +268,4 @@ function resolvePoint(value: number | null | undefined, fallback: number, bounds
     return null
   }
   return Math.trunc(clampScalar(value, bounds.start, bounds.end))
-}
-
-function rangesOverlap(a: LinearRange, b: LinearRange): boolean {
-  const normalizedA = normalizeLinearRange(a)
-  const normalizedB = normalizeLinearRange(b)
-  return normalizedA.start <= normalizedB.end && normalizedA.end >= normalizedB.start
 }

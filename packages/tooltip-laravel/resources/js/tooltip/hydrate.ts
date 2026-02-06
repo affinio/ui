@@ -28,6 +28,7 @@ import type {
 } from "./types"
 
 const POINTER_INTENT_WINDOW_MS = 300
+const TOOLTIP_ROOT_SELECTOR = "[data-affino-tooltip-root]"
 const FOCUSABLE_WITHIN_SELECTOR = [
   '[data-affino-tooltip-focus-target]',
   "input:not([disabled])",
@@ -39,6 +40,10 @@ const FOCUSABLE_WITHIN_SELECTOR = [
   '[contenteditable="true"]',
   '[contenteditable=""]',
 ].join(",")
+const pendingScanScopes = new Set<ParentNode>()
+const pendingRemovedRoots = new Set<RootEl>()
+let scanFlushScheduled = false
+let removedCleanupScheduled = false
 
 export function hydrateTooltip(root: RootEl): void {
   const resolveTriggerElement = () => root.querySelector<HTMLElement>("[data-affino-tooltip-trigger]")
@@ -534,10 +539,10 @@ function ensureSingleActiveTooltip(nextRoot: RootEl): void {
 }
 
 export function scan(root: ParentNode): void {
-  if (root instanceof HTMLElement && root.matches("[data-affino-tooltip-root]")) {
+  if (root instanceof HTMLElement && root.matches(TOOLTIP_ROOT_SELECTOR)) {
     maybeHydrateTooltip(root as RootEl)
   }
-  const nodes = root.querySelectorAll<RootEl>("[data-affino-tooltip-root]")
+  const nodes = root.querySelectorAll<RootEl>(TOOLTIP_ROOT_SELECTOR)
   nodes.forEach((node) => maybeHydrateTooltip(node))
 }
 
@@ -563,45 +568,110 @@ export function setupMutationObserver(): void {
     globalKey: "__affinoTooltipObserver",
     target: document.documentElement,
     callback: (mutations) => {
+      const hasTrackedFocus = focusedTooltipIds.size > 0
+      let shouldSyncFocus = false
       mutations.forEach((mutation) => {
+        if (!shouldSyncFocus && hasTrackedFocus && mutation.target instanceof Element) {
+          shouldSyncFocus = mutation.target.closest(TOOLTIP_ROOT_SELECTOR) !== null
+        }
         mutation.addedNodes.forEach((node) => {
           if (node instanceof HTMLElement || node instanceof DocumentFragment) {
-            scan(node)
+            if (hasTooltipRoot(node)) {
+              scheduleScan(node)
+              if (hasTrackedFocus) {
+                shouldSyncFocus = true
+              }
+              return
+            }
+            if (hasTrackedFocus && node instanceof Element && node.closest(TOOLTIP_ROOT_SELECTOR)) {
+              shouldSyncFocus = true
+            }
           }
         })
         mutation.removedNodes.forEach((node) => {
-          cleanupRemovedNode(node)
+          if (scheduleRemovedCleanup(node) && hasTrackedFocus) {
+            shouldSyncFocus = true
+          }
         })
       })
 
-      if (focusedTooltipIds.size > 0) {
+      if (hasTrackedFocus && shouldSyncFocus) {
         scheduleFocusSync(syncTrackedFocus)
       }
     },
   })
 }
 
-function cleanupRemovedNode(node: Node): void {
-  const roots = collectTooltipRoots(node)
-  if (!roots.length) {
+function scheduleScan(scope: ParentNode): void {
+  pendingScanScopes.add(scope)
+  if (scanFlushScheduled) {
     return
   }
-  queueMicrotask(() => {
-    roots.forEach((root) => {
-      if (!root.isConnected) {
-        registry.get(root)?.()
-      }
-    })
+  scanFlushScheduled = true
+  enqueueMicrotask(flushPendingScans)
+}
+
+function flushPendingScans(): void {
+  scanFlushScheduled = false
+  const scopes = Array.from(pendingScanScopes)
+  pendingScanScopes.clear()
+  scopes.forEach((scope) => {
+    if (scope instanceof Element && !scope.isConnected) {
+      return
+    }
+    if (scope instanceof DocumentFragment && !scope.isConnected) {
+      return
+    }
+    scan(scope)
   })
+}
+
+function scheduleRemovedCleanup(node: Node): boolean {
+  const roots = collectTooltipRoots(node)
+  if (!roots.length) {
+    return false
+  }
+  roots.forEach((root) => pendingRemovedRoots.add(root))
+  if (!removedCleanupScheduled) {
+    removedCleanupScheduled = true
+    enqueueMicrotask(flushRemovedRoots)
+  }
+  return true
+}
+
+function flushRemovedRoots(): void {
+  removedCleanupScheduled = false
+  const roots = Array.from(pendingRemovedRoots)
+  pendingRemovedRoots.clear()
+  roots.forEach((root) => {
+    if (!root.isConnected) {
+      registry.get(root)?.()
+    }
+  })
+}
+
+function enqueueMicrotask(task: () => void): void {
+  if (typeof queueMicrotask === "function") {
+    queueMicrotask(task)
+    return
+  }
+  Promise.resolve().then(task)
+}
+
+function hasTooltipRoot(scope: ParentNode): boolean {
+  if (scope instanceof Element && scope.matches(TOOLTIP_ROOT_SELECTOR)) {
+    return true
+  }
+  return scope.querySelector(TOOLTIP_ROOT_SELECTOR) !== null
 }
 
 function collectTooltipRoots(node: Node): RootEl[] {
   const roots: RootEl[] = []
-  if (node instanceof HTMLElement && node.matches("[data-affino-tooltip-root]")) {
+  if (node instanceof HTMLElement && node.matches(TOOLTIP_ROOT_SELECTOR)) {
     roots.push(node as RootEl)
   }
   if (node instanceof HTMLElement || node instanceof DocumentFragment) {
-    node.querySelectorAll<RootEl>("[data-affino-tooltip-root]").forEach((root) => roots.push(root))
+    node.querySelectorAll<RootEl>(TOOLTIP_ROOT_SELECTOR).forEach((root) => roots.push(root))
   }
   return roots
 }

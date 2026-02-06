@@ -4,6 +4,7 @@ import {
   splitLeadTrail,
   createVerticalOverscanController,
   createHorizontalOverscanController,
+  resolveOverscanBuckets,
 } from ".."
 
 describe("overscan statics", () => {
@@ -77,5 +78,45 @@ describe("dynamic overscan controllers", () => {
 
     expect(enabled.overscan).toBeLessThanOrEqual(5)
     expect(enabled.overscan).toBeGreaterThanOrEqual(3)
+  })
+
+  it("reuses vertical state object on reset to avoid allocations", () => {
+    const controller = createVerticalOverscanController({ minOverscan: 2 })
+    const stateRef = controller.getState()
+
+    controller.reset(50)
+
+    expect(controller.getState()).toBe(stateRef)
+    expect(controller.getState().lastTimestamp).toBe(50)
+    expect(controller.getState().lastOverscan).toBe(2)
+  })
+
+  it("reuses horizontal state object on reset to avoid allocations", () => {
+    const controller = createHorizontalOverscanController({ minOverscan: 3 })
+    const stateRef = controller.getState()
+
+    controller.reset(42, 11)
+
+    expect(controller.getState()).toBe(stateRef)
+    expect(controller.getState().lastTimestamp).toBe(42)
+    expect(controller.getState().lastOverscan).toBe(11)
+  })
+})
+
+describe("overscan buckets", () => {
+  it("assigns all available slots while keeping forward bias", () => {
+    const buckets = resolveOverscanBuckets({ available: 7, direction: 1 })
+
+    expect(buckets.leading + buckets.trailing).toBe(7)
+    expect(buckets.trailing).toBeGreaterThanOrEqual(2)
+    expect(buckets.trailing).toBeGreaterThanOrEqual(buckets.leading)
+  })
+
+  it("assigns all available slots while keeping backward bias", () => {
+    const buckets = resolveOverscanBuckets({ available: 7, direction: -1 })
+
+    expect(buckets.leading + buckets.trailing).toBe(7)
+    expect(buckets.leading).toBeGreaterThanOrEqual(1)
+    expect(buckets.leading).toBeGreaterThanOrEqual(buckets.trailing)
   })
 })

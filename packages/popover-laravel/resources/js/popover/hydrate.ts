@@ -23,6 +23,7 @@ import type { Detachment, RootEl } from "./types"
 type OverlayWindow = Window & { __affinoOverlayManager?: OverlayManager }
 const openStateRegistry = new Map<string, boolean>()
 const focusSnapshotRegistry = new Map<string, FocusSnapshot>()
+const POPOVER_ROOT_SELECTOR = "[data-affino-popover-root]"
 const FOCUSABLE_WITHIN_SELECTOR = [
   '[data-affino-focus-key]',
   "input:not([disabled])",
@@ -35,6 +36,10 @@ const FOCUSABLE_WITHIN_SELECTOR = [
   '[contenteditable=""]',
 ].join(",")
 const NON_TEXT_INPUT_TYPES = new Set(["button", "submit", "reset", "checkbox", "radio", "file", "range", "color", "image", "hidden"])
+const pendingScanScopes = new Set<ParentNode>()
+const pendingRemovedRoots = new Set<RootEl>()
+let scanFlushScheduled = false
+let removedCleanupScheduled = false
 
 type FocusSnapshot = {
   key: FocusSnapshotKey | null
@@ -121,6 +126,7 @@ export function hydratePopover(root: RootEl): void {
   const arrow = content.querySelector<HTMLElement>("[data-affino-popover-arrow]")
   let pendingMeasureFrame: number | null = null
   let pendingPositionSync: number | null = null
+  let pendingRelayoutFrame: number | null = null
   let outsideCleanup: (() => void) | null = null
   let relayoutCleanup: (() => void) | null = null
   let resizeObserver: ResizeObserver | null = null
@@ -255,17 +261,27 @@ export function hydratePopover(root: RootEl): void {
     if (relayoutCleanup) {
       return
     }
-    const handleRelayout = () => {
-      if (content.hidden) {
+    const scheduleRelayout = () => {
+      if (content.hidden || pendingRelayoutFrame !== null) {
         return
       }
-      requestAnimationFrame(updatePosition)
+      pendingRelayoutFrame = requestAnimationFrame(() => {
+        pendingRelayoutFrame = null
+        updatePosition()
+      })
+    }
+    const handleRelayout = () => {
+      scheduleRelayout()
     }
     window.addEventListener("resize", handleRelayout)
     window.addEventListener("scroll", handleRelayout, true)
     relayoutCleanup = () => {
       window.removeEventListener("resize", handleRelayout)
       window.removeEventListener("scroll", handleRelayout, true)
+      if (pendingRelayoutFrame !== null) {
+        cancelAnimationFrame(pendingRelayoutFrame)
+        pendingRelayoutFrame = null
+      }
       relayoutCleanup = null
     }
   }
@@ -434,10 +450,10 @@ export function hydratePopover(root: RootEl): void {
 }
 
 export function scan(node: ParentNode): void {
-  if (node instanceof HTMLElement && node.matches("[data-affino-popover-root]")) {
+  if (node instanceof HTMLElement && node.matches(POPOVER_ROOT_SELECTOR)) {
     maybeHydratePopover(node as RootEl)
   }
-  const roots = node.querySelectorAll<RootEl>("[data-affino-popover-root]")
+  const roots = node.querySelectorAll<RootEl>(POPOVER_ROOT_SELECTOR)
   roots.forEach((root) => maybeHydratePopover(root))
 }
 
@@ -472,38 +488,89 @@ export function setupMutationObserver(): void {
       mutations.forEach((mutation) => {
         mutation.addedNodes.forEach((node) => {
           if (node instanceof HTMLElement || node instanceof DocumentFragment) {
-            scan(node)
+            if (hasPopoverRoot(node)) {
+              scheduleScan(node)
+            }
           }
         })
         mutation.removedNodes.forEach((node) => {
-          cleanupRemovedNode(node)
+          scheduleRemovedCleanup(node)
         })
       })
     },
   })
 }
 
-function cleanupRemovedNode(node: Node): void {
+function scheduleScan(scope: ParentNode): void {
+  pendingScanScopes.add(scope)
+  if (scanFlushScheduled) {
+    return
+  }
+  scanFlushScheduled = true
+  enqueueMicrotask(flushPendingScans)
+}
+
+function flushPendingScans(): void {
+  scanFlushScheduled = false
+  const scopes = Array.from(pendingScanScopes)
+  pendingScanScopes.clear()
+  scopes.forEach((scope) => {
+    if (scope instanceof Element && !scope.isConnected) {
+      return
+    }
+    if (scope instanceof DocumentFragment && !scope.isConnected) {
+      return
+    }
+    scan(scope)
+  })
+}
+
+function scheduleRemovedCleanup(node: Node): void {
   const roots = collectPopoverRoots(node)
   if (!roots.length) {
     return
   }
-  queueMicrotask(() => {
-    roots.forEach((root) => {
-      if (!root.isConnected) {
-        registry.get(root)?.()
-      }
-    })
+  roots.forEach((root) => pendingRemovedRoots.add(root))
+  if (removedCleanupScheduled) {
+    return
+  }
+  removedCleanupScheduled = true
+  enqueueMicrotask(flushRemovedRoots)
+}
+
+function flushRemovedRoots(): void {
+  removedCleanupScheduled = false
+  const roots = Array.from(pendingRemovedRoots)
+  pendingRemovedRoots.clear()
+  roots.forEach((root) => {
+    if (!root.isConnected) {
+      registry.get(root)?.()
+    }
   })
+}
+
+function enqueueMicrotask(task: () => void): void {
+  if (typeof queueMicrotask === "function") {
+    queueMicrotask(task)
+    return
+  }
+  Promise.resolve().then(task)
+}
+
+function hasPopoverRoot(scope: ParentNode): boolean {
+  if (scope instanceof Element && scope.matches(POPOVER_ROOT_SELECTOR)) {
+    return true
+  }
+  return scope.querySelector(POPOVER_ROOT_SELECTOR) !== null
 }
 
 function collectPopoverRoots(node: Node): RootEl[] {
   const roots: RootEl[] = []
-  if (node instanceof HTMLElement && node.matches("[data-affino-popover-root]")) {
+  if (node instanceof HTMLElement && node.matches(POPOVER_ROOT_SELECTOR)) {
     roots.push(node as RootEl)
   }
   if (node instanceof HTMLElement || node instanceof DocumentFragment) {
-    node.querySelectorAll<RootEl>("[data-affino-popover-root]").forEach((root) => roots.push(root))
+    node.querySelectorAll<RootEl>(POPOVER_ROOT_SELECTOR).forEach((root) => roots.push(root))
   }
   return roots
 }
@@ -511,7 +578,7 @@ function collectPopoverRoots(node: Node): RootEl[] {
 function collectRelatedPopoverRoots(node: Node): RootEl[] {
   const seen = new Set<RootEl>()
   if (node instanceof HTMLElement) {
-    const nearest = node.closest<RootEl>("[data-affino-popover-root]")
+    const nearest = node.closest<RootEl>(POPOVER_ROOT_SELECTOR)
     if (nearest) {
       seen.add(nearest)
     }

@@ -43,6 +43,25 @@ describe("listbox-core", () => {
     expect(state.activeIndex).toBe(3)
   })
 
+  it("keeps disabled checks bounded for large loop navigation", () => {
+    const optionCount = 1_000
+    let checks = 0
+    const context: ListboxContext = {
+      optionCount,
+      isDisabled: (index) => {
+        checks += 1
+        return index !== 0 && index !== 500
+      },
+    }
+
+    let state = createListboxState()
+    state = activateListboxIndex({ state, context, index: 0 })
+    state = moveListboxFocus({ state, context, delta: 99, loop: true })
+
+    expect(state.activeIndex).toBe(500)
+    expect(checks).toBeLessThan(5_000)
+  })
+
   it("toggles the active option", () => {
     const context = createContext(3)
     let state = createListboxState()

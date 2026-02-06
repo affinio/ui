@@ -50,19 +50,29 @@ export function createAxisVirtualizer<TMeta, TPayload>(
     payload: initialPayload,
   }
 
+  let cachedBucketAvailable = -1
+  let cachedBucketDirection = 0
+  let cachedBucketLeading = 0
+  let cachedBucketTrailing = 0
+
   function getState(): AxisVirtualizerState<TPayload> {
     return state
   }
 
   function update(context: AxisVirtualizerContext<TMeta>): AxisVirtualizerState<TPayload> {
-    const virtualizationEnabled = context.virtualizationEnabled && context.totalCount > 0
+    const totalCount = context.totalCount
+    const viewportSize = context.viewportSize
+    const scrollOffset = context.scrollOffset
+    const estimatedItemSize = context.estimatedItemSize
+    const overscanInput = context.overscan
+    const virtualizationEnabled = context.virtualizationEnabled && totalCount > 0
     const visibleCount = virtualizationEnabled
       ? Math.max(1, strategy.computeVisibleCount(context))
-      : context.totalCount
-    const overscanBase = virtualizationEnabled ? Math.max(0, Math.round(context.overscan)) : 0
+      : totalCount
+    const overscanBase = virtualizationEnabled ? Math.max(0, Math.round(overscanInput)) : 0
     const poolSize = virtualizationEnabled
-      ? Math.min(context.totalCount, Math.max(visibleCount + overscanBase, visibleCount))
-      : context.totalCount
+      ? Math.min(totalCount, Math.max(visibleCount + overscanBase, visibleCount))
+      : totalCount
 
     const availableOverscan = Math.max(poolSize - visibleCount, 0)
     let overscanLeading = 0
@@ -73,37 +83,47 @@ export function createAxisVirtualizer<TMeta, TPayload>(
       const rawDirection = typeof metaWithDirection?.scrollDirection === "number"
         ? metaWithDirection.scrollDirection
         : 0
-      const distribution = resolveOverscanBuckets({
-        available: availableOverscan,
-        direction: rawDirection,
-      })
-      overscanLeading = distribution.leading
-      overscanTrailing = distribution.trailing
+      const normalizedDirection = clamp(rawDirection, -1, 1)
+      if (availableOverscan === cachedBucketAvailable && normalizedDirection === cachedBucketDirection) {
+        overscanLeading = cachedBucketLeading
+        overscanTrailing = cachedBucketTrailing
+      } else {
+        const distribution = resolveOverscanBuckets({
+          available: availableOverscan,
+          direction: normalizedDirection,
+        })
+        overscanLeading = distribution.leading
+        overscanTrailing = distribution.trailing
+        cachedBucketAvailable = availableOverscan
+        cachedBucketDirection = normalizedDirection
+        cachedBucketLeading = overscanLeading
+        cachedBucketTrailing = overscanTrailing
+      }
     }
 
     internalContext.axis = axis
-    internalContext.viewportSize = context.viewportSize
-    internalContext.scrollOffset = context.scrollOffset
+    internalContext.viewportSize = viewportSize
+    internalContext.scrollOffset = scrollOffset
     internalContext.virtualizationEnabled = virtualizationEnabled
-    internalContext.estimatedItemSize = context.estimatedItemSize
-    internalContext.totalCount = context.totalCount
-    internalContext.overscan = context.overscan
+    internalContext.estimatedItemSize = estimatedItemSize
+    internalContext.totalCount = totalCount
+    internalContext.overscan = overscanInput
     internalContext.meta = context.meta
     internalContext.visibleCount = visibleCount
     internalContext.poolSize = poolSize
     internalContext.overscanLeading = overscanLeading
     internalContext.overscanTrailing = overscanTrailing
 
-    const offset = strategy.clampScroll(context.scrollOffset, internalContext)
+    const offset = strategy.clampScroll(scrollOffset, internalContext)
     const rangeResult = strategy.computeRange(offset, internalContext, range)
-    const maxPoolStart = Math.max(context.totalCount - internalContext.poolSize, 0)
+    const maxPoolStart = Math.max(totalCount - internalContext.poolSize, 0)
     const normalizedStart = clamp(rangeResult.start, 0, maxPoolStart)
-    const normalizedEnd = Math.min(context.totalCount, Math.max(rangeResult.end, normalizedStart))
+    const normalizedEnd = Math.min(totalCount, Math.max(rangeResult.end, normalizedStart))
     const computedPoolSize = Math.max(normalizedEnd - normalizedStart, 0)
 
     state.offset = offset
-    state.viewportSize = context.viewportSize
-    state.totalCount = context.totalCount
+    state.viewportSize = viewportSize
+    state.totalCount = totalCount
     state.startIndex = normalizedStart
     state.endIndex = normalizedEnd
     state.visibleCount = visibleCount

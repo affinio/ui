@@ -21,16 +21,31 @@ import type {
 } from "../types"
 
 const DEFAULT_OVERLAY_KIND: OverlayKind = "tooltip"
+const SURFACE_TO_OVERLAY_CLOSE_REASON: Record<SurfaceReason, OverlayCloseReason> = {
+  pointer: "pointer-outside",
+  keyboard: "escape-key",
+  programmatic: "programmatic",
+}
+const OVERLAY_TO_SURFACE_CLOSE_REASON: Record<string, SurfaceReason> = {
+  "pointer-outside": "pointer",
+  "escape-key": "keyboard",
+}
 
 export class TooltipCore extends SurfaceCore<TooltipState, TooltipCallbacks> {
   private focusWithin = false
   private readonly overlayKind: OverlayKind
+  private readonly triggerElementId: string
+  private readonly contentElementId: string
+  private readonly descriptionElementId: string
   private readonly overlayIntegration: OverlayIntegration
   private destroyed = false
 
   constructor(options: TooltipOptions = {}, callbacks: TooltipCallbacks = {}) {
     super(options, callbacks)
     this.overlayKind = options.overlayKind ?? DEFAULT_OVERLAY_KIND
+    this.triggerElementId = `${this.id}-trigger`
+    this.contentElementId = `${this.id}-content`
+    this.descriptionElementId = `${this.id}-description`
     const overlayTraits = options.overlayEntryTraits ?? {}
     this.overlayIntegration = createOverlayIntegration({
       id: this.id,
@@ -88,16 +103,26 @@ export class TooltipCore extends SurfaceCore<TooltipState, TooltipCallbacks> {
     return this.overlayIntegration.getManager()
   }
 
-  getTriggerProps(options: TooltipTriggerOptions = {}): TooltipTriggerProps {
-    const describedByTargets = [this.contentId]
-    if (options.describedBy) {
-      const extra = Array.isArray(options.describedBy) ? options.describedBy : [options.describedBy]
-      describedByTargets.push(...extra.filter(Boolean))
+  getTriggerProps(options?: TooltipTriggerOptions): TooltipTriggerProps {
+    const describedByOption = options?.describedBy
+    let describedBy = this.contentElementId
+
+    if (typeof describedByOption === "string") {
+      if (describedByOption) {
+        describedBy = `${describedBy} ${describedByOption}`
+      }
+    } else if (Array.isArray(describedByOption)) {
+      for (const candidate of describedByOption) {
+        if (candidate) {
+          describedBy = `${describedBy} ${candidate}`
+        }
+      }
     }
+
     return {
-      id: this.triggerId,
-      tabIndex: options.tabIndex ?? 0,
-      "aria-describedby": describedByTargets.join(" ").trim(),
+      id: this.triggerElementId,
+      tabIndex: options?.tabIndex ?? 0,
+      "aria-describedby": describedBy,
       onPointerEnter: (event) => {
         this.handlePointerEnter(event)
         this.timers.scheduleOpen(() => this.open("pointer"))
@@ -116,9 +141,9 @@ export class TooltipCore extends SurfaceCore<TooltipState, TooltipCallbacks> {
 
   getTooltipProps(): TooltipContentProps {
     return {
-      id: this.contentId,
+      id: this.contentElementId,
       role: "tooltip",
-      "data-state": this.getSnapshot().open ? "open" : "closed",
+      "data-state": this.surfaceState.open ? "open" : "closed",
       onPointerEnter: (event) => this.handlePointerEnter(event),
       onPointerLeave: (event) => this.handlePointerLeave(event),
     }
@@ -128,41 +153,30 @@ export class TooltipCore extends SurfaceCore<TooltipState, TooltipCallbacks> {
     return resolveArrowProps(params)
   }
 
-  getDescriptionProps(options: TooltipDescriptionOptions = {}): TooltipDescriptionProps {
-    const state = this.getSnapshot().open ? "open" : "closed"
-    const id = options.id ?? `${this.id}-description`
+  getDescriptionProps(options?: TooltipDescriptionOptions): TooltipDescriptionProps {
+    const state = this.surfaceState.open ? "open" : "closed"
+    const id = options?.id ?? this.descriptionElementId
     return {
       id,
-      role: options.role ?? "status",
-      "aria-live": options.politeness ?? "polite",
-      "aria-atomic": options.atomic ?? true,
+      role: options?.role ?? "status",
+      "aria-live": options?.politeness ?? "polite",
+      "aria-atomic": options?.atomic ?? true,
       "aria-hidden": state === "open" ? "false" : "true",
       "data-state": state,
     }
   }
 
   protected override shouldIgnorePointerLeave(event?: PointerEventLike): boolean {
-    if (this.focusWithin) {
-      return true
-    }
-    return super.shouldIgnorePointerLeave(event)
-  }
-
-  private get triggerId() {
-    return `${this.id}-trigger`
-  }
-
-  private get contentId() {
-    return `${this.id}-content`
+    return this.focusWithin || super.shouldIgnorePointerLeave(event)
   }
 
   private closeWithSource(reason: SurfaceReason, source: "local" | "kernel"): void {
-    if (this.destroyed) {
+    if (this.destroyed || !this.surfaceState.open) {
       return
     }
     if (source === "local" && this.isKernelManagedReason(reason)) {
       const overlayReason = this.mapSurfaceReasonToOverlay(reason)
-      if (overlayReason && this.overlayIntegration.requestClose(overlayReason)) {
+      if (this.overlayIntegration.requestClose(overlayReason)) {
         return
       }
     }
@@ -174,40 +188,19 @@ export class TooltipCore extends SurfaceCore<TooltipState, TooltipCallbacks> {
   }
 
   protected isKernelManagedReason(reason: SurfaceReason): boolean {
-    return reason === "pointer" || reason === "keyboard"
+    return reason !== "programmatic"
   }
 
-  private mapSurfaceReasonToOverlay(reason: SurfaceReason): OverlayCloseReason | null {
-    switch (reason) {
-      case "pointer":
-        return "pointer-outside"
-      case "keyboard":
-        return "escape-key"
-      case "programmatic":
-      default:
-        return "programmatic"
-    }
+  private mapSurfaceReasonToOverlay(reason: SurfaceReason): OverlayCloseReason {
+    return SURFACE_TO_OVERLAY_CLOSE_REASON[reason]
   }
 
-  private mapOverlayReasonToSurface(reason: OverlayCloseReason): SurfaceReason | null {
-    switch (reason) {
-      case "pointer-outside":
-        return "pointer"
-      case "escape-key":
-        return "keyboard"
-      case "owner-close":
-      case "focus-loss":
-      case "programmatic":
-      default:
-        return "programmatic"
-    }
+  private mapOverlayReasonToSurface(reason: OverlayCloseReason): SurfaceReason {
+    return OVERLAY_TO_SURFACE_CLOSE_REASON[reason] ?? "programmatic"
   }
 
   private handleKernelCloseRequest(reason: OverlayCloseReason): void {
     const surfaceReason = this.mapOverlayReasonToSurface(reason)
-    if (!surfaceReason) {
-      return
-    }
     this.closeWithSource(surfaceReason, "kernel")
   }
 }
@@ -219,8 +212,6 @@ const STATIC_SIDES: Record<TooltipArrowProps["data-placement"], "top" | "right" 
   right: "left",
 }
 
-const isVerticalPlacement = (placement: TooltipArrowProps["data-placement"]) => placement === "top" || placement === "bottom"
-
 const clamp = (value: number, min: number, max: number) => {
   if (Number.isNaN(value)) return min
   if (value < min) return min
@@ -228,13 +219,13 @@ const clamp = (value: number, min: number, max: number) => {
   return value
 }
 
-function resolveArrowProps({ anchorRect, tooltipRect, position, options = {} }: TooltipArrowParams): TooltipArrowProps {
+function resolveArrowProps({ anchorRect, tooltipRect, position, options }: TooltipArrowParams): TooltipArrowProps {
   const placement = position.placement
   const align = position.align
-  const isVertical = isVerticalPlacement(placement)
-  const size = Math.max(options.size ?? 10, 1)
-  const inset = Math.max(options.inset ?? 4, 0)
-  const staticOffset = options.staticOffset ?? size / 2
+  const isVertical = placement === "top" || placement === "bottom"
+  const size = Math.max(options?.size ?? 10, 1)
+  const inset = Math.max(options?.inset ?? 4, 0)
+  const staticOffset = options?.staticOffset ?? size / 2
   const half = size / 2
   const surfaceSpan = isVertical ? tooltipRect.width : tooltipRect.height
   const anchorCenter = isVertical

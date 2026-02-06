@@ -187,6 +187,30 @@ describe("hydratePopover", () => {
     expect(root.affinoPopover).toBeUndefined()
   })
 
+  it("deduplicates relayout frame scheduling on scroll bursts", () => {
+    const { root, trigger } = setupPopoverFixture()
+    hydratePopover(root as any)
+    trigger.dispatchEvent(new MouseEvent("click", { bubbles: true }))
+
+    const queuedFrames: FrameRequestCallback[] = []
+    const rafSpy = vi.fn((callback: FrameRequestCallback) => {
+      queuedFrames.push(callback)
+      return queuedFrames.length
+    })
+    vi.stubGlobal("requestAnimationFrame", rafSpy)
+
+    window.dispatchEvent(new Event("scroll"))
+    window.dispatchEvent(new Event("scroll"))
+    window.dispatchEvent(new Event("scroll"))
+
+    expect(rafSpy).toHaveBeenCalledTimes(1)
+    expect(queuedFrames).toHaveLength(1)
+
+    queuedFrames.shift()?.(0)
+    window.dispatchEvent(new Event("scroll"))
+    expect(rafSpy).toHaveBeenCalledTimes(2)
+  })
+
   it("closes on click for data-affino-popover-dismiss", () => {
     const { root, trigger, content } = setupPopoverFixture()
     const dismiss = document.createElement("button")

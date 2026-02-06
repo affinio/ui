@@ -41,4 +41,26 @@ describe("tabs-laravel", () => {
     expect(panelB.hidden).toBe(false)
     expect(root.dataset.affinoTabsValue).toBe("billing")
   })
+
+  it("cleans up handle when required tabs structure is removed", () => {
+    const root = document.createElement("div")
+    root.setAttribute("data-affino-tabs-root", "cleanup-tabs")
+
+    const trigger = document.createElement("button")
+    trigger.setAttribute("data-affino-tabs-trigger", "")
+    trigger.setAttribute("data-affino-tabs-value", "general")
+    const panel = document.createElement("div")
+    panel.setAttribute("data-affino-tabs-content", "")
+    panel.setAttribute("data-affino-tabs-value", "general")
+
+    root.appendChild(trigger)
+    root.appendChild(panel)
+    hydrateTabs(root as HTMLElement & { dataset: DOMStringMap })
+    expect((root as any).affinoTabs).toBeDefined()
+
+    panel.remove()
+    hydrateTabs(root as HTMLElement & { dataset: DOMStringMap })
+
+    expect((root as any).affinoTabs).toBeUndefined()
+  })
 })

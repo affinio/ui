@@ -94,16 +94,23 @@ export function createVerticalOverscanController(config: VerticalOverscanConfig)
 
   let state = createInitialState(minOverscan)
 
+  function resetState(timestamp = 0, overscanOverride?: number) {
+    const normalizedOverscan = typeof overscanOverride === "number" ? Math.max(0, overscanOverride) : minOverscan
+    state.smoothedOverscan = minOverscan
+    state.smoothedVelocity = 0
+    state.lastTimestamp = timestamp
+    state.lastOverscan = normalizedOverscan
+  }
+
   function reset(timestamp = 0) {
-    state = createInitialState(minOverscan, timestamp)
+    resetState(timestamp)
   }
 
   function update(input: VerticalOverscanInput): DynamicOverscanResult {
     const { timestamp, delta, viewportSize, itemSize, virtualizationEnabled } = input
 
     if (!virtualizationEnabled) {
-      reset(timestamp)
-      state.lastOverscan = 0
+      resetState(timestamp, 0)
       return { overscan: 0, state }
     }
 
@@ -164,8 +171,16 @@ export function createHorizontalOverscanController(config: HorizontalOverscanCon
 
   let state = createInitialState(minOverscan)
 
+  function resetState(timestamp = 0, overscanOverride?: number) {
+    const normalizedOverscan = typeof overscanOverride === "number" ? Math.max(0, overscanOverride) : minOverscan
+    state.smoothedOverscan = minOverscan
+    state.smoothedVelocity = 0
+    state.lastTimestamp = timestamp
+    state.lastOverscan = normalizedOverscan
+  }
+
   function reset(timestamp = 0, overscanOverride?: number) {
-    state = createInitialState(minOverscan, timestamp, overscanOverride)
+    resetState(timestamp, overscanOverride)
   }
 
   function update(input: HorizontalOverscanInput): DynamicOverscanResult {
