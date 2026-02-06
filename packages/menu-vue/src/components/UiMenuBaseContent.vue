@@ -40,7 +40,7 @@ const syncSubmenuGeometry = () => {
   if (props.variant !== "submenu" || !submenuBridge) {
     return
   }
-  const triggerRect = toRect(submenuBridge.parent.controller.triggerRef.value)
+  const triggerRect = toRect(props.provider.controller.triggerRef.value)
   props.provider.controller.setTriggerRect?.(triggerRect ?? null)
   const panelRect = toRect(root.value)
   props.provider.controller.setPanelRect?.(panelRect ?? null)

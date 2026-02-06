@@ -22,22 +22,22 @@ If the user moves their mouse diagonally from "Edit" toward the submenu, they'll
 
 ## The Solution
 
-The implementation uses an **intent-gating model** rather than a single score. It samples recent pointer positions, checks whether the pointer is still inside a tolerance corridor, and evaluates three independent intent signals. The submenu is kept alive only when the corridor gate passes and at least one of the intent gates is satisfied. The system intentionally prefers false negatives over false positives so that unsure motion falls back to normal hover behavior.
+The implementation uses a **forward-motion + intent surface** model rather than a single score. It samples recent pointer positions, confirms forward motion toward the submenu, and then checks whether the pointer is inside either a tolerance-expanded target, an intent triangle, or a corridor-and-gates heuristic. The system intentionally prefers false negatives over false positives so that unsure motion falls back to normal hover behavior.
 
-## Intent Gates
+## Decision Rule
 
 The boolean expression below is the exact decision rule:
 
 ```
-withinCorridor && (headingSatisfied || progressSatisfied || driftBiasSatisfied)
+forwardMotion && (withinExpandedTarget || withinIntentTriangle || heuristicFallback)
 ```
 
-Each gate has a very specific responsibility:
+The sub-conditions have specific responsibilities:
 
-- **withinCorridor** – Ensures the latest pointer position stays inside the tolerance band spanning the trigger and submenu. If this fails, prediction immediately turns off.
-- **headingSatisfied** – Uses a dot product between the movement vector and the target vector. It fires only when the pointer's heading exceeds `headingThreshold`.
-- **progressSatisfied** – Measures forward progress along the axis between the trigger and submenu. It allows limited backward drift based on `horizontalThreshold` but otherwise demands continued advancement.
-- **driftBiasSatisfied** – Acts as a fallback when the pointer motion strongly favors the submenu axis. It compares axis-relative movement magnitudes using `driftBias` and does not reuse the heading or progress calculations.
+- **forwardMotion** – Ensures pointer movement continues toward the submenu (based on the submenu direction). If motion reverses, prediction stops.
+- **withinExpandedTarget** – Checks whether the latest pointer position is inside the submenu rectangle expanded by `verticalTolerance` in all directions.
+- **withinIntentTriangle** – Builds a triangle from the last sample to the submenu edge (with tolerance) and checks if the pointer is inside it.
+- **heuristicFallback** – A secondary gate: `withinCorridor && (headingSatisfied || progressSatisfied || driftBiasSatisfied)`.
 
 There is **no combined score** and there are **no weights** between the gates. Each signal either passes or fails, and the final intent is a straight boolean evaluation.
 
@@ -51,7 +51,7 @@ Maximum number of pointer samples kept in the circular buffer. A longer history 
 
 ### `verticalTolerance: number` (default: `48`)
 
-Thickness, in pixels, of the corridor that surrounds the trigger and submenu rectangle. The corridor gate treats any pointer position outside this band as an immediate exit condition. Larger tolerances keep menus open when users move across bumpy terrain (e.g., laptop trackpads). Smaller tolerances tighten the corridor so only very direct motion is preserved.
+Shared tolerance, in pixels, used by multiple gates: it expands the target rectangle, sets corridor thickness, and offsets the intent triangle edges. Larger tolerances keep menus open when users move across bumpy terrain (e.g., laptop trackpads). Smaller tolerances tighten the intent area so only very direct motion is preserved.
 
 ### `samplingOffset: number` (default: `2`)
 
@@ -69,20 +69,25 @@ Allowance, in pixels, for backward motion along the axis. The `progressSatisfied
 
 Axis-dominance ratio used by the fallback gate. For a horizontal submenu, `driftBiasSatisfied` checks whether `|dx| > |dy| * driftBias`. In vertical layouts the axes are swapped. This gate does **not** blend into the heading score—it simply ensures that strong axis-dominant motion can keep the submenu alive even if the dot product is inconclusive. Higher values make it harder for this gate to pass, because the dominant axis must strongly outweigh the perpendicular component.
 
+### `maxAge: number` (default: `320`)
+
+Maximum time, in milliseconds, allowed between the latest pointer sample and the sample used for the movement vector. If the gap is larger than `maxAge`, prediction returns false to avoid stale movement decisions.
+
 ## Algorithm Flow
 
 ```
 1. Record pointer point (with timestamp) and keep only the newest `history` entries.
 2. If fewer than two samples exist, exit early (no prediction).
 3. Determine the menu orientation (horizontal or vertical) and the direction of travel (left/right or up/down).
-4. Build the corridor using `verticalTolerance` and check `withinCorridor`. If it fails, return false immediately.
+4. Build the corridor and intent triangle using `verticalTolerance`.
 5. Compute the heading vector using `samplingOffset`, normalize it, and evaluate `headingSatisfied` against `headingThreshold`.
 6. Measure forward progress along the orientation axis and evaluate `progressSatisfied` using `horizontalThreshold`.
 7. Compare axis-aligned movement magnitudes to evaluate `driftBiasSatisfied`.
-8. Return the boolean result of `withinCorridor && (headingSatisfied || progressSatisfied || driftBiasSatisfied)`.
+8. Evaluate `withinExpandedTarget`, `withinIntentTriangle`, and `heuristicFallback`.
+9. Return `forwardMotion && (withinExpandedTarget || withinIntentTriangle || heuristicFallback)`.
 ```
 
-This order mirrors the implementation: the corridor gate acts as a guard clause, and the three intent gates are short-circuited together. When none of the gates pass, the algorithm reports "not heading" and allows the menu system to process the hover normally.
+This order mirrors the implementation: forward motion is required, the expanded target and intent triangle provide the primary keep-alive surfaces, and the corridor+gate heuristic is the fallback. When none of the gates pass, the algorithm reports "not heading" and allows the menu system to process the hover normally.
 
 ## Practical Examples
 
@@ -98,6 +103,7 @@ mousePrediction: {
    horizontalThreshold: 8,
    samplingOffset: 3,
    driftBias: 0.6,
+   maxAge: 320,
 }
 ```
 
@@ -113,6 +119,7 @@ mousePrediction: {
    horizontalThreshold: 4,
    samplingOffset: 1,
    driftBias: 0.3,
+   maxAge: 240,
 }
 ```
 
@@ -128,6 +135,7 @@ mousePrediction: {
    horizontalThreshold: 6,
    samplingOffset: 2,
    driftBias: 0.4,
+   maxAge: 320,
 }
 ```
 
@@ -143,6 +151,7 @@ const prediction = new MousePrediction(config)
    console.table({
       heading: payload.headingScore,
       withinCorridor: payload.withinCorridor,
+      withinIntentTriangle: payload.withinIntentTriangle,
       forwardProgress: payload.forwardProgress,
    })
 })
@@ -171,7 +180,7 @@ mousePrediction: { headingThreshold: 0.95 }
 Prediction runs on every `pointermove` event. The cost stays low because:
 
 - Buffer maintenance is O(1) thanks to the capped `history` size.
-- Math consists of simple vector operations (dot product, subtraction, magnitude).
+- Math consists of simple vector operations (dot product, subtraction, magnitude) plus a triangle check.
 - No DOM calls or allocations occur inside the hot path.
 - Typical execution averages well under 0.05 ms, even on integrated GPUs.
 

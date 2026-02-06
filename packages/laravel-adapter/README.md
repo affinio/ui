@@ -61,6 +61,29 @@ document.dispatchEvent(
 )
 ```
 
+## Livewire action bridge (teleported UI)
+
+Livewire cannot capture `wire:click` events from DOM nodes teleported to `body`. Use the built-in action bridge instead.
+Add data attributes to any interactive element (menu items, listbox options, etc.), and the bridge will forward the
+call to the owning Livewire component.
+
+```html
+<button
+  data-affino-livewire-owner="{{ $this->getId() }}"
+  data-affino-livewire-call="selectAction"
+  data-affino-livewire-arg="open-incident"
+>
+  Open incident
+</button>
+```
+
+- `data-affino-livewire-owner`: Livewire component id (`$this->getId()`).
+- `data-affino-livewire-call`: Livewire method to call.
+- `data-affino-livewire-arg`: single argument (string).
+- `data-affino-livewire-args`: JSON-encoded args array or object (optional).
+
+The bridge is enabled automatically by `bootstrapAffinoLaravelAdapters()`.
+
 ## Diagnostics access
 
 When diagnostics are enabled, read-only data is available at runtime:

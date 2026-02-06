@@ -38,6 +38,7 @@ const WORKSPACE_ALIAS_TARGETS: Record<string, string> = {
   "@affino/popover-laravel": "packages/popover-laravel/resources/js/index.ts",
   "@affino/listbox-laravel": "packages/listbox-laravel/resources/js/index.ts",
   "@affino/combobox-laravel": "packages/combobox-laravel/resources/js/index.ts",
+  "@affino/laravel-adapter": "packages/laravel-adapter/resources/js/index.ts",
   "@affino/menu-laravel": "packages/menu-laravel/resources/js/index.ts",
   "@affino/tabs-laravel": "packages/tabs-laravel/resources/js/index.ts",
   "@affino/treeview-laravel": "packages/treeview-laravel/resources/js/index.ts",

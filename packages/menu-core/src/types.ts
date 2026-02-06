@@ -32,6 +32,7 @@ export interface MousePredictionConfig {
   samplingOffset?: number
   horizontalThreshold?: number
   driftBias?: number
+  maxAge?: number
 }
 
 export interface MousePredictionDebugPayload {
@@ -40,6 +41,7 @@ export interface MousePredictionDebugPayload {
   origin: Rect
   headingScore: number
   orientation: "horizontal" | "vertical"
+  withinIntentTriangle: boolean
   withinCorridor: boolean
   forwardProgress: number
 }
@@ -70,7 +72,7 @@ export interface MenuCallbacks extends SurfaceCallbacks {
 export interface MenuOptions extends SurfaceOptions {
   closeOnSelect?: boolean
   loopFocus?: boolean
-  mousePrediction?: MousePredictionConfig
+  mousePrediction?: MousePredictionConfig | null | false
   overlayManager?: OverlayManager | null
   getOverlayManager?: () => OverlayManager | null | undefined
   overlayKind?: OverlayKind

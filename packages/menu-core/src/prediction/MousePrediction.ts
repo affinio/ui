@@ -16,6 +16,7 @@ const DEFAULT_CONFIG: Required<MousePredictionConfig> = {
   samplingOffset: 2,
   horizontalThreshold: 6,
   driftBias: 0.4,
+  maxAge: 320,
 }
 
 /**
@@ -68,6 +69,9 @@ export class MousePrediction {
     if (movementMagnitude === 0) {
       return false
     }
+    if (last.time != null && sample.time != null && Math.abs(last.time - sample.time) > this.config.maxAge) {
+      return false
+    }
 
     const originCenter = center(origin)
     const targetCenter = center(target)
@@ -87,6 +91,17 @@ export class MousePrediction {
       tolerance: this.config.verticalTolerance,
     })
 
+    const intentTriangle = buildIntentTriangle({
+      orientation,
+      target,
+      origin,
+      tolerance: this.config.verticalTolerance,
+      targetCenter,
+      originCenter,
+    })
+    const withinIntentTriangle = pointInTriangle(last, sample, intentTriangle.a, intentTriangle.b)
+    const withinExpandedTarget = isPointInsideExpandedRect(last, target, this.config.verticalTolerance)
+
     const forwardProgress = computeForwardProgress({
       orientation,
       point: last,
@@ -100,10 +115,17 @@ export class MousePrediction {
       movement,
       driftBias: this.config.driftBias,
     })
+    const forwardMotion = isForwardMotion({
+      orientation,
+      movement,
+      horizontalDirection,
+      verticalDirection,
+    })
     const headingSatisfied = headingScore > this.config.headingThreshold
     const progressSatisfied = forwardProgress >= -this.config.horizontalThreshold
 
-    const result = withinCorridor && (headingSatisfied || progressSatisfied || driftBias)
+    const heuristicFallback = withinCorridor && (headingSatisfied || progressSatisfied || driftBias)
+    const result = forwardMotion && (withinExpandedTarget || withinIntentTriangle || heuristicFallback)
 
     this.debugListener?.({
       points: [...this.points],
@@ -111,6 +133,7 @@ export class MousePrediction {
       origin,
       headingScore,
       orientation,
+      withinIntentTriangle,
       withinCorridor,
       forwardProgress,
     } satisfies MousePredictionDebugPayload)
@@ -194,6 +217,66 @@ function appliesDriftBias(args: { orientation: Orientation; movement: Point; dri
     return Math.abs(movement.x) > Math.abs(movement.y) * driftBias
   }
   return Math.abs(movement.y) > Math.abs(movement.x) * driftBias
+}
+
+function isForwardMotion(args: {
+  orientation: Orientation
+  movement: Point
+  horizontalDirection: 1 | -1
+  verticalDirection: 1 | -1
+}) {
+  const { orientation, movement, horizontalDirection, verticalDirection } = args
+  if (orientation === "horizontal") {
+    return horizontalDirection === 1 ? movement.x >= 0 : movement.x <= 0
+  }
+  return verticalDirection === 1 ? movement.y >= 0 : movement.y <= 0
+}
+
+function buildIntentTriangle(args: {
+  orientation: Orientation
+  target: Rect
+  origin: Rect
+  tolerance: number
+  targetCenter: Point
+  originCenter: Point
+}) {
+  const { orientation, target, origin, tolerance, targetCenter, originCenter } = args
+  if (orientation === "horizontal") {
+    const towardRight = determineDirection("horizontal", target, origin, targetCenter, originCenter) === 1
+    const edgeX = towardRight ? target.x : target.x + target.width
+    return {
+      a: { x: edgeX, y: target.y - tolerance },
+      b: { x: edgeX, y: target.y + target.height + tolerance },
+    }
+  }
+  const towardDown = determineDirection("vertical", target, origin, targetCenter, originCenter) === 1
+  const edgeY = towardDown ? target.y : target.y + target.height
+  return {
+    a: { x: target.x - tolerance, y: edgeY },
+    b: { x: target.x + target.width + tolerance, y: edgeY },
+  }
+}
+
+function isPointInsideExpandedRect(point: Point, rect: Rect, tolerance: number) {
+  const minX = rect.x - tolerance
+  const maxX = rect.x + rect.width + tolerance
+  const minY = rect.y - tolerance
+  const maxY = rect.y + rect.height + tolerance
+  return point.x >= minX && point.x <= maxX && point.y >= minY && point.y <= maxY
+}
+
+function pointInTriangle(point: Point, a: Point, b: Point, c: Point) {
+  const epsilon = 0.0001
+  const s1 = triangleSign(point, a, b)
+  const s2 = triangleSign(point, b, c)
+  const s3 = triangleSign(point, c, a)
+  const hasNegative = s1 < -epsilon || s2 < -epsilon || s3 < -epsilon
+  const hasPositive = s1 > epsilon || s2 > epsilon || s3 > epsilon
+  return !(hasNegative && hasPositive)
+}
+
+function triangleSign(a: Point, b: Point, c: Point) {
+  return (a.x - c.x) * (b.y - c.y) - (b.x - c.x) * (a.y - c.y)
 }
 
 export function predictMouseDirection(

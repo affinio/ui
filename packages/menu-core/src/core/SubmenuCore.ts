@@ -32,7 +32,7 @@ export class SubmenuCore extends MenuCore {
   protected override autoHighlightOnOpen = true
   private readonly parent: MenuCore
   private readonly parentItemId: string
-  private readonly predictor: MousePrediction
+  private readonly predictor: MousePrediction | null
   private triggerRect: Rect | null = null
   private panelRect: Rect | null = null
   private releaseTree: (() => void) | null = null
@@ -56,7 +56,9 @@ export class SubmenuCore extends MenuCore {
     })
     this.parent = parent
     this.parentItemId = options.parentItemId
-    this.predictor = new MousePrediction(this.menuOptions.mousePrediction)
+    this.predictor = this.menuOptions.mousePrediction
+      ? new MousePrediction(this.menuOptions.mousePrediction)
+      : null
     this.configurePredictionDebug(callbacks)
     this.releaseTree = this.tree.subscribe(this.id, (state) => this.syncWithTree(state))
   }
@@ -65,12 +67,12 @@ export class SubmenuCore extends MenuCore {
     this.parent.releasePointerHighlightHold(this.parentItemId)
     this.releaseTree?.()
     this.releaseTree = null
-    this.predictor.clear()
+    this.predictor?.clear()
     super.destroy()
   }
 
   override close(reason: "pointer" | "keyboard" | "programmatic" = "programmatic") {
-    this.predictor.clear()
+    this.predictor?.clear()
     this.parent.releasePointerHighlightHold(this.parentItemId)
     super.close(reason)
   }
@@ -84,7 +86,7 @@ export class SubmenuCore extends MenuCore {
   }
 
   recordPointer(point: { x: number; y: number }) {
-    this.predictor.push(point)
+    this.predictor?.push(point)
   }
 
   override select(id: string) {
@@ -176,19 +178,6 @@ export class SubmenuCore extends MenuCore {
   private shouldHoldPointer(event?: PointerEventLike): boolean {
     this.recordPointerFromEvent(event)
     const movingWithinTree = Boolean(event?.meta?.isWithinTree)
-    const movingWithinParent = Boolean(
-      movingWithinTree &&
-      event?.meta?.relatedMenuId === this.parent.id &&
-      !event.meta?.enteredChildPanel
-    )
-    const leavingToSibling = Boolean(
-      movingWithinTree &&
-      !event?.meta?.enteredChildPanel &&
-      !event?.meta?.isInsidePanel
-    )
-    if (movingWithinParent || leavingToSibling) {
-      return false
-    }
     if (event?.meta?.isInsidePanel && event.meta.relatedMenuId === this.id) {
       this.keepChainOpen()
       return true
@@ -198,7 +187,12 @@ export class SubmenuCore extends MenuCore {
       this.parent.holdPointerHighlight(this.parentItemId)
       return true
     }
-    if (this.triggerRect && this.panelRect && this.predictor.isMovingToward(this.panelRect, this.triggerRect)) {
+    if (
+      movingWithinTree &&
+      this.triggerRect &&
+      this.panelRect &&
+      this.predictor?.isMovingToward(this.panelRect, this.triggerRect)
+    ) {
       this.keepChainOpen()
       this.parent.holdPointerHighlight(this.parentItemId)
       return true
@@ -238,6 +232,9 @@ export class SubmenuCore extends MenuCore {
   }
 
   private configurePredictionDebug(callbacks: MenuCallbacks) {
+    if (!this.predictor) {
+      return
+    }
     if (callbacks.onDebug) {
       this.predictor.enableDebug((payload) => {
         this.menuEvents.emitDebug({

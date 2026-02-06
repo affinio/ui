@@ -12,6 +12,10 @@ type FixtureOptions = {
   portal?: "inline" | "body"
 }
 
+type SubmenuFixtureOptions = {
+  appendOrder?: "parent-first" | "child-first"
+}
+
 let fixtureId = 0
 
 type RectInit = {
@@ -73,7 +77,7 @@ function createMenuFixture(options?: FixtureOptions) {
   return { root, panel }
 }
 
-function createSubmenuFixture() {
+function createSubmenuFixture(options?: SubmenuFixtureOptions) {
   fixtureId += 1
   const parentRoot = document.createElement("div") as MenuTestRoot
   parentRoot.dataset.affinoMenuRoot = `menu-parent-${fixtureId}`
@@ -119,10 +123,27 @@ function createSubmenuFixture() {
   mockRect(submenuTrigger, { x: 300, y: 140, width: 80, height: 36 })
   mockRect(submenuPanel, { x: 0, y: 0, width: 180, height: 120 })
 
-  document.body.appendChild(parentRoot)
-  document.body.appendChild(submenuRoot)
+  if (options?.appendOrder === "child-first") {
+    document.body.appendChild(submenuRoot)
+    document.body.appendChild(parentRoot)
+  } else {
+    document.body.appendChild(parentRoot)
+    document.body.appendChild(submenuRoot)
+  }
 
-  return { parentRoot, submenuRoot }
+  return { parentRoot, submenuRoot, parentItem }
+}
+
+function replaceParentMenuItem(node: HTMLButtonElement): HTMLButtonElement {
+  const next = document.createElement("button")
+  next.dataset.affinoMenuItem = ""
+  next.dataset.affinoMenuTrigger = ""
+  next.className = node.className
+  next.id = node.id
+  next.type = "button"
+  next.textContent = node.textContent
+  node.parentElement?.replaceChild(next, node)
+  return next
 }
 
 describe("menu refresh interactions", () => {
@@ -194,6 +215,62 @@ describe("menu refresh interactions", () => {
     vi.runAllTimers()
 
     expect(submenuRoot.dataset.affinoMenuParentResolved).toBe("false")
+  })
+
+  it("hydrates nested submenu bindings even when child root appears first in dom", () => {
+    const { parentRoot, submenuRoot, parentItem } = createSubmenuFixture({ appendOrder: "child-first" })
+
+    scan(document)
+
+    expect(parentRoot.affinoMenu).toBeDefined()
+    expect(submenuRoot.affinoMenu).toBeDefined()
+    expect(submenuRoot.dataset.affinoMenuParentResolved).toBe("true")
+    expect(parentItem.dataset.affinoMenuSubmenuBound).toBe("true")
+  })
+
+  it("rehydrates when livewire morph replaces item nodes with same counts", () => {
+    const { parentRoot, submenuRoot, parentItem } = createSubmenuFixture()
+    hydrateMenu(parentRoot as any)
+    hydrateMenu(submenuRoot as any)
+    expect(parentItem.dataset.affinoMenuSubmenuBound).toBe("true")
+    const firstHandle = parentRoot.affinoMenu
+
+    const replaced = replaceParentMenuItem(parentItem)
+    scan(document)
+
+    expect(parentRoot.affinoMenu).not.toBe(firstHandle)
+    expect(submenuRoot.dataset.affinoMenuParentResolved).toBe("true")
+    expect(replaced.dataset.affinoMenuSubmenuBound).toBe("true")
+  })
+
+  it("recovers submenu parent binding when parent id is stale but parent item id is correct", () => {
+    const { parentRoot, submenuRoot, parentItem } = createSubmenuFixture()
+    submenuRoot.dataset.affinoMenuParent = "menu-parent-stale"
+
+    scan(document)
+
+    expect(parentRoot.affinoMenu).toBeDefined()
+    expect(submenuRoot.affinoMenu).toBeDefined()
+    expect(submenuRoot.dataset.affinoMenuParentResolved).toBe("true")
+    expect(parentItem.dataset.affinoMenuSubmenuBound).toBe("true")
+    expect(submenuRoot.dataset.affinoMenuParent).toBe(parentRoot.dataset.affinoMenuRoot)
+  })
+
+  it("opens submenu on trigger click without closing parent menu", async () => {
+    const { parentRoot, submenuRoot, parentItem } = createSubmenuFixture()
+    hydrateMenu(parentRoot as any)
+    hydrateMenu(submenuRoot as any)
+
+    const parentHandle = parentRoot.affinoMenu as { open: (reason?: string) => void }
+    parentHandle.open("programmatic")
+    await Promise.resolve()
+
+    parentItem.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }))
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(parentRoot.dataset.affinoMenuState).toBe("open")
+    expect(submenuRoot.dataset.affinoMenuState).toBe("open")
   })
 
   it("cleans up body-portal panel after refresh removes detached root", () => {

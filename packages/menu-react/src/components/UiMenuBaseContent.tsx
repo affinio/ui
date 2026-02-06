@@ -70,11 +70,11 @@ export function UiMenuBaseContent({ provider, variant, teleportTo, className, ch
     if (variant !== "submenu" || !submenuBridge) {
       return
     }
-    const triggerRect = toRect(submenuBridge.parent.controller.triggerRef.current)
+    const triggerRect = toRect(controller.triggerRef.current)
     setTriggerRect?.(triggerRect ?? null)
     const panelRect = toRect(rootRef.current)
     setPanelRect?.(panelRect ?? null)
-  }, [variant, submenuBridge, setTriggerRect, setPanelRect])
+  }, [variant, submenuBridge, controller.triggerRef, setTriggerRect, setPanelRect])
 
   const updatePosition = useMenuPositioning(controller, {
     placement: preferredPlacement,

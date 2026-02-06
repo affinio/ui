@@ -32,6 +32,7 @@ import {
 import { bindManualBridge } from "./internal/manualBridge"
 import { registerScrollGuards, type ScrollGuardTarget } from "./internal/scrollGuards"
 import { createDiagnosticsRuntime } from "./internal/diagnostics"
+import { bindLivewireActionBridge } from "./internal/livewireActionBridge"
 
 export type {
   AffinoLaravelAdapterOptions,
@@ -56,6 +57,7 @@ export {
   AFFINO_TREEVIEW_MANUAL_EVENT,
   AFFINO_DISCLOSURE_MANUAL_EVENT,
 }
+export { bindLivewireActionBridge }
 
 export function getAffinoOverlayManager(doc?: Document | null): OverlayManager | null {
   const target = doc ?? (typeof document !== "undefined" ? document : null)
@@ -187,6 +189,8 @@ export function bootstrapAffinoLaravelAdapters(options: AffinoLaravelAdapterOpti
   bootstrapAffinoTabs()
   bootstrapAffinoTreeviews()
   bootstrapAffinoDisclosure()
+
+  bindLivewireActionBridge()
 
   bindManualBridge<typeof AFFINO_DIALOG_MANUAL_EVENT, ManualHandle>({
     component: "dialog",

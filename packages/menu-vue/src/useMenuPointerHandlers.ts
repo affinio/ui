@@ -41,7 +41,18 @@ export function useMenuPointerHandlers(provider: MenuProviderValue): PointerHand
   }
 
   const buildMeta = (event: PointerEvent): PointerMeta => {
-    const related = event.relatedTarget instanceof HTMLElement ? event.relatedTarget : null
+    let related = event.relatedTarget instanceof HTMLElement ? event.relatedTarget : null
+    if (!related && typeof document !== "undefined" && typeof event.clientX === "number" && typeof event.clientY === "number") {
+      const fromPoint = (document as Document & { elementFromPoint?: (x: number, y: number) => Element | null }).elementFromPoint
+      if (typeof fromPoint === "function") {
+        try {
+          const fallback = fromPoint.call(document, event.clientX, event.clientY)
+          related = fallback instanceof HTMLElement ? fallback : null
+        } catch {
+          related = null
+        }
+      }
+    }
     if (!related) {
       return {
         isInsidePanel: false,

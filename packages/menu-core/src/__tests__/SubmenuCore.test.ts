@@ -67,6 +67,33 @@ describe("SubmenuCore", () => {
     expect(releaseSpy).not.toHaveBeenCalled()
   })
 
+  it("holds parent highlight while pointer moves diagonally to submenu through siblings", () => {
+    const { parent, submenu } = setupMenus()
+    const holdSpy = vi.spyOn(parent as unknown as { holdPointerHighlight: (id: string, duration?: number) => void }, "holdPointerHighlight")
+    const releaseSpy = vi.spyOn(parent as unknown as { releasePointerHighlightHold: (id?: string) => void }, "releasePointerHighlightHold")
+
+    submenu.setTriggerRect({ x: 0, y: 0, width: 110, height: 32 })
+    submenu.setPanelRect({ x: 150, y: -30, width: 220, height: 220 })
+    submenu.recordPointer({ x: 92, y: 8 })
+    submenu.recordPointer({ x: 108, y: 28 })
+    submenu.recordPointer({ x: 126, y: 52 })
+
+    const trigger = submenu.getTriggerProps()
+    trigger.onPointerLeave?.({
+      clientX: 146,
+      clientY: 72,
+      meta: {
+        isWithinTree: true,
+        relatedMenuId: parent.id,
+        enteredChildPanel: false,
+        isInsidePanel: false,
+      },
+    })
+
+    expect(holdSpy).toHaveBeenCalledWith("parent-item")
+    expect(releaseSpy).not.toHaveBeenCalledWith("parent-item")
+  })
+
   it("closes ancestor menus when selecting an item", () => {
     const { parent, submenu } = setupMenus()
     parent.open("programmatic")
@@ -119,11 +146,40 @@ describe("SubmenuCore", () => {
     submenu.recordPointer({ x: 140, y: 20 })
 
     const panel = submenu.getPanelProps()
-    panel.onPointerLeave?.({} as any)
+    panel.onPointerLeave?.({
+      clientX: 150,
+      clientY: 24,
+      meta: {
+        isWithinTree: true,
+        relatedMenuId: parent.id,
+      },
+    })
 
     expect(debug).toHaveBeenCalled()
     const event = debug.mock.calls[0]?.[0]
     expect(event).toMatchObject({ type: "mouse-prediction", menuId: submenu.id })
     expect(event.payload).toMatchObject({ orientation: expect.any(String) })
+  })
+
+  it("disables pointer prediction when mousePrediction is null", () => {
+    const { parent, submenu } = setupMenus({ submenu: { mousePrediction: null } })
+    const holdSpy = vi.spyOn(parent as unknown as { holdPointerHighlight: (id: string, duration?: number) => void }, "holdPointerHighlight")
+
+    submenu.setTriggerRect({ x: 0, y: 0, width: 120, height: 40 })
+    submenu.setPanelRect({ x: 160, y: 0, width: 240, height: 200 })
+    submenu.recordPointer({ x: 40, y: 12 })
+    submenu.recordPointer({ x: 140, y: 20 })
+
+    const panel = submenu.getPanelProps()
+    panel.onPointerLeave?.({
+      clientX: 150,
+      clientY: 24,
+      meta: {
+        isWithinTree: true,
+        relatedMenuId: parent.id,
+      },
+    })
+
+    expect(holdSpy).not.toHaveBeenCalled()
   })
 })

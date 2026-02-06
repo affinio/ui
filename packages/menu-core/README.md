@@ -439,7 +439,7 @@ new MenuCore(options?: MenuOptions, callbacks?: MenuCallbacks)
 - `closeDelay?: number` — Delay before closing on hover out (default: `150`ms)
 - `closeOnSelect?: boolean` — Auto-close when item selected (default: `true`)
 - `loopFocus?: boolean` — Wrap focus at list boundaries (default: `true`)
-- `mousePrediction?: MousePredictionConfig` — Mouse prediction settings
+- `mousePrediction?: MousePredictionConfig | null | false` — Mouse prediction settings (`null`/`false` disables it)
 
 **Callbacks:**
 - `onOpen?: (menuId: string) => void`

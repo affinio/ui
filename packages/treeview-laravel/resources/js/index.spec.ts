@@ -1,5 +1,9 @@
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it } from "vitest"
 import { bootstrapAffinoTreeviews, hydrateTreeview } from "./index"
+
+afterEach(() => {
+  document.body.innerHTML = ""
+})
 
 describe("treeview-laravel", () => {
   it("hydrates hierarchy, selection and branch toggles", () => {
@@ -7,6 +11,7 @@ describe("treeview-laravel", () => {
     root.setAttribute("data-affino-treeview-root", "treeview-demo")
     root.dataset.affinoTreeviewDefaultExpanded = "root,beta"
     root.dataset.affinoTreeviewDefaultSelected = "gamma"
+    document.body.append(root)
 
     const rootItem = document.createElement("button")
     rootItem.setAttribute("data-affino-treeview-item", "")
@@ -56,6 +61,7 @@ describe("treeview-laravel", () => {
     root.dataset.affinoTreeviewDefaultExpanded = "root,beta"
     root.dataset.affinoTreeviewDefaultActive = "root"
     root.dataset.affinoTreeviewLoop = "true"
+    document.body.append(root)
 
     const rootItem = document.createElement("button")
     rootItem.setAttribute("data-affino-treeview-item", "")
@@ -98,6 +104,7 @@ describe("treeview-laravel", () => {
   it("cleans up handle when structure disappears", () => {
     const root = document.createElement("div")
     root.setAttribute("data-affino-treeview-root", "cleanup-treeview")
+    document.body.append(root)
 
     const item = document.createElement("button")
     item.setAttribute("data-affino-treeview-item", "")

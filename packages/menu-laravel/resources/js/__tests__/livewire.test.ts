@@ -3,12 +3,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("../menu/hydrate", () => ({
   disconnectMutationObserver: vi.fn(),
+  refreshMenusInScope: vi.fn(),
   restartMutationObserver: vi.fn(),
   scheduleRefresh: vi.fn(),
 }))
 
 import { setupLivewireHooks } from "../menu/livewire"
-import { disconnectMutationObserver, restartMutationObserver, scheduleRefresh } from "../menu/hydrate"
+import { disconnectMutationObserver, refreshMenusInScope, restartMutationObserver, scheduleRefresh } from "../menu/hydrate"
 
 describe("menu livewire hooks", () => {
   beforeEach(() => {
@@ -48,7 +49,7 @@ describe("menu livewire hooks", () => {
     setupLivewireHooks()
 
     const hookMock = (window as any).Livewire.hook as ReturnType<typeof vi.fn>
-    expect(hookMock).toHaveBeenCalledTimes(3)
+    expect(hookMock).toHaveBeenCalledTimes(5)
 
     hookMock.mock.calls.forEach(([_name, handler]) => {
       if (typeof handler === "function") {
@@ -56,6 +57,27 @@ describe("menu livewire hooks", () => {
       }
     })
 
-    expect(scheduleRefresh).toHaveBeenCalledTimes(3)
+    expect(scheduleRefresh).toHaveBeenCalled()
+  })
+
+  it("refreshes scope on morph hooks when element is provided", () => {
+    ;(window as any).Livewire = { hook: vi.fn() }
+    setupLivewireHooks()
+
+    const hookMock = (window as any).Livewire.hook as ReturnType<typeof vi.fn>
+    const handlers = new Map<string, (...args: unknown[]) => void>()
+    hookMock.mock.calls.forEach(([name, handler]) => {
+      if (typeof name === "string" && typeof handler === "function") {
+        handlers.set(name, handler)
+      }
+    })
+
+    const scope = document.createElement("div")
+    handlers.get("morph.added")?.({ el: scope })
+    handlers.get("morph.updated")?.({ el: scope })
+
+    expect(refreshMenusInScope).toHaveBeenCalledTimes(2)
+    expect(refreshMenusInScope).toHaveBeenNthCalledWith(1, scope)
+    expect(refreshMenusInScope).toHaveBeenNthCalledWith(2, scope)
   })
 })

@@ -21,6 +21,12 @@ All `packages/*-laravel` adapters follow a single lifecycle contract:
 - Must dedupe bindings via global key guards.
 - `livewire:navigated` behavior must be explicit and tested.
 
+## Teleported Action Bridge
+When interactive UI is teleported to `body`, `wire:click` no longer reaches Livewire. Use the adapter's action bridge
+with data attributes (`data-affino-livewire-owner`, `data-affino-livewire-call`, `data-affino-livewire-arg` or
+`data-affino-livewire-args`) to forward the action to the owning Livewire component. This is the supported path for
+teleported menus, listboxes, popovers, and similar overlays.
+
 ## Overlay Rules
 - Overlay interactions and scroll lock go through `@affino/overlay-kernel`.
 - Locking uses per-source keys (`dialog`, `menu`, `popover`, etc.).

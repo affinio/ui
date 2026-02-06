@@ -26,7 +26,7 @@ import { MenuTree } from "./MenuTree"
 interface NormalizedMenuOptions {
   closeOnSelect: boolean
   loopFocus: boolean
-  mousePrediction: MousePredictionConfig
+  mousePrediction: MousePredictionConfig | null
 }
 
 interface ParentLink {
@@ -50,7 +50,9 @@ export class MenuCore extends SurfaceCore<MenuState, MenuCallbacks> {
     this.menuOptions = {
       closeOnSelect: options.closeOnSelect ?? true,
       loopFocus: options.loopFocus ?? true,
-      mousePrediction: options.mousePrediction ?? {},
+      mousePrediction: options.mousePrediction === null || options.mousePrediction === false
+        ? null
+        : (options.mousePrediction ?? {}),
     }
     this.menuEvents = new MenuEvents(this.id, callbacks)
     this.overlayKind = options.overlayKind ?? "menu"

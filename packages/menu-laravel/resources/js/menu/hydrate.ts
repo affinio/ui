@@ -1,4 +1,4 @@
-import { MenuCore, SubmenuCore, type PointerEventLike, type PointerMeta } from "@affino/menu-core"
+import { MenuCore, SubmenuCore, type MousePredictionConfig, type PointerEventLike, type PointerMeta } from "@affino/menu-core"
 import type { MenuOverlayTraits } from "@affino/menu-core"
 import type { SurfaceReason } from "@affino/surface-core"
 import {
@@ -70,7 +70,15 @@ type MenuStructureSnapshot = {
   panel: PanelEl
   itemCount: number
   closeCount: number
+  itemNodes: ItemEl[]
+  closeNodes: HTMLElement[]
   configSignature: string
+}
+
+type ParentResolution = {
+  core: MenuCore | null
+  instance: MenuInstance | null
+  root: RootEl | null
 }
 
 export function hydrateMenu(root: RootEl): void {
@@ -84,17 +92,12 @@ export function hydrateMenu(root: RootEl): void {
   const parentId = root.dataset.affinoMenuParent
   const parentItemId = root.dataset.affinoMenuParentItem
   if (parentId && parentItemId) {
-    const parentCore = resolveMenuCoreById(parentId)
+    const parent = resolveParentResolution(parentId, parentItemId, root)
+    const parentCore = parent.core
     if (!parentCore) {
       root.dataset.affinoMenuParentResolved = "false"
-      if (typeof document !== "undefined") {
-        const safeId = typeof CSS !== "undefined" && typeof CSS.escape === "function" ? CSS.escape(parentId) : parentId
-        const parentRoot = document.querySelector<RootEl>(
-          `${MENU_ROOT_SELECTOR}[data-affino-menu-root='${safeId}']`,
-        )
-        if (parentRoot && parentRoot.isConnected) {
-          scheduleRefresh()
-        }
+      if (hasConnectedParentRoot(root)) {
+        scheduleRefresh()
       }
       return
     }
@@ -114,8 +117,9 @@ export function hydrateMenu(root: RootEl): void {
     }
   }
   tearDownInstance(root)
-  const parentInstance = parentId ? resolveMenuInstanceById(parentId) : null
-  const parentCore = parentId ? resolveMenuCoreById(parentId) : null
+  const parent = resolveParentResolution(parentId, parentItemId, root)
+  const parentInstance = parent.instance
+  const parentCore = parent.core
   if (parentId && parentItemId) {
     root.dataset.affinoMenuParentResolved = parentCore ? "true" : "false"
   }
@@ -137,11 +141,36 @@ export function hydrateMenu(root: RootEl): void {
 }
 
 export function scan(scope: ParentNode): void {
-  if (scope instanceof HTMLElement && scope.matches(MENU_ROOT_SELECTOR)) {
-    hydrateMenu(scope as RootEl)
+  const roots = collectMenuRoots(scope)
+  if (!roots.length) {
+    return
   }
-  const nodes = Array.from(scope.querySelectorAll<RootEl>(MENU_ROOT_SELECTOR))
-  nodes.forEach((node) => hydrateMenu(node))
+  const rootMenus = roots.filter((node) => !isSubmenuRoot(node))
+  const submenuRoots = roots.filter((node) => isSubmenuRoot(node))
+
+  rootMenus.forEach((node) => hydrateMenu(node))
+
+  if (!submenuRoots.length) {
+    return
+  }
+
+  let unresolved = submenuRoots
+  let previousCount = Number.POSITIVE_INFINITY
+  while (unresolved.length && unresolved.length < previousCount) {
+    previousCount = unresolved.length
+    const nextUnresolved: RootEl[] = []
+    unresolved.forEach((node) => {
+      hydrateMenu(node)
+      if (!registry.has(node)) {
+        nextUnresolved.push(node)
+      }
+    })
+    unresolved = nextUnresolved
+  }
+
+  if (unresolved.some((node) => hasConnectedParentRoot(node))) {
+    scheduleRefresh()
+  }
 }
 
 export function scheduleRefresh(): void {
@@ -354,16 +383,97 @@ function tearDownInstance(root: RootEl): void {
   }
 }
 
+function collectMenuRoots(scope: ParentNode): RootEl[] {
+  const unique = new Set<RootEl>()
+  if (scope instanceof HTMLElement && scope.matches(MENU_ROOT_SELECTOR)) {
+    unique.add(scope as RootEl)
+  }
+  Array.from(scope.querySelectorAll<RootEl>(MENU_ROOT_SELECTOR)).forEach((node) => {
+    unique.add(node)
+  })
+  return Array.from(unique)
+}
+
+function isSubmenuRoot(root: RootEl): boolean {
+  return Boolean(root.dataset.affinoMenuParent && root.dataset.affinoMenuParentItem)
+}
+
+function hasConnectedParentRoot(root: RootEl): boolean {
+  const parentId = root.dataset.affinoMenuParent
+  if (parentId) {
+    const parentRoot = resolveRootByMenuId(parentId)
+    if (parentRoot?.isConnected) {
+      return true
+    }
+  }
+  const parentItemId = root.dataset.affinoMenuParentItem
+  if (!parentItemId || typeof document === "undefined") {
+    return false
+  }
+  const parentItem = document.getElementById(parentItemId)
+  return Boolean(parentItem?.isConnected)
+}
+
+function resolveRootByMenuId(id: string): RootEl | null {
+  if (typeof document === "undefined") {
+    return null
+  }
+  const safeId = typeof CSS !== "undefined" && typeof CSS.escape === "function" ? CSS.escape(id) : id
+  return document.querySelector<RootEl>(`${MENU_ROOT_SELECTOR}[data-affino-menu-root='${safeId}']`)
+}
+
+function resolveParentResolution(
+  parentId: string | undefined,
+  parentItemId: string | undefined,
+  childRoot: RootEl,
+): ParentResolution {
+  const directInstance = parentId ? resolveMenuInstanceById(parentId) : null
+  const directCore = directInstance?.getCore() ?? (parentId ? resolveMenuCoreById(parentId) : null)
+  const directRoot = parentId ? resolveRootByMenuId(parentId) : null
+  if (directCore) {
+    return {
+      core: directCore,
+      instance: directInstance,
+      root: directRoot,
+    }
+  }
+  if (!parentItemId || typeof document === "undefined") {
+    return {
+      core: null,
+      instance: null,
+      root: directRoot,
+    }
+  }
+  const parentItem = document.getElementById(parentItemId)
+  const inferredRoot = parentItem?.closest<RootEl>(MENU_ROOT_SELECTOR) ?? null
+  if (!inferredRoot || inferredRoot === childRoot) {
+    return {
+      core: null,
+      instance: null,
+      root: directRoot,
+    }
+  }
+  if (!registry.has(inferredRoot)) {
+    hydrateMenu(inferredRoot)
+  }
+  const inferredInstance = registry.get(inferredRoot) ?? null
+  const inferredCore = inferredInstance?.getCore() ?? inferredRoot.affinoMenuCore ?? null
+  if (inferredCore && inferredRoot.dataset.affinoMenuRoot && childRoot.dataset.affinoMenuParent !== inferredRoot.dataset.affinoMenuRoot) {
+    childRoot.dataset.affinoMenuParent = inferredRoot.dataset.affinoMenuRoot
+  }
+  return {
+    core: inferredCore,
+    instance: inferredInstance,
+    root: inferredRoot,
+  }
+}
+
 function resolveMenuInstanceById(id: string): MenuInstance | null {
   const cached = menuById.get(id)
   if (cached) {
     return cached
   }
-  if (typeof document === "undefined") {
-    return null
-  }
-  const safeId = typeof CSS !== "undefined" && typeof CSS.escape === "function" ? CSS.escape(id) : id
-  const root = document.querySelector<RootEl>(`${MENU_ROOT_SELECTOR}[data-affino-menu-root='${safeId}']`)
+  const root = resolveRootByMenuId(id)
   if (root) {
     if (!registry.has(root)) {
       hydrateMenu(root)
@@ -380,11 +490,7 @@ function resolveMenuCoreById(id: string): MenuCore | null {
   if (instance) {
     return instance.getCore()
   }
-  if (typeof document === "undefined") {
-    return null
-  }
-  const safeId = typeof CSS !== "undefined" && typeof CSS.escape === "function" ? CSS.escape(id) : id
-  const root = document.querySelector<RootEl>(`${MENU_ROOT_SELECTOR}[data-affino-menu-root='${safeId}']`)
+  const root = resolveRootByMenuId(id)
   return root?.affinoMenuCore ?? null
 }
 
@@ -411,19 +517,22 @@ function bindSubmenuToParentElement(
   const onMouseEnter = () => openSubmenu("pointer")
   const onClick = (event: MouseEvent) => {
     event.preventDefault()
+    event.stopPropagation()
+    event.stopImmediatePropagation?.()
     openSubmenu("pointer")
   }
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.key === "ArrowRight" || event.key === "Enter" || event.key === " ") {
       event.preventDefault()
       event.stopPropagation()
+      event.stopImmediatePropagation?.()
       openSubmenu("keyboard")
     }
   }
   node.addEventListener("pointerenter", onPointerEnter)
   node.addEventListener("mouseenter", onMouseEnter)
-  node.addEventListener("click", onClick)
-  node.addEventListener("keydown", onKeyDown)
+  node.addEventListener("click", onClick, true)
+  node.addEventListener("keydown", onKeyDown, true)
   node.dataset.affinoMenuSubmenuBound = "true"
 }
 
@@ -432,15 +541,19 @@ function resolveSubmenuByParentItemId(id: string): MenuInstance | null {
 }
 
 function captureMenuStructure(root: RootEl, trigger: TriggerEl, panel: PanelEl): MenuStructureSnapshot {
+  const itemNodes = Array.from(panel.querySelectorAll(MENU_ITEM_SELECTOR))
+    .filter((node): node is ItemEl => node instanceof HTMLElement)
+    .filter((node) => isOwnedPanelNode(node, panel))
+  const closeNodes = Array.from(root.querySelectorAll(MENU_CLOSE_SELECTOR))
+    .filter((node): node is HTMLElement => node instanceof HTMLElement)
+    .filter((node) => isOwnedPanelNode(node, panel))
   return {
     trigger,
     panel,
-    itemCount: Array.from(panel.querySelectorAll(MENU_ITEM_SELECTOR))
-      .filter((node): node is HTMLElement => node instanceof HTMLElement)
-      .filter((node) => isOwnedPanelNode(node, panel)).length,
-    closeCount: Array.from(root.querySelectorAll(MENU_CLOSE_SELECTOR))
-      .filter((node): node is HTMLElement => node instanceof HTMLElement)
-      .filter((node) => isOwnedPanelNode(node, panel)).length,
+    itemCount: itemNodes.length,
+    closeCount: closeNodes.length,
+    itemNodes,
+    closeNodes,
     configSignature: buildMenuConfigSignature(root),
   }
 }
@@ -451,6 +564,16 @@ function didMenuStructureChange(previous: MenuStructureSnapshot, next: MenuStruc
   }
   if (previous.itemCount !== next.itemCount || previous.closeCount !== next.closeCount) {
     return true
+  }
+  for (let index = 0; index < next.itemNodes.length; index += 1) {
+    if (previous.itemNodes[index] !== next.itemNodes[index]) {
+      return true
+    }
+  }
+  for (let index = 0; index < next.closeNodes.length; index += 1) {
+    if (previous.closeNodes[index] !== next.closeNodes[index]) {
+      return true
+    }
   }
   return previous.configSignature !== next.configSignature
 }
@@ -650,11 +773,10 @@ class MenuInstance {
       pointerEnter?.(event)
       openSubmenu("pointer")
     }
-    const click = itemProps.onClick
     itemProps.onClick = (event) => {
       event.preventDefault?.()
+      event.stopPropagation?.()
       openSubmenu("pointer")
-      click?.(event)
     }
     const keydown = itemProps.onKeyDown
     itemProps.onKeyDown = (event) => {
@@ -690,24 +812,27 @@ class MenuInstance {
     }
     const onClick = (event: MouseEvent) => {
       event.preventDefault()
+      event.stopPropagation()
+      event.stopImmediatePropagation?.()
       openSubmenu("pointer")
     }
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "ArrowRight" || event.key === "Enter" || event.key === " ") {
         event.preventDefault()
         event.stopPropagation()
+        event.stopImmediatePropagation?.()
         openSubmenu("keyboard")
       }
     }
     node.addEventListener("pointerenter", onPointerEnter)
     node.addEventListener("mouseenter", onMouseEnter)
-    node.addEventListener("click", onClick)
-    node.addEventListener("keydown", onKeyDown)
+    node.addEventListener("click", onClick, true)
+    node.addEventListener("keydown", onKeyDown, true)
     const cleanup: Cleanup[] = [
       () => node.removeEventListener("pointerenter", onPointerEnter),
       () => node.removeEventListener("mouseenter", onMouseEnter),
-      () => node.removeEventListener("click", onClick),
-      () => node.removeEventListener("keydown", onKeyDown),
+      () => node.removeEventListener("click", onClick, true),
+      () => node.removeEventListener("keydown", onKeyDown, true),
     ]
     node.dataset.affinoMenuSubmenuBound = "true"
     cleanup.forEach((fn) => this.cleanup.push(fn))
@@ -770,25 +895,28 @@ class MenuInstance {
     }
     const onClick = (event: MouseEvent) => {
       event.preventDefault()
+      event.stopPropagation()
+      event.stopImmediatePropagation?.()
       openSubmenu("pointer")
     }
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "ArrowRight" || event.key === "Enter" || event.key === " ") {
         event.preventDefault()
         event.stopPropagation()
+        event.stopImmediatePropagation?.()
         openSubmenu("keyboard")
       }
     }
     this.trigger.addEventListener("pointerenter", onPointerEnter)
     this.trigger.addEventListener("mouseenter", onMouseEnter)
-    this.trigger.addEventListener("click", onClick)
-    this.trigger.addEventListener("keydown", onKeyDown)
+    this.trigger.addEventListener("click", onClick, true)
+    this.trigger.addEventListener("keydown", onKeyDown, true)
     this.trigger.dataset.affinoMenuSubmenuTriggerBound = "true"
     this.submenuTriggerCleanup = [
       () => this.trigger.removeEventListener("pointerenter", onPointerEnter),
       () => this.trigger.removeEventListener("mouseenter", onMouseEnter),
-      () => this.trigger.removeEventListener("click", onClick),
-      () => this.trigger.removeEventListener("keydown", onKeyDown),
+      () => this.trigger.removeEventListener("click", onClick, true),
+      () => this.trigger.removeEventListener("keydown", onKeyDown, true),
     ]
     this.submenuTriggerCleanup.forEach((fn) => this.cleanup.push(fn))
   }
@@ -815,6 +943,7 @@ class MenuInstance {
     const defaultOpen = stateOpen || readBoolean(this.root.dataset.affinoMenuDefaultOpen, false)
     const closeOnSelect = readBoolean(this.root.dataset.affinoMenuCloseSelect, true)
 
+    const mousePrediction = readMousePrediction(this.root.dataset.affinoMenuMousePrediction)
     const options = {
       id: this.root.dataset.affinoMenuRoot,
       openDelay,
@@ -822,6 +951,7 @@ class MenuInstance {
       defaultOpen,
       closeOnSelect,
       loopFocus: this.loopFocus,
+      mousePrediction,
       overlayManager,
       overlayKind,
       overlayEntryTraits: Object.keys(overlayEntryTraits).length ? overlayEntryTraits : undefined,
@@ -996,6 +1126,7 @@ class MenuInstance {
       if (!prev) {
         const nestedRoots = Array.from(this.panel.querySelectorAll<RootEl>(MENU_ROOT_SELECTOR))
         nestedRoots.forEach((node) => hydrateMenu(node))
+        this.syncNestedSubmenuBindings(nestedRoots)
         this.syncPanelPosition()
         this.focusOnOpen()
       }
@@ -1045,6 +1176,20 @@ class MenuInstance {
         this.focusElement(target)
       }
     }
+  }
+
+  private syncNestedSubmenuBindings(nestedRoots?: RootEl[]): void {
+    const roots = nestedRoots ?? Array.from(this.panel.querySelectorAll<RootEl>(MENU_ROOT_SELECTOR))
+    roots.forEach((node) => {
+      const parentItemId = node.dataset.affinoMenuParentItem
+      if (!parentItemId) {
+        return
+      }
+      const submenu = resolveSubmenuByParentItemId(parentItemId)
+      if (submenu && submenu !== this) {
+        this.bindSubmenuToItem(parentItemId, submenu)
+      }
+    })
   }
 
   private positionPanel(hideWhileMeasuring = true): void {
@@ -1329,8 +1474,15 @@ class MenuInstance {
   private buildPointerMeta(event: PointerLikeEvent): PointerMeta {
     let related = event.relatedTarget instanceof HTMLElement ? event.relatedTarget : null
     if (!related && typeof document !== "undefined" && typeof event.clientX === "number" && typeof event.clientY === "number") {
-      const fallback = document.elementFromPoint(event.clientX, event.clientY)
-      related = fallback instanceof HTMLElement ? fallback : null
+      const fromPoint = (document as Document & { elementFromPoint?: (x: number, y: number) => Element | null }).elementFromPoint
+      if (typeof fromPoint === "function") {
+        try {
+          const fallback = fromPoint.call(document, event.clientX, event.clientY)
+          related = fallback instanceof HTMLElement ? fallback : null
+        } catch {
+          related = null
+        }
+      }
     }
     if (!related) {
       return {
@@ -1511,6 +1663,34 @@ function readBoolean(value: string | undefined, fallback: boolean): boolean {
 function readNumber(value: string | undefined, fallback: number): number {
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : fallback
+}
+
+function readMousePrediction(value: string | undefined): MousePredictionConfig | null | undefined {
+  if (value === undefined) {
+    return undefined
+  }
+  const normalized = value.trim()
+  if (!normalized) {
+    return undefined
+  }
+  if (normalized === "false" || normalized === "null") {
+    return null
+  }
+  if (normalized === "true") {
+    return {}
+  }
+  try {
+    const parsed = JSON.parse(normalized)
+    if (parsed === null) {
+      return null
+    }
+    if (typeof parsed === "object") {
+      return parsed as MousePredictionConfig
+    }
+  } catch {
+    return undefined
+  }
+  return undefined
 }
 
 function resolveAutofocusTarget(value: string | undefined): AutofocusTarget {

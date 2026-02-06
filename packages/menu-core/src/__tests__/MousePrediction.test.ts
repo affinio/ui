@@ -4,18 +4,18 @@ import type { Point, Rect } from "../types"
 
 describe("MousePrediction", () => {
   const origin: Rect = { x: 0, y: 0, width: 100, height: 30 }
-  const target: Rect = { x: 140, y: 0, width: 120, height: 30 }
+  const target: Rect = { x: 140, y: -40, width: 120, height: 180 }
 
-  it("identifies when the pointer heads toward the submenu", () => {
+  it("keeps submenu intent when pointer cuts diagonally across sibling rows", () => {
     const predictor = new MousePrediction({ history: 4, horizontalThreshold: 4 })
     const points: Point[] = [
-      { x: 10, y: 10 },
-      { x: 40, y: 11 },
-      { x: 90, y: 12 },
-      { x: 150, y: 13 },
+      { x: 92, y: 8, time: 0 },
+      { x: 108, y: 28, time: 16 },
+      { x: 126, y: 52, time: 32 },
+      { x: 146, y: 72, time: 48 },
     ]
 
-    points.forEach((point, index) => predictor.push({ ...point, time: index }))
+    points.forEach((point) => predictor.push(point))
     expect(predictor.isMovingToward(target, origin)).toBe(true)
   })
 
@@ -29,6 +29,14 @@ describe("MousePrediction", () => {
     ]
 
     points.forEach((point, index) => predictor.push({ ...point, time: index }))
+    expect(predictor.isMovingToward(target, origin)).toBe(false)
+  })
+
+  it("expires stale pointer history", () => {
+    const predictor = new MousePrediction({ history: 4, maxAge: 80 })
+    predictor.push({ x: 90, y: 8, time: 0 })
+    predictor.push({ x: 126, y: 52, time: 200 })
+
     expect(predictor.isMovingToward(target, origin)).toBe(false)
   })
 

@@ -11,6 +11,7 @@ export function bootstrapAffinoMenus(): void {
   scan(document)
   setupMutationObserver()
   setupLivewireHooks()
+  scheduleRefresh()
 }
 
 export function refreshAffinoMenus(): void {
