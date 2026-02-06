@@ -187,6 +187,22 @@ describe("hydratePopover", () => {
     expect(root.affinoPopover).toBeUndefined()
   })
 
+  it("closes on click for data-affino-popover-dismiss", () => {
+    const { root, trigger, content } = setupPopoverFixture()
+    const dismiss = document.createElement("button")
+    dismiss.type = "button"
+    dismiss.dataset.affinoPopoverDismiss = "programmatic"
+    content.appendChild(dismiss)
+
+    hydratePopover(root as any)
+    trigger.dispatchEvent(new MouseEvent("click", { bubbles: true }))
+    expect(content.hidden).toBe(false)
+
+    dismiss.dispatchEvent(new MouseEvent("click", { bubbles: true }))
+    expect(content.hidden).toBe(true)
+    expect(root.dataset.affinoPopoverState).toBe("closed")
+  })
+
   it("binds livewire hooks after late livewire:load", () => {
     setupPopoverFixture()
     delete (window as any).Livewire

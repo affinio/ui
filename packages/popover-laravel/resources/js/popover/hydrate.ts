@@ -72,6 +72,10 @@ export function hydratePopover(root: RootEl): void {
     return
   }
 
+  const nestedInPopover = Boolean(root.closest("[data-affino-popover-content]"))
+  const containsNestedPopover = Boolean(content.querySelector("[data-affino-popover-root]"))
+  const shouldUseTransform = !nestedInPopover && !containsNestedPopover
+
   const options = resolveOptions(root)
   const initialStateOpen = root.dataset.affinoPopoverState === "open"
   const ownerDocument = root.ownerDocument ?? document
@@ -112,6 +116,7 @@ export function hydratePopover(root: RootEl): void {
   detachments.push(bindProps(trigger, triggerProps))
   detachments.push(bindProps(content, contentProps))
   detachments.push(attachHandle(root, popover))
+  bindDismissListeners(root, popover, detachments)
 
   const arrow = content.querySelector<HTMLElement>("[data-affino-popover-arrow]")
   let pendingMeasureFrame: number | null = null
@@ -150,7 +155,7 @@ export function hydratePopover(root: RootEl): void {
     content.style.position = options.strategy
     content.style.left = `${Math.round(position.left)}px`
     content.style.top = `${Math.round(position.top)}px`
-    content.style.transform = "translate3d(0, 0, 0)"
+    content.style.transform = shouldUseTransform ? "translate3d(0, 0, 0)" : ""
     content.dataset.placement = position.placement
     content.dataset.align = position.align
 
@@ -177,7 +182,7 @@ export function hydratePopover(root: RootEl): void {
     content.style.position = options.strategy
     content.style.left = "-9999px"
     content.style.top = "-9999px"
-    content.style.transform = "translate3d(0, 0, 0)"
+    content.style.transform = shouldUseTransform ? "translate3d(0, 0, 0)" : ""
     content.style.visibility = ""
     delete content.dataset.placement
     delete content.dataset.align
@@ -353,7 +358,15 @@ export function hydratePopover(root: RootEl): void {
       }
       resetPosition()
       if (options.returnFocus && document.activeElement !== trigger) {
+        const parentRoot = resolveParentPopoverRoot(root)
         requestAnimationFrame(() => {
+          if (parentRoot) {
+            const parentContent = parentRoot.querySelector<HTMLElement>("[data-affino-popover-content]")
+            if (parentContent) {
+              parentContent.focus({ preventScroll: true })
+              return
+            }
+          }
           if (!trigger.isConnected) {
             return
           }
@@ -361,7 +374,7 @@ export function hydratePopover(root: RootEl): void {
         })
       }
       if (getActivePopoverRoot(root.ownerDocument) === root) {
-        setActivePopoverRoot(root.ownerDocument, null)
+        setActivePopoverRoot(root.ownerDocument, resolveParentPopoverRoot(root))
       }
     }
   }
@@ -525,12 +538,23 @@ function maybeHydratePopover(root: RootEl): void {
 function ensureSingleActivePopover(nextRoot: RootEl): void {
   const ownerDocument = nextRoot.ownerDocument
   const activePopoverRoot = getActivePopoverRoot(ownerDocument)
-  if (activePopoverRoot && activePopoverRoot !== nextRoot && !isPersistentPopover(activePopoverRoot)) {
+  const isNested = Boolean(
+    activePopoverRoot && (activePopoverRoot.contains(nextRoot) || nextRoot.contains(activePopoverRoot)),
+  )
+  if (activePopoverRoot && activePopoverRoot !== nextRoot && !isPersistentPopover(activePopoverRoot) && !isNested) {
     closePopoverRoot(activePopoverRoot, "programmatic")
   }
   if (!isPersistentPopover(nextRoot)) {
     setActivePopoverRoot(ownerDocument, nextRoot)
   }
+}
+
+function resolveParentPopoverRoot(root: RootEl): RootEl | null {
+  const parent = root.parentElement?.closest<RootEl>("[data-affino-popover-root]") ?? null
+  if (!parent) {
+    return null
+  }
+  return parent.dataset.affinoPopoverState === "open" ? parent : null
 }
 
 function closePopoverRoot(root: RootEl, reason: SurfaceReason): void {
@@ -761,4 +785,26 @@ function isTextEntryElement(target: HTMLElement): boolean {
     return !NON_TEXT_INPUT_TYPES.has(target.type)
   }
   return target.isContentEditable
+}
+
+function bindDismissListeners(root: RootEl, popover: PopoverCore, detachments: Detachment[]): void {
+  const onClick = (event: Event) => {
+    const target = event.target instanceof HTMLElement ? event.target.closest<HTMLElement>("[data-affino-popover-dismiss]") : null
+    if (!target) {
+      return
+    }
+    event.preventDefault()
+    event.stopPropagation()
+    const reason = normalizeDismissReason(target.dataset.affinoPopoverDismiss)
+    popover.close(reason)
+  }
+  root.addEventListener("click", onClick)
+  detachments.push(() => root.removeEventListener("click", onClick))
+}
+
+function normalizeDismissReason(value: string | undefined): SurfaceReason {
+  if (value === "pointer" || value === "keyboard" || value === "programmatic") {
+    return value
+  }
+  return "programmatic"
 }
