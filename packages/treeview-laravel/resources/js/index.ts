@@ -180,7 +180,7 @@ function hydrateResolvedTreeview(root: RootEl, structure: TreeviewStructure): vo
 
       model.element.hidden = !visible
       model.element.setAttribute("aria-selected", selected ? "true" : "false")
-      model.element.dataset.state = selected ? "selected" : "idle"
+      model.element.dataset.state = selected ? "selected" : active ? "active" : "idle"
       model.element.tabIndex = active && visible && !model.disabled ? 0 : -1
 
       if (hasChildren) {
