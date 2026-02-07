@@ -109,7 +109,7 @@ function hydrateResolvedCombobox(root: RootEl, input: InputEl, surface: SurfaceE
   const placeholder = root.dataset.affinoComboboxPlaceholder ?? input.placeholder ?? ""
   const pinned = readBoolean(root.dataset.affinoComboboxPinned, false)
   const rootId = root.dataset.affinoComboboxRoot ?? ""
-  const persistenceKey = pinned && rootId ? rootId : null
+  const persistenceKey = rootId && (pinned || mode === "multiple") ? rootId : null
   const openOnPointerDown = readBoolean(root.dataset.affinoComboboxOpenPointer, true)
 
   let context: ComboboxContext = {
@@ -504,6 +504,10 @@ function hydrateResolvedCombobox(root: RootEl, input: InputEl, surface: SurfaceE
       return
     }
     if (!domOpen && state.open) {
+      if (persistenceKey && pinnedOpenRegistry.has(persistenceKey)) {
+        reflectOpenState()
+        return
+      }
       closeCombobox({ restoreInput: true })
     }
   }
