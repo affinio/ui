@@ -1,3 +1,4 @@
+import { normalizeKey } from "@affino/aria-utils"
 import { TabsCore, type TabsState } from "@affino/tabs-core"
 
 type TabsHandle = {
@@ -101,7 +102,8 @@ function hydrateResolvedTabs(root: RootEl, structure: TabsStructure): void {
       core.select(model.value)
     }
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === " " || event.key === "Enter") {
+      const key = normalizeKey(event)
+      if (key === "Space" || key === "Enter") {
         event.preventDefault()
         core.select(model.value)
         return
@@ -112,7 +114,7 @@ function hydrateResolvedTabs(root: RootEl, structure: TabsStructure): void {
         return
       }
 
-      if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+      if (key === "ArrowRight" || key === "ArrowDown") {
         event.preventDefault()
         const next = models[(currentIndex + 1) % models.length]
         if (!next) {
@@ -123,7 +125,7 @@ function hydrateResolvedTabs(root: RootEl, structure: TabsStructure): void {
         return
       }
 
-      if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+      if (key === "ArrowLeft" || key === "ArrowUp") {
         event.preventDefault()
         const next = models[(currentIndex - 1 + models.length) % models.length]
         if (!next) {
@@ -134,7 +136,7 @@ function hydrateResolvedTabs(root: RootEl, structure: TabsStructure): void {
         return
       }
 
-      if (event.key === "Home") {
+      if (key === "Home") {
         event.preventDefault()
         const next = models[0]
         if (!next) {
@@ -145,7 +147,7 @@ function hydrateResolvedTabs(root: RootEl, structure: TabsStructure): void {
         return
       }
 
-      if (event.key === "End") {
+      if (key === "End") {
         event.preventDefault()
         const next = models[models.length - 1]
         if (!next) {

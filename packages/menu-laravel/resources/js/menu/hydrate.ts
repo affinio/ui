@@ -1,6 +1,7 @@
 import { MenuCore, SubmenuCore, type PointerEventLike, type PointerMeta } from "@affino/menu-core"
 import type { MenuOverlayTraits } from "@affino/menu-core"
 import type { SurfaceReason } from "@affino/surface-core"
+import { normalizeKey } from "@affino/aria-utils"
 import {
   acquireDocumentScrollLock,
   getDocumentOverlayManager,
@@ -630,7 +631,8 @@ function bindSubmenuToParentElement(
     openSubmenu("pointer")
   }
   const onKeyDown = (event: KeyboardEvent) => {
-    if (event.key === "ArrowRight" || event.key === "Enter" || event.key === " ") {
+    const key = normalizeKey(event)
+    if (key === "ArrowRight" || key === "Enter" || key === "Space") {
       event.preventDefault()
       event.stopPropagation()
       event.stopImmediatePropagation?.()
@@ -905,7 +907,8 @@ class MenuInstance {
     }
     const keydown = itemProps.onKeyDown
     itemProps.onKeyDown = (event) => {
-      if (event.key === "ArrowRight" || event.key === "Enter" || event.key === " ") {
+      const key = normalizeKey(event)
+      if (key === "ArrowRight" || key === "Enter" || key === "Space") {
         event.preventDefault()
         event.stopPropagation()
         openSubmenu("keyboard")
@@ -952,7 +955,8 @@ class MenuInstance {
       openSubmenu("pointer")
     }
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "ArrowRight" || event.key === "Enter" || event.key === " ") {
+      const key = normalizeKey(event)
+      if (key === "ArrowRight" || key === "Enter" || key === "Space") {
         event.preventDefault()
         event.stopPropagation()
         event.stopImmediatePropagation?.()
@@ -1029,7 +1033,8 @@ class MenuInstance {
       openSubmenu("pointer")
     }
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "ArrowRight" || event.key === "Enter" || event.key === " ") {
+      const key = normalizeKey(event)
+      if (key === "ArrowRight" || key === "Enter" || key === "Space") {
         event.preventDefault()
         event.stopPropagation()
         event.stopImmediatePropagation?.()
@@ -1062,7 +1067,8 @@ class MenuInstance {
   private attachSubmenuPanelKeydown(panelProps: Record<string, unknown>): void {
     const keydown = panelProps.onKeyDown
     panelProps.onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" || event.key === "ArrowLeft") {
+      const key = normalizeKey(event)
+      if (key === "Escape" || key === "ArrowLeft") {
         event.preventDefault()
         event.stopPropagation()
         this.core.close("keyboard")
@@ -1121,7 +1127,8 @@ class MenuInstance {
       openSubmenu("pointer")
     }
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "ArrowRight" || event.key === "Enter" || event.key === " ") {
+      const key = normalizeKey(event)
+      if (key === "ArrowRight" || key === "Enter" || key === "Space") {
         event.preventDefault()
         event.stopPropagation()
         event.stopImmediatePropagation?.()
@@ -1666,13 +1673,14 @@ class MenuInstance {
   }
 
   private handleDomNavigation(event: KeyboardEvent): boolean {
-    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") {
+    const key = normalizeKey(event)
+    if (key !== "ArrowDown" && key !== "ArrowUp") {
       return false
     }
     event.preventDefault()
     event.stopPropagation()
     this.inputIntent = "keyboard"
-    const direction = event.key === "ArrowDown" ? 1 : -1
+    const direction = key === "ArrowDown" ? 1 : -1
     const enabled = this.collectItems().filter((node) => !this.isDisabled(node))
     if (!enabled.length) {
       return true
@@ -1696,7 +1704,8 @@ class MenuInstance {
   }
 
   private handleKeyboardActivation(event: KeyboardEvent): boolean {
-    if (event.key !== "Enter" && event.key !== " ") {
+    const key = normalizeKey(event)
+    if (key !== "Enter" && key !== "Space") {
       return false
     }
     event.preventDefault()

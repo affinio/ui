@@ -3,6 +3,45 @@ const DEFAULT_DESCRIPTION_ID_PREFIX = "dialog-description"
 
 let descriptionCounter = 0
 
+export function normalizeKey(event: KeyboardEvent): string {
+  const key = event.key
+  if (key === " " || key === "Spacebar") {
+    return "Space"
+  }
+  if (key === "Left") {
+    return "ArrowLeft"
+  }
+  if (key === "Right") {
+    return "ArrowRight"
+  }
+  if (key === "Up") {
+    return "ArrowUp"
+  }
+  if (key === "Down") {
+    return "ArrowDown"
+  }
+  const legacyIdentifier = (event as KeyboardEvent & { keyIdentifier?: string }).keyIdentifier
+  if (legacyIdentifier === "U+0020") {
+    return "Space"
+  }
+  if (legacyIdentifier === "U+000D") {
+    return "Enter"
+  }
+  if (legacyIdentifier === "Left") {
+    return "ArrowLeft"
+  }
+  if (legacyIdentifier === "Right") {
+    return "ArrowRight"
+  }
+  if (legacyIdentifier === "Up") {
+    return "ArrowUp"
+  }
+  if (legacyIdentifier === "Down") {
+    return "ArrowDown"
+  }
+  return key
+}
+
 export interface EnsureDialogAriaOptions {
   surface: HTMLElement | null | undefined
   labelId?: string

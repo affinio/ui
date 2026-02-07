@@ -21,6 +21,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@affino/aria-utils": "workspace:*",
     "@affino/listbox-core": "workspace:*",
     "@affino/overlay-kernel": "workspace:*"
   },

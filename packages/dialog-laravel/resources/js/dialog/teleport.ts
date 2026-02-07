@@ -15,6 +15,12 @@ function maybeTeleportOverlay(root: RootEl, overlay: OverlayEl, target: string |
   if (!host || overlay.parentElement === host) {
     return null
   }
+  const ownerId = overlay.dataset.affinoDialogOwner?.trim()
+  if (ownerId) {
+    const selector = `[data-affino-dialog-overlay][data-affino-dialog-owner="${escapeAttributeValue(ownerId)}"]`
+    const duplicates = Array.from(host.querySelectorAll<OverlayEl>(selector)).filter((candidate) => candidate !== overlay)
+    duplicates.forEach((candidate) => candidate.remove())
+  }
   const parent = overlay.parentElement
   const nextSibling = overlay.nextSibling
   const placeholder = doc.createComment("affino-dialog-portal")
@@ -35,6 +41,13 @@ function maybeTeleportOverlay(root: RootEl, overlay: OverlayEl, target: string |
     }
     overlay.remove()
   }
+}
+
+function escapeAttributeValue(value: string): string {
+  if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
+    return CSS.escape(value)
+  }
+  return value.replace(/"/g, '\\"')
 }
 
 export { maybeTeleportOverlay }

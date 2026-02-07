@@ -21,6 +21,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@affino/aria-utils": "workspace:*",
     "@affino/tabs-core": "workspace:*"
   },
   "devDependencies": {

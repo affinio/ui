@@ -93,6 +93,8 @@ Laravel devs often render dialogs deep inside Livewire components, so we expose 
 
 The hydrator remembers the original position with a comment placeholder, so rehydrate cycles and Livewire morphs restore the overlay exactly where it came from if the host disappears.
 
+When dialog content is teleported to `body`, avoid direct `wire:click` / `wire:model.live` bindings inside the teleported subtree. Use the shared `data-affino-livewire-*` bridge attributes from `@affino/laravel-adapter` for actions and model sync.
+
 ## Behavior contract
 
 - The helper injects two focus sentinels into every modal so keyboard users wrap around automatically even if you do not write a focus trap.

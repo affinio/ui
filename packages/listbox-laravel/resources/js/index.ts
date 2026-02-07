@@ -6,6 +6,7 @@ import {
   type ListboxContext,
   type ListboxState,
 } from "@affino/listbox-core"
+import { normalizeKey } from "@affino/aria-utils"
 import {
   bindLivewireHooks,
   createOverlayIntegration,
@@ -327,7 +328,8 @@ function hydrateResolvedListbox(root: RootEl, trigger: HTMLElement, surface: HTM
     if (disabled) {
       return
     }
-    switch (event.key) {
+    const key = normalizeKey(event)
+    switch (key) {
       case "ArrowDown":
         event.preventDefault()
         if (!open) {
@@ -343,7 +345,7 @@ function hydrateResolvedListbox(root: RootEl, trigger: HTMLElement, surface: HTM
         moveActiveIndex(event.altKey ? -Infinity : -1, { extend: event.shiftKey })
         break
       case "Enter":
-      case " ":
+      case "Space":
         event.preventDefault()
         if (!open) {
           openListbox()
@@ -380,7 +382,8 @@ function hydrateResolvedListbox(root: RootEl, trigger: HTMLElement, surface: HTM
   detachments.push(() => trigger.removeEventListener("keydown", handleTriggerKeydown))
 
   const handleSurfaceKeydown = (event: KeyboardEvent) => {
-    switch (event.key) {
+    const key = normalizeKey(event)
+    switch (key) {
       case "ArrowDown":
         event.preventDefault()
         moveActiveIndex(event.altKey ? Infinity : 1, { extend: event.shiftKey })
@@ -406,7 +409,7 @@ function hydrateResolvedListbox(root: RootEl, trigger: HTMLElement, surface: HTM
         moveActiveIndex(5)
         break
       case "Enter":
-      case " ":
+      case "Space":
         event.preventDefault()
         if (state.activeIndex >= 0) {
           selectIndex(state.activeIndex, {

@@ -161,6 +161,39 @@ describe("dialog hydration integration", () => {
     expect(root.contains(overlay)).toBe(false)
   })
 
+  it("teleports latest inline overlay after morph and keeps dismiss working", () => {
+    const { root, overlay, surface } = createDialogFixture({ teleport: "body", id: "dialog-teleport-stable" })
+    surface.innerHTML = `<p data-marker="old">old</p>`
+
+    hydrateDialog(root as any)
+    root.affinoDialog?.open("programmatic")
+    expect(overlay.parentElement).toBe(document.body)
+    expect(overlay.hidden).toBe(false)
+
+    const inlineClone = document.createElement("div")
+    inlineClone.dataset.affinoDialogOverlay = ""
+    const inlineCloneSurface = document.createElement("div")
+    inlineCloneSurface.dataset.affinoDialogSurface = ""
+    inlineCloneSurface.innerHTML = `
+      <p data-marker="new">new</p>
+      <button data-affino-dialog-dismiss="programmatic">Close</button>
+    `
+    inlineClone.appendChild(inlineCloneSurface)
+    root.appendChild(inlineClone)
+
+    hydrateDialog(root as any)
+    const activeOverlay = Array.from(
+      document.querySelectorAll<HTMLElement>('[data-affino-dialog-overlay][data-affino-dialog-owner="dialog-teleport-stable"]'),
+    ).find((candidate) => !root.contains(candidate)) ?? null
+    expect(activeOverlay?.querySelector('[data-marker="new"]')).not.toBeNull()
+    const dismiss = activeOverlay?.querySelector("[data-affino-dialog-dismiss]") as HTMLButtonElement | null
+    dismiss?.dispatchEvent(new MouseEvent("click", { bubbles: true }))
+
+    expect(activeOverlay?.hidden).toBe(true)
+    expect(overlay.isConnected).toBe(false)
+    expect(root.dataset.affinoDialogState).toBe("closed")
+  })
+
   it("closes on Escape when top-most dialog is managed by overlay kernel", async () => {
     const { root, surface, overlay } = createDialogFixture({ modal: true })
     hydrateDialog(root as any)

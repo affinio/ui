@@ -1,6 +1,9 @@
 type LivewireComponent = {
   call: (method: string, ...args: unknown[]) => void
   set?: (property: string, value: unknown) => void
+  $wire?: Record<string, unknown>
+  $set?: (property: string, value: unknown) => void
+  $call?: (method: string, ...args: unknown[]) => void
 }
 
 type LivewireRuntime = {
@@ -42,7 +45,8 @@ export function bindLivewireActionBridge(options: LivewireBridgeOptions = {}): v
   const modelSelector = `[${modelAttribute}]`
 
   root.addEventListener("click", (event) => {
-    const target = event.target instanceof Element ? event.target.closest(selector) : null
+    const eventTarget = resolveEventTargetElement(event.target)
+    const target = eventTarget?.closest(selector) ?? null
     if (!target) {
       return
     }
@@ -66,7 +70,9 @@ export function bindLivewireActionBridge(options: LivewireBridgeOptions = {}): v
       try {
         const parsed = JSON.parse(argsRaw)
         const args = Array.isArray(parsed) ? parsed : [parsed]
-        component.call(method, ...args)
+        if (!invokeComponentMethod(component, method, args)) {
+          console.warn("Affino Livewire action bridge: unsupported call API", { owner, method })
+        }
         return
       } catch (error) {
         console.warn("Affino Livewire action bridge: invalid JSON args", error)
@@ -75,15 +81,20 @@ export function bindLivewireActionBridge(options: LivewireBridgeOptions = {}): v
     }
 
     if (arg !== null) {
-      component.call(method, arg)
+      if (!invokeComponentMethod(component, method, [arg])) {
+        console.warn("Affino Livewire action bridge: unsupported call API", { owner, method })
+      }
       return
     }
 
-    component.call(method)
+    if (!invokeComponentMethod(component, method, [])) {
+      console.warn("Affino Livewire action bridge: unsupported call API", { owner, method })
+    }
   })
 
   const syncModelHandler = (event: Event) => {
-    const target = event.target instanceof Element ? event.target.closest(modelSelector) : null
+    const eventTarget = resolveEventTargetElement(event.target)
+    const target = eventTarget?.closest(modelSelector) ?? null
     if (!target) {
       return
     }
@@ -100,12 +111,10 @@ export function bindLivewireActionBridge(options: LivewireBridgeOptions = {}): v
 
     const owner = target.getAttribute(ownerAttribute)?.trim() ?? ""
     const component = resolveLivewireComponent(target, owner)
-    if (!component || typeof component.set !== "function") {
+    if (!component || !setComponentModel(component, model, readModelValue(target))) {
       console.warn("Affino Livewire action bridge: model owner not found", { owner, model })
       return
     }
-
-    component.set(model, readModelValue(target))
   }
 
   root.addEventListener("input", syncModelHandler)
@@ -130,6 +139,53 @@ function resolveLivewireComponent(target: Element, explicitOwner: string): Livew
     return null
   }
   return livewire.find(inferredOwner) ?? null
+}
+
+function invokeComponentMethod(component: LivewireComponent, method: string, args: unknown[]): boolean {
+  if (typeof component.call === "function") {
+    component.call(method, ...args)
+    return true
+  }
+  if (typeof component.$call === "function") {
+    component.$call(method, ...args)
+    return true
+  }
+  const wire = component.$wire
+  if (!wire) {
+    return false
+  }
+  const wireMethod = wire[method]
+  if (typeof wireMethod === "function") {
+    ;(wireMethod as (...params: unknown[]) => unknown)(...args)
+    return true
+  }
+  const wireCall = wire.$call
+  if (typeof wireCall === "function") {
+    ;(wireCall as (name: string, ...params: unknown[]) => unknown)(method, ...args)
+    return true
+  }
+  return false
+}
+
+function setComponentModel(component: LivewireComponent, property: string, value: unknown): boolean {
+  if (typeof component.set === "function") {
+    component.set(property, value)
+    return true
+  }
+  if (typeof component.$set === "function") {
+    component.$set(property, value)
+    return true
+  }
+  const wire = component.$wire
+  if (!wire) {
+    return false
+  }
+  const wireSet = wire.$set
+  if (typeof wireSet === "function") {
+    ;(wireSet as (name: string, next: unknown) => unknown)(property, value)
+    return true
+  }
+  return false
 }
 
 function resolveLivewireRuntime(): LivewireRuntime | null {
@@ -157,10 +213,14 @@ function inferOwnerFromContext(target: Element): string | null {
     if (!ownerId) {
       continue
     }
-    const root = document.querySelector<HTMLElement>(`[${candidate.rootAttr}="${escapeAttributeValue(ownerId)}"]`)
-    const owner = root ? findNearestWireId(root) : null
-    if (owner) {
-      return owner
+    const roots = Array.from(
+      document.querySelectorAll<HTMLElement>(`[${candidate.rootAttr}="${escapeAttributeValue(ownerId)}"]`),
+    ).filter((root) => root.isConnected)
+    for (const root of roots) {
+      const owner = findNearestWireId(root)
+      if (owner) {
+        return owner
+      }
     }
   }
 
@@ -175,6 +235,16 @@ function findNearestWireId(node: Element): string | null {
       return wireId
     }
     current = current.parentElement
+  }
+  return null
+}
+
+function resolveEventTargetElement(target: EventTarget | null): Element | null {
+  if (target instanceof Element) {
+    return target
+  }
+  if (target instanceof Node) {
+    return target.parentElement
   }
   return null
 }

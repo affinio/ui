@@ -11,6 +11,7 @@ import {
   type ComboboxContext,
   type ComboboxState,
 } from "@affino/combobox-core"
+import { normalizeKey } from "@affino/aria-utils"
 import {
   createOverlayIntegration,
   ensureDocumentObserver,
@@ -370,7 +371,8 @@ function hydrateResolvedCombobox(root: RootEl, input: InputEl, surface: SurfaceE
     if (disabled) {
       return
     }
-    switch (event.key) {
+    const key = normalizeKey(event)
+    switch (key) {
       case "ArrowDown":
         event.preventDefault()
         if (!state.open) {

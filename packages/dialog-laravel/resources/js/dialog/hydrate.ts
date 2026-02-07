@@ -86,6 +86,15 @@ function hydrateDialog(root: RootEl): void {
     return
   }
 
+  if (root.dataset.affinoDialogTeleport && root.dataset.affinoDialogTeleport !== "inline") {
+    const inlineOverlays = Array.from(root.querySelectorAll<OverlayEl>("[data-affino-dialog-overlay]"))
+      .filter((node) => node !== overlay)
+    inlineOverlays.forEach((node) => {
+      node.dataset.state = "closed"
+      node.hidden = true
+    })
+  }
+
   const previousStructure = structureRegistry.get(root)
   if (registry.has(root) && previousStructure && previousStructure.overlay === overlay && previousStructure.surface === surface) {
     return
@@ -358,6 +367,16 @@ function applySnapshot(binding: DialogBinding, snapshot: DialogSnapshot): void {
   if (snapshot.isOpen) {
     ensureGlobalGuardsActive()
   }
+
+  const focusRootId = root.dataset.affinoDialogRoot ?? ""
+  if (snapshot.isOpen && focusRootId && focusSnapshotRegistry.has(focusRootId)) {
+    const active = root.ownerDocument?.activeElement
+    if (!(active instanceof HTMLElement) || !surface.contains(active)) {
+      requestAnimationFrame(() => {
+        restoreFocusSnapshot(focusRootId, surface)
+      })
+    }
+  }
 }
 
 function bindFocusSnapshotTracking(binding: DialogBinding, rootId: string): void {
@@ -477,6 +496,16 @@ function createFocusOrchestrator(
         const initial =
           surface.querySelector<HTMLElement>("[data-dialog-initial]") ?? getFocusableElements(surface)[0] ?? surface
         initial?.focus({ preventScroll: true })
+        if (initial instanceof HTMLInputElement || initial instanceof HTMLTextAreaElement) {
+          const length = initial.value.length
+          if (length > 0) {
+            try {
+              initial.setSelectionRange(length, length)
+            } catch {
+              // ignore selection restore failures
+            }
+          }
+        }
       })
     },
     deactivate: (_context: DialogCloseContext) => {
@@ -703,17 +732,42 @@ function resolveOverlayId(root: RootEl): string {
 }
 
 function resolveOverlayElement(root: RootEl): OverlayEl | null {
-  const inline = root.querySelector<OverlayEl>("[data-affino-dialog-overlay]")
-  if (inline) {
-    return inline
-  }
   const ownerId = root.dataset.affinoDialogRoot
   if (!ownerId) {
     return null
   }
-  const selector = `[data-affino-dialog-overlay][data-affino-dialog-owner="${escapeAttributeValue(ownerId)}"]`
+  const teleport = root.dataset.affinoDialogTeleport
   const doc = root.ownerDocument ?? document
+  const inline = root.querySelector<OverlayEl>("[data-affino-dialog-overlay]")
+  if (teleport && teleport !== "inline") {
+    if (inline) {
+      return inline
+    }
+    const teleported = resolveTeleportedOverlay(root)
+    if (teleported) {
+      return teleported
+    }
+  }
+  if (inline) {
+    return inline
+  }
+  const selector = `[data-affino-dialog-overlay][data-affino-dialog-owner="${escapeAttributeValue(ownerId)}"]`
   return doc.querySelector<OverlayEl>(selector)
+}
+
+function resolveTeleportedOverlay(root: RootEl): OverlayEl | null {
+  const ownerId = root.dataset.affinoDialogRoot
+  if (!ownerId) {
+    return null
+  }
+  const doc = root.ownerDocument ?? document
+  const selector = `[data-affino-dialog-overlay][data-affino-dialog-owner="${escapeAttributeValue(ownerId)}"]`
+  const overlays = Array.from(doc.querySelectorAll<OverlayEl>(selector))
+  const outsideRoot = overlays.find((overlay) => !root.contains(overlay))
+  if (outsideRoot) {
+    return outsideRoot
+  }
+  return overlays[0] ?? null
 }
 
 function claimDialogOwner(ownerDocument: Document, rootId: string, root: RootEl): RootEl | null {
