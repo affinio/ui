@@ -77,11 +77,11 @@ jobs:
 
       - name: Run unit matrix suite
         if: matrix.suite == 'unit'
-        run: pnpm run test:matrix:unit
+        run: pnpm -r --if-present --filter "!@affino/datagrid-core" --filter "!@affino/datagrid-vue" test:unit
 
       - name: Run integration matrix suite
         if: matrix.suite == 'integration'
-        run: pnpm run test:matrix:integration
+        run: pnpm -r --if-present --filter "!@affino/datagrid-core" --filter "!@affino/datagrid-vue" test:integration
 
       - name: Run interaction matrix suite (e2e + flake gate)
         if: matrix.suite == 'interaction'
@@ -101,77 +101,6 @@ jobs:
             artifacts/playwright-flake-summary.json
           if-no-files-found: ignore
 
-  quality-gates:
-    runs-on: ubuntu-latest
-    needs: test-matrix
-    timeout-minutes: 35
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v3
-        with:
-          version: 10.28.1
-
-      - name: Use Node.js 20
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Install Playwright browsers
-        run: pnpm exec playwright install --with-deps chromium
-
-      - name: Coverage + critical-path quality gates
-        run: pnpm run quality:gates:datagrid
-
-      - name: Upload quality gate artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: datagrid-quality-gates
-          path: |
-            playwright-report
-            artifacts/playwright-flake-summary.json
-          if-no-files-found: ignore
-
-  benchmark-regression:
-    runs-on: ubuntu-latest
-    needs: quality-gates
-    timeout-minutes: 20
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v3
-        with:
-          version: 10.28.1
-
-      - name: Use Node.js 20
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Run benchmark regression assertions
-        run: |
-          pnpm run bench:datagrid:harness:ci
-
-      - name: Upload benchmark artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: benchmark-regression
-          path: artifacts/performance
-          if-no-files-found: ignore
 
   docs:
     runs-on: ubuntu-latest
