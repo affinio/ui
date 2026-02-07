@@ -1,4 +1,4 @@
-import { MenuCore, SubmenuCore, type MousePredictionConfig, type PointerEventLike, type PointerMeta } from "@affino/menu-core"
+import { MenuCore, SubmenuCore, type PointerEventLike, type PointerMeta } from "@affino/menu-core"
 import type { MenuOverlayTraits } from "@affino/menu-core"
 import type { SurfaceReason } from "@affino/surface-core"
 import {
@@ -943,7 +943,6 @@ class MenuInstance {
     const defaultOpen = stateOpen || readBoolean(this.root.dataset.affinoMenuDefaultOpen, false)
     const closeOnSelect = readBoolean(this.root.dataset.affinoMenuCloseSelect, true)
 
-    const mousePrediction = readMousePrediction(this.root.dataset.affinoMenuMousePrediction)
     const options = {
       id: this.root.dataset.affinoMenuRoot,
       openDelay,
@@ -951,7 +950,6 @@ class MenuInstance {
       defaultOpen,
       closeOnSelect,
       loopFocus: this.loopFocus,
-      mousePrediction,
       overlayManager,
       overlayKind,
       overlayEntryTraits: Object.keys(overlayEntryTraits).length ? overlayEntryTraits : undefined,
@@ -1665,33 +1663,6 @@ function readNumber(value: string | undefined, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback
 }
 
-function readMousePrediction(value: string | undefined): MousePredictionConfig | null | undefined {
-  if (value === undefined) {
-    return undefined
-  }
-  const normalized = value.trim()
-  if (!normalized) {
-    return undefined
-  }
-  if (normalized === "false" || normalized === "null") {
-    return null
-  }
-  if (normalized === "true") {
-    return {}
-  }
-  try {
-    const parsed = JSON.parse(normalized)
-    if (parsed === null) {
-      return null
-    }
-    if (typeof parsed === "object") {
-      return parsed as MousePredictionConfig
-    }
-  } catch {
-    return undefined
-  }
-  return undefined
-}
 
 function resolveAutofocusTarget(value: string | undefined): AutofocusTarget {
   if (value === "item" || value === "none") {
