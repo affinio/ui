@@ -14,7 +14,7 @@
     "@storybook/addon-interactions": "^8.6.15",
     "@storybook/test": "^8.6.15",
     "@storybook/test-runner": "^0.19.1",
-    "@storybook/vue3": "^8.6.15",
+    "@storybook/vue3": "^10.2.7",
     "@storybook/vue3-webpack5": "^8.6.15",
     "concurrently": "^8.2.2",
     "http-server": "^14.1.1",
