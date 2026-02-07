@@ -16,7 +16,7 @@ type DialogTestRoot = HTMLDivElement & {
 
 let rootCounter = 0
 
-function createDialogFixture(options?: { teleport?: string; id?: string; modal?: boolean }) {
+function createDialogFixture(options?: { teleport?: string; id?: string; modal?: boolean; stateSync?: boolean }) {
   rootCounter += 1
   const root = document.createElement("div") as DialogTestRoot
   root.dataset.affinoDialogRoot = options?.id ?? `dialog-spec-${rootCounter}`
@@ -25,6 +25,9 @@ function createDialogFixture(options?: { teleport?: string; id?: string; modal?:
   }
   if (typeof options?.modal === "boolean") {
     root.dataset.affinoDialogModal = options.modal ? "true" : "false"
+  }
+  if (typeof options?.stateSync === "boolean") {
+    root.dataset.affinoDialogStateSync = options.stateSync ? "true" : "false"
   }
 
   const trigger = document.createElement("button")
@@ -122,8 +125,8 @@ describe("dialog hydration integration", () => {
     expect(root.affinoDialog).not.toBe(handleBefore)
   })
 
-  it("syncs dialog state from data-affino-dialog-state updates", async () => {
-    const { root, overlay } = createDialogFixture()
+  it("syncs dialog state from data-affino-dialog-state updates when state sync is enabled", async () => {
+    const { root, overlay } = createDialogFixture({ stateSync: true })
     hydrateDialog(root as any)
     expect(overlay.hidden).toBe(true)
 
@@ -136,6 +139,26 @@ describe("dialog hydration integration", () => {
     await Promise.resolve()
     expect(overlay.hidden).toBe(true)
     expect(root.dataset.affinoDialogState).toBe("closed")
+  })
+
+  it("ignores dom state mutations when state sync is disabled", async () => {
+    const { root, overlay } = createDialogFixture({ stateSync: false })
+    hydrateDialog(root as any)
+    root.affinoDialog?.open("programmatic")
+    expect(overlay.hidden).toBe(false)
+
+    root.dataset.affinoDialogState = "closed"
+    await Promise.resolve()
+
+    expect(overlay.hidden).toBe(false)
+  })
+
+  it("teleports overlay into document body when target is body", () => {
+    const { root, overlay } = createDialogFixture({ teleport: "body" })
+    hydrateDialog(root as any)
+
+    expect(overlay.parentElement).toBe(document.body)
+    expect(root.contains(overlay)).toBe(false)
   })
 
   it("closes on Escape when top-most dialog is managed by overlay kernel", async () => {
@@ -231,5 +254,20 @@ describe("dialog hydration integration", () => {
     expect(manager.getStack().filter((entry) => entry.id === sharedId)).toHaveLength(1)
     expect(originalRoot.affinoDialog).toBeUndefined()
     expect(replacementRoot.affinoDialog).toBeDefined()
+  })
+
+  it("preserves open state across replacement when state sync is disabled", () => {
+    const sharedId = "dialog-state-persist-shared"
+    const { root: originalRoot, overlay: originalOverlay } = createDialogFixture({ id: sharedId, stateSync: false })
+    hydrateDialog(originalRoot as any)
+    originalRoot.affinoDialog?.open("programmatic")
+    expect(originalOverlay.hidden).toBe(false)
+
+    originalRoot.remove()
+    const { root: replacementRoot, overlay: replacementOverlay } = createDialogFixture({ id: sharedId, stateSync: false })
+    hydrateDialog(replacementRoot as any)
+
+    expect(replacementOverlay.hidden).toBe(false)
+    expect(replacementRoot.dataset.affinoDialogState).toBe("open")
   })
 })

@@ -29,6 +29,7 @@ export type RootEl = HTMLElement & {
     affinoPopoverManual?: string
     affinoPopoverState?: string
     affinoPopoverStateSync?: string
+    affinoPopoverTeleport?: string
   }
   affinoPopover?: PopoverHandle
 }
@@ -51,4 +52,5 @@ export type PopoverOptions = {
   arrow: PopoverArrowOptions | null
   pinned: boolean
   defaultOpen: boolean
+  teleportTarget: string | null
 }

@@ -77,4 +77,14 @@ describe("popover option resolver", () => {
 
     expect(options.arrow).toBeNull()
   })
+
+  it("normalizes teleport target values", () => {
+    const inline = resolveOptions(createRoot({ affinoPopoverTeleport: "inline" }))
+    const body = resolveOptions(createRoot({ affinoPopoverTeleport: "body" }))
+    const custom = resolveOptions(createRoot({ affinoPopoverTeleport: "#overlay-host" }))
+
+    expect(inline.teleportTarget).toBeNull()
+    expect(body.teleportTarget).toBe("body")
+    expect(custom.teleportTarget).toBe("#overlay-host")
+  })
 })

@@ -29,6 +29,8 @@ class Dialog extends Component
 
     public string $closeStrategy = CloseStrategy::BLOCKING;
 
+    public bool $stateSync = false;
+
     public ?string $teleportTarget = '#affino-dialog-host';
 
     public ?string $pendingMessage = null;

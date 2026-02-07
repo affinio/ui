@@ -111,7 +111,7 @@ type ParentResolution = {
 export function hydrateMenu(root: RootEl): void {
   const trigger = root.querySelector<TriggerEl>(MENU_TRIGGER_SELECTOR)
   let panel = root.querySelector<PanelEl>(MENU_PANEL_SELECTOR)
-  if (!panel && root.dataset.affinoMenuPortal === "body" && typeof document !== "undefined") {
+    if (!panel && root.dataset.affinoMenuPortal === "body" && typeof document !== "undefined") {
     const safeId = typeof CSS !== "undefined" && typeof CSS.escape === "function" && root.dataset.affinoMenuRoot
       ? CSS.escape(root.dataset.affinoMenuRoot)
       : root.dataset.affinoMenuRoot
@@ -127,7 +127,7 @@ export function hydrateMenu(root: RootEl): void {
       }
     }
   }
-  if (!panel && root.dataset.affinoMenuPortal === "body") {
+    if (!panel && root.dataset.affinoMenuPortal === "body") {
     debugMenu("hydrate:portal-missing-panel", { root: root.dataset.affinoMenuRoot })
     scheduleRefresh()
     return
@@ -274,7 +274,9 @@ export function refreshMenusInScope(scope: ParentNode): void {
       tearDownInstance(root)
     }
   })
+  const roots = collectMenuRoots(scope)
   scan(scope)
+  hydratePortaledSubmenus(roots)
 }
 
 export function setupMutationObserver(): void {
@@ -309,7 +311,9 @@ function refreshMenus(scopes: ParentNode[] | null): void {
     if (scope instanceof DocumentFragment && !scope.isConnected) {
       return
     }
+    const roots = collectMenuRoots(scope)
     scan(scope)
+    hydratePortaledSubmenus(roots)
   })
 }
 
@@ -439,6 +443,10 @@ function tearDownInstance(root: RootEl): void {
       submenuByParentItemId.delete(parentItemId)
     }
     delete root.affinoMenu
+    delete root.affinoMenuCore
+    if (root.dataset.affinoMenuCoreKind) {
+      delete root.dataset.affinoMenuCoreKind
+    }
   }
 }
 
@@ -451,6 +459,47 @@ function collectMenuRoots(scope: ParentNode): RootEl[] {
     unique.add(node)
   })
   return Array.from(unique)
+}
+
+function hydratePortaledSubmenus(roots: RootEl[]): void {
+  if (typeof document === "undefined" || roots.length === 0) {
+    return
+  }
+  const parentIds = roots
+    .map((root) => root.dataset.affinoMenuRoot)
+    .filter((id): id is string => typeof id === "string" && id.length > 0)
+  if (!parentIds.length) {
+    return
+  }
+  const selector = parentIds
+    .map((id) => {
+      const safeId = typeof CSS !== "undefined" && typeof CSS.escape === "function" ? CSS.escape(id) : id
+      return `${MENU_ROOT_SELECTOR}[data-affino-menu-parent='${safeId}']`
+    })
+    .join(",")
+  if (!selector) {
+    return
+  }
+  const submenuRoots = Array.from(document.querySelectorAll<RootEl>(selector))
+  if (!submenuRoots.length) {
+    return
+  }
+  let unresolved = submenuRoots
+  let previousCount = Number.POSITIVE_INFINITY
+  while (unresolved.length && unresolved.length < previousCount) {
+    previousCount = unresolved.length
+    const nextUnresolved: RootEl[] = []
+    unresolved.forEach((node) => {
+      hydrateMenu(node)
+      if (!registry.has(node)) {
+        nextUnresolved.push(node)
+      }
+    })
+    unresolved = nextUnresolved
+  }
+  if (unresolved.some((node) => hasConnectedParentRoot(node))) {
+    scheduleRefresh()
+  }
 }
 
 function isSubmenuRoot(root: RootEl): boolean {
@@ -599,6 +648,14 @@ function resolveSubmenuByParentItemId(id: string): MenuInstance | null {
   return submenuByParentItemId.get(id) ?? null
 }
 
+function hasSubmenuRootForItem(id: string): boolean {
+  if (typeof document === "undefined") {
+    return false
+  }
+  const safeId = typeof CSS !== "undefined" && typeof CSS.escape === "function" ? CSS.escape(id) : id
+  return document.querySelector(`${MENU_ROOT_SELECTOR}[data-affino-menu-parent-item='${safeId}']`) !== null
+}
+
 function captureMenuStructure(root: RootEl, trigger: TriggerEl, panel: PanelEl): MenuStructureSnapshot {
   const itemNodes = Array.from(panel.querySelectorAll(MENU_ITEM_SELECTOR))
     .filter((node): node is ItemEl => node instanceof HTMLElement)
@@ -702,6 +759,7 @@ class MenuInstance {
   private readonly pinned: boolean
   private readonly lockScroll: boolean
   private readonly portalMode: "inline" | "body"
+  private readonly closeDelay: number
   private placeholder: Comment | null = null
   private panelHost: HTMLElement | null = null
   private focusRaf: number | null = null
@@ -710,6 +768,7 @@ class MenuInstance {
   private core: MenuCore
   private viewportHandler: (() => void) | null = null
   private docPointerHandler: ((event: PointerEvent) => void) | null = null
+  private submenuLeaveTimer: number | null = null
   private scrollLockHeld = false
   private pendingMeasureFrame: number | null = null
   private pendingPositionSync: number | null = null
@@ -742,6 +801,7 @@ class MenuInstance {
       root.dataset.affinoMenuLockScroll,
       readBoolean(root.dataset.affinoMenuOverlayModal, false),
     )
+    this.closeDelay = readNumber(root.dataset.affinoMenuCloseDelay, 120)
     this.portalMode = root.dataset.affinoMenuPortal === "inline" ? "inline" : "body"
 
     this.mountPortal()
@@ -763,6 +823,10 @@ class MenuInstance {
     if (this.pendingPositionSync !== null) {
       cancelFrame(this.pendingPositionSync)
       this.pendingPositionSync = null
+    }
+    if (this.submenuLeaveTimer !== null) {
+      window.clearTimeout(this.submenuLeaveTimer)
+      this.submenuLeaveTimer = null
     }
     if (this.restoreCloseGuard) {
       this.restoreCloseGuard()
@@ -1021,14 +1085,14 @@ class MenuInstance {
     reason: SurfaceReason,
     parentInstance?: MenuInstance,
   ): void {
-    debugMenu("submenu:open", { itemId, reason, parent: parentInstance ? parentInstance.getCore().id : this.core.id, submenu: submenuInstance.getCore().id })
     const parent = parentInstance ?? this
     parent.getCore().highlight(itemId)
+    const open = () => submenuInstance.getHandle().open(reason)
     if (typeof queueMicrotask === "function") {
-      queueMicrotask(() => submenuInstance.getHandle().open(reason))
+      queueMicrotask(open)
       return
     }
-    scheduleFrame(() => submenuInstance.getHandle().open(reason))
+    scheduleFrame(() => open())
   }
 
   private bindSubmenuTriggerFallback(): void {
@@ -1126,7 +1190,10 @@ class MenuInstance {
     const triggerProps = this.core instanceof SubmenuCore
       ? this.withPointerMeta(this.core.getTriggerProps())
       : this.withPointerMeta(this.stripHoverHandlers(this.core.getTriggerProps()))
-    const panelProps = this.withPointerMeta(this.stripHoverDismiss(this.withDomKeydown(this.core.getPanelProps())))
+    const basePanelProps = this.withDomKeydown(this.core.getPanelProps())
+    const panelProps = this.withPointerMeta(
+      this.core instanceof SubmenuCore ? basePanelProps : this.stripHoverDismiss(basePanelProps),
+    )
     if (this.core instanceof SubmenuCore) {
       this.attachSubmenuPanelKeydown(panelProps)
     }
@@ -1136,6 +1203,7 @@ class MenuInstance {
     this.bindProps(this.panel, panelProps)
     if (this.core instanceof SubmenuCore) {
       this.bindSubmenuTriggerFallback()
+      this.bindSubmenuRootLeave()
     }
     this.registerItems()
     this.registerCloseTargets()
@@ -1176,7 +1244,7 @@ class MenuInstance {
       if (submenuInstance && submenuInstance !== this) {
         this.attachSubmenuHandlers(id, itemProps, submenuInstance)
         this.bindSubmenuToItem(id, submenuInstance)
-      } else if (node.matches(MENU_TRIGGER_SELECTOR)) {
+      } else if (node.matches(MENU_TRIGGER_SELECTOR) || hasSubmenuRootForItem(id)) {
         this.bindSubmenuLazyTrigger(id)
       }
       this.bindProps(node, itemProps)
@@ -1261,6 +1329,57 @@ class MenuInstance {
         this.viewportHandler = null
       }
     })
+  }
+
+  private bindSubmenuRootLeave(): void {
+    if (typeof document === "undefined") {
+      return
+    }
+    const cancelPendingClose = () => {
+      if (this.submenuLeaveTimer !== null) {
+        window.clearTimeout(this.submenuLeaveTimer)
+        this.submenuLeaveTimer = null
+      }
+    }
+    const handler = (event: PointerEvent | MouseEvent) => {
+      if (!this.isOpen) {
+        return
+      }
+      const related = event.relatedTarget instanceof Node ? event.relatedTarget : null
+      if (related && this.root.contains(related)) {
+        return
+      }
+      if (!related && typeof event.clientX === "number" && typeof event.clientY === "number") {
+        const fromPoint = (document as Document & { elementFromPoint?: (x: number, y: number) => Element | null }).elementFromPoint
+        if (typeof fromPoint === "function") {
+          try {
+            const fallback = fromPoint.call(document, event.clientX, event.clientY)
+            if (fallback instanceof Node && this.root.contains(fallback)) {
+              return
+            }
+          } catch {
+            // ignore elementFromPoint failures
+          }
+        }
+      }
+      cancelPendingClose()
+      if (this.closeDelay <= 0) {
+        this.core.requestClose("pointer")
+        return
+      }
+      this.submenuLeaveTimer = window.setTimeout(() => {
+        this.submenuLeaveTimer = null
+        this.core.requestClose("pointer")
+      }, this.closeDelay)
+    }
+    this.root.addEventListener("pointerenter", cancelPendingClose)
+    this.root.addEventListener("mouseenter", cancelPendingClose)
+    this.root.addEventListener("pointerleave", handler)
+    this.root.addEventListener("mouseleave", handler)
+    this.cleanup.push(() => this.root.removeEventListener("pointerenter", cancelPendingClose))
+    this.cleanup.push(() => this.root.removeEventListener("mouseenter", cancelPendingClose))
+    this.cleanup.push(() => this.root.removeEventListener("pointerleave", handler))
+    this.cleanup.push(() => this.root.removeEventListener("mouseleave", handler))
   }
 
   private syncState(snapshot: MenuSnapshot): void {

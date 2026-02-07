@@ -77,6 +77,11 @@ export class SubmenuCore extends MenuCore {
     super.close(reason)
   }
 
+  override requestClose(reason: "pointer" | "keyboard" | "programmatic" = "programmatic") {
+    const resolved = reason === "pointer" || reason === "keyboard" ? "programmatic" : reason
+    super.requestClose(resolved)
+  }
+
   setTriggerRect(rect: Rect | null) {
     this.triggerRect = rect
   }
@@ -158,8 +163,7 @@ export class SubmenuCore extends MenuCore {
 
   private syncWithTree(state: MenuTreeState) {
     const isOpen = state.openPath.includes(this.id)
-    const isActive = state.activePath.includes(this.id)
-    if ((!isOpen || !isActive) && this.getSnapshot().open) {
+    if (!isOpen && this.getSnapshot().open) {
       super.close("programmatic")
     }
   }

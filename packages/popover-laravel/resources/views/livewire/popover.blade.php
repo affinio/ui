@@ -16,10 +16,16 @@
     'arrowSize' => 12,
     'arrowInset' => 6,
     'arrowOffset' => 6,
+    'teleport' => 'inline',
+    'teleportTarget' => null,
 ])
 
 @php
     $initialState = $defaultOpen ? 'open' : 'closed';
+    $resolvedTeleportTarget = trim((string) ($teleportTarget ?? $teleport));
+    if ($resolvedTeleportTarget === '') {
+        $resolvedTeleportTarget = 'inline';
+    }
 @endphp
 
 <div
@@ -42,13 +48,21 @@
         'data-affino-popover-pinned' => $pinned ? 'true' : 'false',
         'data-affino-popover-default-open' => $defaultOpen ? 'true' : 'false',
         'data-affino-popover-state' => $initialState,
+        'data-affino-popover-teleport' => $resolvedTeleportTarget,
     ]) }}
 >
     <div data-affino-popover-trigger>
         {{ $trigger ?? '' }}
     </div>
 
-    <div wire:ignore.self data-affino-popover-content data-state="{{ $initialState }}" @class(['is-open' => $defaultOpen]) @unless($defaultOpen) hidden @endunless>
+    <div
+        wire:ignore.self
+        data-affino-popover-content
+        data-affino-popover-owner="{{ $popoverId }}"
+        data-state="{{ $initialState }}"
+        @class(['is-open' => $defaultOpen])
+        @unless($defaultOpen) hidden @endunless
+    >
         {{ $slot }}
 
         @isset($arrow)

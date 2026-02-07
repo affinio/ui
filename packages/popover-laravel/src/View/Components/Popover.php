@@ -42,6 +42,8 @@ class Popover extends Component
 
     public int $arrowOffset;
 
+    public string $teleportTarget;
+
     public function __construct(
         ?string $popoverId = null,
         string $placement = 'bottom',
@@ -59,8 +61,11 @@ class Popover extends Component
         bool $pinned = false,
         int $arrowSize = 12,
         int $arrowInset = 6,
-        int $arrowOffset = 6
+        int $arrowOffset = 6,
+        ?string $teleport = 'inline',
+        ?string $teleportTarget = null
     ) {
+        $resolvedTeleportTarget = $teleportTarget ?? $teleport;
         $this->popoverId = $popoverId ?: 'affino-popover-' . Str::uuid();
         $this->placement = $this->normalizePlacement($placement);
         $this->align = $this->normalizeAlign($align);
@@ -78,6 +83,7 @@ class Popover extends Component
         $this->arrowSize = max(1, $arrowSize);
         $this->arrowInset = max(0, $arrowInset);
         $this->arrowOffset = max(0, $arrowOffset);
+        $this->teleportTarget = $this->normalizeTeleportTarget($resolvedTeleportTarget);
     }
 
     public function render(): View
@@ -115,5 +121,21 @@ class Popover extends Component
         $candidate = strtolower($role);
 
         return in_array($candidate, $allowed, true) ? $candidate : 'dialog';
+    }
+
+    private function normalizeTeleportTarget(?string $target): string
+    {
+        if ($target === null || trim($target) === '') {
+            return 'inline';
+        }
+        $candidate = trim($target);
+        if ($candidate === 'body') {
+            return 'body';
+        }
+        if ($candidate === 'inline') {
+            return 'inline';
+        }
+
+        return $candidate;
     }
 }

@@ -17,6 +17,7 @@ export function resolveOptions(root: RootEl): PopoverOptions {
     arrow: resolveArrowOptions(root),
     pinned: readBoolean(root.dataset.affinoPopoverPinned, false),
     defaultOpen: readBoolean(root.dataset.affinoPopoverDefaultOpen, false),
+    teleportTarget: resolveTeleportTarget(root.dataset.affinoPopoverTeleport),
   }
 }
 
@@ -43,6 +44,17 @@ function resolveArrowOptions(root: RootEl): PopoverArrowOptions | null {
 
 function resolveStrategy(strategy?: string): "fixed" | "absolute" {
   return strategy === "absolute" ? "absolute" : "fixed"
+}
+
+function resolveTeleportTarget(value?: string): string | null {
+  const candidate = value?.trim()
+  if (!candidate || candidate === "inline") {
+    return null
+  }
+  if (candidate === "body") {
+    return "body"
+  }
+  return candidate
 }
 
 function resolvePlacement(value?: string): NonNullable<PositionOptions["placement"]> {

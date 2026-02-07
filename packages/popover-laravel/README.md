@@ -45,6 +45,7 @@ Marking `data-affino-popover-manual="true"` opts the surface out of automatic sh
 - Only one auto-managed popover stays open at a time. Surfaces marked as `data-affino-popover-manual="true"`, `data-affino-popover-pinned="true"`, or `modal="true"` opt out so you can compose multi-surface flows.
 - Scroll, resize, and DOM mutations trigger re-hydration; pinned/manual/modal popovers re-open after Livewire morphs without developer intervention.
 - Focus returns to the trigger after close unless `return-focus="false"`. Modal popovers also lock scroll until they close.
+- Optional teleport target (`inline`, `body`, CSS selector) lets content escape clipping containers while preserving controller behavior.
 - The Blade component emits stable `data-affino-popover-*` attributes that the helper reads for placement, ARIA, and open state—leave them intact so hydration stays deterministic.
 - The helper never injects theme styles—only positioning + visibility are handled. Bring your own CSS modules or utility classes to style triggers and surfaces.
 
@@ -90,6 +91,8 @@ Marking `data-affino-popover-manual="true"` opts the surface out of automatic sh
 | `arrow-inset` | `int` | `6` | Padding applied before clamping the arrow within the surface. |
 | `arrow-offset` | `int` | `6` | How far the arrow sits outside the surface edge. |
 | `pinned` | `bool` | `false` | Keep the popover open across Livewire morphs. |
+| `teleport` | `string` | `inline` | Teleport mode: `inline`, `body`, or a CSS selector (e.g. `#overlay-host`). |
+| `teleport-target` | `string|null` | `null` | Explicit alias for `teleport`; wins when both are provided. |
 
 ## Slots
 
@@ -102,6 +105,14 @@ Marking `data-affino-popover-manual="true"` opts the surface out of automatic sh
 ## Keeping popovers open across morphs
 
 Add `:data-affino-popover-pinned="$isPinned ? 'true' : 'false'"` or pass the `pinned` prop to the Blade component. The JS helper reads that attribute during hydration and re-opens the controller automatically, so Livewire toggles stay in sync with the UI.
+
+## Teleport + Livewire actions
+
+If popover content is teleported to `body`, avoid `wire:click` inside teleported nodes. Use the shared action bridge attributes instead:
+
+- `data-affino-livewire-owner`
+- `data-affino-livewire-call`
+- `data-affino-livewire-arg` / `data-affino-livewire-args`
 
 ## Roadmap
 

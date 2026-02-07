@@ -47,6 +47,7 @@ type RootEl = HTMLElement & {
     affinoListboxModel?: string
     affinoListboxState?: string
     affinoListboxOverlayKind?: OverlayKind
+    affinoLivewireOwner?: string
   }
   affinoListbox?: ListboxHandle
 }
@@ -651,6 +652,8 @@ function hydrateResolvedListbox(root: RootEl, trigger: HTMLElement, surface: HTM
       option.setAttribute("aria-selected", selected ? "true" : "false")
       if (selected) {
         option.dataset.state = "selected"
+      } else if (index === state.activeIndex) {
+        option.dataset.state = "highlighted"
       } else {
         delete option.dataset.state
       }
@@ -979,8 +982,9 @@ function syncLivewireModel(root: RootEl, value: unknown): void {
   if (!livewire || typeof livewire.find !== "function") {
     return
   }
+  const explicitOwner = root.dataset.affinoLivewireOwner?.trim() ?? ""
   const owner = root.closest<HTMLElement>("[wire\\:id]")
-  const componentId = owner?.getAttribute("wire:id")
+  const componentId = explicitOwner || owner?.getAttribute("wire:id")
   if (!componentId) {
     return
   }

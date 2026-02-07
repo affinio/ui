@@ -70,7 +70,7 @@ function resolveSharedOverlayManager(ownerDocument: Document): OverlayManager {
 
 export function hydratePopover(root: RootEl): void {
   const resolveTrigger = () => root.querySelector<HTMLElement>("[data-affino-popover-trigger]")
-  const resolveContent = () => root.querySelector<HTMLElement>("[data-affino-popover-content]")
+  const resolveContent = () => resolveContentElement(root)
   const trigger = resolveTrigger()
   const content = resolveContent()
   if (!trigger || !content) {
@@ -85,6 +85,9 @@ export function hydratePopover(root: RootEl): void {
   const initialStateOpen = root.dataset.affinoPopoverState === "open"
   const ownerDocument = root.ownerDocument ?? document
   const popoverId = root.dataset.affinoPopoverRoot ?? ""
+  if (popoverId) {
+    content.dataset.affinoPopoverOwner = popoverId
+  }
   const persistentProfile = options.pinned || options.modal || isManualPopover(root)
   const teardown = registry.get(root)
   const hasStoredFocusSnapshot = (id: string) => Boolean(id && focusSnapshotRegistry.has(id))
@@ -103,6 +106,7 @@ export function hydratePopover(root: RootEl): void {
     pendingFocusRestore = captureFocusSnapshot(staleRoot, popoverId) || pendingFocusRestore || hasStoredFocusSnapshot(popoverId)
     registry.get(staleRoot)?.()
   }
+  const teleportRestore = maybeTeleportContent(root, content, options.teleportTarget)
   const popover = new PopoverCore({
     id: popoverId,
     closeOnEscape: options.closeOnEscape,
@@ -144,7 +148,7 @@ export function hydratePopover(root: RootEl): void {
   detachments.push(bindProps(trigger, triggerProps))
   detachments.push(bindProps(content, contentProps))
   detachments.push(attachHandle(root, popover))
-  bindDismissListeners(root, popover, detachments)
+  bindDismissListeners(root, content, popover, detachments)
 
   const arrow = content.querySelector<HTMLElement>("[data-affino-popover-arrow]")
   let pendingMeasureFrame: number | null = null
@@ -448,6 +452,7 @@ export function hydratePopover(root: RootEl): void {
     detachOutsideGuards()
     detachRelayoutHandlers()
     resetPosition()
+    teleportRestore?.()
   })
 
   const shouldAutoOpenOnHydrate = persistOpenState
@@ -496,7 +501,7 @@ export function captureFocusSnapshotForNode(node: Node): void {
 export function restoreFocusSnapshotForNode(node: Node): void {
   collectRelatedPopoverRoots(node).forEach((root) => {
     const popoverId = root.dataset.affinoPopoverRoot ?? ""
-    const content = root.querySelector<HTMLElement>("[data-affino-popover-content]")
+    const content = resolveContentElement(root)
     if (!content) {
       return
     }
@@ -611,6 +616,13 @@ function collectRelatedPopoverRoots(node: Node): RootEl[] {
     if (nearest) {
       seen.add(nearest)
     }
+    const ownerId = node.closest<HTMLElement>("[data-affino-popover-content]")?.dataset.affinoPopoverOwner
+    if (ownerId) {
+      const ownedRoot = resolvePopoverRootById(ownerId, node.ownerDocument ?? document)
+      if (ownedRoot) {
+        seen.add(ownedRoot)
+      }
+    }
   }
   collectPopoverRoots(node).forEach((root) => seen.add(root))
   return Array.from(seen)
@@ -618,7 +630,7 @@ function collectRelatedPopoverRoots(node: Node): RootEl[] {
 
 function maybeHydratePopover(root: RootEl): void {
   const nextTrigger = root.querySelector<HTMLElement>("[data-affino-popover-trigger]")
-  const nextContent = root.querySelector<HTMLElement>("[data-affino-popover-content]")
+  const nextContent = resolveContentElement(root)
   if (!nextTrigger || !nextContent) {
     return
   }
@@ -629,6 +641,65 @@ function maybeHydratePopover(root: RootEl): void {
     return
   }
   hydratePopover(root)
+}
+
+function resolvePopoverRootById(popoverId: string, ownerDocument: Document): RootEl | null {
+  const escapedId = escapeSelectorValue(popoverId)
+  return ownerDocument.querySelector<RootEl>(`${POPOVER_ROOT_SELECTOR}[data-affino-popover-root="${escapedId}"]`)
+}
+
+function resolveContentElement(root: RootEl): HTMLElement | null {
+  const inlineContent = root.querySelector<HTMLElement>("[data-affino-popover-content]")
+  if (inlineContent) {
+    return inlineContent
+  }
+  const ownerId = root.dataset.affinoPopoverRoot
+  const ownerDocument = root.ownerDocument ?? (typeof document !== "undefined" ? document : null)
+  if (!ownerId || !ownerDocument) {
+    return null
+  }
+  const selector = `[data-affino-popover-content][data-affino-popover-owner="${escapeSelectorValue(ownerId)}"]`
+  return ownerDocument.querySelector<HTMLElement>(selector)
+}
+
+function maybeTeleportContent(root: RootEl, content: HTMLElement, target: string | null): (() => void) | null {
+  if (!target) {
+    return null
+  }
+  const doc = root.ownerDocument ?? document
+  const host = resolveTeleportHost(doc, target)
+  if (!host || content.parentElement === host) {
+    return null
+  }
+
+  const parent = content.parentElement
+  const nextSibling = content.nextSibling
+  const placeholder = doc.createComment("affino-popover-portal")
+  parent?.replaceChild(placeholder, content)
+  host.appendChild(content)
+  content.dataset.affinoPopoverPortalManaged = "true"
+
+  return () => {
+    if (placeholder.parentNode) {
+      placeholder.parentNode.replaceChild(content, placeholder)
+    } else if (parent?.isConnected) {
+      if (nextSibling && nextSibling.parentNode === parent) {
+        parent.insertBefore(content, nextSibling)
+      } else {
+        parent.appendChild(content)
+      }
+    } else {
+      content.remove()
+    }
+    delete content.dataset.affinoPopoverPortalManaged
+  }
+}
+
+function resolveTeleportHost(doc: Document, target: string): HTMLElement | null {
+  if (target === "body") {
+    return doc.body
+  }
+  return doc.querySelector<HTMLElement>(target)
 }
 
 function ensureSingleActivePopover(nextRoot: RootEl): void {
@@ -719,7 +790,7 @@ function captureFocusSnapshot(root: RootEl, popoverId: string): boolean {
   if (!popoverId) {
     return false
   }
-  const content = root.querySelector<HTMLElement>("[data-affino-popover-content]")
+  const content = resolveContentElement(root)
   if (!content) {
     return false
   }
@@ -907,7 +978,7 @@ function isTextEntryElement(target: HTMLElement): boolean {
   return target.isContentEditable
 }
 
-function bindDismissListeners(root: RootEl, popover: PopoverCore, detachments: Detachment[]): void {
+function bindDismissListeners(root: RootEl, content: HTMLElement, popover: PopoverCore, detachments: Detachment[]): void {
   const onClick = (event: Event) => {
     const target = event.target instanceof HTMLElement ? event.target.closest<HTMLElement>("[data-affino-popover-dismiss]") : null
     if (!target) {
@@ -919,7 +990,13 @@ function bindDismissListeners(root: RootEl, popover: PopoverCore, detachments: D
     popover.close(reason)
   }
   root.addEventListener("click", onClick)
+  if (content !== root) {
+    content.addEventListener("click", onClick)
+  }
   detachments.push(() => root.removeEventListener("click", onClick))
+  if (content !== root) {
+    detachments.push(() => content.removeEventListener("click", onClick))
+  }
 }
 
 function normalizeDismissReason(value: string | undefined): SurfaceReason {

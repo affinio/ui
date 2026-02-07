@@ -41,6 +41,8 @@ class Popover extends Component
 
     public int $arrowOffset = 6;
 
+    public string $teleportTarget = 'inline';
+
     public function mount(?string $popoverId = null): void
     {
         $this->popoverId = $popoverId ?: 'affino-popover-' . Str::uuid();

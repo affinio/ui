@@ -43,6 +43,8 @@ const DIALOG_ROOT_SELECTOR = "[data-affino-dialog-root]"
 const registry = new WeakMap<RootEl, Cleanup>()
 const structureRegistry = new WeakMap<RootEl, { overlay: OverlayEl; surface: SurfaceEl }>()
 const pinnedOpenRegistry = new Map<string, boolean>()
+const openStateRegistry = new Map<string, boolean>()
+const focusSnapshotRegistry = new Map<string, FocusSnapshot>()
 const dialogOwnerRegistry = new WeakMap<Document, Map<string, RootEl>>()
 let dialogOverlayIdCounter = 0
 const pendingScanScopes = new Set<ParentNode>()
@@ -51,6 +53,17 @@ let scanFlushScheduled = false
 let removedCleanupScheduled = false
 
 type OverlayWindow = Window & { __affinoOverlayManager?: OverlayManager }
+
+type FocusSnapshot = {
+  key: FocusSnapshotKey | null
+  selectionStart: number | null
+  selectionEnd: number | null
+}
+
+type FocusSnapshotKey =
+  | { type: "data"; value: string }
+  | { type: "id"; value: string }
+  | { type: "name"; value: string }
 
 function resolveSharedOverlayManager(ownerDocument: Document): OverlayManager {
   const scope = ownerDocument.defaultView as OverlayWindow | null
@@ -87,6 +100,8 @@ function hydrateDialog(root: RootEl): void {
   const teleportRestore = maybeTeleportOverlay(root, overlay, options.teleportTarget)
   const ownerDocument = root.ownerDocument ?? document
   const rootId = root.dataset.affinoDialogRoot ?? ""
+  const persistedOpen = !options.stateSync && rootId ? openStateRegistry.get(rootId) : undefined
+  const resolvedDefaultOpen = typeof persistedOpen === "boolean" ? persistedOpen : options.defaultOpen || domStateOpen
   const staleRoot = claimDialogOwner(ownerDocument, rootId, root)
   if (staleRoot) {
     registry.get(staleRoot)?.()
@@ -108,12 +123,12 @@ function hydrateDialog(root: RootEl): void {
 
   binding.controller = new DialogController({
     id: overlayId,
-    defaultOpen: options.defaultOpen || domStateOpen,
+    defaultOpen: resolvedDefaultOpen,
     overlayKind: options.overlayKind,
     closeStrategy: options.closeStrategy,
     pendingNavigationMessage: options.pendingMessage ?? undefined,
     maxPendingAttempts: options.maxPendingAttempts ?? undefined,
-    focusOrchestrator: createFocusOrchestrator(surface, root, options),
+    focusOrchestrator: createFocusOrchestrator(surface, root, options, rootId),
     overlayManager: resolveSharedOverlayManager(ownerDocument),
     overlayRegistrar: globalOverlayRegistrar,
   })
@@ -127,6 +142,7 @@ function hydrateDialog(root: RootEl): void {
   bindDismissListeners(binding)
   bindBackdrop(binding)
   bindSentinels(binding)
+  bindFocusSnapshotTracking(binding, rootId)
 
   let pendingStructureRehydrate = false
   const scheduleStructureRehydrate = () => {
@@ -141,6 +157,7 @@ function hydrateDialog(root: RootEl): void {
         cleanup?.()
         return
       }
+      captureFocusSnapshot(root, binding.surface)
       hydrateDialog(root)
     })
   }
@@ -172,20 +189,22 @@ function hydrateDialog(root: RootEl): void {
     }
   }
 
-  const stateObserver = new MutationObserver((mutations) => {
-    for (const mutation of mutations) {
-      if (mutation.type === "attributes" && mutation.attributeName === "data-affino-dialog-state") {
-        syncOpenFromDomState()
-        return
+  if (options.stateSync) {
+    const stateObserver = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        if (mutation.type === "attributes" && mutation.attributeName === "data-affino-dialog-state") {
+          syncOpenFromDomState()
+          return
+        }
       }
-    }
-  })
-  stateObserver.observe(root, {
-    attributes: true,
-    attributeFilter: ["data-affino-dialog-state"],
-  })
-  binding.detachments.push(() => stateObserver.disconnect())
-  syncOpenFromDomState()
+    })
+    stateObserver.observe(root, {
+      attributes: true,
+      attributeFilter: ["data-affino-dialog-state"],
+    })
+    binding.detachments.push(() => stateObserver.disconnect())
+    syncOpenFromDomState()
+  }
 
   if (options.pinned && rootId && pinnedOpenRegistry.get(rootId)) {
     binding.controller.open("programmatic")
@@ -218,6 +237,9 @@ function hydrateDialog(root: RootEl): void {
       binding.lockHeld = false
     }
     releaseDialogOwner(ownerDocument, rootId, root)
+    if (options.stateSync && rootId) {
+      openStateRegistry.delete(rootId)
+    }
     binding.teleportRestore?.()
     unregisterBinding(binding)
     registry.delete(root)
@@ -317,10 +339,68 @@ function applySnapshot(binding: DialogBinding, snapshot: DialogSnapshot): void {
   } else if (rootId) {
     pinnedOpenRegistry.delete(rootId)
   }
+  if (rootId) {
+    if (options.stateSync) {
+      openStateRegistry.delete(rootId)
+    } else {
+      const shouldPersistOpen = snapshot.isOpen || snapshot.phase === "opening" || snapshot.optimisticCloseInFlight
+      if (shouldPersistOpen) {
+        openStateRegistry.set(rootId, true)
+      } else {
+        openStateRegistry.delete(rootId)
+      }
+    }
+    if (!snapshot.isOpen && snapshot.phase !== "opening" && !snapshot.optimisticCloseInFlight) {
+      focusSnapshotRegistry.delete(rootId)
+    }
+  }
 
   if (snapshot.isOpen) {
     ensureGlobalGuardsActive()
   }
+}
+
+function bindFocusSnapshotTracking(binding: DialogBinding, rootId: string): void {
+  if (!rootId || typeof document === "undefined") {
+    return
+  }
+  const surface = binding.surface
+  const capture = () => {
+    captureFocusSnapshot(binding.root, surface)
+  }
+  surface.addEventListener("focusin", capture)
+  surface.addEventListener("input", capture)
+  binding.detachments.push(() => surface.removeEventListener("focusin", capture))
+  binding.detachments.push(() => surface.removeEventListener("input", capture))
+
+  let pendingRestore = false
+  const scheduleRestore = () => {
+    if (pendingRestore) {
+      return
+    }
+    pendingRestore = true
+    requestAnimationFrame(() => {
+      pendingRestore = false
+      const snapshot = binding.controller.snapshot
+      if (!snapshot.isOpen && snapshot.phase !== "opening") {
+        return
+      }
+      const active = binding.root.ownerDocument?.activeElement
+      if (active instanceof HTMLElement && surface.contains(active)) {
+        return
+      }
+      restoreFocusSnapshot(rootId, surface)
+    })
+  }
+
+  const observer = new MutationObserver(() => {
+    if (!focusSnapshotRegistry.has(rootId)) {
+      return
+    }
+    scheduleRestore()
+  })
+  observer.observe(surface, { childList: true, subtree: true })
+  binding.detachments.push(() => observer.disconnect())
 }
 
 function resolveOptions(root: RootEl): BindingOptions {
@@ -335,6 +415,7 @@ function resolveOptions(root: RootEl): BindingOptions {
     overlayKind: (root.dataset.affinoDialogOverlayKind as OverlayKind) ?? "dialog",
     closeStrategy: root.dataset.affinoDialogCloseStrategy === "optimistic" ? "optimistic" : "blocking",
     teleportTarget: resolveTeleportTarget(root.dataset.affinoDialogTeleport),
+    stateSync: readBoolean(root.dataset.affinoDialogStateSync, false),
     pendingMessage: root.dataset.affinoDialogPendingMessage ?? null,
     maxPendingAttempts: readNumber(root.dataset.affinoDialogMaxPending),
   }
@@ -379,12 +460,20 @@ function readNumber(value?: string): number | null {
   return Number.isFinite(parsed) ? parsed : null
 }
 
-function createFocusOrchestrator(surface: SurfaceEl, root: RootEl, options: BindingOptions): DialogFocusOrchestrator {
+function createFocusOrchestrator(
+  surface: SurfaceEl,
+  root: RootEl,
+  options: BindingOptions,
+  rootId: string,
+): DialogFocusOrchestrator {
   let previousFocus: HTMLElement | null = null
   return {
     activate: (_context: DialogOpenContext) => {
       previousFocus = options.returnFocus ? (root.ownerDocument?.activeElement as HTMLElement | null) : null
       requestAnimationFrame(() => {
+        if (rootId && restoreFocusSnapshot(rootId, surface)) {
+          return
+        }
         const initial =
           surface.querySelector<HTMLElement>("[data-dialog-initial]") ?? getFocusableElements(surface)[0] ?? surface
         initial?.focus({ preventScroll: true })
@@ -400,6 +489,99 @@ function createFocusOrchestrator(surface: SurfaceEl, root: RootEl, options: Bind
         requestAnimationFrame(() => target.focus({ preventScroll: true }))
       }
     },
+  }
+}
+
+function captureFocusSnapshot(root: RootEl, surface: SurfaceEl): boolean {
+  const rootId = root.dataset.affinoDialogRoot
+  if (!rootId || typeof document === "undefined") {
+    return false
+  }
+  const active = root.ownerDocument?.activeElement
+  if (!(active instanceof HTMLElement)) {
+    return false
+  }
+  if (!surface.contains(active)) {
+    return false
+  }
+  const key = resolveFocusKey(active)
+  if (!key) {
+    return false
+  }
+  const selection = readSelection(active)
+  focusSnapshotRegistry.set(rootId, {
+    key,
+    selectionStart: selection.start,
+    selectionEnd: selection.end,
+  })
+  return true
+}
+
+function restoreFocusSnapshot(rootId: string, surface: SurfaceEl): boolean {
+  const snapshot = focusSnapshotRegistry.get(rootId)
+  if (!snapshot?.key) {
+    return false
+  }
+  const target = resolveFocusTarget(surface, snapshot.key)
+  if (!target) {
+    return false
+  }
+  target.focus({ preventScroll: true })
+  applySelection(target, snapshot.selectionStart, snapshot.selectionEnd)
+  focusSnapshotRegistry.delete(rootId)
+  return true
+}
+
+function resolveFocusTarget(surface: SurfaceEl, key: FocusSnapshotKey): HTMLElement | null {
+  switch (key.type) {
+    case "data":
+      return surface.querySelector<HTMLElement>(
+        `[data-affino-focus-key="${escapeAttributeValue(key.value)}"]`,
+      )
+    case "id":
+      return surface.querySelector<HTMLElement>(`#${escapeAttributeValue(key.value)}`)
+    case "name":
+      return surface.querySelector<HTMLElement>(`[name="${escapeAttributeValue(key.value)}"]`)
+    default:
+      return null
+  }
+}
+
+function resolveFocusKey(target: HTMLElement): FocusSnapshotKey | null {
+  const focusKey = target.getAttribute("data-affino-focus-key")?.trim()
+  if (focusKey) {
+    return { type: "data", value: focusKey }
+  }
+  if (target.id) {
+    return { type: "id", value: target.id }
+  }
+  const name = target.getAttribute("name")?.trim()
+  if (name) {
+    return { type: "name", value: name }
+  }
+  return null
+}
+
+function readSelection(target: HTMLElement): { start: number | null; end: number | null } {
+  if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
+    return {
+      start: target.selectionStart ?? null,
+      end: target.selectionEnd ?? null,
+    }
+  }
+  return { start: null, end: null }
+}
+
+function applySelection(target: HTMLElement, start: number | null, end: number | null): void {
+  if (start == null || end == null) {
+    return
+  }
+  if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
+    try {
+      target.setSelectionRange(start, end)
+    } catch {
+      // ignore selection restore failures
+    }
   }
 }
 

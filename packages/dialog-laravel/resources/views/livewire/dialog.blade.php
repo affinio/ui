@@ -10,6 +10,7 @@
     'overlayKind' => 'dialog',
     'closeStrategy' => 'blocking',
     'teleportTarget' => null,
+    'stateSync' => false,
     'pendingMessage' => null,
     'maxPendingAttempts' => null,
     'labelledBy' => null,
@@ -35,6 +36,7 @@
         'data-affino-dialog-default-open' => $defaultOpen ? 'true' : 'false',
         'data-affino-dialog-overlay-kind' => $overlayKind,
         'data-affino-dialog-close-strategy' => $closeStrategy,
+        'data-affino-dialog-state-sync' => $stateSync ? 'true' : 'false',
     ];
 
     if ($teleportTarget) {

@@ -82,6 +82,20 @@ call to the owning Livewire component.
 - `data-affino-livewire-arg`: single argument (string).
 - `data-affino-livewire-args`: JSON-encoded args array or object (optional).
 
+For teleported form controls, sync model values through the same bridge:
+
+```html
+<input
+  value="{{ $title }}"
+  data-affino-livewire-owner="{{ $this->getId() }}"
+  data-affino-livewire-model="title"
+  data-affino-livewire-model-event="input"
+/>
+```
+
+- `data-affino-livewire-model`: Livewire property path for `set(...)`.
+- `data-affino-livewire-model-event`: optional event filter (`input`, `change`).
+
 The bridge is enabled automatically by `bootstrapAffinoLaravelAdapters()`.
 
 ## Diagnostics access

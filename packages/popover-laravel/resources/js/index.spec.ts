@@ -67,11 +67,14 @@ function mockRect(element: HTMLElement, rectInit: RectInit) {
   })
 }
 
-function setupPopoverFixture(options?: { lockScroll?: boolean }) {
+function setupPopoverFixture(options?: { lockScroll?: boolean; teleport?: string; id?: string }) {
   const root = document.createElement("div") as PopoverTestRoot
   fixtureId += 1
-  root.dataset.affinoPopoverRoot = `popover-spec-${fixtureId}`
+  root.dataset.affinoPopoverRoot = options?.id ?? `popover-spec-${fixtureId}`
   root.dataset.affinoPopoverLockScroll = options?.lockScroll ? "true" : "false"
+  if (options?.teleport) {
+    root.dataset.affinoPopoverTeleport = options.teleport
+  }
 
   const trigger = document.createElement("button")
   trigger.type = "button"
@@ -80,6 +83,7 @@ function setupPopoverFixture(options?: { lockScroll?: boolean }) {
 
   const content = document.createElement("div")
   content.dataset.affinoPopoverContent = ""
+  content.dataset.affinoPopoverOwner = root.dataset.affinoPopoverRoot
   content.hidden = true
   root.appendChild(content)
 
@@ -115,6 +119,7 @@ function setupPopoverFixtureWithId(
 
   const content = document.createElement("div")
   content.dataset.affinoPopoverContent = ""
+  content.dataset.affinoPopoverOwner = id
   content.hidden = root.dataset.affinoPopoverState !== "open"
   root.appendChild(content)
 
@@ -198,6 +203,26 @@ describe("hydratePopover", () => {
     expect(content.hidden).toBe(true)
   })
 
+  it("teleports content into body when configured", () => {
+    const { root, content } = setupPopoverFixture({ teleport: "body" })
+    hydratePopover(root as any)
+
+    expect(content.parentElement).toBe(document.body)
+    expect(root.contains(content)).toBe(false)
+  })
+
+  it("teleports content into custom host selector", () => {
+    const host = document.createElement("div")
+    host.id = "popover-host"
+    document.body.appendChild(host)
+
+    const { root, content } = setupPopoverFixture({ teleport: "#popover-host" })
+    hydratePopover(root as any)
+
+    expect(content.parentElement).toBe(host)
+    expect(root.contains(content)).toBe(false)
+  })
+
   it("keeps document scroll locked when another overlay source still holds lock", () => {
     const { root } = setupPopoverFixture({ lockScroll: true })
     acquireDocumentScrollLock(document, "menu")
@@ -223,6 +248,19 @@ describe("hydratePopover", () => {
     await Promise.resolve()
 
     expect(root.affinoPopover).toBeUndefined()
+  })
+
+  it("removes teleported content when root is removed", async () => {
+    const { root, content } = setupPopoverFixture({ teleport: "body", id: "popover-teleport-cleanup" })
+    bootstrapAffinoPopovers()
+    expect(content.isConnected).toBe(true)
+    expect(content.parentElement).toBe(document.body)
+
+    root.remove()
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(content.isConnected).toBe(false)
   })
 
   it("deduplicates relayout frame scheduling on scroll bursts", () => {
@@ -251,6 +289,22 @@ describe("hydratePopover", () => {
 
   it("closes on click for data-affino-popover-dismiss", () => {
     const { root, trigger, content } = setupPopoverFixture()
+    const dismiss = document.createElement("button")
+    dismiss.type = "button"
+    dismiss.dataset.affinoPopoverDismiss = "programmatic"
+    content.appendChild(dismiss)
+
+    hydratePopover(root as any)
+    trigger.dispatchEvent(new MouseEvent("click", { bubbles: true }))
+    expect(content.hidden).toBe(false)
+
+    dismiss.dispatchEvent(new MouseEvent("click", { bubbles: true }))
+    expect(content.hidden).toBe(true)
+    expect(root.dataset.affinoPopoverState).toBe("closed")
+  })
+
+  it("handles dismiss clicks when content is teleported", () => {
+    const { root, trigger, content } = setupPopoverFixture({ teleport: "body" })
     const dismiss = document.createElement("button")
     dismiss.type = "button"
     dismiss.dataset.affinoPopoverDismiss = "programmatic"

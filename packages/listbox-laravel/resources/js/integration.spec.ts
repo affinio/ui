@@ -310,6 +310,21 @@ describe("listbox integration", () => {
     expect(hook).toHaveBeenCalledTimes(1)
   })
 
+  it("syncs Livewire model using explicit owner id when root is teleported outside wire:id tree", () => {
+    const { root } = createListboxFixture()
+    const set = vi.fn()
+    const find = vi.fn((id: string) => (id === "cmp-teleported" ? { set } : null))
+    ;(window as any).Livewire = { find }
+    root.dataset.affinoListboxModel = "severity"
+    root.dataset.affinoLivewireOwner = "cmp-teleported"
+
+    hydrateListbox(root as any)
+    ;(root as any).affinoListbox?.selectValue("beta")
+
+    expect(find).toHaveBeenCalledWith("cmp-teleported")
+    expect(set).toHaveBeenCalledWith("severity", "beta")
+  })
+
   it("rescans on livewire:navigated", () => {
     ;(window as any).Livewire = { hook: vi.fn() }
     const { root } = createListboxFixture()

@@ -74,6 +74,7 @@ $this->dispatch('affino-dialog:manual', id: 'ops-dialog', action: 'close', optio
 | `default-open` | `bool` | `false` | Start in the open state on first hydration. |
 | `overlay-kind` | `"dialog" \| "sheet"` | `dialog` | Selects the overlay semantics (standard modal vs slide/sheet). |
 | `close-strategy` | `"blocking" \| "optimistic"` | `blocking` | Tell the core whether close requests should wait for guards. |
+| `state-sync` | `bool` | `false` | When `true`, JS follows `data-affino-dialog-state` attribute updates from the server. Keep `false` for Livewire forms so typing/morphs do not force-close the dialog. |
 | `teleport-target` | `string|null` | `null` | Controls where the overlay surface renders. `null`/`"inline"` keeps it next to the Blade markup, `"auto"` (default when omitted) mounts into the shared `#affino-dialog-host`, and any CSS selector targets a custom host. |
 | `pending-message` | `string|null` | `null` | Copy rendered while a guard blocks the close request. |
 | `max-pending-attempts` | `int|null` | `null` | Limit how many times an optimistic close retries before ignoring new requests. |
@@ -97,6 +98,7 @@ The hydrator remembers the original position with a comment placeholder, so rehy
 - The helper injects two focus sentinels into every modal so keyboard users wrap around automatically even if you do not write a focus trap.
 - Scroll locking is reference-counted across dialogs. Multiple dialogs can be open (stacked) without fighting over `overflow: hidden`.
 - Surfaces marked with `pinned` or `data-affino-dialog-pinned="true"` reopen after Livewire swaps DOM nodes.
+- With `state-sync="false"` (default), client-side open state is preserved across Livewire morphs and replacement nodes that keep the same dialog id.
 - Teleport hosts (`#affino-dialog-host` by default) keep overlays outside of nested stacking contexts so z-index math stays predictable.
 - Manual controllers remain opt-in; dispatch `affino-dialog:manual` events when you want PHP, Alpine, or vanilla JS to drive open/close/toggle. The shared adapter runtime routes and retries these events during morphs.
 

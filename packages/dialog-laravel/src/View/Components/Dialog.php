@@ -32,6 +32,8 @@ class Dialog extends Component
 
     public ?string $teleportTarget;
 
+    public bool $stateSync;
+
     public ?string $pendingMessage;
 
     public ?int $maxPendingAttempts;
@@ -56,6 +58,7 @@ class Dialog extends Component
         bool $defaultOpen = false,
         string $overlayKind = OverlayKind::DIALOG,
         string $closeStrategy = CloseStrategy::BLOCKING,
+        bool $stateSync = false,
         ?string $teleport = '#affino-dialog-host',
         ?string $teleportTarget = null,
         ?string $pendingMessage = null,
@@ -78,6 +81,7 @@ class Dialog extends Component
         $this->defaultOpen = $defaultOpen;
         $this->overlayKind = OverlayKind::normalize($overlayKind);
         $this->closeStrategy = CloseStrategy::normalize($closeStrategy);
+        $this->stateSync = $stateSync;
         $this->teleportTarget = $resolvedTeleportTarget && $resolvedTeleportTarget !== '' ? $resolvedTeleportTarget : null;
         $this->pendingMessage = $pendingMessage;
         $this->maxPendingAttempts = $maxPendingAttempts;

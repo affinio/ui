@@ -4,12 +4,12 @@ import {
   TreeviewCore,
   type TreeviewNode,
   type TreeviewOptions,
-  type TreeviewState,
+  type TreeviewSnapshot,
 } from "@affino/treeview-core"
 
 export interface TreeviewController<Value = string> {
   readonly core: TreeviewCore<Value>
-  readonly state: ShallowRef<TreeviewState<Value>>
+  readonly state: ShallowRef<TreeviewSnapshot<Value>>
   readonly registerNodes: (nodes: ReadonlyArray<TreeviewNode<Value>>) => void
   readonly select: (value: Value) => void
   readonly clearSelection: () => void
@@ -33,7 +33,7 @@ export function useTreeviewController<Value = string>(
   options: TreeviewOptions<Value> = {},
 ): TreeviewController<Value> {
   const core = new TreeviewCore<Value>(options)
-  const state = shallowRef<TreeviewState<Value>>(core.getSnapshot())
+  const state = shallowRef<TreeviewSnapshot<Value>>(core.getSnapshot())
   const subscription = core.subscribe((next) => {
     state.value = next
   })

@@ -21,6 +21,7 @@ type RootEl = HTMLElement & {
     affinoDialogOverlayKind?: OverlayKind
     affinoDialogCloseStrategy?: string
     affinoDialogTeleport?: string
+    affinoDialogStateSync?: string
     affinoDialogPendingMessage?: string
     affinoDialogMaxPending?: string
     affinoDialogState?: string
@@ -59,6 +60,7 @@ type BindingOptions = {
   overlayKind: OverlayKind
   closeStrategy: CloseStrategy
   teleportTarget: string | null
+  stateSync: boolean
   pendingMessage: string | null
   maxPendingAttempts: number | null
 }
