@@ -20,6 +20,10 @@ Date: `2026-02-07`
 - No publish from non-`main` branches.
 - No manual version edits without changeset rationale.
 - Changelog entries must reflect user-facing change, not internal noise.
+- DataGrid packages follow the stricter readiness profile:
+  `/Users/anton/Projects/affinio/docs/process/datagrid-release-readiness.md`
+- DataGrid changesets should use template:
+  `/Users/anton/Projects/affinio/.changeset/datagrid-template.md`
 
 ## Emergency hotfix release
 

@@ -10,6 +10,7 @@ This section defines engineering process contracts for the monorepo.
 - [Branch protection policy](./branch-protection-policy.md)
 - [Definition of Done](./definition-of-done.md)
 - [Release process](./release-process.md)
+- [DataGrid release readiness](./datagrid-release-readiness.md)
 
 ## Related
 
