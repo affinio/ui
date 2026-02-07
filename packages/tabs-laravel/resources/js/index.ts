@@ -105,7 +105,7 @@ function hydrateResolvedTabs(root: RootEl, structure: TabsStructure): void {
       const key = normalizeKey(event)
       if (key === "Space" || key === "Enter") {
         event.preventDefault()
-        core.select(model.value)
+        trigger.click()
         return
       }
 
@@ -120,7 +120,7 @@ function hydrateResolvedTabs(root: RootEl, structure: TabsStructure): void {
         if (!next) {
           return
         }
-        core.select(next.value)
+        next.trigger.click()
         next.trigger.focus()
         return
       }
@@ -131,7 +131,7 @@ function hydrateResolvedTabs(root: RootEl, structure: TabsStructure): void {
         if (!next) {
           return
         }
-        core.select(next.value)
+        next.trigger.click()
         next.trigger.focus()
         return
       }
@@ -142,7 +142,7 @@ function hydrateResolvedTabs(root: RootEl, structure: TabsStructure): void {
         if (!next) {
           return
         }
-        core.select(next.value)
+        next.trigger.click()
         next.trigger.focus()
         return
       }
@@ -153,7 +153,7 @@ function hydrateResolvedTabs(root: RootEl, structure: TabsStructure): void {
         if (!next) {
           return
         }
-        core.select(next.value)
+        next.trigger.click()
         next.trigger.focus()
       }
     }
