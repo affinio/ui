@@ -73,4 +73,19 @@ describe("createMenuTree", () => {
 
     tree.destroy()
   })
+
+  it("throws when creating submenu for unregistered parent item", () => {
+    const tree = createMenuTree()
+
+    expect(() =>
+      tree.createSubmenu({
+        parent: tree.root,
+        parentItemId: "missing-item",
+      }),
+    ).toThrow(
+      'Cannot create submenu for unregistered parent item "missing-item". Register the parent item before calling createSubmenu().',
+    )
+
+    tree.destroy()
+  })
 })

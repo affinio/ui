@@ -52,6 +52,16 @@ function createContext(partial: Partial<AxisVirtualizerContext<Meta>> = {}): Axi
 }
 
 describe("axis virtualizer", () => {
+  it("reuses state object reference across updates", () => {
+    const virtualizer = createAxisVirtualizer("vertical", strategy, { window: [0, 0] })
+    const first = virtualizer.update(createContext({ scrollOffset: 0 }))
+    const second = virtualizer.update(createContext({ scrollOffset: 40, meta: { scrollDirection: 1 } }))
+
+    expect(second).toBe(first)
+    expect(virtualizer.getState()).toBe(first)
+    expect(first.startIndex).toBe(second.startIndex)
+  })
+
   it("returns full range when virtualization disabled", () => {
     const virtualizer = createAxisVirtualizer("vertical", strategy, { window: [0, 0] })
     const context = createContext({ virtualizationEnabled: false, totalCount: 4, viewportSize: 200 })

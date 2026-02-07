@@ -28,4 +28,45 @@ state = activateListboxIndex({ state, context, index: 0 })
 state = moveListboxFocus({ state, context, delta: 1, extend: true })
 ```
 
-See `packages/selection-vue` for a concrete adapter that consumes this package.
+## Adapter contract
+
+`listbox-core` is intentionally DOM-agnostic. Adapters are responsible for mapping UI events to pure operations.
+
+Required context invariants:
+
+- `context.optionCount` must match the rendered option collection length.
+- `context.isDisabled(index)` must be stable for the same render tick.
+- `context.optionCount` and `isDisabled` must describe the same option ordering used by the DOM.
+
+State ownership rules:
+
+- Keep a single source of truth for `ListboxState` in the adapter.
+- Treat returned `ListboxState` as immutable snapshots; always replace, never mutate.
+- Recompute `context` from current rendered options before each operation.
+
+Operation mapping (recommended):
+
+- `ArrowDown` -> `moveListboxFocus({ delta: 1 })`
+- `ArrowUp` -> `moveListboxFocus({ delta: -1 })`
+- `Home` -> `activateListboxIndex({ index: 0 })`
+- `End` -> `activateListboxIndex({ index: optionCount - 1 })`
+- `Shift + Arrow*` -> `moveListboxFocus({ extend: true, ... })`
+- `Space` on active option -> `toggleActiveListboxOption({ state })`
+- pointer click on option `i` -> `activateListboxIndex({ index: i, toggle: isMultiSelect })`
+- clear action -> `clearListboxSelection({ preserveActiveIndex: true, state })`
+- select all action -> `selectAllListboxOptions({ context })`
+
+Behavioral guarantees adapters can rely on:
+
+- Disabled options are skipped during focus navigation.
+- Selecting a disabled option index only updates `activeIndex` (selection is unchanged).
+- Invalid counts (`NaN`, `Infinity`, `<= 0`) are treated as empty context.
+- `isDisabled` exceptions are swallowed and treated as "enabled".
+
+Common wrapper mistakes to avoid:
+
+- Building `context` from global document queries instead of surface-scoped options.
+- Mutating `state.selection` ranges in-place.
+- Applying both core operation and additional ad-hoc selection mutation in the same event handler.
+
+See `packages/selection-vue` for a concrete adapter integration pattern.

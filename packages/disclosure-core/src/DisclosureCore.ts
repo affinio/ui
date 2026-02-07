@@ -1,32 +1,38 @@
 import type { DisclosureSnapshot, DisclosureState, DisclosureSubscriber } from "./types"
 
 export class DisclosureCore {
-  private state: DisclosureState
+  private openState: boolean
+  private snapshot: DisclosureSnapshot
   private subscribers = new Set<DisclosureSubscriber>()
 
   constructor(defaultOpen = false) {
-    this.state = { open: defaultOpen }
+    this.openState = defaultOpen
+    this.snapshot = this.createSnapshot(defaultOpen)
   }
 
   open(): void {
-    this.patch({ open: true })
+    this.patch(true)
   }
 
   close(): void {
-    this.patch({ open: false })
+    this.patch(false)
   }
 
   toggle(): void {
-    this.patch({ open: !this.state.open })
+    this.patch(!this.openState)
   }
 
   getSnapshot(): DisclosureSnapshot {
-    return this.state
+    return this.snapshot
+  }
+
+  isOpen(): boolean {
+    return this.openState
   }
 
   subscribe(subscriber: DisclosureSubscriber): { unsubscribe: () => void } {
     this.subscribers.add(subscriber)
-    subscriber(this.state)
+    subscriber(this.snapshot)
     return {
       unsubscribe: () => {
         this.subscribers.delete(subscriber)
@@ -38,11 +44,17 @@ export class DisclosureCore {
     this.subscribers.clear()
   }
 
-  private patch(next: DisclosureState): void {
-    if (next.open === this.state.open) {
+  private patch(nextOpen: boolean): void {
+    if (nextOpen === this.openState) {
       return
     }
-    this.state = next
-    this.subscribers.forEach((subscriber) => subscriber(this.state))
+    this.openState = nextOpen
+    this.snapshot = this.createSnapshot(nextOpen)
+    this.subscribers.forEach((subscriber) => subscriber(this.snapshot))
+  }
+
+  private createSnapshot(open: boolean): DisclosureSnapshot {
+    const state: DisclosureState = { open }
+    return Object.freeze(state)
   }
 }

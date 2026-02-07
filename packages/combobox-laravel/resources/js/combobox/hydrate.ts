@@ -89,6 +89,8 @@ function cleanupInvalidStructure(root: RootEl, input: InputEl | null, surface: S
   }
   if (surface) {
     surface.dataset.state = "closed"
+    surface.setAttribute("aria-hidden", "true")
+    surface.setAttribute("inert", "")
     surface.hidden = true
   }
 }
@@ -98,7 +100,7 @@ function hydrateResolvedCombobox(root: RootEl, input: InputEl, surface: SurfaceE
   teardown?.()
 
   const detachments: Cleanup[] = []
-  let options = collectOptions(root)
+  let options = collectOptions(surface)
 
   const mode = resolveMode(root.dataset.affinoComboboxMode)
   const loop = readBoolean(root.dataset.affinoComboboxLoop, true)
@@ -162,7 +164,15 @@ function hydrateResolvedCombobox(root: RootEl, input: InputEl, surface: SurfaceE
   function reflectOpenState() {
     root.dataset.affinoComboboxState = state.open ? "true" : "false"
     surface.dataset.state = state.open ? "open" : "closed"
-    surface.hidden = !state.open
+    if (state.open) {
+      surface.hidden = false
+      surface.setAttribute("aria-hidden", "false")
+      surface.removeAttribute("inert")
+    } else {
+      surface.setAttribute("aria-hidden", "true")
+      surface.setAttribute("inert", "")
+      surface.hidden = true
+    }
     applyInputAria(input, surface, state.open, mode)
     syncOverlayState()
   }
@@ -179,7 +189,7 @@ function hydrateResolvedCombobox(root: RootEl, input: InputEl, surface: SurfaceE
   }
 
   function handleKernelClose(reason: OverlayCloseReason, options?: CloseComboboxOptions) {
-    const defaultRestore = reason === "escape-key" || reason === "pointer-outside" || reason === "focus-loss"
+    const defaultRestore = reason === "escape-key"
     const shouldRestore = options?.restoreInput ?? defaultRestore
     closeCombobox({
       restoreInput: shouldRestore,
@@ -222,12 +232,15 @@ function hydrateResolvedCombobox(root: RootEl, input: InputEl, surface: SurfaceE
   }
 
   function closeCombobox(options: CloseComboboxOptions = {}) {
+    const shouldRestore = options.restoreInput === true
     if (!state.open) {
-      if (options?.restoreInput) {
+      if (shouldRestore) {
         restoreInputFromSelection()
+        focusInputAtEnd()
       }
       return
     }
+    handoffFocusBeforeClose(shouldRestore)
     state = setComboboxOpen(state, false)
     rememberOpenState(false)
     reflectOpenState()
@@ -235,15 +248,10 @@ function hydrateResolvedCombobox(root: RootEl, input: InputEl, surface: SurfaceE
     if (!options?.silentFilterReset) {
       resetFilterFromSelection()
     }
-    if (options?.restoreInput) {
+    if (shouldRestore) {
       restoreInputFromSelection()
+      focusInputAtEnd()
     }
-    requestAnimationFrame(() => {
-      if (input.isConnected) {
-        input.focus({ preventScroll: true })
-        input.setSelectionRange(input.value.length, input.value.length)
-      }
-    })
   }
 
   function toggleCombobox() {
@@ -394,7 +402,7 @@ function hydrateResolvedCombobox(root: RootEl, input: InputEl, surface: SurfaceE
         requestKernelClose("escape-key", { restoreInput: true })
         break
       case "Tab":
-        requestKernelClose("focus-loss", { restoreInput: true })
+        requestKernelClose("focus-loss", { restoreInput: false })
         break
       case "a":
       case "A":
@@ -741,7 +749,7 @@ function hydrateResolvedCombobox(root: RootEl, input: InputEl, surface: SurfaceE
       return
     }
     optionsDirty = false
-    options = collectOptions(root)
+    options = collectOptions(surface)
   }
 
   function scrollActiveOptionIntoView() {
@@ -780,6 +788,7 @@ function hydrateResolvedCombobox(root: RootEl, input: InputEl, surface: SurfaceE
     if (outsideCleanup) {
       return
     }
+    const ownerDocument = root.ownerDocument ?? document
     const onPointerDown = (event: Event) => {
       const target = event.target as Node | null
       if (root.contains(target as Node)) {
@@ -788,7 +797,7 @@ function hydrateResolvedCombobox(root: RootEl, input: InputEl, surface: SurfaceE
       if (shouldIgnoreOutsideEvent(rootId, target)) {
         return
       }
-      requestKernelClose("pointer-outside", { restoreInput: true })
+      requestKernelClose("pointer-outside", { restoreInput: false })
     }
     const onFocusIn = (event: FocusEvent) => {
       const target = event.target as Node | null
@@ -798,13 +807,13 @@ function hydrateResolvedCombobox(root: RootEl, input: InputEl, surface: SurfaceE
       if (shouldIgnoreOutsideEvent(rootId, target)) {
         return
       }
-      requestKernelClose("focus-loss", { restoreInput: true })
+      requestKernelClose("focus-loss", { restoreInput: false })
     }
-    document.addEventListener("pointerdown", onPointerDown, true)
-    document.addEventListener("focusin", onFocusIn, true)
+    ownerDocument.addEventListener("pointerdown", onPointerDown, true)
+    ownerDocument.addEventListener("focusin", onFocusIn, true)
     outsideCleanup = () => {
-      document.removeEventListener("pointerdown", onPointerDown, true)
-      document.removeEventListener("focusin", onFocusIn, true)
+      ownerDocument.removeEventListener("pointerdown", onPointerDown, true)
+      ownerDocument.removeEventListener("focusin", onFocusIn, true)
       outsideCleanup = null
     }
   }
@@ -825,14 +834,39 @@ function hydrateResolvedCombobox(root: RootEl, input: InputEl, surface: SurfaceE
   }
 
   function shouldHydrateStructure(): boolean {
-    if (!root.querySelector("[data-affino-listbox-option]")) {
-      return false
-    }
     return hasStructureChanged(root, {
       input,
       surface,
       optionCount: options.length,
     })
+  }
+
+  function handoffFocusBeforeClose(restoreInput: boolean) {
+    const ownerDocument = root.ownerDocument ?? document
+    const activeElement = ownerDocument.activeElement
+    if (!(activeElement instanceof HTMLElement)) {
+      return
+    }
+    if (!surface.contains(activeElement)) {
+      return
+    }
+    if (restoreInput) {
+      focusInputAtEnd()
+      return
+    }
+    activeElement.blur()
+  }
+
+  function focusInputAtEnd() {
+    if (!input.isConnected) {
+      return
+    }
+    input.focus({ preventScroll: true })
+    try {
+      input.setSelectionRange(input.value.length, input.value.length)
+    } catch {
+      // Ignore non-text input modes where selection range is unsupported.
+    }
   }
 
   const handle: ComboboxHandle = {

@@ -74,7 +74,7 @@ function createMenuFixture(options?: FixtureOptions) {
   mockRect(panel, { x: 0, y: 0, width: 180, height: 120 })
 
   document.body.appendChild(root)
-  return { root, panel }
+  return { root, trigger, panel, item }
 }
 
 function createSubmenuFixture(options?: SubmenuFixtureOptions) {
@@ -202,6 +202,57 @@ describe("menu refresh interactions", () => {
     await Promise.resolve()
     expect(panel.hidden).toBe(true)
     expect(root.dataset.affinoMenuState).toBe("closed")
+  })
+
+  it("allows dom close sync while focus remains on trigger", async () => {
+    ;(globalThis as any).requestAnimationFrame = (callback: FrameRequestCallback) => {
+      callback(0)
+      return 1
+    }
+    const { root, panel, trigger } = createMenuFixture({ portal: "inline" })
+    hydrateMenu(root as any)
+
+    root.dataset.affinoMenuState = "open"
+    await Promise.resolve()
+    expect(panel.hidden).toBe(false)
+
+    trigger.focus()
+    expect(document.activeElement).toBe(trigger)
+
+    root.dataset.affinoMenuState = "closed"
+    await Promise.resolve()
+
+    expect(root.dataset.affinoMenuState).toBe("closed")
+    expect(panel.hidden).toBe(true)
+  })
+
+  it("keeps closed panel inert and restores focus from panel content on close", async () => {
+    ;(globalThis as any).requestAnimationFrame = (callback: FrameRequestCallback) => {
+      callback(0)
+      return 1
+    }
+    const { root, trigger, panel, item } = createMenuFixture({ portal: "inline" })
+    hydrateMenu(root as any)
+
+    expect(panel.hasAttribute("inert")).toBe(true)
+
+    root.dataset.affinoMenuState = "open"
+    await Promise.resolve()
+
+    expect(panel.hidden).toBe(false)
+    expect(panel.getAttribute("aria-hidden")).toBe("false")
+    expect(panel.hasAttribute("inert")).toBe(false)
+
+    item.focus()
+    expect(document.activeElement).toBe(item)
+
+    root.dataset.affinoMenuState = "closed"
+    await Promise.resolve()
+
+    expect(document.activeElement).toBe(trigger)
+    expect(panel.hidden).toBe(true)
+    expect(panel.getAttribute("aria-hidden")).toBe("true")
+    expect(panel.hasAttribute("inert")).toBe(true)
   })
 
   it("clears detached parent cache before submenu rehydrate", () => {

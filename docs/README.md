@@ -1,10 +1,11 @@
-# Menu Docs
+# Repository Docs
 
-Everything in this folder feeds the long-form documentation for both `@affino/menu-vue` and `@affino/menu-react`. Start with [index.md](./index.md) if you want an overview of packages and architecture.
+This directory contains architecture, integration, process, and operations docs for the Affino monorepo.
 
-## Guides
+Start with:
 
-- [Getting started](./getting-started.md)
-- [Context menus](./guide/context-menu.md)
-- [Virtualization](./guide/virtualization.md)
-- [Animations](./guide/animations.md) ← new data attributes for custom motion
+- [Main index](./index.md)
+- [Architecture reference](./reference/architecture.md)
+- [Process and governance](./process/README.md)
+- [Operations runbooks](./ops/slo-sla.md)
+- [ADR index](./adr/README.md)

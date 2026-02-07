@@ -11,6 +11,9 @@ The `@affino/menu-vue` package gives you accessible, headless Vue 3 building blo
 - [Menu core guide](./guide/menu-core.md)
 - [Virtualized menus guide](./guide/virtualization.md)
 - [Animations guide](./guide/animations.md)
+- [Process and governance](./process/README.md)
+- [Operations runbooks](./ops/slo-sla.md)
+- [ADR index](./adr/README.md)
 
 ## When to reach for Menu Vue
 

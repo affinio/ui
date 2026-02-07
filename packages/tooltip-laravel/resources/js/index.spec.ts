@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { hydrateTooltip } from "./index"
+import { focusedTooltipIds } from "./tooltip/registry"
 
 class ResizeObserverMock {
   constructor(_callback: unknown) {}
@@ -161,6 +162,34 @@ describe("hydrateTooltip", () => {
     vi.runAllTimers()
 
     expect(document.activeElement).toBe(nextTrigger)
+  })
+
+  it("does not restore tracked focus when user already focused outside tooltip root", () => {
+    const { root, trigger, surface } = setupTooltipFixture()
+    root.dataset.affinoTooltipRoot = "tooltip-no-steal"
+    trigger.tabIndex = 0
+    document.body.appendChild(root)
+
+    hydrateTooltip(root as HTMLElement & { dataset: DOMStringMap })
+    focusedTooltipIds.add("tooltip-no-steal")
+
+    const outside = document.createElement("button")
+    outside.type = "button"
+    document.body.appendChild(outside)
+    outside.focus()
+
+    const nextTrigger = document.createElement("div")
+    nextTrigger.dataset.affinoTooltipTrigger = ""
+    nextTrigger.tabIndex = 0
+    mockRect(nextTrigger, { x: 500, y: 330, width: 120, height: 40 })
+    trigger.replaceWith(nextTrigger)
+    mockRect(surface, { x: 0, y: 0, width: 220, height: 110 })
+
+    hydrateTooltip(root as HTMLElement & { dataset: DOMStringMap })
+    vi.runAllTimers()
+
+    expect(document.activeElement).toBe(outside)
+    expect(focusedTooltipIds.has("tooltip-no-steal")).toBe(false)
   })
 
   it("cleans up stale handle when required tooltip structure is missing", () => {

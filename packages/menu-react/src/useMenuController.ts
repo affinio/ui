@@ -179,14 +179,23 @@ function resolveBranch(config: MenuControllerConfig): ResolvedBranch {
   const parentCore = "core" in config.parent ? config.parent.core : config.parent
   const existingTree = treeRegistry.get(parentCore)
   if (existingTree) {
-    const branch = existingTree.createSubmenu({
-      parent: parentCore as MenuCore,
-      parentItemId: config.parentItemId,
-      options: config.options,
-      callbacks: config.callbacks,
-    })
-    treeRegistry.set(branch.core, existingTree)
-    return { branch, tree: existingTree, ownsTree: false }
+    try {
+      const branch = existingTree.createSubmenu({
+        parent: parentCore as MenuCore,
+        parentItemId: config.parentItemId,
+        options: config.options,
+        callbacks: config.callbacks,
+      })
+      treeRegistry.set(branch.core, existingTree)
+      return { branch, tree: existingTree, ownsTree: false }
+    } catch {
+      const fallbackCore = new SubmenuCore(
+        parentCore as MenuCore,
+        { ...config.options, parentItemId: config.parentItemId },
+        config.callbacks,
+      )
+      return { branch: branchFromCore(fallbackCore, "submenu"), ownsTree: false }
+    }
   }
 
   const fallbackCore = new SubmenuCore(parentCore as MenuCore, { ...config.options, parentItemId: config.parentItemId }, config.callbacks)

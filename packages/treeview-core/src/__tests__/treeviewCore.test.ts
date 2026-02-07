@@ -184,4 +184,65 @@ describe("TreeviewCore", () => {
       { active: "alpha", selected: "alpha", expanded: ["root", "beta"] },
     ])
   })
+
+  it("provides deterministic request* results with failure reasons", () => {
+    const core = new TreeviewCore<string>({
+      nodes: [
+        { value: "root", parent: null },
+        { value: "alpha", parent: "root" },
+        { value: "disabled", parent: "root", disabled: true },
+      ],
+      defaultExpanded: ["root"],
+      defaultActive: "root",
+    })
+
+    expect(core.requestFocus("missing")).toEqual({ ok: false, changed: false, reason: "missing-node" })
+    expect(core.requestSelect("disabled")).toEqual({ ok: false, changed: false, reason: "disabled-node" })
+    expect(core.requestExpand("alpha")).toEqual({ ok: false, changed: false, reason: "leaf-node" })
+
+    const focused = core.requestFocus("alpha")
+    expect(focused.ok).toBe(true)
+    expect(core.getSnapshot().active).toBe("alpha")
+
+    const selected = core.requestSelect("alpha")
+    expect(selected.ok).toBe(true)
+    expect(core.getSnapshot().selected).toBe("alpha")
+  })
+
+  it("returns frozen snapshots (including expanded collection)", () => {
+    const core = new TreeviewCore<string>({
+      nodes: DEFAULT_NODES,
+      defaultExpanded: ["root"],
+      defaultActive: "root",
+    })
+    const snapshot = core.getSnapshot() as {
+      active: string | null
+      selected: string | null
+      expanded: string[]
+    }
+
+    expect(Object.isFrozen(snapshot)).toBe(true)
+    expect(Object.isFrozen(snapshot.expanded)).toBe(true)
+    expect(() => {
+      snapshot.active = "alpha"
+    }).toThrow(TypeError)
+    expect(() => {
+      snapshot.expanded.push("beta")
+    }).toThrow(TypeError)
+  })
+
+  it("keeps snapshot reference stable for no-op/failure requests", () => {
+    const core = new TreeviewCore<string>({
+      nodes: DEFAULT_NODES,
+      defaultExpanded: ["root"],
+      defaultActive: "root",
+    })
+    const before = core.getSnapshot()
+
+    expect(core.requestFocus("root")).toEqual({ ok: true, changed: false })
+    expect(core.getSnapshot()).toBe(before)
+
+    expect(core.requestFocus("missing")).toEqual({ ok: false, changed: false, reason: "missing-node" })
+    expect(core.getSnapshot()).toBe(before)
+  })
 })

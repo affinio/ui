@@ -1,4 +1,6 @@
 import type {
+  TreeviewActionFailureReason,
+  TreeviewActionResult,
   TreeviewNode,
   TreeviewOptions,
   TreeviewRegisterOptions,
@@ -17,6 +19,7 @@ type InternalNode<Value> = {
 export class TreeviewCore<Value = string> {
   private nodes = new Map<Value, InternalNode<Value>>()
   private state: TreeviewState<Value>
+  private snapshot: TreeviewSnapshot<Value>
   private subscribers = new Set<TreeviewSubscriber<Value>>()
   private visibleCache: { expanded: Value[]; values: Value[] } | null = null
   private readonly loop: boolean
@@ -28,8 +31,10 @@ export class TreeviewCore<Value = string> {
       selected: options.defaultSelected ?? null,
       expanded: toUniqueList(options.defaultExpanded ?? []),
     }
+    this.snapshot = this.createSnapshot(this.state)
     this.registerNodes(options.nodes ?? [], { emit: false })
     this.state = this.normalizeState(this.state)
+    this.snapshot = this.createSnapshot(this.state)
   }
 
   registerNodes(
@@ -47,16 +52,22 @@ export class TreeviewCore<Value = string> {
   }
 
   select(value: Value): void {
+    this.requestSelect(value)
+  }
+
+  requestSelect(value: Value): TreeviewActionResult {
     const node = this.nodes.get(value)
     if (!node || node.disabled) {
-      return
+      return node ? actionFailure("disabled-node") : actionFailure("missing-node")
     }
+    const previous = this.state
     const expanded = this.withExpandedPath(value)
     this.patch({
       active: value,
       selected: value,
       expanded: toUniqueList(expanded),
     })
+    return actionSuccess(!statesEqual(previous, this.state))
   }
 
   clearSelection(): void {
@@ -67,112 +78,177 @@ export class TreeviewCore<Value = string> {
   }
 
   focus(value: Value): void {
+    this.requestFocus(value)
+  }
+
+  requestFocus(value: Value): TreeviewActionResult {
     const node = this.nodes.get(value)
     if (!node || node.disabled) {
-      return
+      return node ? actionFailure("disabled-node") : actionFailure("missing-node")
     }
+    const previous = this.state
     const expanded = this.withExpandedPath(value)
     this.patch({
       ...this.state,
       active: value,
       expanded: toUniqueList(expanded),
     })
+    return actionSuccess(!statesEqual(previous, this.state))
   }
 
   focusFirst(): void {
+    this.requestFocusFirst()
+  }
+
+  requestFocusFirst(): TreeviewActionResult {
     const first = this.getFirstEnabledVisible()
     if (first === null) {
-      return
+      return actionFailure("no-focusable-node")
     }
+    const previous = this.state
     this.patch({
       ...this.state,
       active: first,
     })
+    return actionSuccess(!statesEqual(previous, this.state))
   }
 
   focusLast(): void {
+    this.requestFocusLast()
+  }
+
+  requestFocusLast(): TreeviewActionResult {
     const last = this.getLastEnabledVisible()
     if (last === null) {
-      return
+      return actionFailure("no-focusable-node")
     }
+    const previous = this.state
     this.patch({
       ...this.state,
       active: last,
     })
+    return actionSuccess(!statesEqual(previous, this.state))
   }
 
   focusNext(): void {
+    this.requestFocusNext()
+  }
+
+  requestFocusNext(): TreeviewActionResult {
     const visible = this.getVisibleValuesCached()
     if (!visible.length) {
-      return
+      return actionFailure("no-focusable-node")
     }
     const currentIndex = visible.findIndex((value) => value === this.state.active)
     if (currentIndex === -1) {
-      this.focusFirst()
-      return
+      return this.requestFocusFirst()
     }
     const target = this.findAdjacentEnabledVisible(visible, currentIndex, 1)
     if (target === null) {
-      return
+      if (!this.hasFocusableVisible(visible)) {
+        return actionFailure("no-focusable-node")
+      }
+      return actionFailure("boundary")
     }
+    const previous = this.state
     this.patch({
       ...this.state,
       active: target,
     })
+    return actionSuccess(!statesEqual(previous, this.state))
   }
 
   focusPrevious(): void {
+    this.requestFocusPrevious()
+  }
+
+  requestFocusPrevious(): TreeviewActionResult {
     const visible = this.getVisibleValuesCached()
     if (!visible.length) {
-      return
+      return actionFailure("no-focusable-node")
     }
     const currentIndex = visible.findIndex((value) => value === this.state.active)
     if (currentIndex === -1) {
-      this.focusLast()
-      return
+      return this.requestFocusLast()
     }
     const target = this.findAdjacentEnabledVisible(visible, currentIndex, -1)
     if (target === null) {
-      return
+      if (!this.hasFocusableVisible(visible)) {
+        return actionFailure("no-focusable-node")
+      }
+      return actionFailure("boundary")
     }
+    const previous = this.state
     this.patch({
       ...this.state,
       active: target,
     })
+    return actionSuccess(!statesEqual(previous, this.state))
   }
 
   expand(value: Value): void {
-    if (!this.hasChildren(value) || this.isExpanded(value)) {
-      return
+    this.requestExpand(value)
+  }
+
+  requestExpand(value: Value): TreeviewActionResult {
+    const node = this.nodes.get(value)
+    if (!node) {
+      return actionFailure("missing-node")
     }
-    this.patch({
-      ...this.state,
-      expanded: [...this.state.expanded, value],
-    })
+    if (node.children.length === 0) {
+      return actionFailure("leaf-node")
+    }
+    const previous = this.state
+    if (!this.isExpanded(value)) {
+      this.patch({
+        ...this.state,
+        expanded: [...this.state.expanded, value],
+      })
+    }
+    return actionSuccess(!statesEqual(previous, this.state))
   }
 
   collapse(value: Value): void {
-    if (!this.isExpanded(value)) {
-      return
+    this.requestCollapse(value)
+  }
+
+  requestCollapse(value: Value): TreeviewActionResult {
+    const node = this.nodes.get(value)
+    if (!node) {
+      return actionFailure("missing-node")
     }
-    const expanded = this.state.expanded.filter((entry) => entry !== value)
-    const nextActive = this.isDescendantOf(this.state.active, value) ? value : this.state.active
-    this.patch({
-      ...this.state,
-      active: nextActive,
-      expanded,
-    })
+    if (node.children.length === 0) {
+      return actionFailure("leaf-node")
+    }
+    const previous = this.state
+    if (this.isExpanded(value)) {
+      const expanded = this.state.expanded.filter((entry) => entry !== value)
+      const nextActive = this.isDescendantOf(this.state.active, value) ? value : this.state.active
+      this.patch({
+        ...this.state,
+        active: nextActive,
+        expanded,
+      })
+    }
+    return actionSuccess(!statesEqual(previous, this.state))
   }
 
   toggle(value: Value): void {
-    if (!this.hasChildren(value)) {
-      return
+    this.requestToggle(value)
+  }
+
+  requestToggle(value: Value): TreeviewActionResult {
+    const node = this.nodes.get(value)
+    if (!node) {
+      return actionFailure("missing-node")
+    }
+    if (node.children.length === 0) {
+      return actionFailure("leaf-node")
     }
     if (this.isExpanded(value)) {
-      this.collapse(value)
-      return
+      return this.requestCollapse(value)
     }
-    this.expand(value)
+    return this.requestExpand(value)
   }
 
   expandPath(value: Value): void {
@@ -209,12 +285,12 @@ export class TreeviewCore<Value = string> {
   }
 
   getSnapshot(): TreeviewSnapshot<Value> {
-    return this.state
+    return this.snapshot
   }
 
   subscribe(subscriber: TreeviewSubscriber<Value>): { unsubscribe: () => void } {
     this.subscribers.add(subscriber)
-    subscriber(this.state)
+    subscriber(this.snapshot)
     return {
       unsubscribe: () => {
         this.subscribers.delete(subscriber)
@@ -288,9 +364,18 @@ export class TreeviewCore<Value = string> {
       this.visibleCache = null
     }
     this.state = normalizedNext
+    this.snapshot = this.createSnapshot(normalizedNext)
     if (emit) {
-      this.subscribers.forEach((subscriber) => subscriber(this.state))
+      this.subscribers.forEach((subscriber) => subscriber(this.snapshot))
     }
+  }
+
+  private createSnapshot(state: TreeviewState<Value>): TreeviewSnapshot<Value> {
+    return Object.freeze({
+      active: state.active,
+      selected: state.selected,
+      expanded: Object.freeze([...state.expanded]),
+    })
   }
 
   private normalizeState(state: TreeviewState<Value>): TreeviewState<Value> {
@@ -422,6 +507,10 @@ export class TreeviewCore<Value = string> {
     return values
   }
 
+  private hasFocusableVisible(visible: Value[]): boolean {
+    return visible.some((value) => this.isNodeFocusable(value))
+  }
+
   private getVisibleValuesFor(expanded: ReadonlySet<Value>): Value[] {
     const roots = Array.from(this.nodes.values()).filter((node) => node.parent === null)
     const visible: Value[] = []
@@ -542,4 +631,12 @@ function expandedValuesEqual<Value>(a: Value[], b: Value[]): boolean {
 
 function toUniqueList<Value>(values: ReadonlyArray<Value>): Value[] {
   return Array.from(new Set(values))
+}
+
+function actionSuccess(changed: boolean): TreeviewActionResult {
+  return { ok: true, changed }
+}
+
+function actionFailure(reason: TreeviewActionFailureReason): TreeviewActionResult {
+  return { ok: false, changed: false, reason }
 }

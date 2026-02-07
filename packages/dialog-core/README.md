@@ -41,6 +41,32 @@ controller.open("keyboard")
 await controller.requestClose("programmatic")
 ```
 
+## Standard modal profile helpers
+
+Use helper factories when you want a conventional modal contract without repeating options:
+
+```ts
+import {
+  createStandardModalDialogController,
+  createStandardModalDialogOptions,
+} from "@affino/dialog-core"
+
+const controller = createStandardModalDialogController()
+const options = createStandardModalDialogOptions({
+  pendingNavigationMessage: "Saving changes...",
+})
+```
+
+The helper profile applies:
+
+- `overlayKind: "dialog"`
+- `closeStrategy: "blocking"`
+- `overlayEntryTraits.modal = true`
+- `overlayEntryTraits.trapsFocus = true`
+- `overlayEntryTraits.blocksPointerOutside = true`
+- `overlayEntryTraits.inertSiblings = true`
+- `overlayEntryTraits.returnFocus = true`
+
 ### Snapshot contract
 
 Each subscriber receives a `DialogSnapshot`:
@@ -201,6 +227,14 @@ The controller only calls `activate` once per open cycle and automatically invok
 | `canStackOver(kind)` / `closeStrategyFor(kind)` | Consult interaction matrix before stacking new overlays. |
 | `getPendingCloseAttempts()` | Inspect how many retries happened during the active guard. |
 | `destroy(reason?)` | Clear subscribers, event listeners, guard state, and deactivate focus orchestration. |
+
+Preflight example:
+
+```ts
+if (controller.canHandleClose("escape-key")) {
+  await controller.requestClose("escape-key")
+}
+```
 
 ## Scripts
 

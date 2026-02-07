@@ -11,59 +11,18 @@ composer require affino/popover-laravel
 php artisan vendor:publish --tag=affino-popover-laravel-assets
 ```
 
-Import the helper in `resources/js/app.ts` (or `.js`) so every rendered popover hydrates automatically and manual controllers stay alive through Livewire morphs:
+Import the unified Laravel adapter bootstrap in `resources/js/app.ts` (or `.js`):
 
 ```ts
 import "./bootstrap"
-import { bootstrapAffinoPopovers } from "@affino/popover-laravel"
+import { bootstrapAffinoLaravelAdapters } from "@affino/laravel-adapter"
 
-bootstrapAffinoPopovers()
-
-registerManualControllerBridge({
-    eventName: "affino-popover:manual",
-    rootAttribute: "data-affino-popover-root",
-    property: "affinoPopover",
-    rehydrate: bootstrapAffinoPopovers,
+bootstrapAffinoLaravelAdapters({
+  diagnostics: import.meta.env.DEV,
 })
-
-function registerManualControllerBridge({ eventName, rootAttribute, property, rehydrate }) {
-    const handledFlag = "__affinoManualHandled"
-    const maxRetries = 20 // ~300ms of requestAnimationFrame retries while Livewire swaps DOM nodes
-
-    const findHandle = (id: string) => {
-        const escapedId = typeof CSS !== "undefined" && typeof CSS.escape === "function" ? CSS.escape(id) : id
-        const selector = `[${rootAttribute}="${escapedId}"]`
-        const root = document.querySelector(selector) as HTMLElement | null
-        return root?.[property as keyof typeof root] as any
-    }
-
-    const invokeAction = (detail: { id: string; action: string; reason?: string }, attempt = 0) => {
-        rehydrate?.()
-        const handle = findHandle(detail.id)
-        if (!handle) {
-            if (attempt < maxRetries) {
-                requestAnimationFrame(() => invokeAction(detail, attempt + 1))
-            }
-            return
-        }
-
-        const reason = detail.reason ?? "programmatic"
-        if (detail.action === "open") return handle.open(reason)
-        if (detail.action === "close") return handle.close(reason)
-        handle.toggle()
-    }
-
-    document.addEventListener(eventName, (event) => {
-        const detail = (event as CustomEvent<{ id?: string; action?: string; reason?: string }>).detail
-        if (!(detail?.id && detail?.action)) return
-        if ((event as any)[handledFlag]) return
-        ;(event as any)[handledFlag] = true
-        invokeAction(detail as { id: string; action: string; reason?: string })
-    })
-}
 ```
 
-From Livewire you can call `$dispatch('affino-popover:manual', { id: 'escalation-popover', action: 'open' })` without touching the DOM. The bridge retries until the freshly morphed node hydrates and exposes its controller.
+From Livewire you can call `$dispatch('affino-popover:manual', { id: 'escalation-popover', action: 'open' })` without touching the DOM. The shared adapter bridge retries until the freshly morphed node hydrates and exposes its controller.
 
 ### Manual controllers stay opt-in
 

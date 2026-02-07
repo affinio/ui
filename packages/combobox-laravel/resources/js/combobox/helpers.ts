@@ -6,8 +6,8 @@ import {
 } from "@affino/listbox-core"
 import type { ComboboxMode, InputEl, OptionEl, RootEl, SurfaceEl } from "./types"
 
-export function collectOptions(root: RootEl): OptionEl[] {
-  return Array.from(root.querySelectorAll<OptionEl>("[data-affino-listbox-option]"))
+export function collectOptions(scope: ParentNode): OptionEl[] {
+  return Array.from(scope.querySelectorAll<OptionEl>("[data-affino-listbox-option]"))
 }
 
 export function applyInputAria(input: InputEl, surface: SurfaceEl, open: boolean, mode: ComboboxMode): void {
@@ -187,7 +187,7 @@ export function hasStructureChanged(root: RootEl, cache: StructureCache): boolea
   if (nextInput !== cache.input || nextSurface !== cache.surface) {
     return true
   }
-  const nextOptionCount = root.querySelectorAll("[data-affino-listbox-option]").length
+  const nextOptionCount = nextSurface.querySelectorAll("[data-affino-listbox-option]").length
   return nextOptionCount !== cache.optionCount
 }
 

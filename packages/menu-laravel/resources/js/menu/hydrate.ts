@@ -32,6 +32,21 @@ const MENU_ID_ATTR = "data-affino-menu-id"
 const MENU_ROOT_ID_ATTR = "data-affino-menu-root-id"
 const MENU_PARENT_ID_ATTR = "data-affino-menu-parent-id"
 
+function scheduleFrame(callback: FrameRequestCallback): number {
+  if (typeof requestAnimationFrame === "function") {
+    return requestAnimationFrame(callback)
+  }
+  return window.setTimeout(() => callback(0), 16)
+}
+
+function cancelFrame(id: number): void {
+  if (typeof cancelAnimationFrame === "function") {
+    cancelAnimationFrame(id)
+    return
+  }
+  window.clearTimeout(id)
+}
+
 function debugMenu(...args: unknown[]): void {
   if (typeof window === "undefined") {
     return
@@ -742,11 +757,11 @@ class MenuInstance {
   destroy(): void {
     this.cancelFocusRequest()
     if (this.pendingMeasureFrame !== null) {
-      cancelAnimationFrame(this.pendingMeasureFrame)
+      cancelFrame(this.pendingMeasureFrame)
       this.pendingMeasureFrame = null
     }
     if (this.pendingPositionSync !== null) {
-      cancelAnimationFrame(this.pendingPositionSync)
+      cancelFrame(this.pendingPositionSync)
       this.pendingPositionSync = null
     }
     if (this.restoreCloseGuard) {
@@ -1013,7 +1028,7 @@ class MenuInstance {
       queueMicrotask(() => submenuInstance.getHandle().open(reason))
       return
     }
-    requestAnimationFrame(() => submenuInstance.getHandle().open(reason))
+    scheduleFrame(() => submenuInstance.getHandle().open(reason))
   }
 
   private bindSubmenuTriggerFallback(): void {
@@ -1106,6 +1121,7 @@ class MenuInstance {
     this.panel.dataset.state = "closed"
     this.panel.hidden = true
     this.panel.setAttribute("aria-hidden", "true")
+    this.panel.setAttribute("inert", "")
     this.applyRelationAttributes()
     const triggerProps = this.core instanceof SubmenuCore
       ? this.withPointerMeta(this.core.getTriggerProps())
@@ -1256,10 +1272,11 @@ class MenuInstance {
     this.trigger.setAttribute("data-state", state)
     this.trigger.setAttribute("aria-expanded", this.isOpen ? "true" : "false")
     this.panel.dataset.state = state
-    this.panel.setAttribute("aria-hidden", this.isOpen ? "false" : "true")
-    this.panel.hidden = !this.isOpen
 
     if (this.isOpen) {
+      this.panel.hidden = false
+      this.panel.setAttribute("aria-hidden", "false")
+      this.panel.removeAttribute("inert")
       this.panel.style.visibility = ""
       this.panel.style.pointerEvents = ""
       if (!this.scrollLockHeld && this.lockScroll) {
@@ -1282,18 +1299,21 @@ class MenuInstance {
       this.scrollLockHeld = false
     }
     if (this.pendingMeasureFrame !== null) {
-      cancelAnimationFrame(this.pendingMeasureFrame)
+      cancelFrame(this.pendingMeasureFrame)
       this.pendingMeasureFrame = null
     }
     if (this.pendingPositionSync !== null) {
-      cancelAnimationFrame(this.pendingPositionSync)
+      cancelFrame(this.pendingPositionSync)
       this.pendingPositionSync = null
     }
-    this.panel.style.visibility = "hidden"
-    this.panel.style.pointerEvents = "none"
     if (prev && this.shouldRestoreFocus()) {
       this.focusElement(this.trigger)
     }
+    this.panel.setAttribute("aria-hidden", "true")
+    this.panel.hidden = true
+    this.panel.setAttribute("inert", "")
+    this.panel.style.visibility = "hidden"
+    this.panel.style.pointerEvents = "none"
     this.syncActiveItem(null)
     this.inputIntent = "pointer"
   }
@@ -1344,7 +1364,7 @@ class MenuInstance {
     const surface = this.panel.getBoundingClientRect()
     if (surface.width === 0 || surface.height === 0) {
       if (this.pendingMeasureFrame === null) {
-        this.pendingMeasureFrame = requestAnimationFrame(() => {
+        this.pendingMeasureFrame = scheduleFrame(() => {
           this.pendingMeasureFrame = null
           if (this.isOpen && !this.panel.hidden) {
             this.positionPanel(hideWhileMeasuring)
@@ -1379,9 +1399,9 @@ class MenuInstance {
   private syncPanelPosition(): void {
     this.positionPanel(false)
     if (this.pendingPositionSync !== null) {
-      cancelAnimationFrame(this.pendingPositionSync)
+      cancelFrame(this.pendingPositionSync)
     }
-    this.pendingPositionSync = requestAnimationFrame(() => {
+    this.pendingPositionSync = scheduleFrame(() => {
       this.pendingPositionSync = null
       if (this.isOpen && !this.panel.hidden) {
         this.positionPanel(false)
@@ -1413,12 +1433,19 @@ class MenuInstance {
       return
     }
     if (!domOpen && snapshotOpen) {
-      if (this.isFocusWithinMenu()) {
-        this.root.dataset.affinoMenuState = "open"
-        return
-      }
       this.core.close("programmatic")
     }
+  }
+
+  private isFocusWithinPanel(): boolean {
+    if (typeof document === "undefined") {
+      return false
+    }
+    const active = document.activeElement
+    if (!active) {
+      return false
+    }
+    return active === this.panel || this.panel.contains(active)
   }
 
   private isFocusWithinMenu(): boolean {
@@ -1743,7 +1770,7 @@ class MenuInstance {
 
   private focusFirstItemSoon(): void {
     this.cancelFocusRequest()
-    this.focusRaf = window.requestAnimationFrame(() => {
+    this.focusRaf = scheduleFrame(() => {
       const first = this.collectItems().find((node) => !this.isDisabled(node))
       this.focusRaf = null
       if (first) {
@@ -1757,15 +1784,15 @@ class MenuInstance {
 
   private focusPanelSoon(): void {
     this.cancelFocusRequest()
-    this.focusRaf = window.requestAnimationFrame(() => {
+    this.focusRaf = scheduleFrame(() => {
       this.focusElement(this.panel)
       this.focusRaf = null
     })
   }
 
   private cancelFocusRequest(): void {
-    if (this.focusRaf !== null && typeof window.cancelAnimationFrame === "function") {
-      window.cancelAnimationFrame(this.focusRaf)
+    if (this.focusRaf !== null) {
+      cancelFrame(this.focusRaf)
     }
     this.focusRaf = null
   }

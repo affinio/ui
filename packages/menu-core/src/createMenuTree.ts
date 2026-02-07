@@ -78,6 +78,12 @@ export function createMenuTree(config: CreateMenuTreeOptions = {}): MenuTreeCont
     root: rootBranch,
     createSubmenu: (options) => {
       const parentCore = "core" in options.parent ? options.parent.core : options.parent
+      if (!parentCore.hasRegisteredItem(options.parentItemId)) {
+        throw new Error(
+          `Cannot create submenu for unregistered parent item "${options.parentItemId}". ` +
+            "Register the parent item before calling createSubmenu().",
+        )
+      }
       const submenuCore = new SubmenuCore(parentCore as MenuCore, { ...options.options, parentItemId: options.parentItemId }, options.callbacks)
       const branch = createBranch(submenuCore, "submenu", unregister)
       branches.add(branch)

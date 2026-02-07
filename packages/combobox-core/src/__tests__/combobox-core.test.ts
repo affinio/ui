@@ -10,6 +10,8 @@ import {
   isIndexSelected,
   mapSelectedIndexes,
   moveComboboxFocus,
+  setComboboxFilter,
+  setComboboxOpen,
 } from "../index"
 
 describe("combobox core helpers", () => {
@@ -108,6 +110,23 @@ describe("combobox core helpers", () => {
     expect(afterMove).toBe(state)
     expect(state.listbox.activeIndex).toBe(-1)
     expect(state.listbox.selection.ranges).toEqual([])
+  })
+
+  it("keeps filter and open transitions isolated", () => {
+    const base = createComboboxState()
+
+    const opened = setComboboxOpen(base, true)
+    expect(opened.open).toBe(true)
+    expect(opened.filter).toBe("")
+    expect(opened.listbox).toBe(base.listbox)
+
+    const filtered = setComboboxFilter(opened, "abc")
+    expect(filtered.filter).toBe("abc")
+    expect(filtered.open).toBe(true)
+    expect(filtered.listbox).toBe(opened.listbox)
+
+    expect(setComboboxOpen(filtered, true)).toBe(filtered)
+    expect(setComboboxFilter(filtered, "abc")).toBe(filtered)
   })
 
   it("ignores toggle/extend semantics in single mode", () => {

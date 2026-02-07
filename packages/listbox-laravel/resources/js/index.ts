@@ -33,6 +33,10 @@ type ListboxHandle = {
   getSnapshot(): ListboxSnapshot
 }
 
+type CloseListboxOptions = {
+  restoreFocus?: boolean
+}
+
 type RootEl = HTMLElement & {
   dataset: DOMStringMap & {
     affinoListboxRoot?: string
@@ -67,6 +71,7 @@ type OptionSnapshot = {
 
 const LISTBOX_ROOT_SELECTOR = "[data-affino-listbox-root]"
 const registry = new WeakMap<RootEl, Cleanup>()
+const structureRegistry = new WeakMap<RootEl, { trigger: HTMLElement; surface: HTMLElement; optionCount: number }>()
 const openStateRegistry = new Map<string, boolean>()
 const overlayOwnersByDocument = new WeakMap<Document, Map<string, RootEl>>()
 const pendingScanScopes = new Set<ParentNode>()
@@ -103,6 +108,7 @@ export function hydrateListbox(root: RootEl): void {
   const surface = root.querySelector<HTMLElement>("[data-affino-listbox-surface]")
   if (!trigger || !surface) {
     registry.get(root)?.()
+    structureRegistry.delete(root)
     root.dataset.affinoListboxState = "closed"
     return
   }
@@ -115,7 +121,7 @@ function hydrateResolvedListbox(root: RootEl, trigger: HTMLElement, surface: HTM
   teardown?.()
 
   const detachments: Cleanup[] = []
-  let options = collectOptions(root)
+  let options = collectOptions(surface)
   const valueToIndex = new Map<string, number>()
   let context: ListboxContext = {
     optionCount: options.length,
@@ -166,11 +172,11 @@ function hydrateResolvedListbox(root: RootEl, trigger: HTMLElement, surface: HTM
     onCloseRequested: (reason) => handleKernelClose(reason),
   })
   const syncOverlayState = () => overlayIntegration.syncState(open ? "open" : "closed")
-  const requestKernelClose = (reason: OverlayCloseReason) => {
+  const requestKernelClose = (reason: OverlayCloseReason, options?: CloseListboxOptions) => {
     if (overlayIntegration.requestClose(reason)) {
       return
     }
-    handleKernelClose(reason)
+    handleKernelClose(reason, options)
   }
   syncOverlayState()
   syncSelectionAttributes()
@@ -194,21 +200,25 @@ function hydrateResolvedListbox(root: RootEl, trigger: HTMLElement, surface: HTM
     requestAnimationFrame(() => focusActiveOption())
   }
 
-  const closeListbox = () => {
+  const closeListbox = (options: CloseListboxOptions = {}) => {
+    const restoreFocus = options.restoreFocus === true
     if (!open) {
+      if (restoreFocus) {
+        focusTriggerControl()
+      }
       return
     }
+    moveFocusAwayFromSurface(restoreFocus)
     open = false
     rememberOpenState(false)
     root.dataset.affinoListboxState = "closed"
-    moveFocusAwayFromSurface()
     surface.hidden = true
     applyTriggerAria(triggerControl, surface, false, mode, disabled)
     syncOverlayState()
     detachOutsideGuards()
-    requestAnimationFrame(() => {
+    if (restoreFocus) {
       focusTriggerControl()
-    })
+    }
   }
 
   const focusTriggerControl = () => {
@@ -224,33 +234,25 @@ function hydrateResolvedListbox(root: RootEl, trigger: HTMLElement, surface: HTM
     return activeElement === triggerControl || (activeElement instanceof Node && triggerControl.contains(activeElement))
   }
 
-  const moveFocusAwayFromSurface = () => {
+  const moveFocusAwayFromSurface = (restoreToTrigger: boolean) => {
     const activeElement = ownerDocument.activeElement
     if (!(activeElement instanceof HTMLElement) || !surface.contains(activeElement)) {
       return
     }
-    if (!disabled && focusTriggerControl()) {
+    if (restoreToTrigger && !disabled && focusTriggerControl()) {
       return
     }
     activeElement.blur()
   }
 
-  function handleKernelClose(reason: OverlayCloseReason) {
-    switch (reason) {
-      case "pointer-outside":
-      case "owner-close":
-      case "focus-loss":
-      case "programmatic":
-      case "escape-key":
-      default:
-        closeListbox()
-        break
-    }
+  function handleKernelClose(reason: OverlayCloseReason, options?: CloseListboxOptions) {
+    const restoreFocus = options?.restoreFocus ?? (reason === "escape-key")
+    closeListbox({ restoreFocus })
   }
 
   const toggleListbox = () => {
     if (open) {
-      closeListbox()
+      closeListbox({ restoreFocus: true })
     } else {
       openListbox()
     }
@@ -268,17 +270,7 @@ function hydrateResolvedListbox(root: RootEl, trigger: HTMLElement, surface: HTM
     })
     applyState(next)
     if (mode === "single") {
-      closeListbox()
-      queueMicrotask(() => {
-        if (open) {
-          closeListbox()
-        }
-      })
-      requestAnimationFrame(() => {
-        if (open) {
-          closeListbox()
-        }
-      })
+      closeListbox({ restoreFocus: true })
     }
   }
 
@@ -427,7 +419,7 @@ function hydrateResolvedListbox(root: RootEl, trigger: HTMLElement, surface: HTM
         requestKernelClose("escape-key")
         break
       case "Tab":
-        requestKernelClose("focus-loss")
+        requestKernelClose("focus-loss", { restoreFocus: false })
         break
       case "a":
       case "A":
@@ -516,7 +508,7 @@ function hydrateResolvedListbox(root: RootEl, trigger: HTMLElement, surface: HTM
     if (nextTrigger !== trigger || nextSurface !== surface) {
       return true
     }
-    const nextOptionCount = root.querySelectorAll("[data-affino-listbox-option]").length
+    const nextOptionCount = nextSurface.querySelectorAll("[data-affino-listbox-option]").length
     return nextOptionCount !== options.length
   }
 
@@ -542,20 +534,20 @@ function hydrateResolvedListbox(root: RootEl, trigger: HTMLElement, surface: HTM
       if (root.contains(target as Node) || shouldIgnoreOutsideEvent(target)) {
         return
       }
-      requestKernelClose("pointer-outside")
+      requestKernelClose("pointer-outside", { restoreFocus: false })
     }
     const onFocusIn = (event: FocusEvent) => {
       const target = event.target as Node | null
       if (root.contains(target as Node) || shouldIgnoreOutsideEvent(target)) {
         return
       }
-      requestKernelClose("focus-loss")
+      requestKernelClose("focus-loss", { restoreFocus: false })
     }
-    document.addEventListener("pointerdown", onPointerDown, true)
-    document.addEventListener("focusin", onFocusIn, true)
+    ownerDocument.addEventListener("pointerdown", onPointerDown, true)
+    ownerDocument.addEventListener("focusin", onFocusIn, true)
     outsideCleanup = () => {
-      document.removeEventListener("pointerdown", onPointerDown, true)
-      document.removeEventListener("focusin", onFocusIn, true)
+      ownerDocument.removeEventListener("pointerdown", onPointerDown, true)
+      ownerDocument.removeEventListener("focusin", onFocusIn, true)
       outsideCleanup = null
     }
   }
@@ -738,7 +730,7 @@ function hydrateResolvedListbox(root: RootEl, trigger: HTMLElement, surface: HTM
 
   const handle: ListboxHandle = {
     open: openListbox,
-    close: closeListbox,
+    close: () => closeListbox({ restoreFocus: true }),
     toggle: toggleListbox,
     selectIndex: (index, opts) => selectIndex(index, opts),
     selectValue: (value: string) => {
@@ -756,6 +748,7 @@ function hydrateResolvedListbox(root: RootEl, trigger: HTMLElement, surface: HTM
     }),
   }
 
+  structureRegistry.set(root, { trigger, surface, optionCount: options.length })
   root.affinoListbox = handle
 
   detachments.push(() => overlayIntegration.destroy())
@@ -770,6 +763,7 @@ function hydrateResolvedListbox(root: RootEl, trigger: HTMLElement, surface: HTM
     releaseOverlayOwner(ownerDocument, overlayId, root)
     detachments.forEach((cleanup) => cleanup())
     registry.delete(root)
+    structureRegistry.delete(root)
   })
 
   function resolveOptionIndex(option: OptionEl): number {
@@ -781,8 +775,8 @@ function hydrateResolvedListbox(root: RootEl, trigger: HTMLElement, surface: HTM
   }
 }
 
-function collectOptions(root: RootEl): OptionEl[] {
-  return Array.from(root.querySelectorAll<OptionEl>("[data-affino-listbox-option]"))
+function collectOptions(scope: ParentNode): OptionEl[] {
+  return Array.from(scope.querySelectorAll<OptionEl>("[data-affino-listbox-option]"))
 }
 
 function applyTriggerAria(
@@ -994,12 +988,12 @@ function syncLivewireModel(root: RootEl, value: unknown): void {
   component?.set(model, value)
 }
 
-function scan(root: ParentNode): void {
+function scan(root: ParentNode, options: { force?: boolean } = {}): void {
   if (root instanceof HTMLElement && root.matches(LISTBOX_ROOT_SELECTOR)) {
-    hydrateListbox(root as RootEl)
+    maybeHydrateListbox(root as RootEl, options.force)
   }
   const nodes = root.querySelectorAll<RootEl>(LISTBOX_ROOT_SELECTOR)
-  nodes.forEach((node) => hydrateListbox(node))
+  nodes.forEach((node) => maybeHydrateListbox(node, options.force))
 }
 
 function setupMutationObserver(): void {
@@ -1012,7 +1006,7 @@ function setupMutationObserver(): void {
     callback: (mutations) => {
       mutations.forEach((mutation) => {
         mutation.addedNodes.forEach((node) => {
-          if (node instanceof HTMLElement || node instanceof DocumentFragment) {
+          if (nodeContainsListbox(node)) {
             scheduleScan(node)
           }
         })
@@ -1091,6 +1085,43 @@ function collectListboxRoots(node: Node): RootEl[] {
   return roots
 }
 
+function nodeContainsListbox(node: Node): node is HTMLElement | DocumentFragment {
+  if (node instanceof HTMLElement) {
+    if (node.matches(LISTBOX_ROOT_SELECTOR)) {
+      return true
+    }
+    return Boolean(node.querySelector(LISTBOX_ROOT_SELECTOR))
+  }
+  if (node instanceof DocumentFragment) {
+    return Boolean(node.querySelector(LISTBOX_ROOT_SELECTOR))
+  }
+  return false
+}
+
+function maybeHydrateListbox(root: RootEl, force = false): void {
+  const trigger = root.querySelector<HTMLElement>("[data-affino-listbox-trigger]")
+  const surface = root.querySelector<HTMLElement>("[data-affino-listbox-surface]")
+  if (!trigger || !surface) {
+    return
+  }
+  if (force) {
+    hydrateListbox(root)
+    return
+  }
+  const hasBinding = registry.has(root)
+  const previous = structureRegistry.get(root)
+  if (
+    hasBinding &&
+    previous &&
+    previous.trigger === trigger &&
+    previous.surface === surface &&
+    previous.optionCount === surface.querySelectorAll("[data-affino-listbox-option]").length
+  ) {
+    return
+  }
+  hydrateListbox(root)
+}
+
 function claimOverlayOwner(ownerDocument: Document, overlayId: string, nextRoot: RootEl): RootEl | null {
   if (!overlayId) {
     return null
@@ -1137,14 +1168,14 @@ function setupLivewireHooks(): void {
       {
         name: "morph.added",
         handler: ({ el }: { el: Element }) => {
-          if (el instanceof HTMLElement || el instanceof DocumentFragment) {
+          if (nodeContainsListbox(el)) {
             scan(el)
           }
         },
       },
     ],
     onNavigated: () => {
-      scan(document)
+      scan(document, { force: true })
     },
   })
 }

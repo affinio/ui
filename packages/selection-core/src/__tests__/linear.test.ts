@@ -8,6 +8,7 @@ import {
   removeLinearRange,
   resolveLinearSelectionUpdate,
   selectLinearIndex,
+  selectSingleCell,
   toggleLinearIndex,
   toggleLinearRange,
 } from ".."
@@ -172,5 +173,24 @@ describe("linear selection operations", () => {
 
   it("clears selection snapshots", () => {
     expect(clearLinearSelection()).toEqual(emptyLinearSelectionState())
+  })
+})
+
+describe("grid compatibility re-exports", () => {
+  it("exposes grid-selection-core operations through selection-core", () => {
+    const context = {
+      grid: { rowCount: 3, colCount: 3 },
+    }
+
+    const state = selectSingleCell({
+      point: { rowIndex: 1, colIndex: 2 },
+      context,
+    })
+
+    expect(state.activeRangeIndex).toBe(0)
+    expect(state.ranges).toHaveLength(1)
+    expect(state.ranges[0]).toEqual(
+      expect.objectContaining({ startRow: 1, endRow: 1, startCol: 2, endCol: 2 }),
+    )
   })
 })

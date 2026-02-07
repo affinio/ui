@@ -12,62 +12,15 @@ composer require affino/dialog-laravel
 php artisan vendor:publish --tag=affino-dialog-laravel-assets
 ```
 
-Import the hydrator inside `resources/js/app.ts` (or `.js`) so dialogs bootstrap automatically after Inertia/Livewire renders:
+Bootstrap dialogs through the unified Laravel adapter entry point:
 
 ```ts
 import "./bootstrap"
-import { bootstrapAffinoDialogs } from "@affino/dialog-laravel"
+import { bootstrapAffinoLaravelAdapters } from "@affino/laravel-adapter"
 
-bootstrapAffinoDialogs()
-
-registerManualControllerBridge({
-  eventName: "affino-dialog:manual",
-  rootAttribute: "data-affino-dialog-root",
-  property: "affinoDialog",
-  rehydrate: bootstrapAffinoDialogs,
-  supportsOptions: true,
+bootstrapAffinoLaravelAdapters({
+  diagnostics: import.meta.env.DEV,
 })
-
-function registerManualControllerBridge({ eventName, rootAttribute, property, rehydrate, supportsOptions = false }) {
-  const handledFlag = "__affinoDialogManualHandled"
-  const maxRetries = 20 // ~300ms of retries while Livewire swaps DOM nodes
-
-  const findHandle = (id) => {
-    const escaped = typeof CSS !== "undefined" && typeof CSS.escape === "function" ? CSS.escape(id) : id
-    const selector = `[${rootAttribute}="${escaped}"]`
-    const root = document.querySelector(selector)
-    return root ? { root, handle: root[property] } : { root: null, handle: null }
-  }
-
-  const invoke = (detail, attempt = 0) => {
-    rehydrate?.()
-    const { handle } = findHandle(detail.id)
-    if (!handle) {
-      if (attempt < maxRetries) {
-        requestAnimationFrame(() => invoke(detail, attempt + 1))
-      }
-      return
-    }
-
-    const reason = detail.reason ?? "programmatic"
-    if (detail.action === "open") return handle.open(reason)
-    if (detail.action === "close") {
-      if (supportsOptions && Object.prototype.hasOwnProperty.call(detail, "options")) {
-        return handle.close(reason, detail.options)
-      }
-      return handle.close(reason)
-    }
-    handle.toggle(reason)
-  }
-
-  document.addEventListener(eventName, (event) => {
-    if (event[handledFlag]) return
-    event[handledFlag] = true
-    const detail = /** @type {CustomEvent<{ id?: string; action?: string; reason?: string; options?: any }> } */ (event).detail
-    if (!detail?.id || !detail?.action) return
-    invoke(detail)
-  })
-}
 ```
 
 Now Livewire components can dispatch `affino-dialog:manual` without touching the DOM:
@@ -145,7 +98,7 @@ The hydrator remembers the original position with a comment placeholder, so rehy
 - Scroll locking is reference-counted across dialogs. Multiple dialogs can be open (stacked) without fighting over `overflow: hidden`.
 - Surfaces marked with `pinned` or `data-affino-dialog-pinned="true"` reopen after Livewire swaps DOM nodes.
 - Teleport hosts (`#affino-dialog-host` by default) keep overlays outside of nested stacking contexts so z-index math stays predictable.
-- Manual controllers remain opt-in; dispatch `affino-dialog:manual` events when you want PHP, Alpine, or vanilla JS to drive open/close/toggle.
+- Manual controllers remain opt-in; dispatch `affino-dialog:manual` events when you want PHP, Alpine, or vanilla JS to drive open/close/toggle. The shared adapter runtime routes and retries these events during morphs.
 
 ## Roadmap
 

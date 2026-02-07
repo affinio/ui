@@ -38,11 +38,17 @@ const CLOSE_REASONS = new Set<DialogCloseReason>([
   "pointer",
   "nested-dialog-request",
 ])
+const DIALOG_ROOT_SELECTOR = "[data-affino-dialog-root]"
 
 const registry = new WeakMap<RootEl, Cleanup>()
+const structureRegistry = new WeakMap<RootEl, { overlay: OverlayEl; surface: SurfaceEl }>()
 const pinnedOpenRegistry = new Map<string, boolean>()
 const dialogOwnerRegistry = new WeakMap<Document, Map<string, RootEl>>()
 let dialogOverlayIdCounter = 0
+const pendingScanScopes = new Set<ParentNode>()
+const pendingRemovedRoots = new Set<RootEl>()
+let scanFlushScheduled = false
+let removedCleanupScheduled = false
 
 type OverlayWindow = Window & { __affinoOverlayManager?: OverlayManager }
 
@@ -64,6 +70,11 @@ function hydrateDialog(root: RootEl): void {
   const overlay = resolveOverlay()
   const surface = overlay?.querySelector<SurfaceEl>("[data-affino-dialog-surface]")
   if (!overlay || !surface) {
+    return
+  }
+
+  const previousStructure = structureRegistry.get(root)
+  if (registry.has(root) && previousStructure && previousStructure.overlay === overlay && previousStructure.surface === surface) {
     return
   }
 
@@ -210,7 +221,10 @@ function hydrateDialog(root: RootEl): void {
     binding.teleportRestore?.()
     unregisterBinding(binding)
     registry.delete(root)
+    structureRegistry.delete(root)
   })
+
+  structureRegistry.set(root, { overlay, surface })
 }
 
 function bindTriggers(binding: DialogBinding): void {
@@ -282,7 +296,8 @@ function applySnapshot(binding: DialogBinding, snapshot: DialogSnapshot): void {
   const phase = snapshot.phase
   const visible =
     snapshot.isOpen || snapshot.phase === "opening" || snapshot.phase === "closing" || snapshot.optimisticCloseInFlight
-  root.dataset.affinoDialogState = snapshot.isOpen ? "open" : phase
+  const domState = snapshot.isOpen ? "open" : phase === "idle" ? "closed" : phase
+  root.dataset.affinoDialogState = domState
   overlay.dataset.state = phase
   overlay.hidden = !visible
   surface.dataset.state = phase
@@ -389,10 +404,10 @@ function createFocusOrchestrator(surface: SurfaceEl, root: RootEl, options: Bind
 }
 
 function scan(root: ParentNode): void {
-  if (root instanceof HTMLElement && root.matches("[data-affino-dialog-root]")) {
+  if (root instanceof HTMLElement && root.matches(DIALOG_ROOT_SELECTOR)) {
     hydrateDialog(root as RootEl)
   }
-  const nodes = root.querySelectorAll<RootEl>("[data-affino-dialog-root]")
+  const nodes = root.querySelectorAll<RootEl>(DIALOG_ROOT_SELECTOR)
   nodes.forEach((node) => hydrateDialog(node))
 }
 
@@ -406,8 +421,8 @@ function setupMutationObserver(): void {
     callback: (mutations) => {
       mutations.forEach((mutation) => {
         mutation.addedNodes.forEach((node) => {
-          if (node instanceof HTMLElement || node instanceof DocumentFragment) {
-            scan(node)
+          if (nodeContainsDialog(node)) {
+            scheduleScan(node)
           }
         })
         mutation.removedNodes.forEach((node) => scheduleRemovedCleanup(node))
@@ -421,23 +436,78 @@ function scheduleRemovedCleanup(node: Node): void {
   if (!roots.length) {
     return
   }
-  queueMicrotask(() => {
-    roots.forEach((candidate) => {
-      if (candidate.isConnected) {
-        return
-      }
-      registry.get(candidate)?.()
-    })
+  roots.forEach((candidate) => pendingRemovedRoots.add(candidate))
+  if (removedCleanupScheduled) {
+    return
+  }
+  removedCleanupScheduled = true
+  enqueueMicrotask(flushRemovedRoots)
+}
+
+function scheduleScan(scope: ParentNode): void {
+  pendingScanScopes.add(scope)
+  if (scanFlushScheduled) {
+    return
+  }
+  scanFlushScheduled = true
+  enqueueMicrotask(flushPendingScans)
+}
+
+function flushPendingScans(): void {
+  scanFlushScheduled = false
+  const scopes = Array.from(pendingScanScopes)
+  pendingScanScopes.clear()
+  scopes.forEach((scope) => {
+    if (scope instanceof Element && !scope.isConnected) {
+      return
+    }
+    if (scope instanceof DocumentFragment && !scope.isConnected) {
+      return
+    }
+    scan(scope)
   })
+}
+
+function flushRemovedRoots(): void {
+  removedCleanupScheduled = false
+  const roots = Array.from(pendingRemovedRoots)
+  pendingRemovedRoots.clear()
+  roots.forEach((candidate) => {
+    if (candidate.isConnected) {
+      return
+    }
+    registry.get(candidate)?.()
+  })
+}
+
+function enqueueMicrotask(task: () => void): void {
+  if (typeof queueMicrotask === "function") {
+    queueMicrotask(task)
+    return
+  }
+  Promise.resolve().then(task)
+}
+
+function nodeContainsDialog(node: Node): node is HTMLElement | DocumentFragment {
+  if (node instanceof HTMLElement) {
+    if (node.matches(DIALOG_ROOT_SELECTOR)) {
+      return true
+    }
+    return node.querySelector(DIALOG_ROOT_SELECTOR) !== null
+  }
+  if (node instanceof DocumentFragment) {
+    return node.querySelector(DIALOG_ROOT_SELECTOR) !== null
+  }
+  return false
 }
 
 function collectDialogRoots(node: Node): RootEl[] {
   const results: RootEl[] = []
-  if (node instanceof HTMLElement && node.matches("[data-affino-dialog-root]")) {
+  if (node instanceof HTMLElement && node.matches(DIALOG_ROOT_SELECTOR)) {
     results.push(node as RootEl)
   }
   if (node instanceof HTMLElement || node instanceof DocumentFragment) {
-    node.querySelectorAll<RootEl>("[data-affino-dialog-root]").forEach((child) => results.push(child))
+    node.querySelectorAll<RootEl>(DIALOG_ROOT_SELECTOR).forEach((child) => results.push(child))
   }
   return results
 }
@@ -513,7 +583,7 @@ function escapeAttributeValue(value: string): string {
 
 function findDialogRoot(id: string): RootEl | null {
   const escaped = escapeAttributeValue(id)
-  return document.querySelector<RootEl>(`[data-affino-dialog-root="${escaped}"]`)
+  return document.querySelector<RootEl>(`${DIALOG_ROOT_SELECTOR}[data-affino-dialog-root="${escaped}"]`)
 }
 
 function toOpenReason(reason?: DialogOpenReason | DialogCloseReason): DialogOpenReason {

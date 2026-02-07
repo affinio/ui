@@ -23,6 +23,8 @@ type RectInit = {
   height?: number
 }
 
+let fixtureId = 0
+
 beforeEach(() => {
   vi.stubGlobal("ResizeObserver", ResizeObserverMock)
   vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
@@ -67,7 +69,8 @@ function mockRect(element: HTMLElement, rectInit: RectInit) {
 
 function setupPopoverFixture(options?: { lockScroll?: boolean }) {
   const root = document.createElement("div") as PopoverTestRoot
-  root.dataset.affinoPopoverRoot = "popover-spec"
+  fixtureId += 1
+  root.dataset.affinoPopoverRoot = `popover-spec-${fixtureId}`
   root.dataset.affinoPopoverLockScroll = options?.lockScroll ? "true" : "false"
 
   const trigger = document.createElement("button")
@@ -78,6 +81,41 @@ function setupPopoverFixture(options?: { lockScroll?: boolean }) {
   const content = document.createElement("div")
   content.dataset.affinoPopoverContent = ""
   content.hidden = true
+  root.appendChild(content)
+
+  mockRect(trigger, { x: 120, y: 100, width: 80, height: 40 })
+  mockRect(content, { x: 0, y: 0, width: 160, height: 90 })
+
+  document.body.appendChild(root)
+  return { root, trigger, content }
+}
+
+function setupPopoverFixtureWithId(
+  id: string,
+  options?: {
+    stateSync?: boolean
+    pinned?: boolean
+    modal?: boolean
+    manual?: boolean
+    state?: "open" | "closed"
+  },
+) {
+  const root = document.createElement("div") as PopoverTestRoot
+  root.dataset.affinoPopoverRoot = id
+  root.dataset.affinoPopoverStateSync = options?.stateSync === false ? "false" : "true"
+  root.dataset.affinoPopoverPinned = options?.pinned ? "true" : "false"
+  root.dataset.affinoPopoverModal = options?.modal ? "true" : "false"
+  root.dataset.affinoPopoverManual = options?.manual ? "true" : "false"
+  root.dataset.affinoPopoverState = options?.state ?? "closed"
+
+  const trigger = document.createElement("button")
+  trigger.type = "button"
+  trigger.dataset.affinoPopoverTrigger = ""
+  root.appendChild(trigger)
+
+  const content = document.createElement("div")
+  content.dataset.affinoPopoverContent = ""
+  content.hidden = root.dataset.affinoPopoverState !== "open"
   root.appendChild(content)
 
   mockRect(trigger, { x: 120, y: 100, width: 80, height: 40 })
@@ -225,6 +263,69 @@ describe("hydratePopover", () => {
     dismiss.dispatchEvent(new MouseEvent("click", { bubbles: true }))
     expect(content.hidden).toBe(true)
     expect(root.dataset.affinoPopoverState).toBe("closed")
+  })
+
+  it("does not steal focus on outside focus-loss close", () => {
+    const { root, trigger, content } = setupPopoverFixture()
+    const outside = document.createElement("button")
+    outside.type = "button"
+    document.body.appendChild(outside)
+
+    hydratePopover(root as any)
+    trigger.dispatchEvent(new MouseEvent("click", { bubbles: true }))
+    expect(content.hidden).toBe(false)
+
+    outside.focus()
+    outside.dispatchEvent(new Event("focusin", { bubbles: true }))
+
+    expect(content.hidden).toBe(true)
+    expect(root.dataset.affinoPopoverState).toBe("closed")
+    expect(document.activeElement).toBe(outside)
+  })
+
+  it("persists open state for manual profile regardless of dom state", () => {
+    const popoverId = "popover-manual-persist"
+    const first = setupPopoverFixtureWithId(popoverId, { manual: true, stateSync: true, state: "closed" })
+    hydratePopover(first.root as any)
+    first.root.affinoPopover?.open("programmatic")
+    expect(first.root.dataset.affinoPopoverState).toBe("open")
+    first.root.remove()
+
+    const second = setupPopoverFixtureWithId(popoverId, { manual: true, stateSync: true, state: "closed" })
+    hydratePopover(second.root as any)
+
+    expect(second.root.dataset.affinoPopoverState).toBe("open")
+    expect(second.content.hidden).toBe(false)
+  })
+
+  it("persists open state when state sync is disabled", () => {
+    const popoverId = "popover-sync-off-persist"
+    const first = setupPopoverFixtureWithId(popoverId, { stateSync: false, state: "closed" })
+    hydratePopover(first.root as any)
+    first.root.affinoPopover?.open("programmatic")
+    expect(first.root.dataset.affinoPopoverState).toBe("open")
+    first.root.remove()
+
+    const second = setupPopoverFixtureWithId(popoverId, { stateSync: false, state: "closed" })
+    hydratePopover(second.root as any)
+
+    expect(second.root.dataset.affinoPopoverState).toBe("open")
+    expect(second.content.hidden).toBe(false)
+  })
+
+  it("does not persist open state for non-persistent state-sync profile", () => {
+    const popoverId = "popover-sync-on-ephemeral"
+    const first = setupPopoverFixtureWithId(popoverId, { stateSync: true, state: "closed" })
+    hydratePopover(first.root as any)
+    first.root.affinoPopover?.open("programmatic")
+    expect(first.root.dataset.affinoPopoverState).toBe("open")
+    first.root.remove()
+
+    const second = setupPopoverFixtureWithId(popoverId, { stateSync: true, state: "closed" })
+    hydratePopover(second.root as any)
+
+    expect(second.root.dataset.affinoPopoverState).toBe("closed")
+    expect(second.content.hidden).toBe(true)
   })
 
   it("binds livewire hooks after late livewire:load", () => {

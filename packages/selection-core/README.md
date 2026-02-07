@@ -32,18 +32,59 @@ Headless linear selection primitives (1D ranges) that power select, listbox, com
 
 ```ts
 import {
-  addLinearRange,
-  resolveLinearSelectionUpdate,
-  toggleLinearRange,
+  selectLinearIndex,
+  extendLinearSelectionToIndex,
+  toggleLinearIndex,
 } from "@affino/selection-core"
 
-let state = resolveLinearSelectionUpdate({ ranges: [{ start: 2, end: 2 }], activeRangeIndex: 0 })
-state = {
-  ...state,
-  ranges: toggleLinearRange(state.ranges, { start: 5, end: 7 }),
-}
-
-const merged = addLinearRange(state.ranges, { start: 3, end: 4 })
+let state = selectLinearIndex({ index: 2 })
+state = extendLinearSelectionToIndex({ state, index: 6 })
+state = toggleLinearIndex({ state, index: 4 })
 ```
 
-See `/demo-vue` (listbox WIP) for an interactive example, and use `@affino/grid-selection-core` for existing spreadsheet demos.
+## Package boundaries
+
+- `@affino/selection-core`: 1D linear selection only.
+- `@affino/grid-selection-core`: 2D row/column selection (tables, spreadsheets, tree grids).
+- `@affino/selection-core` re-exports `@affino/grid-selection-core` for compatibility during migration.
+
+## Migration guide
+
+### Path A: staying on compatibility imports (zero-risk)
+
+If you currently import grid helpers from `@affino/selection-core`, code keeps working.
+
+```ts
+// still supported
+import { selectSingleCell } from "@affino/selection-core"
+```
+
+### Path B: recommended target (explicit package ownership)
+
+Move grid imports to `@affino/grid-selection-core` and keep linear imports in `@affino/selection-core`.
+
+```ts
+// recommended split
+import { selectSingleCell } from "@affino/grid-selection-core"
+import { selectLinearIndex } from "@affino/selection-core"
+```
+
+### Path C: replace ad-hoc range mutation with intent operations
+
+Prefer operation helpers over manual `ranges` editing:
+
+- single click -> `selectLinearIndex`
+- shift extend -> `extendLinearSelectionToIndex`
+- cmd/ctrl toggle -> `toggleLinearIndex`
+- clear action -> `clearLinearSelection`
+
+Use `resolveLinearSelectionUpdate` only when hydrating external snapshots.
+
+## Guardrails
+
+- Treat returned states as immutable snapshots and replace the full value in stores.
+- Do not rely on invalid inputs being auto-corrected; pass finite integer indexes.
+- `resolveLinearSelectionUpdate` throws if `activeRangeIndex` is out of bounds.
+- Use one canonical source of truth for selection state in the adapter.
+
+See `/demo-vue` for integration patterns and use `@affino/grid-selection-core` directly for grid/table flows.

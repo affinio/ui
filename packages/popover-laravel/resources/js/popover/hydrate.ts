@@ -85,15 +85,19 @@ export function hydratePopover(root: RootEl): void {
   const initialStateOpen = root.dataset.affinoPopoverState === "open"
   const ownerDocument = root.ownerDocument ?? document
   const popoverId = root.dataset.affinoPopoverRoot ?? ""
+  const persistentProfile = options.pinned || options.modal || isManualPopover(root)
   const teardown = registry.get(root)
   const hasStoredFocusSnapshot = (id: string) => Boolean(id && focusSnapshotRegistry.has(id))
   let pendingFocusRestore = captureFocusSnapshot(root, popoverId) || hasStoredFocusSnapshot(popoverId)
   teardown?.()
   const stateSyncEnabled = root.dataset.affinoPopoverStateSync !== "false"
-  const persistedOpen = popoverId ? openStateRegistry.get(popoverId) : undefined
-  const resolvedDefaultOpen = stateSyncEnabled
-    ? options.defaultOpen || initialStateOpen
-    : (typeof persistedOpen === "boolean" ? persistedOpen : options.defaultOpen || initialStateOpen)
+  const persistOpenState = Boolean(popoverId) && (persistentProfile || !stateSyncEnabled)
+  if (!persistOpenState && popoverId) {
+    openStateRegistry.delete(popoverId)
+  }
+  const persistedOpen = persistOpenState ? openStateRegistry.get(popoverId) : undefined
+  const resolvedDefaultOpen = typeof persistedOpen === "boolean" ? persistedOpen : options.defaultOpen || initialStateOpen
+  const domStateSyncEnabled = stateSyncEnabled && !persistentProfile
   const staleRoot = claimPopoverOwner(ownerDocument, popoverId, root)
   if (staleRoot) {
     pendingFocusRestore = captureFocusSnapshot(staleRoot, popoverId) || pendingFocusRestore || hasStoredFocusSnapshot(popoverId)
@@ -113,6 +117,25 @@ export function hydratePopover(root: RootEl): void {
   })
 
   const detachments: Detachment[] = []
+  let closeReasonHint: SurfaceReason | null = null
+  const markCloseReason = (reason: SurfaceReason) => {
+    closeReasonHint = reason
+  }
+  const consumeCloseReason = (): SurfaceReason | null => {
+    const reason = closeReasonHint
+    closeReasonHint = null
+    return reason
+  }
+  const originalClose = popover.close.bind(popover)
+  popover.close = (reason: SurfaceReason = "programmatic") => {
+    markCloseReason(reason)
+    originalClose(reason)
+  }
+  const originalInteractOutside = popover.interactOutside.bind(popover)
+  popover.interactOutside = (payload) => {
+    markCloseReason("pointer")
+    originalInteractOutside(payload)
+  }
   const triggerProps = popover.getTriggerProps()
   const contentProps = popover.getContentProps({
     role: options.role,
@@ -216,7 +239,7 @@ export function hydratePopover(root: RootEl): void {
     if (outsideCleanup || (!options.closeOnInteractOutside && !options.modal)) {
       return
     }
-    const doc = document
+    const doc = ownerDocument
     const pointerHandler = (event: Event) => {
       if (isWithinSurface(event.target, trigger, content)) {
         return
@@ -291,7 +314,7 @@ export function hydratePopover(root: RootEl): void {
   }
 
   const syncOpenFromDomState = () => {
-    if (!stateSyncEnabled) {
+    if (!domStateSyncEnabled) {
       return
     }
     const domOpen = root.dataset.affinoPopoverState === "open"
@@ -344,7 +367,9 @@ export function hydratePopover(root: RootEl): void {
     root.dataset.affinoPopoverState = state
     content.dataset.state = state
     content.hidden = !open
-    rememberOpenState(popoverId, open)
+    if (persistOpenState) {
+      rememberOpenState(popoverId, open)
+    }
 
     if (open) {
       content.style.position = options.strategy
@@ -373,7 +398,8 @@ export function hydratePopover(root: RootEl): void {
         scrollLocked = false
       }
       resetPosition()
-      if (options.returnFocus && document.activeElement !== trigger) {
+      const closeReason = consumeCloseReason()
+      if (shouldRestoreFocusOnClose({ ownerDocument, trigger, content, reason: closeReason, returnFocus: options.returnFocus })) {
         const parentRoot = resolveParentPopoverRoot(root)
         requestAnimationFrame(() => {
           if (parentRoot) {
@@ -407,7 +433,7 @@ export function hydratePopover(root: RootEl): void {
       }
     }
   })
-  if (stateSyncEnabled) {
+  if (domStateSyncEnabled) {
     stateObserver.observe(root, {
       attributes: true,
       attributeFilter: ["data-affino-popover-state"],
@@ -424,9 +450,12 @@ export function hydratePopover(root: RootEl): void {
     resetPosition()
   })
 
-  if (options.pinned || resolvedDefaultOpen || initialStateOpen) {
+  const shouldAutoOpenOnHydrate = persistOpenState
+    ? (options.pinned || resolvedDefaultOpen)
+    : (options.pinned || resolvedDefaultOpen || initialStateOpen)
+  if (shouldAutoOpenOnHydrate) {
     requestAnimationFrame(() => {
-      if (root.isConnected && (options.pinned || resolvedDefaultOpen || root.dataset.affinoPopoverState === "open")) {
+      if (root.isConnected && (options.pinned || resolvedDefaultOpen || (!persistOpenState && root.dataset.affinoPopoverState === "open"))) {
         popover.open("programmatic")
       }
     })
@@ -630,6 +659,30 @@ function closePopoverRoot(root: RootEl, reason: SurfaceReason): void {
   if (getActivePopoverRoot(ownerDocument) === root) {
     setActivePopoverRoot(ownerDocument, null)
   }
+}
+
+function shouldRestoreFocusOnClose(params: {
+  ownerDocument: Document
+  trigger: HTMLElement
+  content: HTMLElement
+  reason: SurfaceReason | null
+  returnFocus: boolean
+}): boolean {
+  const { ownerDocument, trigger, content, reason, returnFocus } = params
+  if (!returnFocus) {
+    return false
+  }
+  if (reason === "pointer") {
+    return false
+  }
+  const active = ownerDocument.activeElement
+  if (active === trigger) {
+    return false
+  }
+  if (active instanceof HTMLElement && !content.contains(active) && !trigger.contains(active)) {
+    return false
+  }
+  return true
 }
 
 function isWithinSurface(target: EventTarget | null, trigger: HTMLElement, content: HTMLElement): boolean {

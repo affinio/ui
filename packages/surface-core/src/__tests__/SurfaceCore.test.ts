@@ -5,9 +5,30 @@ class TestSurfaceCore extends SurfaceCore {
   pointerLeave(): void {
     this.handlePointerLeave()
   }
+
+  pointerEnter(): void {
+    this.handlePointerEnter()
+  }
+
+  scheduleOpen(): void {
+    this.timers.scheduleOpen(() => this.open("pointer"))
+  }
 }
 
 describe("SurfaceCore", () => {
+  it("opens/closes/toggles immediately regardless of configured delays", () => {
+    const core = new SurfaceCore({ openDelay: 500, closeDelay: 500 })
+
+    core.open("programmatic")
+    expect(core.getSnapshot().open).toBe(true)
+
+    core.close("programmatic")
+    expect(core.getSnapshot().open).toBe(false)
+
+    core.toggle()
+    expect(core.getSnapshot().open).toBe(true)
+  })
+
   it("stops state transitions and callback emissions after destroy", () => {
     const onOpen = vi.fn()
     const onClose = vi.fn()
@@ -74,5 +95,65 @@ describe("SurfaceCore", () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it("schedules pointer-leave close using closeDelay and cancels on pointer-enter", () => {
+    vi.useFakeTimers()
+    try {
+      const core = new TestSurfaceCore({ closeDelay: 40 })
+      core.open("programmatic")
+      expect(core.getSnapshot().open).toBe(true)
+
+      core.pointerLeave()
+      vi.advanceTimersByTime(39)
+      expect(core.getSnapshot().open).toBe(true)
+
+      core.pointerEnter()
+      vi.advanceTimersByTime(2)
+      expect(core.getSnapshot().open).toBe(true)
+
+      core.pointerLeave()
+      vi.advanceTimersByTime(40)
+      expect(core.getSnapshot().open).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("supports delayed open only when adapter/controller explicitly schedules it", () => {
+    vi.useFakeTimers()
+    try {
+      const core = new TestSurfaceCore({ openDelay: 30 })
+      expect(core.getSnapshot().open).toBe(false)
+
+      core.scheduleOpen()
+      vi.advanceTimersByTime(29)
+      expect(core.getSnapshot().open).toBe(false)
+
+      vi.advanceTimersByTime(1)
+      expect(core.getSnapshot().open).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("returns frozen snapshots and keeps reference stable for no-op transitions", () => {
+    const core = new SurfaceCore()
+    const first = core.getSnapshot() as { open: boolean }
+
+    expect(Object.isFrozen(first)).toBe(true)
+    expect(() => {
+      first.open = true
+    }).toThrow(TypeError)
+
+    core.close("programmatic")
+    expect(core.getSnapshot()).toBe(first)
+
+    core.open("programmatic")
+    const second = core.getSnapshot()
+    expect(second).not.toBe(first)
+
+    core.open("programmatic")
+    expect(core.getSnapshot()).toBe(second)
   })
 })

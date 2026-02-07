@@ -12,61 +12,18 @@ composer require affino/tooltip-laravel
 php artisan vendor:publish --tag=affino-tooltip-laravel-assets
 ```
 
-Import the helper in your `resources/js/app.ts` (Laravel + Vite):
+Import the unified Laravel adapter bootstrap in your `resources/js/app.ts`:
 
 ```ts
-import { bootstrapAffinoTooltips } from "@affino/tooltip-laravel"
 import "./bootstrap"
+import { bootstrapAffinoLaravelAdapters } from "@affino/laravel-adapter"
 
-bootstrapAffinoTooltips()
-
-registerManualControllerBridge({
-    eventName: "affino-tooltip:manual",
-    rootAttribute: "data-affino-tooltip-root",
-    property: "affinoTooltip",
-    rehydrate: bootstrapAffinoTooltips,
+bootstrapAffinoLaravelAdapters({
+  diagnostics: import.meta.env.DEV,
 })
-
-function registerManualControllerBridge({ eventName, rootAttribute, property, rehydrate }) {
-    const handledFlag = "__affinoManualHandled"
-    const maxRetries = 20
-
-    const findHandle = (id: string) => {
-        const escapedId = typeof CSS !== "undefined" && typeof CSS.escape === "function" ? CSS.escape(id) : id
-        const selector = `[${rootAttribute}="${escapedId}"]`
-        const root = document.querySelector(selector) as HTMLElement | null
-        return root?.[property as keyof typeof root] as any
-    }
-
-    const invokeAction = (detail: { id: string; action: string; reason?: string }, attempt = 0) => {
-        rehydrate?.()
-        const handle = findHandle(detail.id)
-        if (!handle) {
-            if (attempt < maxRetries) {
-                requestAnimationFrame(() => invokeAction(detail, attempt + 1))
-            }
-            return
-        }
-
-        const reason = detail.reason ?? "programmatic"
-        if (detail.action === "open") return handle.open(reason)
-        if (detail.action === "close") return handle.close(reason)
-        handle.toggle()
-    }
-
-    document.addEventListener(eventName, (event) => {
-        const detail = (event as CustomEvent<{ id?: string; action?: string; reason?: string }>).detail
-        if (!(detail?.id && detail?.action)) return
-        if ((event as any)[handledFlag]) return
-        ;(event as any)[handledFlag] = true
-        invokeAction(detail as { id: string; action: string; reason?: string })
-    })
-}
 ```
 
-The bootstrapper registers a mutation observer and Livewire DOM hooks so tooltips hydrate automatically, even after partial page updates.
-
-The bridge retries while Livewire swaps DOM nodes, so `$dispatch('affino-tooltip:manual', { id: 'manual-tip', action: 'open' })` stays reliable even during morphs.
+The adapter registers mutation observers + Livewire hooks and retries manual events while DOM nodes are being morphed, so `$dispatch('affino-tooltip:manual', { id: 'manual-tip', action: 'open' })` remains reliable.
 
 ## Behavior contract
 

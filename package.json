@@ -2,9 +2,14 @@
   "name": "affino-monorepo",
   "private": true,
   "version": "1.0.0",
+  "packageManager": "pnpm@10.28.1",
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  },
   "workspaces": [
     "packages/*",
     "demo-vue",
+    "demo-laravel",
     "docs-site"
   ],
   "scripts": {

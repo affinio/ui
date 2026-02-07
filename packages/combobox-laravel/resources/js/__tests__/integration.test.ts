@@ -34,7 +34,7 @@ function createComboboxFixture() {
   surface.appendChild(optionBeta)
 
   document.body.appendChild(root)
-  return { root, input, surface }
+  return { root, input, surface, optionAlpha, optionBeta }
 }
 
 describe("combobox integration", () => {
@@ -236,5 +236,85 @@ describe("combobox integration", () => {
     const afterEnter = handle?.getSnapshot()
     expect(afterEnter?.values).toEqual(["alpha"])
     expect(afterEnter?.open).toBe(false)
+  })
+
+  it("toggles aria-hidden and inert with open state", () => {
+    const { root, input, surface } = createComboboxFixture()
+    hydrateCombobox(root as any)
+
+    expect(surface.getAttribute("aria-hidden")).toBe("true")
+    expect(surface.hasAttribute("inert")).toBe(true)
+    expect(surface.hidden).toBe(true)
+
+    input.value = "a"
+    input.dispatchEvent(new Event("input", { bubbles: true }))
+
+    expect(surface.getAttribute("aria-hidden")).toBe("false")
+    expect(surface.hasAttribute("inert")).toBe(false)
+    expect(surface.hidden).toBe(false)
+  })
+
+  it("hands focus back before hiding when closing from focused option", () => {
+    const { root, input, optionAlpha, surface } = createComboboxFixture()
+    hydrateCombobox(root as any)
+
+    input.value = "a"
+    input.dispatchEvent(new Event("input", { bubbles: true }))
+    optionAlpha.focus()
+
+    root.affinoCombobox?.close()
+
+    expect(root.affinoCombobox?.getSnapshot().open).toBe(false)
+    expect(document.activeElement).toBe(input)
+    expect(surface.getAttribute("aria-hidden")).toBe("true")
+    expect(surface.hasAttribute("inert")).toBe(true)
+  })
+
+  it("keeps external focus on outside close instead of stealing focus back", () => {
+    const { root, input } = createComboboxFixture()
+    const outside = document.createElement("button")
+    document.body.appendChild(outside)
+    hydrateCombobox(root as any)
+
+    input.value = "a"
+    input.dispatchEvent(new Event("input", { bubbles: true }))
+    expect(root.affinoCombobox?.getSnapshot().open).toBe(true)
+
+    outside.focus()
+    outside.dispatchEvent(new Event("focusin", { bubbles: true }))
+
+    expect(root.affinoCombobox?.getSnapshot().open).toBe(false)
+    expect(document.activeElement).toBe(outside)
+  })
+
+  it("tracks options only inside combobox surface", () => {
+    const { root, input } = createComboboxFixture()
+    const rogue = document.createElement("button")
+    rogue.dataset.affinoListboxOption = ""
+    rogue.dataset.affinoListboxValue = "rogue"
+    rogue.textContent = "Rogue"
+    root.insertBefore(rogue, root.firstChild)
+
+    hydrateCombobox(root as any)
+
+    input.value = "a"
+    input.dispatchEvent(new Event("input", { bubbles: true }))
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }))
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }))
+
+    expect(root.affinoCombobox?.getSnapshot().values).toEqual(["alpha"])
+  })
+
+  it("rehydrates when option count drops to zero", async () => {
+    const { root, surface } = createComboboxFixture()
+    hydrateCombobox(root as any)
+    const handleBefore = root.affinoCombobox
+
+    surface.querySelectorAll("[data-affino-listbox-option]").forEach((node) => node.remove())
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(root.affinoCombobox).not.toBe(handleBefore)
+    expect(root.affinoCombobox?.getSnapshot().values).toEqual([])
   })
 })

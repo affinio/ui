@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest"
-import { DialogController } from "../dialogController.js"
+import {
+  createStandardModalDialogController,
+  createStandardModalDialogOptions,
+  DialogController,
+} from "../dialogController.js"
 import { CloseGuardDecision } from "../types.js"
 import { createOverlayManager } from "@affino/overlay-kernel"
 
@@ -14,6 +18,27 @@ const deferred = <T>() => {
 }
 
 describe("DialogController", () => {
+  it("provides standard modal options helper", () => {
+    const options = createStandardModalDialogOptions()
+    expect(options.overlayKind).toBe("dialog")
+    expect(options.closeStrategy).toBe("blocking")
+    expect(options.overlayEntryTraits).toEqual(
+      expect.objectContaining({
+        modal: true,
+        trapsFocus: true,
+        blocksPointerOutside: true,
+        inertSiblings: true,
+        returnFocus: true,
+      }),
+    )
+  })
+
+  it("creates controller with standard modal profile", () => {
+    const controller = createStandardModalDialogController()
+    controller.open("keyboard")
+    expect(controller.snapshot.isOpen).toBe(true)
+  })
+
   it("opens and closes without guard", async () => {
     const controller = new DialogController()
     controller.open()
@@ -32,6 +57,34 @@ describe("DialogController", () => {
     const didClose = await controller.close("programmatic")
     expect(didClose).toBe(true)
     expect(spy).toHaveBeenCalledWith("programmatic", {})
+  })
+
+  it("exposes canHandleClose preflight checks", async () => {
+    const controller = new DialogController()
+
+    expect(controller.canHandleClose("programmatic")).toBe(false)
+    expect(controller.canHandleClose("escape-key")).toBe(false)
+
+    controller.open("keyboard")
+    expect(controller.canHandleClose("programmatic")).toBe(true)
+    expect(controller.canHandleClose("escape-key")).toBe(true)
+
+    await controller.requestClose("programmatic")
+    expect(controller.canHandleClose("programmatic")).toBe(false)
+  })
+
+  it("uses top-most checks in canHandleClose when only legacy registrar is present", () => {
+    const controller = new DialogController({
+      defaultOpen: true,
+      overlayRegistrar: {
+        register: () => () => {},
+        isTopMost: () => false,
+      },
+    })
+
+    expect(controller.canHandleClose("escape-key")).toBe(false)
+    expect(controller.canHandleClose("backdrop")).toBe(false)
+    expect(controller.canHandleClose("programmatic")).toBe(true)
   })
 
   it("waits for blocking guard before closing", async () => {

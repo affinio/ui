@@ -11,78 +11,18 @@ composer require affino/combobox-laravel
 php artisan vendor:publish --tag=affino-combobox-laravel-assets
 ```
 
-Register the helper in your Vite entry point (same place you bootstrap tooltips/popovers):
+Bootstrap through the unified Laravel adapter (recommended production contract):
 
 ```ts
 import "./bootstrap"
-import { bootstrapAffinoComboboxes } from "@affino/combobox-laravel"
+import { bootstrapAffinoLaravelAdapters } from "@affino/laravel-adapter"
 
-bootstrapAffinoComboboxes()
-
-registerComboboxManualBridge({
-  eventName: "affino-combobox:manual",
-  rootAttribute: "data-affino-combobox-root",
-  property: "affinoCombobox",
-  rehydrate: bootstrapAffinoComboboxes,
+bootstrapAffinoLaravelAdapters({
+  diagnostics: import.meta.env.DEV,
 })
-
-function registerComboboxManualBridge({ eventName, rootAttribute, property, rehydrate }) {
-  const handledFlag = "__affinoComboboxManualHandled"
-  const maxRetries = 20
-
-  const findHandle = (id) => {
-    const escaped = typeof CSS !== "undefined" && typeof CSS.escape === "function" ? CSS.escape(id) : id
-    const selector = `[${rootAttribute}="${escaped}"]`
-    const root = document.querySelector(selector)
-    return root?.[property]
-  }
-
-  const invoke = (detail, attempt = 0) => {
-    rehydrate?.()
-    const handle = findHandle(detail.id)
-    if (!handle) {
-      if (attempt < maxRetries) {
-        requestAnimationFrame(() => invoke(detail, attempt + 1))
-      }
-      return
-    }
-
-    switch (detail.action) {
-      case "open":
-        handle.open()
-        return
-      case "close":
-        handle.close()
-        return
-      case "toggle":
-        handle.toggle()
-        return
-      case "select":
-        if (typeof detail.index === "number") {
-          handle.selectIndex(detail.index, { extend: detail.extend, toggle: detail.toggle })
-          return
-        }
-        if (typeof detail.value === "string") {
-          handle.selectValue(detail.value)
-        }
-        return
-      case "clear":
-        handle.clear()
-        return
-    }
-  }
-
-  document.addEventListener(eventName, (event) => {
-    if (event[handledFlag]) return
-    event[handledFlag] = true
-    const detail = /** @type {CustomEvent<{ id?: string; action?: string; value?: string; index?: number; extend?: boolean; toggle?: boolean }> } */ (event).detail
-    if (!detail?.id || !detail?.action) return
-    invoke(detail)
-  })
-}
 ```
 
-The helper keeps scanning for new roots after Livewire morphs, remembers whether a pinned combobox was open, and retries manual events while DOM nodes swap underneath it.
+`bootstrapAffinoLaravelAdapters` already wires Livewire hooks, manual events, and rehydrate retries for combobox/listbox/popover/tooltip/dialog/menu/tabs/treeview/disclosure.
 
 ## Behavior contract
 
@@ -95,7 +35,7 @@ The helper keeps scanning for new roots after Livewire morphs, remembers whether
 - Sticky toolbars stay open by wrapping them with `data-affino-combobox-sticky="your-combobox-id"`. Outside-click guards ignore those nodes so preset buttons never close the surface.
 - Passing `label="..."` renders a `<label>` element that both the input and listbox reference via `aria-labelledby`, so screen readers announce the same phrase regardless of focus target.
 - Use `open-on-pointer-down="false"` if you only want keyboard typing or explicit triggers (buttons/icons) to open the surface; pointer taps on the input will simply focus the field.
-- Every hydrated root exposes `element.affinoCombobox` with `{ open, close, toggle, selectIndex, selectValue, clear, getSnapshot }` so you can drive it manually or bridge from Livewire events.
+- Every hydrated root exposes `element.affinoCombobox` with `{ open, close, toggle, selectIndex, selectValue, clear, getSnapshot }` for diagnostics and imperative control.
 
 ## Basic usage
 
@@ -119,7 +59,7 @@ The helper keeps scanning for new roots after Livewire morphs, remembers whether
 </x-affino-combobox>
 ```
 
-- The `combobox-id` prop seeds `data-affino-combobox-root` and wires the manual bridge.
+- The `combobox-id` prop seeds `data-affino-combobox-root`, used by the shared manual-event bridge in `@affino/laravel-adapter`.
 - Options reuse the same `data-affino-listbox-option` contract as the listbox package, so you get keyboard + selection behavior for free.
 
 ## Sticky toolbars
@@ -139,7 +79,7 @@ You can pass multiple combobox ids via a comma-separated list when the toolbar c
 
 | Prop | Type | Default | Description |
 | --- | --- | --- | --- |
-| `combobox-id` | `string` | auto UUID | Stable DOM id + manual bridge target. |
+| `combobox-id` | `string` | auto UUID | Stable DOM id + manual event target. |
 | `label` | `string` | `null` | Optional accessible label for the input. |
 | `placeholder` | `string` | `"Search dataset"` | Text shown when nothing is selected. |
 | `mode` | `"single" \| "multiple"` | `single` | Enables range + multi-select behaviors. |
@@ -166,7 +106,7 @@ $this->dispatch('affino-combobox:manual', id: 'playbook-search', action: 'select
 $this->dispatch('affino-combobox:manual', id: 'playbook-search', action: 'open');
 ```
 
-The helper retries every animation frame (up to ~300 ms) so commands still land while Livewire swaps DOM nodes.
+The shared adapter bridge retries while Livewire swaps DOM nodes, so commands still land during morphs.
 
 ## Events
 

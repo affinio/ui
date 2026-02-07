@@ -72,6 +72,23 @@ describe("dialog hydration integration", () => {
     expect(root.affinoDialog).toBeUndefined()
   })
 
+  it("ignores unrelated mutation additions when scheduling rescans", async () => {
+    const { root } = createDialogFixture()
+    scan(document)
+    setupMutationObserver()
+    const handleBefore = root.affinoDialog
+
+    const unrelated = document.createElement("div")
+    const queryAllSpy = vi.spyOn(unrelated, "querySelectorAll")
+    document.body.appendChild(unrelated)
+
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(root.affinoDialog).toBe(handleBefore)
+    expect(queryAllSpy).not.toHaveBeenCalled()
+  })
+
   it("bootstraps without Livewire and supports idempotent hydrate", () => {
     delete (window as any).Livewire
     const { root, overlay } = createDialogFixture()

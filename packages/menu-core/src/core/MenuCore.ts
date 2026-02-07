@@ -149,6 +149,10 @@ export class MenuCore extends SurfaceCore<MenuState, MenuCallbacks> {
     }
   }
 
+  hasRegisteredItem(id: string): boolean {
+    return this.registry.has(id)
+  }
+
   highlight(id: string | null) {
     const change = this.selectionMachine.highlight(id, this.getEnabledItemIds())
     if (this.handleHighlightChange(change)) {

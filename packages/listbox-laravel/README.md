@@ -11,87 +11,29 @@ composer require affino/listbox-laravel
 php artisan vendor:publish --tag=affino-listbox-laravel-assets
 ```
 
-Add the bootstrapper to your Vite entry point the same way you initialize the tooltip/popover helpers:
+Bootstrap through the unified Laravel adapter:
 
 ```ts
 import "./bootstrap"
-import { bootstrapAffinoListboxes } from "@affino/listbox-laravel"
+import { bootstrapAffinoLaravelAdapters } from "@affino/laravel-adapter"
 
-bootstrapAffinoListboxes()
-
-registerListboxManualBridge({
-    eventName: "affino-listbox:manual",
-    rootAttribute: "data-affino-listbox-root",
-    property: "affinoListbox",
-    rehydrate: bootstrapAffinoListboxes,
+bootstrapAffinoLaravelAdapters({
+  diagnostics: import.meta.env.DEV,
 })
-
-function registerListboxManualBridge({ eventName, rootAttribute, property, rehydrate }) {
-    const handledFlag = "__affinoManualHandled"
-    const maxRetries = 20
-
-    const findHandle = (id) => {
-        const escaped = typeof CSS !== "undefined" && typeof CSS.escape === "function" ? CSS.escape(id) : id
-        const selector = `[${rootAttribute}="${escaped}"]`
-        const root = document.querySelector(selector)
-        return { root, handle: root && root[property] }
-    }
-
-    const invoke = (detail, attempt = 0) => {
-        rehydrate?.()
-        const { handle } = findHandle(detail.id)
-        if (!handle) {
-            if (attempt < maxRetries) {
-                requestAnimationFrame(() => invoke(detail, attempt + 1))
-            }
-            return
-        }
-
-        switch (detail.action) {
-            case "open":
-                handle.open()
-                return
-            case "close":
-                handle.close()
-                return
-            case "toggle":
-                handle.toggle()
-                return
-            case "select":
-                if (typeof detail.index === "number") {
-                    handle.selectIndex(detail.index)
-                    return
-                }
-                if (typeof detail.value === "string") {
-                    handle.selectValue(detail.value)
-                    return
-                }
-                break
-        }
-    }
-
-    document.addEventListener(eventName, (event) => {
-        if (event[handledFlag]) return
-        event[handledFlag] = true
-        const detail = /** @type {CustomEvent<{ id?: string; action?: string; index?: number; value?: string }> } */ (event).detail
-        if (!detail?.id || !detail?.action) return
-        invoke(detail)
-    })
-}
 ```
 
-The helper scans for new roots after Livewire morphs, keeps the trigger and surface wiring intact, and retries manual events while DOM nodes swap.
+`bootstrapAffinoLaravelAdapters` centralizes scan/livewire/manual bridges and rehydrate retries for all Affino Laravel components.
 
 ## Behavior contract
 
 - The Blade wrapper renders a trigger + surface shell with stable `data-affino-listbox-*` attributes. Avoid stripping them from your markup—the JS helper reads them to hydrate.
 - Selection state lives inside `@affino/listbox-core`. Keyboard navigation (`↑`, `↓`, `Home`, `End`), click toggles, and focus return all mirror the Vue adapter.
 - Livewire models can be bound via the `model` prop. The helper finds the owning component and calls `Livewire.find(id)?.set(model, value)` every time the selection changes.
-- Manual controllers stay opt-in: dispatch `affino-listbox:manual` with `{ action: 'open' | 'close' | 'toggle' | 'select' }` to keep the surface pinned while Livewire rerenders.
+- Manual controllers stay opt-in: dispatch `affino-listbox:manual` with `{ action: 'open' | 'close' | 'toggle' | 'select' }`. The shared adapter bridge routes actions to hydrated handles.
 - Styling is yours. The package never injects Tailwind or CSS utility classes—it only flips `data-state`, `aria-selected`, and inline visibility styles.
 - Each listbox remembers whether it was open the last time you interacted with it (keyed by `listbox-id`) so Livewire morphs don't force-close long forms. Closing the UI clears the stored flag.
 - Wrap any toolbar, chip list, or external control group with `data-affino-listbox-sticky="listbox-id"` (comma-separated for multiple targets) when it should be ignored by the outside-click + focus guards.
-- Every hydrated root exposes an imperative handle on `element.affinoListbox` with `open`, `close`, `toggle`, `selectIndex`, `selectValue`, and `getSnapshot` helpers. The manual bridge example below uses that handle.
+- Every hydrated root exposes an imperative handle on `element.affinoListbox` with `open`, `close`, `toggle`, `selectIndex`, `selectValue`, and `getSnapshot`.
 
 ## Basic usage
 
@@ -160,7 +102,7 @@ The helper scans for new roots after Livewire morphs, keeps the trigger and surf
 $this->dispatch('affino-listbox:manual', id: 'region-select', action: 'select', value: 'apac');
 ```
 
-The helper retries every animation frame (up to 20) so the command still lands while Livewire swaps DOM nodes.
+The shared adapter bridge retries while Livewire swaps DOM nodes, so commands still land during morphs.
 
 ## Events
 

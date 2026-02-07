@@ -25,7 +25,7 @@ export function setupLivewireHooks(): void {
     hooks: [
       {
         name: "morph.added",
-        handler: ({ el }: { el?: unknown }) => {
+        handler: ({ el }: { el?: unknown } = {}) => {
           const scope = normalizeScope(el)
           if (refreshFromScope(scope)) {
             return
@@ -37,7 +37,7 @@ export function setupLivewireHooks(): void {
       },
       {
         name: "morph.updated",
-        handler: ({ el }: { el?: unknown }) => {
+        handler: ({ el }: { el?: unknown } = {}) => {
           const scope = normalizeScope(el)
           if (refreshFromScope(scope)) {
             return
@@ -66,7 +66,9 @@ export function setupLivewireHooks(): void {
           if (refreshFromScope(scope)) {
             return
           }
-          scheduleRefresh()
+          if (!scope || !isConnectedScope(scope)) {
+            scheduleRefresh()
+          }
         },
       },
       {
@@ -117,7 +119,7 @@ function findLivewireScope(entry: unknown): ParentNode | null {
   }
   const candidate = entry as { el?: unknown; component?: { el?: unknown } }
   const el = candidate.el ?? candidate.component?.el
-  if (el instanceof Element && (el.matches(MENU_ROOT_SELECTOR) || el.querySelector(MENU_ROOT_SELECTOR))) {
+  if (el instanceof HTMLElement || el instanceof DocumentFragment) {
     return el
   }
   return null

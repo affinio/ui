@@ -131,6 +131,26 @@ describe("tooltip bootstrap integration", () => {
     expect((lateRoot as any).affinoTooltip).toBeDefined()
   })
 
+  it("ignores unrelated livewire morph.added payloads", () => {
+    createTooltipFixture()
+    bootstrapAffinoTooltips()
+
+    const hooks: Record<string, (...args: any[]) => void> = {}
+    ;(window as any).Livewire = {
+      hook: vi.fn((name: string, handler: (...args: any[]) => void) => {
+        hooks[name] = handler
+      }),
+    }
+    document.dispatchEvent(new Event("livewire:load"))
+
+    const unrelated = document.createElement("div")
+    const queryAllSpy = vi.spyOn(unrelated, "querySelectorAll")
+
+    hooks["morph.added"]?.({ el: unrelated })
+
+    expect(queryAllSpy).not.toHaveBeenCalled()
+  })
+
   it("rescans on livewire:navigated", () => {
     ;(window as any).Livewire = { hook: vi.fn() }
     const root = document.createElement("div") as TooltipTestRoot

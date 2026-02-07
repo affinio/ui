@@ -161,9 +161,12 @@ export function hydrateTooltip(root: RootEl): void {
       if (rootId) {
         const hasExplicitTarget = event.relatedTarget instanceof HTMLElement
         const pointerInitiated = wasRecentExternalPointerDown(POINTER_INTENT_WINDOW_MS)
+        const ownerDocument = root.ownerDocument ?? document
         requestAnimationFrame(() => {
-          const shouldRelease = hasExplicitTarget || pointerInitiated
-          if (shouldRelease && trigger.isConnected) {
+          const active = ownerDocument.activeElement
+          const activeInsideRoot = active instanceof Element && root.contains(active)
+          const shouldRelease = !activeInsideRoot || hasExplicitTarget || pointerInitiated
+          if (shouldRelease) {
             focusedTooltipIds.delete(rootId)
           }
         })
@@ -319,12 +322,33 @@ export function hydrateTooltip(root: RootEl): void {
     }
 
     const currentTrigger = resolveTriggerElement()
-    if (!currentTrigger || document.activeElement === currentTrigger) {
+    if (!currentTrigger) {
+      focusRestorers.delete(rootId)
+      focusedTooltipIds.delete(rootId)
+      return
+    }
+
+    const ownerDocument = root.ownerDocument ?? document
+    const active = ownerDocument.activeElement
+    if (active === currentTrigger || (active instanceof Node && currentTrigger.contains(active))) {
+      return
+    }
+    if (
+      active instanceof HTMLElement
+      && active.isConnected
+      && active !== ownerDocument.body
+      && active !== ownerDocument.documentElement
+      && !root.contains(active)
+    ) {
+      focusRestorers.delete(rootId)
+      focusedTooltipIds.delete(rootId)
       return
     }
 
     const focusTarget = resolveFocusableTarget(currentTrigger)
     if (!focusTarget) {
+      focusRestorers.delete(rootId)
+      focusedTooltipIds.delete(rootId)
       return
     }
 
@@ -333,10 +357,15 @@ export function hydrateTooltip(root: RootEl): void {
   }
 
   const hasTrackedFocus = shouldSyncFocus && rootId != null && focusedTooltipIds.has(rootId)
-  const alreadyFocused = shouldSyncFocus && document.activeElement === trigger
+  const ownerDocument = root.ownerDocument ?? document
+  const activeElement = ownerDocument.activeElement
+  const alreadyFocused = shouldSyncFocus
+    && (activeElement === trigger || (activeElement instanceof Node && trigger.contains(activeElement)))
   if (shouldSyncFocus && (hasTrackedFocus || alreadyFocused)) {
     requestAnimationFrame(() => {
-      if (hasTrackedFocus && document.activeElement !== trigger) {
+      const active = ownerDocument.activeElement
+      const focusOnTrigger = active === trigger || (active instanceof Node && trigger.contains(active))
+      if (hasTrackedFocus && !focusOnTrigger) {
         restoreTrackedFocus()
         return
       }
@@ -597,17 +626,15 @@ export function setupMutationObserver(): void {
           shouldSyncFocus = mutation.target.closest(TOOLTIP_ROOT_SELECTOR) !== null
         }
         mutation.addedNodes.forEach((node) => {
-          if (node instanceof HTMLElement || node instanceof DocumentFragment) {
-            if (hasTooltipRoot(node)) {
-              scheduleScan(node)
-              if (hasTrackedFocus) {
-                shouldSyncFocus = true
-              }
-              return
-            }
-            if (hasTrackedFocus && node instanceof Element && node.closest(TOOLTIP_ROOT_SELECTOR)) {
+          if (isTooltipRelatedScope(node)) {
+            scheduleScan(node)
+            if (hasTrackedFocus) {
               shouldSyncFocus = true
             }
+            return
+          }
+          if (hasTrackedFocus && node instanceof Element && node.closest(TOOLTIP_ROOT_SELECTOR)) {
+            shouldSyncFocus = true
           }
         })
         mutation.removedNodes.forEach((node) => {
@@ -685,6 +712,13 @@ function hasTooltipRoot(scope: ParentNode): boolean {
     return true
   }
   return scope.querySelector(TOOLTIP_ROOT_SELECTOR) !== null
+}
+
+function isTooltipRelatedScope(node: Node): node is HTMLElement | DocumentFragment {
+  if (node instanceof HTMLElement || node instanceof DocumentFragment) {
+    return hasTooltipRoot(node)
+  }
+  return false
 }
 
 function collectTooltipRoots(node: Node): RootEl[] {

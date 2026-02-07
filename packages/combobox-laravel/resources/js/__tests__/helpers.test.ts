@@ -35,8 +35,10 @@ describe("combobox laravel helpers", () => {
 
   it("invalidates options cache only on structural changes", () => {
     const input = {} as HTMLInputElement
-    const surface = {} as HTMLElement
     let optionCount = 1
+    const surface = {
+      querySelectorAll: () => ({ length: optionCount }),
+    } as unknown as HTMLElement
     const root = {
       querySelector: (selector: string) => {
         if (selector === "[data-affino-combobox-input]") {
@@ -47,7 +49,6 @@ describe("combobox laravel helpers", () => {
         }
         return null
       },
-      querySelectorAll: () => ({ length: optionCount }),
     }
 
     const cache = { input, surface, optionCount: 1 }
@@ -59,7 +60,9 @@ describe("combobox laravel helpers", () => {
 
   it("treats missing key nodes as structural changes", () => {
     const input = {} as HTMLInputElement
-    const surface = {} as HTMLElement
+    const surface = {
+      querySelectorAll: () => ({ length: 1 }),
+    } as unknown as HTMLElement
     const root = {
       querySelector: (selector: string) => {
         if (selector === "[data-affino-combobox-input]") {
@@ -70,7 +73,6 @@ describe("combobox laravel helpers", () => {
         }
         return null
       },
-      querySelectorAll: () => ({ length: 1 }),
     }
 
     const cache = { input, surface, optionCount: 1 }

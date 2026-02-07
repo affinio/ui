@@ -35,7 +35,7 @@ function createListboxFixture() {
   surface.appendChild(optionBeta)
 
   document.body.appendChild(root)
-  return { root, trigger, surface }
+  return { root, trigger, surface, optionAlpha, optionBeta }
 }
 
 function createWrappedTriggerFixture() {
@@ -152,6 +152,24 @@ describe("listbox integration", () => {
     expect(document.activeElement).toBe(triggerButton)
   })
 
+  it("keeps external focus on outside close instead of forcing trigger focus", () => {
+    const { root, trigger, surface } = createListboxFixture()
+    const outside = document.createElement("button")
+    document.body.appendChild(outside)
+    hydrateListbox(root as any)
+
+    trigger.click()
+    expect(root.dataset.affinoListboxState).toBe("open")
+    expect(surface.hidden).toBe(false)
+
+    outside.focus()
+    outside.dispatchEvent(new Event("focusin", { bubbles: true }))
+
+    expect(root.dataset.affinoListboxState).toBe("closed")
+    expect(surface.hidden).toBe(true)
+    expect(document.activeElement).toBe(outside)
+  })
+
   it("cancels option mousedown default to avoid label-triggered trigger activation", () => {
     const { root, trigger, surface } = createListboxFixture()
     hydrateListbox(root as any)
@@ -240,6 +258,21 @@ describe("listbox integration", () => {
     expect(root.dataset.affinoListboxState).toBe("closed")
   })
 
+  it("does not rehydrate for unrelated DOM additions", async () => {
+    const { root } = createListboxFixture()
+    bootstrapAffinoListboxes()
+    const handleBefore = root.affinoListbox
+
+    const unrelated = document.createElement("div")
+    unrelated.textContent = "unrelated"
+    document.body.appendChild(unrelated)
+
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(root.affinoListbox).toBe(handleBefore)
+  })
+
   it("binds Livewire hooks after late livewire:load and hydrates morph additions", () => {
     createListboxFixture()
     bootstrapAffinoListboxes()
@@ -311,6 +344,26 @@ describe("listbox integration", () => {
     const afterEnter = handle.getSnapshot()
     expect(afterEnter.values).toEqual(["alpha"])
     expect(afterEnter.open).toBe(false)
+  })
+
+  it("tracks options only inside listbox surface", () => {
+    const { root, trigger } = createListboxFixture()
+    const rogue = document.createElement("button")
+    rogue.dataset.affinoListboxOption = ""
+    rogue.dataset.affinoListboxValue = "rogue"
+    rogue.textContent = "Rogue"
+    root.insertBefore(rogue, root.firstChild)
+
+    hydrateListbox(root as any)
+    trigger.click()
+
+    const handle = (root as any).affinoListbox as {
+      getSnapshot(): { values: string[] }
+    }
+    trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }))
+    trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }))
+
+    expect(handle.getSnapshot().values).toEqual(["alpha"])
   })
 
   it("applies listbox ARIA semantics and tracks active descendant", () => {

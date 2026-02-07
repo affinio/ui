@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("../menu/hydrate", () => ({
   disconnectMutationObserver: vi.fn(),
+  MENU_ROOT_SELECTOR: "[data-affino-menu-root]",
   refreshMenusInScope: vi.fn(),
   restartMutationObserver: vi.fn(),
   scheduleRefresh: vi.fn(),
@@ -74,6 +75,8 @@ describe("menu livewire hooks", () => {
     })
 
     const scope = document.createElement("div")
+    scope.dataset.affinoMenuRoot = "menu-root"
+    document.body.appendChild(scope)
     handlers.get("morph.added")?.({ el: scope })
     handlers.get("morph.updated")?.({ el: scope })
 
@@ -98,6 +101,7 @@ describe("menu livewire hooks", () => {
     ;(refreshMenusInScope as ReturnType<typeof vi.fn>).mockClear()
 
     const scope = document.createElement("div")
+    document.body.appendChild(scope)
     handlers.get("morph.added")?.({ el: scope })
     handlers.get("morph.updated")?.({ el: scope })
     handlers.get("message.processed")?.({ component: { el: scope } })

@@ -39,6 +39,31 @@ function createDialogId(prefix = "affino-dialog") {
   return `${prefix}-${controllerId}`
 }
 
+export function createStandardModalDialogOptions(
+  overrides: DialogControllerOptions = {},
+): DialogControllerOptions {
+  const mergedTraits: DialogOverlayTraits = {
+    modal: true,
+    trapsFocus: true,
+    blocksPointerOutside: true,
+    inertSiblings: true,
+    returnFocus: true,
+    ...(overrides.overlayEntryTraits ?? {}),
+  }
+  return {
+    overlayKind: "dialog",
+    closeStrategy: "blocking",
+    ...overrides,
+    overlayEntryTraits: mergedTraits,
+  }
+}
+
+export function createStandardModalDialogController(
+  overrides: DialogControllerOptions = {},
+): DialogController {
+  return new DialogController(createStandardModalDialogOptions(overrides))
+}
+
 function mapOverlayCloseReason(reason: KernelOverlayCloseReason): DialogCloseReason | null {
   switch (reason) {
     case "pointer-outside":
@@ -211,11 +236,7 @@ export class DialogController {
     reason: DialogCloseReason = "programmatic",
     request: CloseRequestOptions = {}
   ): Promise<boolean> {
-    if (this.destroyed) {
-      return false
-    }
-
-    if (!this.canAttemptClose()) {
+    if (!this.canHandleClose(reason)) {
       return false
     }
 
@@ -267,6 +288,23 @@ export class DialogController {
 
   getPendingCloseAttempts(): number {
     return this.pendingAttempts
+  }
+
+  canHandleClose(reason: DialogCloseReason = "programmatic"): boolean {
+    if (this.destroyed) {
+      return false
+    }
+    if (!this.canAttemptClose()) {
+      return false
+    }
+    if (!this.isKernelManagedReason(reason)) {
+      return true
+    }
+    const manager = this.overlayIntegration.getManager()
+    if (manager) {
+      return Boolean(manager.getEntry(this.overlayId))
+    }
+    return this.canHandleCloseLegacy(reason)
   }
 
   private enterClosing(reason: DialogCloseReason): void {

@@ -57,7 +57,6 @@ export {
   AFFINO_TREEVIEW_MANUAL_EVENT,
   AFFINO_DISCLOSURE_MANUAL_EVENT,
 }
-export { bindLivewireActionBridge }
 
 export function getAffinoOverlayManager(doc?: Document | null): OverlayManager | null {
   const target = doc ?? (typeof document !== "undefined" ? document : null)
