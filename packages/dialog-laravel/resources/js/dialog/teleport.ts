@@ -21,11 +21,22 @@ function maybeTeleportOverlay(root: RootEl, overlay: OverlayEl, target: string |
     const duplicates = Array.from(host.querySelectorAll<OverlayEl>(selector)).filter((candidate) => candidate !== overlay)
     duplicates.forEach((candidate) => candidate.remove())
   }
+  const ownerOverlayId = root.dataset.affinoDialogOwnerId?.trim()
   const parent = overlay.parentElement
   const nextSibling = overlay.nextSibling
   const placeholder = doc.createComment("affino-dialog-portal")
   parent?.replaceChild(placeholder, overlay)
-  host.appendChild(overlay)
+  if (ownerOverlayId) {
+    const ownerSelector = `[data-affino-dialog-overlay][data-affino-dialog-owner="${escapeAttributeValue(ownerOverlayId)}"]`
+    const ownerOverlay = host.querySelector<OverlayEl>(ownerSelector)
+    if (ownerOverlay?.parentElement === host) {
+      host.insertBefore(overlay, ownerOverlay.nextSibling)
+    } else {
+      host.appendChild(overlay)
+    }
+  } else {
+    host.appendChild(overlay)
+  }
   return () => {
     if (placeholder.parentNode) {
       placeholder.parentNode.replaceChild(overlay, placeholder)

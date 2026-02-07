@@ -13,6 +13,7 @@
     'stateSync' => false,
     'pendingMessage' => null,
     'maxPendingAttempts' => null,
+    'ownerId' => null,
     'labelledBy' => null,
     'ariaLabel' => null,
     'surfaceRole' => 'dialog',
@@ -49,6 +50,10 @@
 
     if ($maxPendingAttempts !== null) {
         $rootAttributes['data-affino-dialog-max-pending'] = (string) $maxPendingAttempts;
+    }
+
+    if ($ownerId) {
+        $rootAttributes['data-affino-dialog-owner-id'] = $ownerId;
     }
 @endphp
 

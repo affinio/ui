@@ -24,6 +24,7 @@ type RootEl = HTMLElement & {
     affinoDialogStateSync?: string
     affinoDialogPendingMessage?: string
     affinoDialogMaxPending?: string
+    affinoDialogOwnerId?: string
     affinoDialogState?: string
   }
   affinoDialog?: DialogHandle

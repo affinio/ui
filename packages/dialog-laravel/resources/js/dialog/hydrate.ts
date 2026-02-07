@@ -46,6 +46,7 @@ const pinnedOpenRegistry = new Map<string, boolean>()
 const openStateRegistry = new Map<string, boolean>()
 const focusSnapshotRegistry = new Map<string, FocusSnapshot>()
 const dialogOwnerRegistry = new WeakMap<Document, Map<string, RootEl>>()
+const dialogOverlayOrderRegistry = new WeakMap<OverlayManager, { count: number; unsubscribe: () => void }>()
 let dialogOverlayIdCounter = 0
 const pendingScanScopes = new Set<ParentNode>()
 const pendingRemovedRoots = new Set<RootEl>()
@@ -141,7 +142,13 @@ function hydrateDialog(root: RootEl): void {
     focusOrchestrator: createFocusOrchestrator(surface, root, options, rootId),
     overlayManager: resolveSharedOverlayManager(ownerDocument),
     overlayRegistrar: globalOverlayRegistrar,
+    overlayEntryTraits: {
+      ownerId: resolveOwnerId(root),
+    },
   })
+  const overlayManager = resolveSharedOverlayManager(ownerDocument)
+  registerDialogOverlayOrder(overlayManager, ownerDocument)
+  binding.detachments.push(() => unregisterDialogOverlayOrder(overlayManager))
   registerBinding(binding)
 
   const unsubscribe = binding.controller.subscribe((snapshot) => applySnapshot(binding, snapshot))
@@ -461,6 +468,55 @@ function resolveTeleportTarget(value?: string): string | null {
     return null
   }
   return value
+}
+
+function registerDialogOverlayOrder(manager: OverlayManager, ownerDocument: Document): void {
+  const existing = dialogOverlayOrderRegistry.get(manager)
+  if (existing) {
+    existing.count += 1
+    return
+  }
+  const applyOrder = () => {
+    const stack = manager.getStack()
+    let dialogIndex = 0
+    stack.forEach((entry) => {
+      if (entry.kind !== "dialog") {
+        return
+      }
+      const selector = `[data-affino-dialog-overlay][data-affino-dialog-owner="${escapeAttributeValue(entry.id)}"]`
+      const overlay = ownerDocument.querySelector<HTMLElement>(selector)
+      if (!overlay) {
+        return
+      }
+      const zIndex = 1500 + dialogIndex
+      overlay.style.zIndex = String(zIndex)
+      dialogIndex += 1
+    })
+  }
+  const unsubscribe = manager.onStackChanged(() => applyOrder())
+  dialogOverlayOrderRegistry.set(manager, { count: 1, unsubscribe })
+  applyOrder()
+}
+
+function unregisterDialogOverlayOrder(manager: OverlayManager): void {
+  const existing = dialogOverlayOrderRegistry.get(manager)
+  if (!existing) {
+    return
+  }
+  existing.count -= 1
+  if (existing.count > 0) {
+    return
+  }
+  existing.unsubscribe()
+  dialogOverlayOrderRegistry.delete(manager)
+}
+
+function resolveOwnerId(root: RootEl): string | null {
+  const ownerId = root.dataset.affinoDialogOwnerId?.trim()
+  if (!ownerId) {
+    return null
+  }
+  return ownerId
 }
 
 function tagOverlayOwner(root: RootEl, overlay: OverlayEl): void {
