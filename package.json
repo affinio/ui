@@ -64,7 +64,9 @@
   "pnpm": {
     "overrides": {
       "braces": "^3.0.3",
-      "preact": "^10.28.2"
+      "preact": "^10.28.2",
+      "micromatch": "^4.0.8",
+      "esbuild": "^0.25.0"
     }
   }
 }
