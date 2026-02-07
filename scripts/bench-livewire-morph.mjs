@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 
 import { performance } from "node:perf_hooks"
+import { mkdirSync, writeFileSync } from "node:fs"
+import { dirname, resolve } from "node:path"
 import { JSDOM } from "jsdom"
 
 const ROOTS_PER_KIND = Number.parseInt(process.env.ROOTS_PER_KIND ?? "150", 10)
@@ -17,6 +19,7 @@ const PERF_BUDGET_MAX_BOOTSTRAP_MS = Number.parseFloat(process.env.PERF_BUDGET_M
 const PERF_BUDGET_MAX_OPEN_CLOSE_MS = Number.parseFloat(process.env.PERF_BUDGET_MAX_OPEN_CLOSE_MS ?? "Infinity")
 const PERF_BUDGET_MAX_VARIANCE_PCT = Number.parseFloat(process.env.PERF_BUDGET_MAX_VARIANCE_PCT ?? "Infinity")
 const PERF_BUDGET_MAX_HEAP_DELTA_MB = Number.parseFloat(process.env.PERF_BUDGET_MAX_HEAP_DELTA_MB ?? "Infinity")
+const BENCH_OUTPUT_JSON = process.env.BENCH_OUTPUT_JSON ? resolve(process.env.BENCH_OUTPUT_JSON) : null
 
 const PACKAGES = [
   { name: "dialog", root: "[data-affino-dialog-root]", trigger: "[data-affino-dialog-trigger]", content: "[data-affino-dialog-overlay]" },
@@ -450,6 +453,39 @@ summaryRows.forEach((row) => {
     }
   })
 })
+
+const summary = {
+  benchmark: "laravel-livewire-morph",
+  generatedAt: new Date().toISOString(),
+  config: {
+    rootsPerKind: ROOTS_PER_KIND,
+    iterations: ITERATIONS,
+    structureMutationRate: STRUCTURE_MUTATION_RATE,
+    seeds: BENCH_SEEDS,
+  },
+  budgets: {
+    totalMs: PERF_BUDGET_TOTAL_MS,
+    maxHydrateRatePct: PERF_BUDGET_MAX_HYDRATE_RATE_PCT,
+    maxBootstrapMs: PERF_BUDGET_MAX_BOOTSTRAP_MS,
+    maxOpenCloseMs: PERF_BUDGET_MAX_OPEN_CLOSE_MS,
+    maxVariancePct: PERF_BUDGET_MAX_VARIANCE_PCT,
+    maxHeapDeltaMb: PERF_BUDGET_MAX_HEAP_DELTA_MB,
+  },
+  aggregate: {
+    elapsed: elapsedStats,
+    heapDelta: heapStats,
+  },
+  perPackage: summaryRows,
+  runs: runResults,
+  budgetErrors,
+  ok: budgetErrors.length === 0,
+}
+
+if (BENCH_OUTPUT_JSON) {
+  mkdirSync(dirname(BENCH_OUTPUT_JSON), { recursive: true })
+  writeFileSync(BENCH_OUTPUT_JSON, JSON.stringify(summary, null, 2))
+  console.log(`Benchmark summary written: ${BENCH_OUTPUT_JSON}`)
+}
 
 if (budgetErrors.length) {
   console.error("\nPerformance budget check failed:")

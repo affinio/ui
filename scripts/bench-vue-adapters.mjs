@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 
 import { performance } from "node:perf_hooks"
+import { mkdirSync, writeFileSync } from "node:fs"
+import { dirname, resolve } from "node:path"
 import { JSDOM } from "jsdom"
 
 const ROOTS_PER_KIND = Number.parseInt(process.env.ROOTS_PER_KIND ?? "120", 10)
@@ -17,6 +19,7 @@ const PERF_BUDGET_MAX_CONTROLLER_MS = Number.parseFloat(process.env.PERF_BUDGET_
 const PERF_BUDGET_MAX_RELAYOUT_MS = Number.parseFloat(process.env.PERF_BUDGET_MAX_RELAYOUT_MS ?? "Infinity")
 const PERF_BUDGET_MAX_VARIANCE_PCT = Number.parseFloat(process.env.PERF_BUDGET_MAX_VARIANCE_PCT ?? "Infinity")
 const PERF_BUDGET_MAX_HEAP_DELTA_MB = Number.parseFloat(process.env.PERF_BUDGET_MAX_HEAP_DELTA_MB ?? "Infinity")
+const BENCH_OUTPUT_JSON = process.env.BENCH_OUTPUT_JSON ? resolve(process.env.BENCH_OUTPUT_JSON) : null
 
 const PACKAGES = [
   { name: "dialog-vue", rootAttr: "data-affino-dialog-root", kind: "surface" },
@@ -347,6 +350,39 @@ summaryRows.forEach((row) => {
     }
   })
 })
+
+const summary = {
+  benchmark: "vue-adapters",
+  generatedAt: new Date().toISOString(),
+  config: {
+    rootsPerKind: ROOTS_PER_KIND,
+    controllerIterations: CONTROLLER_ITERATIONS,
+    relayoutIterations: RELAYOUT_ITERATIONS,
+    seeds: BENCH_SEEDS,
+  },
+  budgets: {
+    totalMs: PERF_BUDGET_TOTAL_MS,
+    maxBootstrapMs: PERF_BUDGET_MAX_BOOTSTRAP_MS,
+    maxControllerMs: PERF_BUDGET_MAX_CONTROLLER_MS,
+    maxRelayoutMs: PERF_BUDGET_MAX_RELAYOUT_MS,
+    maxVariancePct: PERF_BUDGET_MAX_VARIANCE_PCT,
+    maxHeapDeltaMb: PERF_BUDGET_MAX_HEAP_DELTA_MB,
+  },
+  aggregate: {
+    elapsed: elapsedStats,
+    heapDelta: heapStats,
+  },
+  perPackage: summaryRows,
+  runs: runResults,
+  budgetErrors,
+  ok: budgetErrors.length === 0,
+}
+
+if (BENCH_OUTPUT_JSON) {
+  mkdirSync(dirname(BENCH_OUTPUT_JSON), { recursive: true })
+  writeFileSync(BENCH_OUTPUT_JSON, JSON.stringify(summary, null, 2))
+  console.log(`Benchmark summary written: ${BENCH_OUTPUT_JSON}`)
+}
 
 if (budgetErrors.length > 0) {
   console.error("Performance budget failures:")

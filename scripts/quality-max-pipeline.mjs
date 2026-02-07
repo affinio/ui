@@ -4,7 +4,8 @@ import { spawnSync } from "node:child_process"
 const steps = [
   { label: "lint", command: "pnpm", args: ["run", "lint"] },
   { label: "type-check", command: "pnpm", args: ["run", "type-check"] },
-  { label: "unit-tests", command: "pnpm", args: ["run", "test:unit"] },
+  { label: "datagrid-unit", command: "pnpm", args: ["run", "test:matrix:unit"] },
+  { label: "datagrid-integration", command: "pnpm", args: ["run", "test:matrix:integration"] },
   { label: "vue-matrix", command: "pnpm", args: ["run", "test:vue-matrix"] },
 ]
 
@@ -12,7 +13,8 @@ const shouldSkipE2E = process.env.QUALITY_MAX_SKIP_E2E === "true"
 const shouldSkipBench = process.env.QUALITY_MAX_SKIP_BENCH === "true"
 
 if (!shouldSkipE2E) {
-  steps.push({ label: "e2e", command: "pnpm", args: ["run", "test:e2e"] })
+  steps.push({ label: "e2e", command: "pnpm", args: ["run", "test:matrix:interaction"] })
+  steps.push({ label: "visual", command: "pnpm", args: ["run", "test:matrix:visual"] })
 }
 
 if (!shouldSkipBench) {
