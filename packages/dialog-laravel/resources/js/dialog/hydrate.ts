@@ -58,6 +58,7 @@ type FocusSnapshot = {
   key: FocusSnapshotKey | null
   selectionStart: number | null
   selectionEnd: number | null
+  value: string | null
 }
 
 type FocusSnapshotKey =
@@ -392,6 +393,16 @@ function bindFocusSnapshotTracking(binding: DialogBinding, rootId: string): void
   binding.detachments.push(() => surface.removeEventListener("focusin", capture))
   binding.detachments.push(() => surface.removeEventListener("input", capture))
 
+  const ownerDocument = binding.root.ownerDocument ?? document
+  const selectionHandler = () => {
+    const active = ownerDocument.activeElement
+    if (active instanceof HTMLElement && surface.contains(active)) {
+      captureFocusSnapshot(binding.root, surface)
+    }
+  }
+  ownerDocument.addEventListener("selectionchange", selectionHandler)
+  binding.detachments.push(() => ownerDocument.removeEventListener("selectionchange", selectionHandler))
+
   let pendingRestore = false
   const scheduleRestore = () => {
     if (pendingRestore) {
@@ -406,6 +417,11 @@ function bindFocusSnapshotTracking(binding: DialogBinding, rootId: string): void
       }
       const active = binding.root.ownerDocument?.activeElement
       if (active instanceof HTMLElement && surface.contains(active)) {
+        const snapshotValue = focusSnapshotRegistry.get(rootId)
+        const activeKey = resolveFocusKey(active)
+        if (snapshotValue?.key && activeKey && focusKeysEqual(snapshotValue.key, activeKey)) {
+          restoreSelectionWithRetry(active, snapshotValue)
+        }
         return
       }
       restoreFocusSnapshot(rootId, surface)
@@ -538,10 +554,12 @@ function captureFocusSnapshot(root: RootEl, surface: SurfaceEl): boolean {
     return false
   }
   const selection = readSelection(active)
+  const value = readValue(active)
   focusSnapshotRegistry.set(rootId, {
     key,
     selectionStart: selection.start,
     selectionEnd: selection.end,
+    value,
   })
   return true
 }
@@ -556,8 +574,8 @@ function restoreFocusSnapshot(rootId: string, surface: SurfaceEl): boolean {
     return false
   }
   target.focus({ preventScroll: true })
+  applyValue(target, snapshot.value)
   applySelection(target, snapshot.selectionStart, snapshot.selectionEnd)
-  focusSnapshotRegistry.delete(rootId)
   return true
 }
 
@@ -591,6 +609,23 @@ function resolveFocusKey(target: HTMLElement): FocusSnapshotKey | null {
   return null
 }
 
+function focusKeysEqual(a: FocusSnapshotKey, b: FocusSnapshotKey): boolean {
+  return a.type === b.type && a.value === b.value
+}
+
+function restoreSelectionWithRetry(target: HTMLElement, snapshot: FocusSnapshot, attempt = 0): void {
+  if (attempt > 2) {
+    return
+  }
+  applyValue(target, snapshot.value)
+  applySelection(target, snapshot.selectionStart, snapshot.selectionEnd)
+  const current = readSelection(target)
+  if (current.start === snapshot.selectionStart && current.end === snapshot.selectionEnd) {
+    return
+  }
+  requestAnimationFrame(() => restoreSelectionWithRetry(target, snapshot, attempt + 1))
+}
+
 function readSelection(target: HTMLElement): { start: number | null; end: number | null } {
   if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
     return {
@@ -599,6 +634,24 @@ function readSelection(target: HTMLElement): { start: number | null; end: number
     }
   }
   return { start: null, end: null }
+}
+
+function readValue(target: HTMLElement): string | null {
+  if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
+    return target.value
+  }
+  return null
+}
+
+function applyValue(target: HTMLElement, value: string | null): void {
+  if (value == null) {
+    return
+  }
+  if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
+    if (target.value !== value) {
+      target.value = value
+    }
+  }
 }
 
 function applySelection(target: HTMLElement, start: number | null, end: number | null): void {
