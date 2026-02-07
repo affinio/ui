@@ -64,7 +64,17 @@
         </div>
     @endisset
 
-    <div data-affino-dialog-overlay data-affino-dialog-owner="{{ $dialogId }}" data-state="closed" hidden>
+    <div
+        data-affino-dialog-overlay
+        data-affino-dialog-owner="{{ $dialogId }}"
+        data-state="closed"
+        hidden
+        @if(($teleportTarget ?? null) || ($teleport ?? null))
+            @if(trim((string) ($teleportTarget ?? $teleport)) !== '' && trim((string) ($teleportTarget ?? $teleport)) !== 'inline')
+                wire:ignore.self
+            @endif
+        @endif
+    >
         <div
             data-affino-dialog-surface
             role="{{ $surfaceRole }}"

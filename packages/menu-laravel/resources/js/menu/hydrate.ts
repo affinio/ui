@@ -1202,6 +1202,9 @@ class MenuInstance {
     const triggerProps = this.core instanceof SubmenuCore
       ? this.withPointerMeta(this.core.getTriggerProps())
       : this.withPointerMeta(this.stripHoverHandlers(this.core.getTriggerProps()))
+    if (!(this.core instanceof SubmenuCore) && typeof triggerProps.onClick !== "function") {
+      triggerProps.onClick = () => this.core.toggle()
+    }
     const basePanelProps = this.withDomKeydown(this.core.getPanelProps())
     const panelProps = this.withPointerMeta(
       this.core instanceof SubmenuCore ? basePanelProps : this.stripHoverDismiss(basePanelProps),
@@ -1222,6 +1225,8 @@ class MenuInstance {
     this.bindIntentListeners()
     this.bindOutsideGuards()
     this.bindViewportHandlers()
+    this.panel.addEventListener("focusin", this.cancelFocusRequest)
+    this.cleanup.push(() => this.panel.removeEventListener("focusin", this.cancelFocusRequest))
 
     const subscription = this.core.subscribe((snapshot) => this.syncState(snapshot))
     this.cleanup.push(() => subscription.unsubscribe())

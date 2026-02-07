@@ -18,6 +18,7 @@ type LivewireBridgeOptions = {
   argsAttribute?: string
   modelAttribute?: string
   modelEventAttribute?: string
+  resetScopeAttribute?: string
 }
 
 const DEFAULTS = {
@@ -27,6 +28,7 @@ const DEFAULTS = {
   argsAttribute: "data-affino-livewire-args",
   modelAttribute: "data-affino-livewire-model",
   modelEventAttribute: "data-affino-livewire-model-event",
+  resetScopeAttribute: "data-affino-livewire-reset-scope",
 }
 
 export function bindLivewireActionBridge(options: LivewireBridgeOptions = {}): void {
@@ -41,6 +43,7 @@ export function bindLivewireActionBridge(options: LivewireBridgeOptions = {}): v
   const argsAttribute = options.argsAttribute ?? DEFAULTS.argsAttribute
   const modelAttribute = options.modelAttribute ?? DEFAULTS.modelAttribute
   const modelEventAttribute = options.modelEventAttribute ?? DEFAULTS.modelEventAttribute
+  const resetScopeAttribute = options.resetScopeAttribute ?? DEFAULTS.resetScopeAttribute
   const selector = `[${methodAttribute}]`
   const modelSelector = `[${modelAttribute}]`
 
@@ -73,6 +76,7 @@ export function bindLivewireActionBridge(options: LivewireBridgeOptions = {}): v
         if (!invokeComponentMethod(component, method, args)) {
           console.warn("Affino Livewire action bridge: unsupported call API", { owner, method })
         }
+        maybeResetInputs(target, resetScopeAttribute, ownerAttribute)
         return
       } catch (error) {
         console.warn("Affino Livewire action bridge: invalid JSON args", error)
@@ -84,12 +88,14 @@ export function bindLivewireActionBridge(options: LivewireBridgeOptions = {}): v
       if (!invokeComponentMethod(component, method, [arg])) {
         console.warn("Affino Livewire action bridge: unsupported call API", { owner, method })
       }
+      maybeResetInputs(target, resetScopeAttribute, ownerAttribute)
       return
     }
 
     if (!invokeComponentMethod(component, method, [])) {
       console.warn("Affino Livewire action bridge: unsupported call API", { owner, method })
     }
+    maybeResetInputs(target, resetScopeAttribute, ownerAttribute)
   }, true)
 
   const syncModelHandler = (event: Event) => {
@@ -247,6 +253,56 @@ function resolveEventTargetElement(target: EventTarget | null): Element | null {
     return target.parentElement
   }
   return null
+}
+
+function maybeResetInputs(trigger: Element, resetScopeAttribute: string, ownerAttribute: string): void {
+  const scopeSelector = trigger.getAttribute(resetScopeAttribute)?.trim()
+  if (!scopeSelector) {
+    return
+  }
+  const ownerId = trigger.getAttribute(ownerAttribute)?.trim()
+  const scopes: HTMLElement[] = []
+  const scope = trigger.closest<HTMLElement>(scopeSelector)
+  if (scope) {
+    scopes.push(scope)
+  }
+  if (typeof document !== "undefined") {
+    if (ownerId) {
+      const ownerScopeSelector = `${scopeSelector} [${ownerAttribute}="${ownerId}"]`
+      const ownerTargets = Array.from(document.querySelectorAll<HTMLElement>(ownerScopeSelector))
+      ownerTargets.forEach((target) => {
+        const ownerScope = target.closest<HTMLElement>(scopeSelector)
+        if (ownerScope && !scopes.includes(ownerScope)) {
+          scopes.push(ownerScope)
+        }
+      })
+      const ownerFields = document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>(
+        `${scopeSelector} input[${ownerAttribute}="${ownerId}"], ${scopeSelector} textarea[${ownerAttribute}="${ownerId}"]`,
+      )
+      clearFields(ownerFields)
+    }
+  }
+  scopes.forEach((targetScope) => {
+    const fields = targetScope.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>("input, textarea")
+    clearFields(fields)
+  })
+}
+
+function clearFields(fields: NodeListOf<HTMLInputElement | HTMLTextAreaElement>): void {
+  fields.forEach((field) => {
+    if (field instanceof HTMLInputElement) {
+      const type = field.type.toLowerCase()
+      if (type === "checkbox" || type === "radio") {
+        field.checked = false
+      } else {
+        field.value = ""
+      }
+    } else {
+      field.value = ""
+    }
+    field.dispatchEvent(new Event("input", { bubbles: true }))
+    field.dispatchEvent(new Event("change", { bubbles: true }))
+  })
 }
 
 function readModelValue(target: Element): unknown {

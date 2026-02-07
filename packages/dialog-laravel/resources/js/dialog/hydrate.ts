@@ -92,9 +92,18 @@ function hydrateDialog(root: RootEl): void {
     const inlineOverlays = Array.from(root.querySelectorAll<OverlayEl>("[data-affino-dialog-overlay]"))
       .filter((node) => node !== overlay)
     inlineOverlays.forEach((node) => {
-      node.dataset.state = "closed"
-      node.hidden = true
+      node.remove()
     })
+    const ownerId = root.dataset.affinoDialogRoot
+    if (ownerId) {
+      const doc = root.ownerDocument ?? document
+      const selector = `[data-affino-dialog-overlay][data-affino-dialog-owner="${escapeAttributeValue(ownerId)}"]`
+      Array.from(doc.querySelectorAll<OverlayEl>(selector)).forEach((candidate) => {
+        if (candidate !== overlay) {
+          candidate.remove()
+        }
+      })
+    }
   }
 
   const previousStructure = structureRegistry.get(root)
