@@ -18,6 +18,7 @@ type RootEl = HTMLElement & {
 type Cleanup = () => void
 
 const registry = new WeakMap<RootEl, Cleanup>()
+const openStateRegistry = new Map<string, boolean>()
 
 export function bootstrapAffinoDisclosure(): void {
   if (typeof document === "undefined") {
@@ -36,11 +37,17 @@ export function hydrateDisclosure(root: RootEl): void {
 
   registry.get(root)?.()
 
-  const core = new DisclosureCore(readBoolean(root.dataset.affinoDisclosureDefaultOpen, false))
+  const rootId = root.dataset.affinoDisclosureRoot?.trim() ?? ""
+  const persistedOpen = rootId ? openStateRegistry.get(rootId) : undefined
+  const defaultOpen = readBoolean(root.dataset.affinoDisclosureDefaultOpen, false)
+  const core = new DisclosureCore(typeof persistedOpen === "boolean" ? persistedOpen : defaultOpen)
   const subscription = core.subscribe((state) => {
     content.hidden = !state.open
     content.dataset.state = state.open ? "open" : "closed"
     root.dataset.affinoDisclosureState = state.open ? "open" : "closed"
+    if (rootId) {
+      openStateRegistry.set(rootId, state.open)
+    }
   })
 
   const onClick = () => core.toggle()
