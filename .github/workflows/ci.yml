@@ -77,11 +77,11 @@ jobs:
 
       - name: Run unit matrix suite
         if: matrix.suite == 'unit'
-        run: pnpm -r --if-present --filter "!@affino/datagrid-core" --filter "!@affino/datagrid-vue" test:unit
+        run: pnpm -r --if-present --filter '!@affino/datagrid-core' --filter '!...@affino/datagrid-core' --filter '!@affino/datagrid-vue' --filter '!...@affino/datagrid-vue' test:unit
 
       - name: Run integration matrix suite
         if: matrix.suite == 'integration'
-        run: pnpm -r --if-present --filter "!@affino/datagrid-core" --filter "!@affino/datagrid-vue" test:integration
+        run: pnpm -r --if-present --filter '!@affino/datagrid-core' --filter '!...@affino/datagrid-core' --filter '!@affino/datagrid-vue' --filter '!...@affino/datagrid-vue' test:integration
 
       - name: Run interaction matrix suite (e2e + flake gate)
         if: matrix.suite == 'interaction'
