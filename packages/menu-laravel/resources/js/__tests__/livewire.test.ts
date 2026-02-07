@@ -26,6 +26,7 @@ describe("menu livewire hooks", () => {
     document.dispatchEvent(new Event("livewire:load"))
 
     expect(hook).toHaveBeenCalled()
+    expect(scheduleRefresh).toHaveBeenCalled()
   })
 
   it("restarts observer and schedules refresh around livewire navigation", () => {
@@ -79,5 +80,53 @@ describe("menu livewire hooks", () => {
     expect(refreshMenusInScope).toHaveBeenCalledTimes(2)
     expect(refreshMenusInScope).toHaveBeenNthCalledWith(1, scope)
     expect(refreshMenusInScope).toHaveBeenNthCalledWith(2, scope)
+  })
+
+  it("skips refresh work for scoped morph updates that do not include menu roots", () => {
+    ;(window as any).Livewire = { hook: vi.fn() }
+    setupLivewireHooks()
+
+    const hookMock = (window as any).Livewire.hook as ReturnType<typeof vi.fn>
+    const handlers = new Map<string, (...args: unknown[]) => void>()
+    hookMock.mock.calls.forEach(([name, handler]) => {
+      if (typeof name === "string" && typeof handler === "function") {
+        handlers.set(name, handler)
+      }
+    })
+
+    ;(scheduleRefresh as ReturnType<typeof vi.fn>).mockClear()
+    ;(refreshMenusInScope as ReturnType<typeof vi.fn>).mockClear()
+
+    const scope = document.createElement("div")
+    handlers.get("morph.added")?.({ el: scope })
+    handlers.get("morph.updated")?.({ el: scope })
+    handlers.get("message.processed")?.({ component: { el: scope } })
+    handlers.get("commit")?.({ component: { el: scope } })
+
+    expect(refreshMenusInScope).not.toHaveBeenCalled()
+    expect(scheduleRefresh).not.toHaveBeenCalled()
+  })
+
+  it("falls back to full refresh on component removal when scope is disconnected", () => {
+    ;(window as any).Livewire = { hook: vi.fn() }
+    setupLivewireHooks()
+
+    const hookMock = (window as any).Livewire.hook as ReturnType<typeof vi.fn>
+    const handlers = new Map<string, (...args: unknown[]) => void>()
+    hookMock.mock.calls.forEach(([name, handler]) => {
+      if (typeof name === "string" && typeof handler === "function") {
+        handlers.set(name, handler)
+      }
+    })
+
+    ;(scheduleRefresh as ReturnType<typeof vi.fn>).mockClear()
+    ;(refreshMenusInScope as ReturnType<typeof vi.fn>).mockClear()
+
+    const disconnected = document.createElement("div")
+    disconnected.dataset.affinoMenuRoot = "menu-disconnected"
+    handlers.get("component.removed")?.({ el: disconnected })
+
+    expect(refreshMenusInScope).not.toHaveBeenCalled()
+    expect(scheduleRefresh).toHaveBeenCalledTimes(1)
   })
 })

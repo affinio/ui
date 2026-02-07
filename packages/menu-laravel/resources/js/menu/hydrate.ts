@@ -32,6 +32,18 @@ const MENU_ID_ATTR = "data-affino-menu-id"
 const MENU_ROOT_ID_ATTR = "data-affino-menu-root-id"
 const MENU_PARENT_ID_ATTR = "data-affino-menu-parent-id"
 
+function debugMenu(...args: unknown[]): void {
+  if (typeof window === "undefined") {
+    return
+  }
+  const scope = window as unknown as { __affinoMenuDebug?: boolean }
+  if (!scope.__affinoMenuDebug) {
+    return
+  }
+  // eslint-disable-next-line no-console
+  console.debug("[affino-menu]", ...args)
+}
+
 const registry = new Map<RootEl, MenuInstance>()
 const menuById = new Map<string, MenuInstance>()
 const submenuByParentItemId = new Map<string, MenuInstance>()
@@ -83,8 +95,35 @@ type ParentResolution = {
 
 export function hydrateMenu(root: RootEl): void {
   const trigger = root.querySelector<TriggerEl>(MENU_TRIGGER_SELECTOR)
-  const panel = root.querySelector<PanelEl>(MENU_PANEL_SELECTOR)
+  let panel = root.querySelector<PanelEl>(MENU_PANEL_SELECTOR)
+  if (!panel && root.dataset.affinoMenuPortal === "body" && typeof document !== "undefined") {
+    const safeId = typeof CSS !== "undefined" && typeof CSS.escape === "function" && root.dataset.affinoMenuRoot
+      ? CSS.escape(root.dataset.affinoMenuRoot)
+      : root.dataset.affinoMenuRoot
+    if (safeId) {
+      const safePanelId = typeof CSS !== "undefined" && typeof CSS.escape === "function"
+        ? CSS.escape(`${safeId}-panel`)
+        : `${safeId}-panel`
+      panel = document.querySelector<PanelEl>(
+        `${MENU_PANEL_SELECTOR}[${MENU_ROOT_ID_ATTR}='${safeId}'], ${MENU_PANEL_SELECTOR}[${MENU_ID_ATTR}='${safeId}'], ${MENU_PANEL_SELECTOR}#${safePanelId}`,
+      )
+      if (panel) {
+        debugMenu("hydrate:resolved-portal-panel", { root: root.dataset.affinoMenuRoot })
+      }
+    }
+  }
+  if (!panel && root.dataset.affinoMenuPortal === "body") {
+    debugMenu("hydrate:portal-missing-panel", { root: root.dataset.affinoMenuRoot })
+    scheduleRefresh()
+    return
+  }
   if (!trigger || !panel) {
+    debugMenu("hydrate:missing-structure", {
+      root: root.dataset.affinoMenuRoot,
+      hasTrigger: Boolean(trigger),
+      hasPanel: Boolean(panel),
+      portal: root.dataset.affinoMenuPortal,
+    })
     tearDownInstance(root)
     structureRegistry.delete(root)
     return
@@ -95,6 +134,11 @@ export function hydrateMenu(root: RootEl): void {
     const parent = resolveParentResolution(parentId, parentItemId, root)
     const parentCore = parent.core
     if (!parentCore) {
+      debugMenu("hydrate:parent-unresolved", {
+        root: root.dataset.affinoMenuRoot,
+        parentId,
+        parentItemId,
+      })
       root.dataset.affinoMenuParentResolved = "false"
       if (hasConnectedParentRoot(root)) {
         scheduleRefresh()
@@ -633,7 +677,8 @@ class MenuInstance {
   private readonly cleanup: Cleanup[] = []
   private readonly itemReleases: Cleanup[] = []
   private readonly itemsById = new Map<string, ItemEl>()
-  private readonly submenuBindings = new Map<string, Cleanup[]>()
+  private readonly submenuBindings = new Map<string, { cleanup: Cleanup[]; submenu: MenuInstance }>()
+  private readonly submenuLazyBindings = new Map<string, Cleanup[]>()
   private submenuTriggerCleanup: Cleanup[] = []
   private readonly positioning: PositioningOptions
   private readonly loopFocus: boolean
@@ -765,8 +810,9 @@ class MenuInstance {
     itemProps: { onPointerEnter?: (event: PointerEventLike) => void; onClick?: (event: MouseEvent) => void; onKeyDown?: (event: KeyboardEvent) => void },
     submenuInstance: MenuInstance,
   ): void {
+    const resolveSubmenu = () => resolveSubmenuByParentItemId(itemId) ?? submenuInstance
     const openSubmenu = (reason: SurfaceReason) => {
-      this.openSubmenuAfterHighlight(itemId, submenuInstance, reason)
+      this.openSubmenuAfterHighlight(itemId, resolveSubmenu(), reason)
     }
     const pointerEnter = itemProps.onPointerEnter
     itemProps.onPointerEnter = (event) => {
@@ -791,16 +837,26 @@ class MenuInstance {
   }
 
   bindSubmenuToItem(itemId: string, submenuInstance: MenuInstance): void {
-    if (this.submenuBindings.has(itemId)) {
-      return
-    }
+    this.teardownLazySubmenu(itemId)
     const node = this.itemsById.get(itemId)
       ?? (typeof document !== "undefined" ? document.getElementById(itemId) : null)
+    const nextSubmenuId = submenuInstance.getCore().id
+    const existing = this.submenuBindings.get(itemId)
+    const existingSubmenuId = node?.dataset.affinoMenuSubmenuId
+    if (existing && existing.submenu === submenuInstance && existingSubmenuId === nextSubmenuId) {
+      return
+    }
+    if (existing) {
+      existing.cleanup.forEach((fn) => fn())
+      this.submenuBindings.delete(itemId)
+    }
+    debugMenu("bind-submenu", { itemId, menuId: this.core.id, submenuId: nextSubmenuId })
     if (!node) {
       return
     }
+    const resolveSubmenu = () => resolveSubmenuByParentItemId(itemId) ?? submenuInstance
     const openSubmenu = (reason: SurfaceReason) => {
-      this.openSubmenuAfterHighlight(itemId, submenuInstance, reason)
+      this.openSubmenuAfterHighlight(itemId, resolveSubmenu(), reason)
     }
     const onPointerEnter = (_event: PointerEvent) => {
       this.inputIntent = "pointer"
@@ -835,8 +891,93 @@ class MenuInstance {
       () => node.removeEventListener("keydown", onKeyDown, true),
     ]
     node.dataset.affinoMenuSubmenuBound = "true"
+    node.dataset.affinoMenuSubmenuId = nextSubmenuId
     cleanup.forEach((fn) => this.cleanup.push(fn))
-    this.submenuBindings.set(itemId, cleanup)
+    this.submenuBindings.set(itemId, { cleanup, submenu: submenuInstance })
+  }
+
+  private bindSubmenuLazyTrigger(itemId: string): void {
+    if (this.submenuBindings.has(itemId) || this.submenuLazyBindings.has(itemId)) {
+      return
+    }
+    debugMenu("bind-submenu-lazy", { itemId, menuId: this.core.id })
+    const node = this.itemsById.get(itemId)
+      ?? (typeof document !== "undefined" ? document.getElementById(itemId) : null)
+    if (!node) {
+      return
+    }
+    const resolveSubmenu = () => {
+      const existing = resolveSubmenuByParentItemId(itemId)
+      if (existing) {
+        return existing
+      }
+      if (typeof document === "undefined") {
+        return null
+      }
+      const safeId = typeof CSS !== "undefined" && typeof CSS.escape === "function" ? CSS.escape(itemId) : itemId
+      const root = document.querySelector<RootEl>(`${MENU_ROOT_SELECTOR}[data-affino-menu-parent-item='${safeId}']`)
+      if (!root) {
+        debugMenu("lazy-submenu:root-not-found", { itemId })
+        return null
+      }
+      hydrateMenu(root)
+      return resolveSubmenuByParentItemId(itemId)
+    }
+    const openSubmenu = (reason: SurfaceReason) => {
+      debugMenu("lazy-submenu:open", { itemId, reason })
+      const submenuInstance = resolveSubmenu()
+      if (!submenuInstance || submenuInstance === this) {
+        debugMenu("lazy-submenu:missing", { itemId })
+        return
+      }
+      if (!this.submenuBindings.has(itemId)) {
+        this.bindSubmenuToItem(itemId, submenuInstance)
+      }
+      this.openSubmenuAfterHighlight(itemId, submenuInstance, reason)
+    }
+    const onPointerEnter = (_event: PointerEvent) => {
+      this.inputIntent = "pointer"
+      openSubmenu("pointer")
+    }
+    const onMouseEnter = (_event: MouseEvent) => {
+      this.inputIntent = "pointer"
+      openSubmenu("pointer")
+    }
+    const onClick = (event: MouseEvent) => {
+      event.preventDefault()
+      event.stopPropagation()
+      event.stopImmediatePropagation?.()
+      openSubmenu("pointer")
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "ArrowRight" || event.key === "Enter" || event.key === " ") {
+        event.preventDefault()
+        event.stopPropagation()
+        event.stopImmediatePropagation?.()
+        openSubmenu("keyboard")
+      }
+    }
+    node.addEventListener("pointerenter", onPointerEnter)
+    node.addEventListener("mouseenter", onMouseEnter)
+    node.addEventListener("click", onClick, true)
+    node.addEventListener("keydown", onKeyDown, true)
+    const cleanup: Cleanup[] = [
+      () => node.removeEventListener("pointerenter", onPointerEnter),
+      () => node.removeEventListener("mouseenter", onMouseEnter),
+      () => node.removeEventListener("click", onClick, true),
+      () => node.removeEventListener("keydown", onKeyDown, true),
+    ]
+    this.submenuLazyBindings.set(itemId, cleanup)
+    cleanup.forEach((fn) => this.cleanup.push(fn))
+  }
+
+  private teardownLazySubmenu(itemId: string): void {
+    const cleanup = this.submenuLazyBindings.get(itemId)
+    if (!cleanup) {
+      return
+    }
+    cleanup.forEach((fn) => fn())
+    this.submenuLazyBindings.delete(itemId)
   }
 
   private attachSubmenuPanelKeydown(panelProps: Record<string, unknown>): void {
@@ -865,6 +1006,7 @@ class MenuInstance {
     reason: SurfaceReason,
     parentInstance?: MenuInstance,
   ): void {
+    debugMenu("submenu:open", { itemId, reason, parent: parentInstance ? parentInstance.getCore().id : this.core.id, submenu: submenuInstance.getCore().id })
     const parent = parentInstance ?? this
     parent.getCore().highlight(itemId)
     if (typeof queueMicrotask === "function") {
@@ -1018,6 +1160,8 @@ class MenuInstance {
       if (submenuInstance && submenuInstance !== this) {
         this.attachSubmenuHandlers(id, itemProps, submenuInstance)
         this.bindSubmenuToItem(id, submenuInstance)
+      } else if (node.matches(MENU_TRIGGER_SELECTOR)) {
+        this.bindSubmenuLazyTrigger(id)
       }
       this.bindProps(node, itemProps)
       node.dataset.state = "idle"
@@ -1107,6 +1251,7 @@ class MenuInstance {
     const prev = this.isOpen
     this.isOpen = snapshot.open
     const state = this.isOpen ? "open" : "closed"
+    debugMenu("sync-state", { menuId: this.core.id, state, prev })
     this.root.dataset.affinoMenuState = state
     this.trigger.setAttribute("data-state", state)
     this.trigger.setAttribute("aria-expanded", this.isOpen ? "true" : "false")
@@ -1556,6 +1701,10 @@ class MenuInstance {
     this.panelHost = this.panel.parentElement
     if (!this.panelHost) {
       return
+    }
+    if (this.root.dataset.affinoMenuRoot) {
+      this.panel.setAttribute(MENU_ROOT_ID_ATTR, this.root.dataset.affinoMenuRoot)
+      this.panel.setAttribute(MENU_ID_ATTR, this.root.dataset.affinoMenuRoot)
     }
     this.panel.dataset.affinoMenuPortalManaged = "true"
     this.placeholder = document.createComment("affino-menu-panel")

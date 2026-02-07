@@ -6,6 +6,20 @@ export function setupLivewireHooks(): void {
   if (typeof window === "undefined") {
     return
   }
+  if (typeof document !== "undefined") {
+    const key = "__affinoMenuLivewireLoadBound"
+    const scope = window as unknown as Record<string, unknown>
+    if (!scope[key]) {
+      scope[key] = true
+      document.addEventListener(
+        "livewire:load",
+        () => {
+          scheduleRefresh()
+        },
+        { once: true },
+      )
+    }
+  }
   bindLivewireHooks({
     globalKey: "__affinoMenuLivewireHooked",
     hooks: [
@@ -13,45 +27,58 @@ export function setupLivewireHooks(): void {
         name: "morph.added",
         handler: ({ el }: { el?: unknown }) => {
           const scope = normalizeScope(el)
-          if (scope) {
-            refreshMenusInScope(scope)
+          if (refreshFromScope(scope)) {
             return
           }
-          scheduleRefresh()
+          if (!scope) {
+            scheduleRefresh()
+          }
         },
       },
       {
         name: "morph.updated",
         handler: ({ el }: { el?: unknown }) => {
           const scope = normalizeScope(el)
-          if (scope) {
-            refreshMenusInScope(scope)
+          if (refreshFromScope(scope)) {
             return
           }
-          scheduleRefresh()
+          if (!scope) {
+            scheduleRefresh()
+          }
         },
       },
       {
         name: "message.processed",
         handler: (...args: unknown[]) => {
           const scope = resolveLivewireScope(args)
-          if (scope) {
-            refreshMenusInScope(scope)
+          if (refreshFromScope(scope)) {
+            return
+          }
+          if (!scope) {
+            scheduleRefresh()
+          }
+        },
+      },
+      {
+        name: "component.removed",
+        handler: (...args: unknown[]) => {
+          const scope = resolveLivewireScope(args)
+          if (refreshFromScope(scope)) {
             return
           }
           scheduleRefresh()
         },
       },
       {
-        name: "component.removed",
-        handler: () => {
-          scheduleRefresh()
-        },
-      },
-      {
         name: "commit",
-        handler: () => {
-          scheduleRefresh()
+        handler: (...args: unknown[]) => {
+          const scope = resolveLivewireScope(args)
+          if (refreshFromScope(scope)) {
+            return
+          }
+          if (!scope) {
+            scheduleRefresh()
+          }
         },
       },
     ],
@@ -82,6 +109,9 @@ function normalizeScope(scope: unknown): ParentNode | null {
 }
 
 function findLivewireScope(entry: unknown): ParentNode | null {
+  if (entry instanceof HTMLElement || entry instanceof DocumentFragment) {
+    return entry
+  }
   if (!entry || typeof entry !== "object") {
     return null
   }
@@ -91,4 +121,26 @@ function findLivewireScope(entry: unknown): ParentNode | null {
     return el
   }
   return null
+}
+
+function refreshFromScope(scope: ParentNode | null): boolean {
+  if (!scope || !isConnectedScope(scope) || !scopeContainsMenus(scope)) {
+    return false
+  }
+  refreshMenusInScope(scope)
+  return true
+}
+
+function isConnectedScope(scope: ParentNode): boolean {
+  if (scope instanceof HTMLElement || scope instanceof DocumentFragment) {
+    return scope.isConnected
+  }
+  return true
+}
+
+function scopeContainsMenus(scope: ParentNode): boolean {
+  if (scope instanceof Element && scope.matches(MENU_ROOT_SELECTOR)) {
+    return true
+  }
+  return scope.querySelector(MENU_ROOT_SELECTOR) !== null
 }
