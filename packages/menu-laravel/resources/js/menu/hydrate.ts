@@ -64,6 +64,7 @@ const registry = new Map<RootEl, MenuInstance>()
 const menuById = new Map<string, MenuInstance>()
 const submenuByParentItemId = new Map<string, MenuInstance>()
 const structureRegistry = new WeakMap<RootEl, MenuStructureSnapshot>()
+const openStateRegistry = new Map<string, boolean>()
 let mutationObserver: MutationObserver | null = null
 let refreshScheduled = false
 let fullRefreshRequested = false
@@ -1168,7 +1169,11 @@ class MenuInstance {
     const openDelay = readNumber(this.root.dataset.affinoMenuOpenDelay, 80)
     const closeDelay = readNumber(this.root.dataset.affinoMenuCloseDelay, 120)
     const stateOpen = this.root.dataset.affinoMenuState === "open"
-    const defaultOpen = stateOpen || readBoolean(this.root.dataset.affinoMenuDefaultOpen, false)
+    const rootId = this.root.dataset.affinoMenuRoot?.trim() ?? ""
+    const persistedOpen = !parentCore && rootId ? openStateRegistry.get(rootId) : undefined
+    const defaultOpen = typeof persistedOpen === "boolean"
+      ? persistedOpen
+      : stateOpen || readBoolean(this.root.dataset.affinoMenuDefaultOpen, false)
     const closeOnSelect = readBoolean(this.root.dataset.affinoMenuCloseSelect, true)
 
     const options = {
@@ -1399,6 +1404,15 @@ class MenuInstance {
     this.trigger.setAttribute("aria-expanded", this.isOpen ? "true" : "false")
     this.panel.dataset.state = state
 
+    const rootId = this.root.dataset.affinoMenuRoot?.trim() ?? ""
+    if (!this.parentMenuId && rootId) {
+      if (this.isOpen) {
+        openStateRegistry.set(rootId, true)
+      } else {
+        openStateRegistry.delete(rootId)
+      }
+    }
+
     if (this.isOpen) {
       this.panel.hidden = false
       this.panel.setAttribute("aria-hidden", "false")
@@ -1559,6 +1573,13 @@ class MenuInstance {
       return
     }
     if (!domOpen && snapshotOpen) {
+      const rootId = this.root.dataset.affinoMenuRoot?.trim() ?? ""
+      if (!this.parentMenuId && rootId && openStateRegistry.has(rootId)) {
+        if (this.root.dataset.affinoMenuState !== "open") {
+          this.root.dataset.affinoMenuState = "open"
+        }
+        return
+      }
       this.core.close("programmatic")
     }
   }
