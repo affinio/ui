@@ -5,6 +5,12 @@
     "paths": {
       "@affino/dialog-core": ["./packages/dialog-core/src/index.ts"],
       "@affino/dialog-vue": ["./packages/dialog-vue/src/index.ts"],
+      "@affino/datagrid-core": ["./packages/datagrid-core/src/index.ts"],
+      "@affino/datagrid-core/*": ["./packages/datagrid-core/src/*"],
+      "@affino/datagrid-core/theme": ["./packages/datagrid-core/theme/index.ts"],
+      "@affino/datagrid-core/theme/*": ["./packages/datagrid-core/theme/*"],
+      "@affino/datagrid-vue": ["./packages/datagrid-vue/src/index.ts"],
+      "@affino/datagrid-vue/*": ["./packages/datagrid-vue/src/*"],
       "@affino/menu-core": ["./packages/menu-core/src/index.ts"],
       "@affino/dialog-core/*": ["./packages/dialog-core/src/*"],
       "@affino/dialog-vue/*": ["./packages/dialog-vue/src/*"],
