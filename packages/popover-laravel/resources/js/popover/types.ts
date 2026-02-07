@@ -30,6 +30,7 @@ export type RootEl = HTMLElement & {
     affinoPopoverState?: string
     affinoPopoverStateSync?: string
     affinoPopoverTeleport?: string
+    affinoPopoverOwnerId?: string
   }
   affinoPopover?: PopoverHandle
 }

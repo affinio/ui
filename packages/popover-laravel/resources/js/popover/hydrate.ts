@@ -115,6 +115,7 @@ export function hydratePopover(root: RootEl): void {
     defaultOpen: resolvedDefaultOpen,
     overlayManager: resolveSharedOverlayManager(ownerDocument),
     overlayEntryTraits: {
+      ownerId: root.dataset.affinoPopoverOwnerId?.trim() || null,
       root: content,
       returnFocus: options.returnFocus,
     },

@@ -18,6 +18,7 @@
     'arrowOffset' => 6,
     'teleport' => 'inline',
     'teleportTarget' => null,
+        'ownerId' => null,
 ])
 
 @php
@@ -49,6 +50,7 @@
         'data-affino-popover-default-open' => $defaultOpen ? 'true' : 'false',
         'data-affino-popover-state' => $initialState,
         'data-affino-popover-teleport' => $resolvedTeleportTarget,
+            'data-affino-popover-owner-id' => $ownerId,
     ]) }}
 >
     <div data-affino-popover-trigger>

@@ -90,7 +90,7 @@ export function bindLivewireActionBridge(options: LivewireBridgeOptions = {}): v
     if (!invokeComponentMethod(component, method, [])) {
       console.warn("Affino Livewire action bridge: unsupported call API", { owner, method })
     }
-  })
+  }, true)
 
   const syncModelHandler = (event: Event) => {
     const eventTarget = resolveEventTargetElement(event.target)
@@ -117,8 +117,8 @@ export function bindLivewireActionBridge(options: LivewireBridgeOptions = {}): v
     }
   }
 
-  root.addEventListener("input", syncModelHandler)
-  root.addEventListener("change", syncModelHandler)
+  root.addEventListener("input", syncModelHandler, true)
+  root.addEventListener("change", syncModelHandler, true)
 }
 
 function resolveLivewireComponent(target: Element, explicitOwner: string): LivewireComponent | null {
