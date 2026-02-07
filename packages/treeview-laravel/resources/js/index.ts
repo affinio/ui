@@ -228,6 +228,19 @@ function hydrateResolvedTreeview(root: RootEl, structure: TreeviewStructure): vo
     }
   }
 
+  const expandAncestors = (value: string): void => {
+    let current = byValue.get(value)
+    const visited = new Set<string>()
+    while (current?.parent) {
+      if (visited.has(current.parent)) {
+        break
+      }
+      visited.add(current.parent)
+      core.expand(current.parent)
+      current = byValue.get(current.parent)
+    }
+  }
+
   renderStatic()
   const subscription = core.subscribe(renderState)
   const detachments: Cleanup[] = []
@@ -332,6 +345,7 @@ function hydrateResolvedTreeview(root: RootEl, structure: TreeviewStructure): vo
     },
     clearSelection: () => core.clearSelection(),
     focus: (value) => {
+      expandAncestors(value)
       core.focus(value)
       focusActiveTreeItem()
     },
