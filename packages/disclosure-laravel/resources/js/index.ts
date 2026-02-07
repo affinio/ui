@@ -18,6 +18,7 @@ type RootEl = HTMLElement & {
 type Cleanup = () => void
 
 const registry = new WeakMap<RootEl, Cleanup>()
+const structureRegistry = new WeakMap<RootEl, { trigger: HTMLElement; content: HTMLElement }>()
 const openStateRegistry = new Map<string, boolean>()
 
 export function bootstrapAffinoDisclosure(): void {
@@ -35,19 +36,36 @@ export function hydrateDisclosure(root: RootEl): void {
     return
   }
 
+  const previous = structureRegistry.get(root)
+  if (registry.has(root) && previous && previous.trigger === trigger && previous.content === content) {
+    return
+  }
+
   registry.get(root)?.()
 
   const rootId = root.dataset.affinoDisclosureRoot?.trim() ?? ""
   const persistedOpen = rootId ? openStateRegistry.get(rootId) : undefined
   const defaultOpen = readBoolean(root.dataset.affinoDisclosureDefaultOpen, false)
   const core = new DisclosureCore(typeof persistedOpen === "boolean" ? persistedOpen : defaultOpen)
-  const subscription = core.subscribe((state) => {
-    content.hidden = !state.open
-    content.dataset.state = state.open ? "open" : "closed"
-    root.dataset.affinoDisclosureState = state.open ? "open" : "closed"
-    if (rootId) {
+  const applyState = (state: DisclosureState) => {
+    const nextState = state.open ? "open" : "closed"
+    const nextHidden = !state.open
+
+    if (content.hidden !== nextHidden) {
+      content.hidden = nextHidden
+    }
+    if (content.dataset.state !== nextState) {
+      content.dataset.state = nextState
+    }
+    if (root.dataset.affinoDisclosureState !== nextState) {
+      root.dataset.affinoDisclosureState = nextState
+    }
+    if (rootId && openStateRegistry.get(rootId) !== state.open) {
       openStateRegistry.set(rootId, state.open)
     }
+  }
+  const subscription = core.subscribe((state) => {
+    applyState(state)
   })
 
   const onClick = () => core.toggle()
@@ -60,15 +78,37 @@ export function hydrateDisclosure(root: RootEl): void {
     getSnapshot: () => core.getSnapshot(),
   }
 
+  const observer = new MutationObserver(() => {
+    const nextTrigger = root.querySelector<HTMLElement>("[data-affino-disclosure-trigger]")
+    const nextContent = root.querySelector<HTMLElement>("[data-affino-disclosure-content]")
+    if (!nextTrigger || !nextContent) {
+      return
+    }
+    if (nextTrigger !== trigger || nextContent !== content) {
+      hydrateDisclosure(root)
+    }
+  })
+  observer.observe(root, { childList: true, subtree: true })
+
+  const stateObserver = new MutationObserver(() => {
+    applyState(core.getSnapshot())
+  })
+  stateObserver.observe(content, { attributes: true, attributeFilter: ["hidden", "data-state"] })
+
   registry.set(root, () => {
     trigger.removeEventListener("click", onClick)
+    observer.disconnect()
+    stateObserver.disconnect()
     subscription.unsubscribe()
     core.destroy()
     if (root.affinoDisclosure) {
       delete root.affinoDisclosure
     }
     registry.delete(root)
+    structureRegistry.delete(root)
   })
+
+  structureRegistry.set(root, { trigger, content })
 }
 
 function scan(node: ParentNode): void {
