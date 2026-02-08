@@ -22,7 +22,7 @@ if (!shouldSkipE2E) {
 }
 
 if (!shouldSkipBench) {
-  steps.push({ label: "bench-datagrid-harness", command: "pnpm", args: ["run", "bench:datagrid:harness:ci"] })
+  steps.push({ label: "bench-datagrid-regression", command: "pnpm", args: ["run", "bench:regression"] })
 }
 
 const results = []

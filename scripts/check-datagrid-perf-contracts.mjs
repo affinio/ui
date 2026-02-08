@@ -99,6 +99,11 @@ registerFileCheck(
   "docs/datagrid-perf-by-design-runtime.md",
   "Perf-by-design runtime contracts documentation",
 )
+registerFileCheck(
+  "benchmark-report-gate-script",
+  "scripts/check-datagrid-benchmark-report.mjs",
+  "Runtime benchmark report gate script",
+)
 
 registerTokenCheck(
   "viewport-object-pool-contract",
@@ -146,6 +151,13 @@ registerTokenCheck(
   "package.json",
   ["quality:perf:datagrid", "check-datagrid-perf-contracts.mjs"],
   "Root scripts include perf contract gate command",
+)
+
+registerTokenCheck(
+  "benchmark-regression-gate-script",
+  "package.json",
+  ["bench:datagrid:harness:ci:gate", "check-datagrid-benchmark-report.mjs", "bench:regression"],
+  "Runtime benchmark regression uses explicit report gate script",
 )
 
 const totalChecks = checks.length

@@ -168,7 +168,7 @@ jobs:
         run: pnpm --filter @affino/datagrid-core build
 
       - name: Run benchmark regression harness
-        run: pnpm run bench:datagrid:harness:ci
+        run: pnpm run bench:regression
 
       - name: Upload benchmark artifacts
         if: always()
