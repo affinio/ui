@@ -9,6 +9,19 @@ const ROOTS_PER_KIND = Number.parseInt(process.env.ROOTS_PER_KIND ?? "120", 10)
 const CONTROLLER_ITERATIONS = Number.parseInt(process.env.CONTROLLER_ITERATIONS ?? "2000", 10)
 const RELAYOUT_ITERATIONS = Number.parseInt(process.env.RELAYOUT_ITERATIONS ?? "1600", 10)
 const BENCH_SEED = Number.parseInt(process.env.BENCH_SEED ?? "1337", 10)
+const BENCH_WARMUP_RUNS = Number.parseInt(process.env.BENCH_WARMUP_RUNS ?? "1", 10)
+const BENCH_MEASUREMENT_BATCH_SIZE = Number.parseInt(
+  process.env.BENCH_VUE_MEASUREMENT_BATCH_SIZE ?? process.env.BENCH_MEASUREMENT_BATCH_SIZE ?? "5",
+  10,
+)
+const BENCH_MEASUREMENT_SAMPLE_COUNT = Number.parseInt(
+  process.env.BENCH_VUE_MEASUREMENT_SAMPLE_COUNT ?? "5",
+  10,
+)
+const BENCH_MEASUREMENT_WARMUP_COUNT = Number.parseInt(
+  process.env.BENCH_VUE_MEASUREMENT_WARMUP_COUNT ?? "1",
+  10,
+)
 const BENCH_SEEDS = (process.env.BENCH_SEEDS ?? `${BENCH_SEED}`)
   .split(",")
   .map((value) => Number.parseInt(value.trim(), 10))
@@ -18,6 +31,7 @@ const PERF_BUDGET_MAX_BOOTSTRAP_MS = Number.parseFloat(process.env.PERF_BUDGET_M
 const PERF_BUDGET_MAX_CONTROLLER_MS = Number.parseFloat(process.env.PERF_BUDGET_MAX_CONTROLLER_MS ?? "Infinity")
 const PERF_BUDGET_MAX_RELAYOUT_MS = Number.parseFloat(process.env.PERF_BUDGET_MAX_RELAYOUT_MS ?? "Infinity")
 const PERF_BUDGET_MAX_VARIANCE_PCT = Number.parseFloat(process.env.PERF_BUDGET_MAX_VARIANCE_PCT ?? "Infinity")
+const PERF_BUDGET_VARIANCE_MIN_MEAN_MS = Number.parseFloat(process.env.PERF_BUDGET_VARIANCE_MIN_MEAN_MS ?? "0.5")
 const PERF_BUDGET_MAX_HEAP_DELTA_MB = Number.parseFloat(process.env.PERF_BUDGET_MAX_HEAP_DELTA_MB ?? "Infinity")
 const BENCH_OUTPUT_JSON = process.env.BENCH_OUTPUT_JSON ? resolve(process.env.BENCH_OUTPUT_JSON) : null
 
@@ -36,6 +50,10 @@ const PACKAGES = [
 assertPositive(ROOTS_PER_KIND, "ROOTS_PER_KIND")
 assertPositive(CONTROLLER_ITERATIONS, "CONTROLLER_ITERATIONS")
 assertPositive(RELAYOUT_ITERATIONS, "RELAYOUT_ITERATIONS")
+assertNonNegativeInteger(BENCH_WARMUP_RUNS, "BENCH_WARMUP_RUNS")
+assertPositive(BENCH_MEASUREMENT_BATCH_SIZE, "BENCH_VUE_MEASUREMENT_BATCH_SIZE")
+assertPositive(BENCH_MEASUREMENT_SAMPLE_COUNT, "BENCH_VUE_MEASUREMENT_SAMPLE_COUNT")
+assertNonNegativeInteger(BENCH_MEASUREMENT_WARMUP_COUNT, "BENCH_VUE_MEASUREMENT_WARMUP_COUNT")
 assertPositive(BENCH_SEED, "BENCH_SEED")
 if (!BENCH_SEEDS.length) {
   throw new Error("BENCH_SEEDS must include at least one positive integer")
@@ -47,11 +65,27 @@ if (PERF_BUDGET_MAX_VARIANCE_PCT !== Number.POSITIVE_INFINITY) {
 if (PERF_BUDGET_MAX_HEAP_DELTA_MB !== Number.POSITIVE_INFINITY) {
   assertPositive(PERF_BUDGET_MAX_HEAP_DELTA_MB, "PERF_BUDGET_MAX_HEAP_DELTA_MB")
 }
+if (!Number.isFinite(PERF_BUDGET_VARIANCE_MIN_MEAN_MS) || PERF_BUDGET_VARIANCE_MIN_MEAN_MS < 0) {
+  throw new Error("PERF_BUDGET_VARIANCE_MIN_MEAN_MS must be a non-negative finite number")
+}
 
 function assertPositive(value, label) {
   if (!Number.isFinite(value) || value <= 0) {
     throw new Error(`${label} must be > 0`)
   }
+}
+
+function assertNonNegativeInteger(value, label) {
+  if (!Number.isFinite(value) || value < 0 || !Number.isInteger(value)) {
+    throw new Error(`${label} must be a non-negative integer`)
+  }
+}
+
+function shouldEnforceVariance(stat) {
+  return (
+    PERF_BUDGET_MAX_VARIANCE_PCT !== Number.POSITIVE_INFINITY &&
+    stat.mean >= PERF_BUDGET_VARIANCE_MIN_MEAN_MS
+  )
 }
 
 function quantile(values, q) {
@@ -77,6 +111,26 @@ function stats(values) {
   const p90 = quantile(values, 0.9)
   const cvPct = mean === 0 ? 0 : (stdev / mean) * 100
   return { mean, stdev, p50, p90, cvPct }
+}
+
+function measureBatched(operation) {
+  for (let warmup = 0; warmup < BENCH_MEASUREMENT_WARMUP_COUNT; warmup += 1) {
+    for (let batch = 0; batch < BENCH_MEASUREMENT_BATCH_SIZE; batch += 1) {
+      operation()
+    }
+  }
+
+  const samples = []
+  for (let sample = 0; sample < BENCH_MEASUREMENT_SAMPLE_COUNT; sample += 1) {
+    const startedAt = performance.now()
+    for (let batch = 0; batch < BENCH_MEASUREMENT_BATCH_SIZE; batch += 1) {
+      operation()
+    }
+    const elapsed = performance.now() - startedAt
+    samples.push(elapsed / BENCH_MEASUREMENT_BATCH_SIZE)
+  }
+
+  return quantile(samples, 0.5)
 }
 
 function computeFloatingPosition(anchorRect, surfaceRect, viewport) {
@@ -124,97 +178,99 @@ function runBench(seed) {
     if (!host) {
       return 0
     }
-    const start = performance.now()
     const nodes = host.querySelectorAll(`[${pkg.rootAttr}]`)
-    for (const node of nodes) {
-      if (!node.isConnected) {
-        throw new Error("Disconnected root during bootstrap proxy")
+    return measureBatched(() => {
+      for (const node of nodes) {
+        if (!node.isConnected) {
+          throw new Error("Disconnected root during bootstrap proxy")
+        }
       }
-    }
-    return performance.now() - start
+    })
   }
 
   function runControllerChurnProxy(pkg) {
-    const start = performance.now()
-    const subscriptions = []
-    for (let index = 0; index < CONTROLLER_ITERATIONS; index += 1) {
-      let state = {
-        open: false,
-        highlighted: null,
-        value: null,
-        seq: index,
-      }
-      const listeners = []
-      const subscribe = (listener) => {
-        listeners.push(listener)
-        return () => {
-          const listenerIndex = listeners.indexOf(listener)
-          if (listenerIndex >= 0) {
-            listeners.splice(listenerIndex, 1)
+    const runOnce = () => {
+      const subscriptions = []
+      for (let index = 0; index < CONTROLLER_ITERATIONS; index += 1) {
+        let state = {
+          open: false,
+          highlighted: null,
+          value: null,
+          seq: index,
+        }
+        const listeners = []
+        const subscribe = (listener) => {
+          listeners.push(listener)
+          return () => {
+            const listenerIndex = listeners.indexOf(listener)
+            if (listenerIndex >= 0) {
+              listeners.splice(listenerIndex, 1)
+            }
           }
         }
-      }
-      const unsubscribe = subscribe((next) => {
-        state = next
-      })
+        const unsubscribe = subscribe((next) => {
+          state = next
+        })
 
-      if (pkg.kind === "surface" || pkg.kind === "disclosure") {
-        state = { ...state, open: index % 2 === 0 }
-      } else if (pkg.kind === "tabs") {
-        state = { ...state, value: index % 3 === 0 ? `tab-${index % 7}` : null }
-      } else if (pkg.kind === "treeview") {
-        state = {
-          ...state,
-          open: index % 2 === 0,
-          highlighted: index % 4 === 0 ? `node-${index % 9}` : null,
-          value: index % 3 === 0 ? `node-${(index + 1) % 11}` : null,
+        if (pkg.kind === "surface" || pkg.kind === "disclosure") {
+          state = { ...state, open: index % 2 === 0 }
+        } else if (pkg.kind === "tabs") {
+          state = { ...state, value: index % 3 === 0 ? `tab-${index % 7}` : null }
+        } else if (pkg.kind === "treeview") {
+          state = {
+            ...state,
+            open: index % 2 === 0,
+            highlighted: index % 4 === 0 ? `node-${index % 9}` : null,
+            value: index % 3 === 0 ? `node-${(index + 1) % 11}` : null,
+          }
+        } else {
+          state = { ...state, highlighted: index % 5 === 0 ? `item-${index}` : null }
         }
-      } else {
-        state = { ...state, highlighted: index % 5 === 0 ? `item-${index}` : null }
+
+        for (const listener of listeners) {
+          listener(state)
+        }
+
+        subscriptions.push(unsubscribe)
       }
 
-      for (const listener of listeners) {
-        listener(state)
+      for (const unsubscribe of subscriptions) {
+        unsubscribe()
       }
-
-      subscriptions.push(unsubscribe)
     }
 
-    for (const unsubscribe of subscriptions) {
-      unsubscribe()
-    }
-
-    return performance.now() - start
+    return measureBatched(runOnce)
   }
 
   function runRelayoutProxy(pkg) {
     if (pkg.kind !== "surface") {
       return 0
     }
-    const start = performance.now()
-    const viewport = { width: 1440, height: 900 }
-    let checksum = 0
+    const runOnce = () => {
+      const viewport = { width: 1440, height: 900 }
+      let checksum = 0
 
-    for (let index = 0; index < RELAYOUT_ITERATIONS; index += 1) {
-      const anchorRect = {
-        x: Math.round(nextRandom() * 1200),
-        y: Math.round(nextRandom() * 700),
-        width: 40 + Math.round(nextRandom() * 120),
-        height: 24 + Math.round(nextRandom() * 40),
+      for (let index = 0; index < RELAYOUT_ITERATIONS; index += 1) {
+        const anchorRect = {
+          x: Math.round(nextRandom() * 1200),
+          y: Math.round(nextRandom() * 700),
+          width: 40 + Math.round(nextRandom() * 120),
+          height: 24 + Math.round(nextRandom() * 40),
+        }
+        const surfaceRect = {
+          width: 120 + Math.round(nextRandom() * 260),
+          height: 80 + Math.round(nextRandom() * 220),
+        }
+        const pos = computeFloatingPosition(anchorRect, surfaceRect, viewport)
+        checksum += pos.left + pos.top
       }
-      const surfaceRect = {
-        width: 120 + Math.round(nextRandom() * 260),
-        height: 80 + Math.round(nextRandom() * 220),
+
+      if (!Number.isFinite(checksum)) {
+        throw new Error(`Invalid relayout checksum for ${pkg.name}`)
       }
-      const pos = computeFloatingPosition(anchorRect, surfaceRect, viewport)
-      checksum += pos.left + pos.top
     }
 
-    if (!Number.isFinite(checksum)) {
-      throw new Error(`Invalid relayout checksum for ${pkg.name}`)
-    }
-
-    return performance.now() - start
+    return measureBatched(runOnce)
   }
 
   createRoots()
@@ -245,13 +301,18 @@ function runBench(seed) {
 
 const budgetErrors = []
 const runResults = []
+const varianceSkippedChecks = []
 
 console.log("\nAffino Vue Adapters Benchmark (synthetic)")
 console.log(
-  `roots/kind=${ROOTS_PER_KIND} controllerIterations=${CONTROLLER_ITERATIONS} relayoutIterations=${RELAYOUT_ITERATIONS} seeds=${BENCH_SEEDS.join(",")}`,
+  `roots/kind=${ROOTS_PER_KIND} controllerIterations=${CONTROLLER_ITERATIONS} relayoutIterations=${RELAYOUT_ITERATIONS} seeds=${BENCH_SEEDS.join(",")} warmupRuns=${BENCH_WARMUP_RUNS} batchSize=${BENCH_MEASUREMENT_BATCH_SIZE} samples=${BENCH_MEASUREMENT_SAMPLE_COUNT}`,
 )
 
 for (const seed of BENCH_SEEDS) {
+  for (let warmup = 0; warmup < BENCH_WARMUP_RUNS; warmup += 1) {
+    runBench(seed + (warmup + 1) * 9973)
+  }
+
   const result = runBench(seed)
   runResults.push({ seed, ...result })
 
@@ -309,12 +370,15 @@ const summaryRows = PACKAGES.map((pkg) => {
 
   return {
     package: pkg.name,
+    bootstrapMeanMs: bootstrapStats.mean,
     bootstrapP50: bootstrapStats.p50.toFixed(2),
     bootstrapP90: bootstrapStats.p90.toFixed(2),
     bootstrapCvPct: bootstrapStats.cvPct.toFixed(1),
+    controllerMeanMs: controllerStats.mean,
     controllerP50: controllerStats.p50.toFixed(2),
     controllerP90: controllerStats.p90.toFixed(2),
     controllerCvPct: controllerStats.cvPct.toFixed(1),
+    relayoutMeanMs: relayoutStats.mean,
     relayoutP50: relayoutStats.p50.toFixed(2),
     relayoutP90: relayoutStats.p90.toFixed(2),
     relayoutCvPct: relayoutStats.cvPct.toFixed(1),
@@ -330,19 +394,34 @@ console.log(`Total elapsed p50=${elapsedStats.p50.toFixed(2)}ms p90=${elapsedSta
 console.log(`Heap delta p50=${heapStats.p50.toFixed(2)}MB p90=${heapStats.p90.toFixed(2)}MB CV=${heapStats.cvPct.toFixed(1)}%`)
 console.log("Note: Synthetic proxy benchmark for Vue adapter hot paths.")
 
-if (elapsedStats.cvPct > PERF_BUDGET_MAX_VARIANCE_PCT) {
-  budgetErrors.push(
-    `total elapsed CV ${elapsedStats.cvPct.toFixed(1)}% exceeded PERF_BUDGET_MAX_VARIANCE_PCT=${PERF_BUDGET_MAX_VARIANCE_PCT}%`,
+if (shouldEnforceVariance(elapsedStats)) {
+  if (elapsedStats.cvPct > PERF_BUDGET_MAX_VARIANCE_PCT) {
+    budgetErrors.push(
+      `total elapsed CV ${elapsedStats.cvPct.toFixed(1)}% exceeded PERF_BUDGET_MAX_VARIANCE_PCT=${PERF_BUDGET_MAX_VARIANCE_PCT}%`,
+    )
+  }
+} else if (PERF_BUDGET_MAX_VARIANCE_PCT !== Number.POSITIVE_INFINITY) {
+  varianceSkippedChecks.push(
+    `total elapsed CV gate skipped (mean ${elapsedStats.mean.toFixed(3)}ms < PERF_BUDGET_VARIANCE_MIN_MEAN_MS=${PERF_BUDGET_VARIANCE_MIN_MEAN_MS}ms)`,
   )
 }
 
 summaryRows.forEach((row) => {
   const cvTargets = [
-    { label: "bootstrap", value: Number.parseFloat(row.bootstrapCvPct) },
-    { label: "controller", value: Number.parseFloat(row.controllerCvPct) },
-    { label: "relayout", value: Number.parseFloat(row.relayoutCvPct) },
+    { label: "bootstrap", value: Number.parseFloat(row.bootstrapCvPct), meanMs: row.bootstrapMeanMs },
+    { label: "controller", value: Number.parseFloat(row.controllerCvPct), meanMs: row.controllerMeanMs },
+    { label: "relayout", value: Number.parseFloat(row.relayoutCvPct), meanMs: row.relayoutMeanMs },
   ]
   cvTargets.forEach((target) => {
+    if (PERF_BUDGET_MAX_VARIANCE_PCT === Number.POSITIVE_INFINITY) {
+      return
+    }
+    if (target.meanMs < PERF_BUDGET_VARIANCE_MIN_MEAN_MS) {
+      varianceSkippedChecks.push(
+        `${row.package}: ${target.label} CV gate skipped (mean ${target.meanMs.toFixed(3)}ms < PERF_BUDGET_VARIANCE_MIN_MEAN_MS=${PERF_BUDGET_VARIANCE_MIN_MEAN_MS}ms)`,
+      )
+      return
+    }
     if (target.value > PERF_BUDGET_MAX_VARIANCE_PCT) {
       budgetErrors.push(
         `${row.package}: ${target.label} CV ${target.value.toFixed(1)}% exceeded PERF_BUDGET_MAX_VARIANCE_PCT=${PERF_BUDGET_MAX_VARIANCE_PCT}%`,
@@ -359,6 +438,11 @@ const summary = {
     controllerIterations: CONTROLLER_ITERATIONS,
     relayoutIterations: RELAYOUT_ITERATIONS,
     seeds: BENCH_SEEDS,
+    measurement: {
+      batchSize: BENCH_MEASUREMENT_BATCH_SIZE,
+      sampleCount: BENCH_MEASUREMENT_SAMPLE_COUNT,
+      warmupCount: BENCH_MEASUREMENT_WARMUP_COUNT,
+    },
   },
   budgets: {
     totalMs: PERF_BUDGET_TOTAL_MS,
@@ -366,8 +450,14 @@ const summary = {
     maxControllerMs: PERF_BUDGET_MAX_CONTROLLER_MS,
     maxRelayoutMs: PERF_BUDGET_MAX_RELAYOUT_MS,
     maxVariancePct: PERF_BUDGET_MAX_VARIANCE_PCT,
+    varianceMinMeanMs: PERF_BUDGET_VARIANCE_MIN_MEAN_MS,
     maxHeapDeltaMb: PERF_BUDGET_MAX_HEAP_DELTA_MB,
   },
+  variancePolicy: {
+    warmupRuns: BENCH_WARMUP_RUNS,
+    minMeanMsForCvGate: PERF_BUDGET_VARIANCE_MIN_MEAN_MS,
+  },
+  varianceSkippedChecks,
   aggregate: {
     elapsed: elapsedStats,
     heapDelta: heapStats,

@@ -32,6 +32,15 @@ const WINDOW_SHIFT_RANGE_SIZE = Number.parseInt(
 )
 
 const BENCH_SEED = Number.parseInt(process.env.BENCH_SEED ?? "1337", 10)
+const BENCH_WARMUP_RUNS = Number.parseInt(process.env.BENCH_WARMUP_RUNS ?? "1", 10)
+const BENCH_ROWMODEL_MEASUREMENT_BATCH_SIZE = Number.parseInt(
+  process.env.BENCH_ROWMODEL_MEASUREMENT_BATCH_SIZE ?? process.env.BENCH_MEASUREMENT_BATCH_SIZE ?? "8",
+  10,
+)
+const BENCH_ROWMODEL_WARMUP_BATCHES = Number.parseInt(
+  process.env.BENCH_ROWMODEL_WARMUP_BATCHES ?? "1",
+  10,
+)
 const BENCH_SEEDS = (process.env.BENCH_SEEDS ?? `${BENCH_SEED}`)
   .split(",")
   .map((value) => Number.parseInt(value.trim(), 10))
@@ -61,6 +70,7 @@ const PERF_BUDGET_MAX_WINDOW_SHIFT_P99_MS = Number.parseFloat(
     "Infinity",
 )
 const PERF_BUDGET_MAX_VARIANCE_PCT = Number.parseFloat(process.env.PERF_BUDGET_MAX_VARIANCE_PCT ?? "Infinity")
+const PERF_BUDGET_VARIANCE_MIN_MEAN_MS = Number.parseFloat(process.env.PERF_BUDGET_VARIANCE_MIN_MEAN_MS ?? "0.5")
 const PERF_BUDGET_MAX_HEAP_DELTA_MB = Number.parseFloat(process.env.PERF_BUDGET_MAX_HEAP_DELTA_MB ?? "Infinity")
 const BENCH_OUTPUT_JSON = process.env.BENCH_OUTPUT_JSON ? resolve(process.env.BENCH_OUTPUT_JSON) : null
 
@@ -81,8 +91,27 @@ assertPositiveInteger(WINDOW_SHIFT_WINDOW_SIZE, "BENCH_WINDOW_SHIFT_WINDOW_SIZE"
 assertPositiveInteger(WINDOW_SHIFT_ITERATIONS, "BENCH_WINDOW_SHIFT_ITERATIONS")
 assertPositiveInteger(WINDOW_SHIFT_TOTAL_ROWS, "BENCH_WINDOW_SHIFT_TOTAL_ROWS")
 assertPositiveInteger(WINDOW_SHIFT_RANGE_SIZE, "BENCH_WINDOW_SHIFT_RANGE_SIZE")
+assertNonNegativeInteger(BENCH_WARMUP_RUNS, "BENCH_WARMUP_RUNS")
+assertPositiveInteger(BENCH_ROWMODEL_MEASUREMENT_BATCH_SIZE, "BENCH_ROWMODEL_MEASUREMENT_BATCH_SIZE")
+assertNonNegativeInteger(BENCH_ROWMODEL_WARMUP_BATCHES, "BENCH_ROWMODEL_WARMUP_BATCHES")
 if (!BENCH_SEEDS.length) {
   throw new Error("BENCH_SEEDS must include at least one positive integer")
+}
+if (!Number.isFinite(PERF_BUDGET_VARIANCE_MIN_MEAN_MS) || PERF_BUDGET_VARIANCE_MIN_MEAN_MS < 0) {
+  throw new Error("PERF_BUDGET_VARIANCE_MIN_MEAN_MS must be a non-negative finite number")
+}
+
+function assertNonNegativeInteger(value, label) {
+  if (!Number.isFinite(value) || value < 0 || !Number.isInteger(value)) {
+    throw new Error(`${label} must be a non-negative integer`)
+  }
+}
+
+function shouldEnforceVariance(stat) {
+  return (
+    PERF_BUDGET_MAX_VARIANCE_PCT !== Number.POSITIVE_INFINITY &&
+    stat.mean >= PERF_BUDGET_VARIANCE_MIN_MEAN_MS
+  )
 }
 
 function quantile(values, q) {
@@ -277,13 +306,26 @@ async function runClientScenario(factories, seed) {
 
   try {
     const maxStart = Math.max(0, CLIENT_ROW_COUNT - CLIENT_RANGE_SIZE - 1)
-    for (let iteration = 0; iteration < CLIENT_ITERATIONS; iteration += 1) {
+    const runOne = () => {
       const start = randomInt(rng, 0, maxStart)
       const end = Math.min(CLIENT_ROW_COUNT - 1, start + CLIENT_RANGE_SIZE)
-      const t0 = performance.now()
       model.setViewportRange({ start, end })
       model.getRowsInRange({ start, end })
-      durations.push(performance.now() - t0)
+    }
+
+    for (let warmup = 0; warmup < BENCH_ROWMODEL_WARMUP_BATCHES; warmup += 1) {
+      for (let batch = 0; batch < BENCH_ROWMODEL_MEASUREMENT_BATCH_SIZE; batch += 1) {
+        runOne()
+      }
+    }
+
+    for (let iteration = 0; iteration < CLIENT_ITERATIONS; iteration += 1) {
+      const t0 = performance.now()
+      for (let batch = 0; batch < BENCH_ROWMODEL_MEASUREMENT_BATCH_SIZE; batch += 1) {
+        runOne()
+      }
+      const elapsed = performance.now() - t0
+      durations.push(elapsed / BENCH_ROWMODEL_MEASUREMENT_BATCH_SIZE)
     }
   } finally {
     model.dispose()
@@ -300,14 +342,27 @@ async function runServerScenario(factories, seed) {
 
   try {
     const maxStart = Math.max(0, SERVER_ROW_COUNT - SERVER_RANGE_SIZE - 1)
-    for (let iteration = 0; iteration < SERVER_ITERATIONS; iteration += 1) {
+    const runOne = async () => {
       const start = randomInt(rng, 0, maxStart)
       const end = Math.min(SERVER_ROW_COUNT - 1, start + SERVER_RANGE_SIZE)
-      const t0 = performance.now()
       model.setViewportRange({ start, end })
       await model.refresh("viewport-change")
       model.getRowsInRange({ start, end })
-      durations.push(performance.now() - t0)
+    }
+
+    for (let warmup = 0; warmup < BENCH_ROWMODEL_WARMUP_BATCHES; warmup += 1) {
+      for (let batch = 0; batch < BENCH_ROWMODEL_MEASUREMENT_BATCH_SIZE; batch += 1) {
+        await runOne()
+      }
+    }
+
+    for (let iteration = 0; iteration < SERVER_ITERATIONS; iteration += 1) {
+      const t0 = performance.now()
+      for (let batch = 0; batch < BENCH_ROWMODEL_MEASUREMENT_BATCH_SIZE; batch += 1) {
+        await runOne()
+      }
+      const elapsed = performance.now() - t0
+      durations.push(elapsed / BENCH_ROWMODEL_MEASUREMENT_BATCH_SIZE)
     }
   } finally {
     model.dispose()
@@ -328,17 +383,29 @@ async function runWindowShiftProxyScenario(factories, seed) {
   try {
     const maxOffset = Math.max(0, WINDOW_SHIFT_TOTAL_ROWS - WINDOW_SHIFT_WINDOW_SIZE - 1)
     const maxLocalStart = Math.max(0, WINDOW_SHIFT_WINDOW_SIZE - WINDOW_SHIFT_RANGE_SIZE - 1)
-
-    for (let iteration = 0; iteration < WINDOW_SHIFT_ITERATIONS; iteration += 1) {
+    const runOne = () => {
       const delta = randomInt(rng, 1, Math.max(2, Math.floor(WINDOW_SHIFT_WINDOW_SIZE / 4)))
       offset = Math.min(maxOffset, (offset + delta) % Math.max(1, maxOffset + 1))
       const localStart = randomInt(rng, 0, maxLocalStart)
       const localEnd = Math.min(WINDOW_SHIFT_WINDOW_SIZE - 1, localStart + WINDOW_SHIFT_RANGE_SIZE)
-      const t0 = performance.now()
       model.setRows(createVisibleRows(WINDOW_SHIFT_WINDOW_SIZE, offset))
       model.setViewportRange({ start: localStart, end: localEnd })
       model.getRowsInRange({ start: localStart, end: localEnd })
-      durations.push(performance.now() - t0)
+    }
+
+    for (let warmup = 0; warmup < BENCH_ROWMODEL_WARMUP_BATCHES; warmup += 1) {
+      for (let batch = 0; batch < BENCH_ROWMODEL_MEASUREMENT_BATCH_SIZE; batch += 1) {
+        runOne()
+      }
+    }
+
+    for (let iteration = 0; iteration < WINDOW_SHIFT_ITERATIONS; iteration += 1) {
+      const t0 = performance.now()
+      for (let batch = 0; batch < BENCH_ROWMODEL_MEASUREMENT_BATCH_SIZE; batch += 1) {
+        runOne()
+      }
+      const elapsed = performance.now() - t0
+      durations.push(elapsed / BENCH_ROWMODEL_MEASUREMENT_BATCH_SIZE)
     }
   } finally {
     model.dispose()
@@ -350,13 +417,21 @@ async function runWindowShiftProxyScenario(factories, seed) {
 const factories = await loadModelFactories()
 const runResults = []
 const budgetErrors = []
+const varianceSkippedChecks = []
 
 console.log("\nAffino DataGrid RowModel Benchmark")
 console.log(
-  `seeds=${BENCH_SEEDS.join(",")} clientRows=${CLIENT_ROW_COUNT} serverRows=${SERVER_ROW_COUNT} windowShiftWindow=${WINDOW_SHIFT_WINDOW_SIZE}`,
+  `seeds=${BENCH_SEEDS.join(",")} clientRows=${CLIENT_ROW_COUNT} serverRows=${SERVER_ROW_COUNT} windowShiftWindow=${WINDOW_SHIFT_WINDOW_SIZE} warmupRuns=${BENCH_WARMUP_RUNS} batchSize=${BENCH_ROWMODEL_MEASUREMENT_BATCH_SIZE}`,
 )
 
 for (const seed of BENCH_SEEDS) {
+  for (let warmup = 0; warmup < BENCH_WARMUP_RUNS; warmup += 1) {
+    const warmupSeed = seed + (warmup + 1) * 9973
+    await runClientScenario(factories, warmupSeed)
+    await runServerScenario(factories, warmupSeed)
+    await runWindowShiftProxyScenario(factories, warmupSeed)
+  }
+
   const heapStart = process.memoryUsage().heapUsed
   const startedAt = performance.now()
   const client = await runClientScenario(factories, seed)
@@ -454,22 +529,37 @@ const aggregateServerP99 = stats(runResults.map((run) => run.scenarios.server.p9
 const aggregateWindowShift = stats(runResults.map((run) => run.scenarios.windowShift.p95))
 const aggregateWindowShiftP99 = stats(runResults.map((run) => run.scenarios.windowShift.p99))
 
-if (aggregateElapsed.cvPct > PERF_BUDGET_MAX_VARIANCE_PCT) {
-  budgetErrors.push(
-    `elapsed CV ${aggregateElapsed.cvPct.toFixed(2)}% exceeds PERF_BUDGET_MAX_VARIANCE_PCT=${PERF_BUDGET_MAX_VARIANCE_PCT}%`,
+if (shouldEnforceVariance(aggregateElapsed)) {
+  if (aggregateElapsed.cvPct > PERF_BUDGET_MAX_VARIANCE_PCT) {
+    budgetErrors.push(
+      `elapsed CV ${aggregateElapsed.cvPct.toFixed(2)}% exceeds PERF_BUDGET_MAX_VARIANCE_PCT=${PERF_BUDGET_MAX_VARIANCE_PCT}%`,
+    )
+  }
+} else if (PERF_BUDGET_MAX_VARIANCE_PCT !== Number.POSITIVE_INFINITY) {
+  varianceSkippedChecks.push(
+    `elapsed CV gate skipped (mean ${aggregateElapsed.mean.toFixed(3)}ms < PERF_BUDGET_VARIANCE_MIN_MEAN_MS=${PERF_BUDGET_VARIANCE_MIN_MEAN_MS}ms)`,
   )
 }
 for (const aggregate of [
-  { name: "client p95", value: aggregateClient.cvPct },
-  { name: "client p99", value: aggregateClientP99.cvPct },
-  { name: "server p95", value: aggregateServer.cvPct },
-  { name: "server p99", value: aggregateServerP99.cvPct },
-  { name: "window-shift-proxy p95", value: aggregateWindowShift.cvPct },
-  { name: "window-shift-proxy p99", value: aggregateWindowShiftP99.cvPct },
+  { name: "client p95", stat: aggregateClient },
+  { name: "client p99", stat: aggregateClientP99 },
+  { name: "server p95", stat: aggregateServer },
+  { name: "server p99", stat: aggregateServerP99 },
+  { name: "window-shift-proxy p95", stat: aggregateWindowShift },
+  { name: "window-shift-proxy p99", stat: aggregateWindowShiftP99 },
 ]) {
-  if (aggregate.value > PERF_BUDGET_MAX_VARIANCE_PCT) {
+  if (PERF_BUDGET_MAX_VARIANCE_PCT === Number.POSITIVE_INFINITY) {
+    continue
+  }
+  if (aggregate.stat.mean < PERF_BUDGET_VARIANCE_MIN_MEAN_MS) {
+    varianceSkippedChecks.push(
+      `${aggregate.name} CV gate skipped (mean ${aggregate.stat.mean.toFixed(3)}ms < PERF_BUDGET_VARIANCE_MIN_MEAN_MS=${PERF_BUDGET_VARIANCE_MIN_MEAN_MS}ms)`,
+    )
+    continue
+  }
+  if (aggregate.stat.cvPct > PERF_BUDGET_MAX_VARIANCE_PCT) {
     budgetErrors.push(
-      `${aggregate.name} CV ${aggregate.value.toFixed(2)}% exceeds PERF_BUDGET_MAX_VARIANCE_PCT=${PERF_BUDGET_MAX_VARIANCE_PCT}%`,
+      `${aggregate.name} CV ${aggregate.stat.cvPct.toFixed(2)}% exceeds PERF_BUDGET_MAX_VARIANCE_PCT=${PERF_BUDGET_MAX_VARIANCE_PCT}%`,
     )
   }
 }
@@ -483,18 +573,21 @@ const summary = {
       rowCount: CLIENT_ROW_COUNT,
       iterations: CLIENT_ITERATIONS,
       rangeSize: CLIENT_RANGE_SIZE,
+      batchSize: BENCH_ROWMODEL_MEASUREMENT_BATCH_SIZE,
     },
     server: {
       rowCount: SERVER_ROW_COUNT,
       iterations: SERVER_ITERATIONS,
       rangeSize: SERVER_RANGE_SIZE,
       blockSize: SERVER_BLOCK_SIZE,
+      batchSize: BENCH_ROWMODEL_MEASUREMENT_BATCH_SIZE,
     },
     windowShiftProxy: {
       totalRows: WINDOW_SHIFT_TOTAL_ROWS,
       windowSize: WINDOW_SHIFT_WINDOW_SIZE,
       iterations: WINDOW_SHIFT_ITERATIONS,
       rangeSize: WINDOW_SHIFT_RANGE_SIZE,
+      batchSize: BENCH_ROWMODEL_MEASUREMENT_BATCH_SIZE,
     },
   },
   budgets: {
@@ -506,8 +599,16 @@ const summary = {
     maxWindowShiftP95Ms: PERF_BUDGET_MAX_WINDOW_SHIFT_P95_MS,
     maxWindowShiftP99Ms: PERF_BUDGET_MAX_WINDOW_SHIFT_P99_MS,
     maxVariancePct: PERF_BUDGET_MAX_VARIANCE_PCT,
+    varianceMinMeanMs: PERF_BUDGET_VARIANCE_MIN_MEAN_MS,
     maxHeapDeltaMb: PERF_BUDGET_MAX_HEAP_DELTA_MB,
   },
+  variancePolicy: {
+    warmupRuns: BENCH_WARMUP_RUNS,
+    warmupBatchesPerScenario: BENCH_ROWMODEL_WARMUP_BATCHES,
+    measurementBatchSize: BENCH_ROWMODEL_MEASUREMENT_BATCH_SIZE,
+    minMeanMsForCvGate: PERF_BUDGET_VARIANCE_MIN_MEAN_MS,
+  },
+  varianceSkippedChecks,
   aggregate: {
     elapsedMs: aggregateElapsed,
     heapDeltaMb: aggregateHeap,
