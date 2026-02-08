@@ -138,6 +138,9 @@ importers:
       '@affino/grid-selection-vue':
         specifier: workspace:*
         version: link:../packages/grid-selection-vue
+      '@affino/listbox-vue':
+        specifier: workspace:*
+        version: link:../packages/listbox-vue
       '@affino/menu-core':
         specifier: workspace:*
         version: link:../packages/menu-core
