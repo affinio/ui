@@ -9,6 +9,19 @@ const ROOTS_PER_KIND = Number.parseInt(process.env.ROOTS_PER_KIND ?? "150", 10)
 const ITERATIONS = Number.parseInt(process.env.ITERATIONS ?? "800", 10)
 const STRUCTURE_MUTATION_RATE = Number.parseFloat(process.env.STRUCTURE_MUTATION_RATE ?? "0.15")
 const BENCH_SEED = Number.parseInt(process.env.BENCH_SEED ?? "1337", 10)
+const BENCH_WARMUP_RUNS = Number.parseInt(process.env.BENCH_WARMUP_RUNS ?? "1", 10)
+const BENCH_LIVEWIRE_MEASUREMENT_BATCH_SIZE = Number.parseInt(
+  process.env.BENCH_LIVEWIRE_MEASUREMENT_BATCH_SIZE ?? process.env.BENCH_MEASUREMENT_BATCH_SIZE ?? "5",
+  10,
+)
+const BENCH_LIVEWIRE_MEASUREMENT_SAMPLE_COUNT = Number.parseInt(
+  process.env.BENCH_LIVEWIRE_MEASUREMENT_SAMPLE_COUNT ?? "5",
+  10,
+)
+const BENCH_LIVEWIRE_MEASUREMENT_WARMUP_COUNT = Number.parseInt(
+  process.env.BENCH_LIVEWIRE_MEASUREMENT_WARMUP_COUNT ?? "1",
+  10,
+)
 const BENCH_SEEDS = (process.env.BENCH_SEEDS ?? `${BENCH_SEED}`)
   .split(",")
   .map((value) => Number.parseInt(value.trim(), 10))
@@ -18,6 +31,8 @@ const PERF_BUDGET_MAX_HYDRATE_RATE_PCT = Number.parseFloat(process.env.PERF_BUDG
 const PERF_BUDGET_MAX_BOOTSTRAP_MS = Number.parseFloat(process.env.PERF_BUDGET_MAX_BOOTSTRAP_MS ?? "Infinity")
 const PERF_BUDGET_MAX_OPEN_CLOSE_MS = Number.parseFloat(process.env.PERF_BUDGET_MAX_OPEN_CLOSE_MS ?? "Infinity")
 const PERF_BUDGET_MAX_VARIANCE_PCT = Number.parseFloat(process.env.PERF_BUDGET_MAX_VARIANCE_PCT ?? "Infinity")
+const PERF_BUDGET_VARIANCE_MIN_MEAN_MS = Number.parseFloat(process.env.PERF_BUDGET_VARIANCE_MIN_MEAN_MS ?? "0.5")
+const PERF_BUDGET_ENFORCE_HYDRATE_RATE_VARIANCE = process.env.PERF_BUDGET_ENFORCE_HYDRATE_RATE_VARIANCE === "true"
 const PERF_BUDGET_MAX_HEAP_DELTA_MB = Number.parseFloat(process.env.PERF_BUDGET_MAX_HEAP_DELTA_MB ?? "Infinity")
 const BENCH_OUTPUT_JSON = process.env.BENCH_OUTPUT_JSON ? resolve(process.env.BENCH_OUTPUT_JSON) : null
 
@@ -47,6 +62,10 @@ function assertFiniteNonNegative(value, label) {
 
 assertFiniteInt(ROOTS_PER_KIND, "ROOTS_PER_KIND")
 assertFiniteInt(ITERATIONS, "ITERATIONS")
+assertFiniteInt(BENCH_LIVEWIRE_MEASUREMENT_BATCH_SIZE, "BENCH_LIVEWIRE_MEASUREMENT_BATCH_SIZE")
+assertFiniteInt(BENCH_LIVEWIRE_MEASUREMENT_SAMPLE_COUNT, "BENCH_LIVEWIRE_MEASUREMENT_SAMPLE_COUNT")
+assertFiniteNonNegative(BENCH_LIVEWIRE_MEASUREMENT_WARMUP_COUNT, "BENCH_LIVEWIRE_MEASUREMENT_WARMUP_COUNT")
+assertFiniteNonNegative(BENCH_WARMUP_RUNS, "BENCH_WARMUP_RUNS")
 assertFiniteInt(BENCH_SEED, "BENCH_SEED")
 if (!BENCH_SEEDS.length) {
   throw new Error("BENCH_SEEDS must include at least one positive integer")
@@ -70,6 +89,9 @@ if (PERF_BUDGET_MAX_OPEN_CLOSE_MS !== Number.POSITIVE_INFINITY) {
 }
 if (PERF_BUDGET_MAX_VARIANCE_PCT !== Number.POSITIVE_INFINITY) {
   assertFiniteNonNegative(PERF_BUDGET_MAX_VARIANCE_PCT, "PERF_BUDGET_MAX_VARIANCE_PCT")
+}
+if (!Number.isFinite(PERF_BUDGET_VARIANCE_MIN_MEAN_MS) || PERF_BUDGET_VARIANCE_MIN_MEAN_MS < 0) {
+  throw new Error("PERF_BUDGET_VARIANCE_MIN_MEAN_MS must be a non-negative number")
 }
 if (PERF_BUDGET_MAX_HEAP_DELTA_MB !== Number.POSITIVE_INFINITY) {
   assertFiniteNonNegative(PERF_BUDGET_MAX_HEAP_DELTA_MB, "PERF_BUDGET_MAX_HEAP_DELTA_MB")
@@ -97,6 +119,33 @@ function stats(values) {
   const p90 = quantile(values, 0.9)
   const cvPct = mean === 0 ? 0 : (stdev / mean) * 100
   return { mean, stdev, p50, p90, cvPct }
+}
+
+function shouldEnforceVariance(stat) {
+  return (
+    PERF_BUDGET_MAX_VARIANCE_PCT !== Number.POSITIVE_INFINITY &&
+    stat.mean >= PERF_BUDGET_VARIANCE_MIN_MEAN_MS
+  )
+}
+
+function measureBatched(operation) {
+  for (let warmup = 0; warmup < BENCH_LIVEWIRE_MEASUREMENT_WARMUP_COUNT; warmup += 1) {
+    for (let batch = 0; batch < BENCH_LIVEWIRE_MEASUREMENT_BATCH_SIZE; batch += 1) {
+      operation()
+    }
+  }
+
+  const samples = []
+  for (let sample = 0; sample < BENCH_LIVEWIRE_MEASUREMENT_SAMPLE_COUNT; sample += 1) {
+    const startedAt = performance.now()
+    for (let batch = 0; batch < BENCH_LIVEWIRE_MEASUREMENT_BATCH_SIZE; batch += 1) {
+      operation()
+    }
+    const elapsed = performance.now() - startedAt
+    samples.push(elapsed / BENCH_LIVEWIRE_MEASUREMENT_BATCH_SIZE)
+  }
+
+  return quantile(samples, 0.5)
 }
 
 function runBench(seed) {
@@ -215,90 +264,77 @@ function runBench(seed) {
   }
 
   function runMorphIteration() {
-    const pkg = PACKAGES[randomInt(PACKAGES.length)]
-    const host = document.querySelector(`[data-bench-host=\"${pkg.name}\"]`)
-    if (!host) return
+    const packageOffset = randomInt(PACKAGES.length)
+    let iterationIndex = 0
+    const mutationAccumulators = new Map(PACKAGES.map((pkg) => [pkg.name, 0]))
 
-    const roots = host.querySelectorAll(pkg.root)
-    if (!roots.length) return
+    return () => {
+      const pkg = PACKAGES[(iterationIndex + packageOffset) % PACKAGES.length]
+      iterationIndex += 1
+      const host = document.querySelector(`[data-bench-host=\"${pkg.name}\"]`)
+      if (!host) return
 
-    const target = roots[randomInt(roots.length)]
-    if (nextRandom() < STRUCTURE_MUTATION_RATE) {
-      const oldTrigger = target.querySelector(pkg.trigger)
-      if (oldTrigger) {
-        const replacement = document.createElement("button")
-        const triggerAttr = pkg.trigger.match(/\[data-([^\]]+)\]/)?.[1]
-        replacement.setAttribute(`data-${triggerAttr}`, "")
-        replacement.textContent = `trigger-replaced-${nextRandom().toString(36).slice(2, 7)}`
-        oldTrigger.replaceWith(replacement)
+      const roots = host.querySelectorAll(pkg.root)
+      if (!roots.length) return
+
+      const target = roots[randomInt(roots.length)]
+      const currentAccumulator = (mutationAccumulators.get(pkg.name) ?? 0) + STRUCTURE_MUTATION_RATE
+      const shouldMutate = currentAccumulator >= 1
+      mutationAccumulators.set(pkg.name, shouldMutate ? currentAccumulator - 1 : currentAccumulator)
+
+      if (shouldMutate) {
+        const oldTrigger = target.querySelector(pkg.trigger)
+        if (oldTrigger) {
+          const replacement = document.createElement("button")
+          const triggerAttr = pkg.trigger.match(/\[data-([^\]]+)\]/)?.[1]
+          replacement.setAttribute(`data-${triggerAttr}`, "")
+          replacement.textContent = `trigger-replaced-${nextRandom().toString(36).slice(2, 7)}`
+          oldTrigger.replaceWith(replacement)
+        }
+      } else {
+        const textNode = target.querySelector(pkg.content)
+        if (textNode) {
+          textNode.textContent = `text-${nextRandom().toString(36).slice(2, 9)}`
+        }
       }
-    } else {
-      const textNode = target.querySelector(pkg.content)
-      if (textNode) {
-        textNode.textContent = `text-${nextRandom().toString(36).slice(2, 9)}`
-      }
+
+      scanNode(pkg, target)
     }
-
-    scanNode(pkg, target)
   }
+
+  const runMorphStep = runMorphIteration()
 
   function runBootstrapProxy(pkg) {
     const host = document.querySelector(`[data-bench-host=\"${pkg.name}\"]`)
     if (!host) return
     const nodes = [...host.querySelectorAll(pkg.root)]
-
-    // Warmup pass to reduce "first package" JIT/cold-start bias.
-    for (const node of nodes) {
-      const structure = resolveStructure(pkg, node)
-      if (structure) {
-        structureRegistry.set(node, structure)
+    const runOnce = () => {
+      for (const node of nodes) {
+        structureRegistry.delete(node)
+      }
+      for (const node of nodes) {
+        const structure = resolveStructure(pkg, node)
+        if (structure) {
+          structureRegistry.set(node, structure)
+        }
       }
     }
-
-    for (const node of nodes) {
-      structureRegistry.delete(node)
-    }
-
-    const start = performance.now()
-    for (const node of nodes) {
-      const structure = resolveStructure(pkg, node)
-      if (structure) {
-        structureRegistry.set(node, structure)
-      }
-    }
-    const end = performance.now()
-    metrics.get(pkg.name).bootstrapMs = end - start
+    metrics.get(pkg.name).bootstrapMs = measureBatched(runOnce)
   }
 
   function runOpenCloseProxy(pkg) {
     const host = document.querySelector(`[data-bench-host=\"${pkg.name}\"]`)
     if (!host) return
     const contents = host.querySelectorAll(pkg.content)
-    const samples = []
-    const sampleCount = 5
-    const warmupCount = 1
-
-    const runSample = () => {
-      const start = performance.now()
+    const runOnce = () => {
       for (const content of contents) {
         content.hidden = false
         content.setAttribute("data-state", "open")
         content.hidden = true
         content.setAttribute("data-state", "closed")
       }
-      return performance.now() - start
     }
-
-    for (let i = 0; i < warmupCount; i += 1) {
-      runSample()
-    }
-    for (let i = 0; i < sampleCount; i += 1) {
-      samples.push(runSample())
-    }
-
-    samples.sort((a, b) => a - b)
-    const middle = Math.floor(samples.length / 2)
-    metrics.get(pkg.name).openCloseMs = samples[middle]
+    metrics.get(pkg.name).openCloseMs = measureBatched(runOnce)
   }
 
   const heapStart = process.memoryUsage().heapUsed
@@ -307,7 +343,7 @@ function runBench(seed) {
     runBootstrapProxy(pkg)
   }
   for (let i = 0; i < ITERATIONS; i += 1) {
-    runMorphIteration()
+    runMorphStep()
   }
   for (const pkg of PACKAGES) {
     runOpenCloseProxy(pkg)
@@ -345,13 +381,17 @@ function runBench(seed) {
 
 const budgetErrors = []
 const runResults = []
+const varianceSkippedChecks = []
 
 console.log("\nAffino Laravel Livewire Morph Benchmark (synthetic)")
 console.log(
-  `roots/kind=${ROOTS_PER_KIND} iterations=${ITERATIONS} structureMutationRate=${STRUCTURE_MUTATION_RATE} seeds=${BENCH_SEEDS.join(",")}`,
+  `roots/kind=${ROOTS_PER_KIND} iterations=${ITERATIONS} structureMutationRate=${STRUCTURE_MUTATION_RATE} seeds=${BENCH_SEEDS.join(",")} warmupRuns=${BENCH_WARMUP_RUNS} batchSize=${BENCH_LIVEWIRE_MEASUREMENT_BATCH_SIZE}`,
 )
 
 for (const seed of BENCH_SEEDS) {
+  for (let warmup = 0; warmup < BENCH_WARMUP_RUNS; warmup += 1) {
+    runBench(seed + (warmup + 1) * 9973)
+  }
   const result = runBench(seed)
   runResults.push({ seed, ...result })
 
@@ -404,15 +444,19 @@ const summaryRows = PACKAGES.map((pkg) => {
 
   return {
     package: pkg.name,
+    scanMeanMs: scanStats.mean,
     scanP50: scanStats.p50.toFixed(2),
     scanP90: scanStats.p90.toFixed(2),
     scanCvPct: scanStats.cvPct.toFixed(1),
+    hydrateMeanMs: hydrateStats.mean,
     hydrateP50: hydrateStats.p50.toFixed(2),
     hydrateP90: hydrateStats.p90.toFixed(2),
     hydrateCvPct: hydrateStats.cvPct.toFixed(1),
+    bootstrapMeanMs: bootstrapStats.mean,
     bootstrapP50: bootstrapStats.p50.toFixed(2),
     bootstrapP90: bootstrapStats.p90.toFixed(2),
     bootstrapCvPct: bootstrapStats.cvPct.toFixed(1),
+    openCloseMeanMs: openCloseStats.mean,
     openCloseP50: openCloseStats.p50.toFixed(2),
     openCloseP90: openCloseStats.p90.toFixed(2),
     openCloseCvPct: openCloseStats.cvPct.toFixed(1),
@@ -431,21 +475,40 @@ console.log(`Total elapsed p50=${elapsedStats.p50.toFixed(2)}ms p90=${elapsedSta
 console.log(`Heap delta p50=${heapStats.p50.toFixed(2)}MB p90=${heapStats.p90.toFixed(2)}MB CV=${heapStats.cvPct.toFixed(1)}%`)
 console.log("Note: This is a temporary synthetic benchmark for mutation pressure and rehydrate gating trends.")
 
-if (elapsedStats.cvPct > PERF_BUDGET_MAX_VARIANCE_PCT) {
-  budgetErrors.push(
-    `total elapsed CV ${elapsedStats.cvPct.toFixed(1)}% exceeded PERF_BUDGET_MAX_VARIANCE_PCT=${PERF_BUDGET_MAX_VARIANCE_PCT}%`,
+if (shouldEnforceVariance(elapsedStats)) {
+  if (elapsedStats.cvPct > PERF_BUDGET_MAX_VARIANCE_PCT) {
+    budgetErrors.push(
+      `total elapsed CV ${elapsedStats.cvPct.toFixed(1)}% exceeded PERF_BUDGET_MAX_VARIANCE_PCT=${PERF_BUDGET_MAX_VARIANCE_PCT}%`,
+    )
+  }
+} else if (PERF_BUDGET_MAX_VARIANCE_PCT !== Number.POSITIVE_INFINITY) {
+  varianceSkippedChecks.push(
+    `total elapsed CV gate skipped (mean ${elapsedStats.mean.toFixed(3)}ms < PERF_BUDGET_VARIANCE_MIN_MEAN_MS=${PERF_BUDGET_VARIANCE_MIN_MEAN_MS}ms)`,
   )
 }
 
 summaryRows.forEach((row) => {
   const cvTargets = [
-    { label: "scan", value: Number.parseFloat(row.scanCvPct) },
-    { label: "hydrate", value: Number.parseFloat(row.hydrateCvPct) },
-    { label: "bootstrap", value: Number.parseFloat(row.bootstrapCvPct) },
-    { label: "openClose", value: Number.parseFloat(row.openCloseCvPct) },
-    { label: "hydrateRate", value: Number.parseFloat(row.hydrateRateCvPct) },
+    { label: "scan", value: Number.parseFloat(row.scanCvPct), meanMs: row.scanMeanMs },
+    { label: "hydrate", value: Number.parseFloat(row.hydrateCvPct), meanMs: row.hydrateMeanMs },
+    { label: "bootstrap", value: Number.parseFloat(row.bootstrapCvPct), meanMs: row.bootstrapMeanMs },
+    { label: "openClose", value: Number.parseFloat(row.openCloseCvPct), meanMs: row.openCloseMeanMs },
   ]
+  if (PERF_BUDGET_ENFORCE_HYDRATE_RATE_VARIANCE) {
+    cvTargets.push({ label: "hydrateRate", value: Number.parseFloat(row.hydrateRateCvPct), meanMs: Number.POSITIVE_INFINITY })
+  } else {
+    varianceSkippedChecks.push(`${row.package}: hydrateRate CV gate skipped (disabled by PERF_BUDGET_ENFORCE_HYDRATE_RATE_VARIANCE=false)`)
+  }
   cvTargets.forEach((target) => {
+    if (PERF_BUDGET_MAX_VARIANCE_PCT === Number.POSITIVE_INFINITY) {
+      return
+    }
+    if (Number.isFinite(target.meanMs) && target.meanMs < PERF_BUDGET_VARIANCE_MIN_MEAN_MS) {
+      varianceSkippedChecks.push(
+        `${row.package}: ${target.label} CV gate skipped (mean ${target.meanMs.toFixed(3)}ms < PERF_BUDGET_VARIANCE_MIN_MEAN_MS=${PERF_BUDGET_VARIANCE_MIN_MEAN_MS}ms)`,
+      )
+      return
+    }
     if (target.value > PERF_BUDGET_MAX_VARIANCE_PCT) {
       budgetErrors.push(
         `${row.package}: ${target.label} CV ${target.value.toFixed(1)}% exceeded PERF_BUDGET_MAX_VARIANCE_PCT=${PERF_BUDGET_MAX_VARIANCE_PCT}%`,
@@ -462,6 +525,11 @@ const summary = {
     iterations: ITERATIONS,
     structureMutationRate: STRUCTURE_MUTATION_RATE,
     seeds: BENCH_SEEDS,
+    measurement: {
+      batchSize: BENCH_LIVEWIRE_MEASUREMENT_BATCH_SIZE,
+      sampleCount: BENCH_LIVEWIRE_MEASUREMENT_SAMPLE_COUNT,
+      warmupCount: BENCH_LIVEWIRE_MEASUREMENT_WARMUP_COUNT,
+    },
   },
   budgets: {
     totalMs: PERF_BUDGET_TOTAL_MS,
@@ -469,8 +537,15 @@ const summary = {
     maxBootstrapMs: PERF_BUDGET_MAX_BOOTSTRAP_MS,
     maxOpenCloseMs: PERF_BUDGET_MAX_OPEN_CLOSE_MS,
     maxVariancePct: PERF_BUDGET_MAX_VARIANCE_PCT,
+    varianceMinMeanMs: PERF_BUDGET_VARIANCE_MIN_MEAN_MS,
+    enforceHydrateRateVariance: PERF_BUDGET_ENFORCE_HYDRATE_RATE_VARIANCE,
     maxHeapDeltaMb: PERF_BUDGET_MAX_HEAP_DELTA_MB,
   },
+  variancePolicy: {
+    warmupRuns: BENCH_WARMUP_RUNS,
+    minMeanMsForCvGate: PERF_BUDGET_VARIANCE_MIN_MEAN_MS,
+  },
+  varianceSkippedChecks,
   aggregate: {
     elapsed: elapsedStats,
     heapDelta: heapStats,

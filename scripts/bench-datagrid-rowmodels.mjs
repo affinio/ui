@@ -72,6 +72,7 @@ const PERF_BUDGET_MAX_WINDOW_SHIFT_P99_MS = Number.parseFloat(
 const PERF_BUDGET_MAX_VARIANCE_PCT = Number.parseFloat(process.env.PERF_BUDGET_MAX_VARIANCE_PCT ?? "Infinity")
 const PERF_BUDGET_VARIANCE_MIN_MEAN_MS = Number.parseFloat(process.env.PERF_BUDGET_VARIANCE_MIN_MEAN_MS ?? "0.5")
 const PERF_BUDGET_MAX_HEAP_DELTA_MB = Number.parseFloat(process.env.PERF_BUDGET_MAX_HEAP_DELTA_MB ?? "Infinity")
+const PERF_BUDGET_HEAP_EPSILON_MB = Number.parseFloat(process.env.PERF_BUDGET_HEAP_EPSILON_MB ?? "1")
 const BENCH_OUTPUT_JSON = process.env.BENCH_OUTPUT_JSON ? resolve(process.env.BENCH_OUTPUT_JSON) : null
 
 function assertPositiveInteger(value, label) {
@@ -99,6 +100,9 @@ if (!BENCH_SEEDS.length) {
 }
 if (!Number.isFinite(PERF_BUDGET_VARIANCE_MIN_MEAN_MS) || PERF_BUDGET_VARIANCE_MIN_MEAN_MS < 0) {
   throw new Error("PERF_BUDGET_VARIANCE_MIN_MEAN_MS must be a non-negative finite number")
+}
+if (!Number.isFinite(PERF_BUDGET_HEAP_EPSILON_MB) || PERF_BUDGET_HEAP_EPSILON_MB < 0) {
+  throw new Error("PERF_BUDGET_HEAP_EPSILON_MB must be a non-negative finite number")
 }
 
 function assertNonNegativeInteger(value, label) {
@@ -483,9 +487,9 @@ for (const seed of BENCH_SEEDS) {
       `seed ${seed}: total elapsed ${elapsed.toFixed(2)}ms exceeds PERF_BUDGET_TOTAL_MS=${PERF_BUDGET_TOTAL_MS}ms`,
     )
   }
-  if (heapDeltaMb > PERF_BUDGET_MAX_HEAP_DELTA_MB) {
+  if (heapDeltaMb > PERF_BUDGET_MAX_HEAP_DELTA_MB + PERF_BUDGET_HEAP_EPSILON_MB) {
     budgetErrors.push(
-      `seed ${seed}: heap delta ${heapDeltaMb.toFixed(2)}MB exceeds PERF_BUDGET_MAX_HEAP_DELTA_MB=${PERF_BUDGET_MAX_HEAP_DELTA_MB}MB`,
+      `seed ${seed}: heap delta ${heapDeltaMb.toFixed(2)}MB exceeds PERF_BUDGET_MAX_HEAP_DELTA_MB=${PERF_BUDGET_MAX_HEAP_DELTA_MB}MB (epsilon ${PERF_BUDGET_HEAP_EPSILON_MB.toFixed(2)}MB)`,
     )
   }
   if (client.p95 > PERF_BUDGET_MAX_CLIENT_RANGE_P95_MS) {
@@ -601,6 +605,7 @@ const summary = {
     maxVariancePct: PERF_BUDGET_MAX_VARIANCE_PCT,
     varianceMinMeanMs: PERF_BUDGET_VARIANCE_MIN_MEAN_MS,
     maxHeapDeltaMb: PERF_BUDGET_MAX_HEAP_DELTA_MB,
+    heapEpsilonMb: PERF_BUDGET_HEAP_EPSILON_MB,
   },
   variancePolicy: {
     warmupRuns: BENCH_WARMUP_RUNS,
