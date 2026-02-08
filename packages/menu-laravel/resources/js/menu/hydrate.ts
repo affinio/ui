@@ -1579,11 +1579,8 @@ class MenuInstance {
     }
     if (!domOpen && snapshotOpen) {
       const rootId = this.root.dataset.affinoMenuRoot?.trim() ?? ""
-      if (!this.parentMenuId && rootId && openStateRegistry.has(rootId)) {
-        if (this.root.dataset.affinoMenuState !== "open") {
-          this.root.dataset.affinoMenuState = "open"
-        }
-        return
+      if (!this.parentMenuId && rootId) {
+        openStateRegistry.delete(rootId)
       }
       this.core.close("programmatic")
     }
