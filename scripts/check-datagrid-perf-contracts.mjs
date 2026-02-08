@@ -81,7 +81,7 @@ function registerForbiddenTokenCheck(id, file, forbidden, description) {
 
 registerFileCheck(
   "viewport-virtualization-file",
-  "packages/datagrid-core/src/viewport/tableViewportVirtualization.ts",
+  "packages/datagrid-core/src/viewport/dataGridViewportVirtualization.ts",
   "Viewport virtualization hot path implementation",
 )
 registerFileCheck(
@@ -102,7 +102,7 @@ registerFileCheck(
 
 registerTokenCheck(
   "viewport-object-pool-contract",
-  "packages/datagrid-core/src/viewport/tableViewportVirtualization.ts",
+  "packages/datagrid-core/src/viewport/dataGridViewportVirtualization.ts",
   [
     "const rowPool: RowPoolItem[] = []",
     "const visibleSnapshotBuffers: VisibleRow[][] = [[], [], []]",
@@ -114,7 +114,7 @@ registerTokenCheck(
 
 registerForbiddenTokenCheck(
   "viewport-no-slice-allocation-hot-path",
-  "packages/datagrid-core/src/viewport/tableViewportVirtualization.ts",
+  "packages/datagrid-core/src/viewport/dataGridViewportVirtualization.ts",
   ["buffer.slice(0, filled)", '.join("|")'],
   "Viewport hot path avoids per-frame slice/join allocations",
 )

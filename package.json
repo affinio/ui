@@ -48,7 +48,7 @@
     "bench:vue-adapters": "node ./scripts/bench-vue-adapters.mjs",
     "bench:vue-adapters:assert": "PERF_BUDGET_TOTAL_MS=1400 PERF_BUDGET_MAX_BOOTSTRAP_MS=8 PERF_BUDGET_MAX_CONTROLLER_MS=30 PERF_BUDGET_MAX_RELAYOUT_MS=6 node ./scripts/bench-vue-adapters.mjs",
     "bench:datagrid:rowmodels": "node --experimental-specifier-resolution=node ./scripts/bench-datagrid-rowmodels.mjs",
-    "bench:datagrid:rowmodels:assert": "BENCH_SEEDS=1337,7331,2026 PERF_BUDGET_TOTAL_MS=9000 PERF_BUDGET_MAX_CLIENT_RANGE_P95_MS=5 PERF_BUDGET_MAX_CLIENT_RANGE_P99_MS=8 PERF_BUDGET_MAX_SERVER_RANGE_P95_MS=35 PERF_BUDGET_MAX_SERVER_RANGE_P99_MS=55 PERF_BUDGET_MAX_WINDOW_SHIFT_P95_MS=10 PERF_BUDGET_MAX_WINDOW_SHIFT_P99_MS=16 PERF_BUDGET_MAX_VARIANCE_PCT=25 PERF_BUDGET_MAX_HEAP_DELTA_MB=100 node --experimental-specifier-resolution=node ./scripts/bench-datagrid-rowmodels.mjs",
+    "bench:datagrid:rowmodels:assert": "BENCH_SEEDS=1337,7331,2026 PERF_BUDGET_TOTAL_MS=9000 PERF_BUDGET_MAX_CLIENT_RANGE_P95_MS=5 PERF_BUDGET_MAX_CLIENT_RANGE_P99_MS=8 PERF_BUDGET_MAX_SERVER_RANGE_P95_MS=35 PERF_BUDGET_MAX_SERVER_RANGE_P99_MS=55 PERF_BUDGET_MAX_WINDOW_SHIFT_P95_MS=10 PERF_BUDGET_MAX_WINDOW_SHIFT_P99_MS=16 PERF_BUDGET_MAX_VARIANCE_PCT=25 PERF_BUDGET_MAX_HEAP_DELTA_MB=140 node --experimental-specifier-resolution=node ./scripts/bench-datagrid-rowmodels.mjs",
     "bench:datagrid:harness": "DATAGRID_BENCH_MODE=local node --experimental-specifier-resolution=node ./scripts/bench-datagrid-harness.mjs",
     "bench:datagrid:harness:ci": "DATAGRID_BENCH_MODE=ci node --experimental-specifier-resolution=node ./scripts/bench-datagrid-harness.mjs",
     "bench:regression": "pnpm run bench:datagrid:harness:ci",

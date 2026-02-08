@@ -62,6 +62,9 @@ importers:
       '@affino/combobox-laravel':
         specifier: workspace:*
         version: link:../packages/combobox-laravel
+      '@affino/datagrid-core':
+        specifier: workspace:*
+        version: link:../packages/datagrid-core
       '@affino/dialog-laravel':
         specifier: workspace:*
         version: link:../packages/dialog-laravel
@@ -120,6 +123,9 @@ importers:
       '@affino/combobox-core':
         specifier: workspace:*
         version: link:../packages/combobox-core
+      '@affino/datagrid-core':
+        specifier: workspace:*
+        version: link:../packages/datagrid-core
       '@affino/dialog-vue':
         specifier: workspace:*
         version: link:../packages/dialog-vue
@@ -549,6 +555,22 @@ importers:
       vitest:
         specifier: ^4.0.15
         version: 4.0.15(@types/node@24.10.4)(jiti@2.6.1)(jsdom@27.3.0(postcss@8.5.6))(lightningcss@1.30.2)(terser@5.46.0)
+
+  packages/listbox-vue:
+    dependencies:
+      '@affino/listbox-core':
+        specifier: workspace:^
+        version: link:../listbox-core
+      '@affino/selection-vue':
+        specifier: workspace:^
+        version: link:../selection-vue
+    devDependencies:
+      vitest:
+        specifier: ^4.0.15
+        version: 4.0.15(@types/node@24.10.4)(jiti@2.6.1)(jsdom@27.3.0(postcss@8.5.6))(lightningcss@1.30.2)(terser@5.46.0)
+      vue:
+        specifier: ^3.4.0
+        version: 3.5.25(typescript@5.9.3)
 
   packages/menu-core:
     dependencies:

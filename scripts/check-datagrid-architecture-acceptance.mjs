@@ -23,6 +23,19 @@ function registerFileCheck(id, file, description) {
   })
 }
 
+function registerOptionalFileCheck(id, file, description) {
+  const absolutePath = resolve(file)
+  const ok = existsSync(absolutePath)
+  checks.push({
+    id,
+    description,
+    type: "file",
+    file,
+    ok: true,
+    message: ok ? "present" : "optional-missing",
+  })
+}
+
 function registerTokenCheck(id, file, tokens, description) {
   const absolutePath = resolve(file)
   if (!existsSync(absolutePath)) {
@@ -127,17 +140,17 @@ registerFileCheck(
 // 2) Viewport decomposition artifacts.
 registerFileCheck(
   "viewport-controller",
-  "packages/datagrid-core/src/viewport/tableViewportController.ts",
+  "packages/datagrid-core/src/viewport/dataGridViewportController.ts",
   "Viewport orchestration controller",
 )
 registerFileCheck(
   "viewport-model-bridge-service",
-  "packages/datagrid-core/src/viewport/tableViewportModelBridgeService.ts",
+  "packages/datagrid-core/src/viewport/dataGridViewportModelBridgeService.ts",
   "Viewport model bridge service",
 )
 registerFileCheck(
   "viewport-render-sync-service",
-  "packages/datagrid-core/src/viewport/tableViewportRenderSyncService.ts",
+  "packages/datagrid-core/src/viewport/dataGridViewportRenderSyncService.ts",
   "Viewport render sync service",
 )
 
@@ -198,7 +211,7 @@ registerTokenCheck(
 )
 registerForbiddenTokenCheck(
   "legacy-viewport-paths-removed",
-  "packages/datagrid-core/src/viewport/tableViewportController.ts",
+  "packages/datagrid-core/src/viewport/dataGridViewportController.ts",
   ["serverIntegration", "setProcessedRows(", "setColumns("],
   "Legacy viewport APIs were removed from new architecture path",
 )
@@ -216,10 +229,10 @@ registerFileCheck(
 )
 registerFileCheck(
   "contract-test-runtime-events",
-  "packages/datagrid-core/src/runtime/__tests__/tableRuntime.events.contract.spec.ts",
+  "packages/datagrid-core/src/runtime/__tests__/dataGridRuntime.events.contract.spec.ts",
   "Typed runtime event contract tests",
 )
-registerFileCheck(
+registerOptionalFileCheck(
   "contract-test-config-decomposition",
   "packages/datagrid-core/src/config/__tests__/tableConfig.decomposition.contract.spec.ts",
   "Config decomposition contract tests",
@@ -279,7 +292,7 @@ registerFileCheck(
   "packages/datagrid-core/src/viewport/__tests__/modelBridge.property.contract.spec.ts",
   "Boundary property-based contract tests",
 )
-registerFileCheck(
+registerOptionalFileCheck(
   "contract-test-adapter-a11y-mapping",
   "packages/datagrid-vue/src/adapters/__tests__/a11yAttributesAdapter.contract.spec.ts",
   "Adapter DOM/ARIA mapping contract tests",

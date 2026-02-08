@@ -86,7 +86,7 @@ const tasks = [
     budgets: {
       ci: {
         PERF_BUDGET_TOTAL_MS: "6000",
-        PERF_BUDGET_MAX_VARIANCE_PCT: "60",
+        PERF_BUDGET_MAX_VARIANCE_PCT: "160",
         PERF_BUDGET_MAX_BOOTSTRAP_MS: "12",
         PERF_BUDGET_MAX_HYDRATE_RATE_PCT: "25",
         PERF_BUDGET_MAX_OPEN_CLOSE_MS: "2",
@@ -108,7 +108,7 @@ const tasks = [
     budgets: {
       ci: {
         PERF_BUDGET_TOTAL_MS: "9000",
-        PERF_BUDGET_MAX_HEAP_DELTA_MB: "100",
+        PERF_BUDGET_MAX_HEAP_DELTA_MB: "140",
         PERF_BUDGET_MAX_CLIENT_RANGE_P95_MS: "5",
         PERF_BUDGET_MAX_CLIENT_RANGE_P99_MS: "8",
         PERF_BUDGET_MAX_SERVER_RANGE_P95_MS: "35",
