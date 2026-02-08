@@ -4,6 +4,10 @@ import { spawnSync } from "node:child_process"
 const steps = [
   { label: "lint", command: "pnpm", args: ["run", "lint"] },
   { label: "type-check", command: "pnpm", args: ["run", "type-check"] },
+  { label: "datagrid-core-build", command: "pnpm", args: ["--filter", "@affino/datagrid-core", "build"] },
+  { label: "datagrid-architecture", command: "pnpm", args: ["run", "quality:architecture:datagrid"] },
+  { label: "datagrid-perf-contracts", command: "pnpm", args: ["run", "quality:perf:datagrid"] },
+  { label: "datagrid-strict-contracts", command: "pnpm", args: ["run", "test:datagrid:strict-contracts"] },
   { label: "datagrid-unit", command: "pnpm", args: ["run", "test:matrix:unit"] },
   { label: "datagrid-integration", command: "pnpm", args: ["run", "test:matrix:integration"] },
   { label: "vue-matrix", command: "pnpm", args: ["run", "test:vue-matrix"] },
@@ -18,8 +22,7 @@ if (!shouldSkipE2E) {
 }
 
 if (!shouldSkipBench) {
-  steps.push({ label: "bench-vue", command: "pnpm", args: ["run", "bench:vue-adapters:assert"] })
-  steps.push({ label: "bench-laravel", command: "pnpm", args: ["run", "bench:laravel-morph:assert"] })
+  steps.push({ label: "bench-datagrid-harness", command: "pnpm", args: ["run", "bench:datagrid:harness:ci"] })
 }
 
 const results = []

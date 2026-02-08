@@ -14,31 +14,19 @@ const baseEnv = {
   ...process.env,
 }
 
-const ciBudgets = {
+const sharedCiBudgets = {
   BENCH_SEEDS: "1337,7331,2026",
-  PERF_BUDGET_TOTAL_MS: "1400",
-  PERF_BUDGET_MAX_BOOTSTRAP_MS: "8",
-  PERF_BUDGET_MAX_CONTROLLER_MS: "30",
-  PERF_BUDGET_MAX_RELAYOUT_MS: "6",
-  PERF_BUDGET_MAX_HYDRATE_RATE_PCT: "25",
-  PERF_BUDGET_MAX_OPEN_CLOSE_MS: "2",
   PERF_BUDGET_MAX_VARIANCE_PCT: "25",
   PERF_BUDGET_MAX_HEAP_DELTA_MB: "80",
 }
 
-const localBudgets = {
+const sharedLocalBudgets = {
   BENCH_SEEDS: "1337,7331",
-  PERF_BUDGET_TOTAL_MS: "Infinity",
-  PERF_BUDGET_MAX_BOOTSTRAP_MS: "Infinity",
-  PERF_BUDGET_MAX_CONTROLLER_MS: "Infinity",
-  PERF_BUDGET_MAX_RELAYOUT_MS: "Infinity",
-  PERF_BUDGET_MAX_HYDRATE_RATE_PCT: "Infinity",
-  PERF_BUDGET_MAX_OPEN_CLOSE_MS: "Infinity",
   PERF_BUDGET_MAX_VARIANCE_PCT: "Infinity",
   PERF_BUDGET_MAX_HEAP_DELTA_MB: "Infinity",
 }
 
-const selectedBudgets = mode === "ci" ? ciBudgets : localBudgets
+const selectedSharedBudgets = mode === "ci" ? sharedCiBudgets : sharedLocalBudgets
 
 mkdirSync(outputDir, { recursive: true })
 
@@ -49,6 +37,20 @@ const tasks = [
     args: ["./scripts/bench-vue-adapters.mjs"],
     jsonPath: `${outputDir}/bench-vue-adapters.json`,
     logPath: `${outputDir}/bench-vue-adapters.log`,
+    budgets: {
+      ci: {
+        PERF_BUDGET_TOTAL_MS: "1400",
+        PERF_BUDGET_MAX_BOOTSTRAP_MS: "8",
+        PERF_BUDGET_MAX_CONTROLLER_MS: "30",
+        PERF_BUDGET_MAX_RELAYOUT_MS: "6",
+      },
+      local: {
+        PERF_BUDGET_TOTAL_MS: "Infinity",
+        PERF_BUDGET_MAX_BOOTSTRAP_MS: "Infinity",
+        PERF_BUDGET_MAX_CONTROLLER_MS: "Infinity",
+        PERF_BUDGET_MAX_RELAYOUT_MS: "Infinity",
+      },
+    },
   },
   {
     id: "laravel-morph",
@@ -56,6 +58,47 @@ const tasks = [
     args: ["./scripts/bench-livewire-morph.mjs"],
     jsonPath: `${outputDir}/bench-livewire-morph.json`,
     logPath: `${outputDir}/bench-livewire-morph.log`,
+    budgets: {
+      ci: {
+        PERF_BUDGET_TOTAL_MS: "3400",
+        PERF_BUDGET_MAX_BOOTSTRAP_MS: "12",
+        PERF_BUDGET_MAX_HYDRATE_RATE_PCT: "25",
+        PERF_BUDGET_MAX_OPEN_CLOSE_MS: "2",
+      },
+      local: {
+        PERF_BUDGET_TOTAL_MS: "Infinity",
+        PERF_BUDGET_MAX_BOOTSTRAP_MS: "Infinity",
+        PERF_BUDGET_MAX_HYDRATE_RATE_PCT: "Infinity",
+        PERF_BUDGET_MAX_OPEN_CLOSE_MS: "Infinity",
+      },
+    },
+  },
+  {
+    id: "row-models",
+    command: "node",
+    args: ["./scripts/bench-datagrid-rowmodels.mjs"],
+    jsonPath: `${outputDir}/bench-datagrid-rowmodels.json`,
+    logPath: `${outputDir}/bench-datagrid-rowmodels.log`,
+    budgets: {
+      ci: {
+        PERF_BUDGET_TOTAL_MS: "9000",
+        PERF_BUDGET_MAX_CLIENT_RANGE_P95_MS: "5",
+        PERF_BUDGET_MAX_CLIENT_RANGE_P99_MS: "8",
+        PERF_BUDGET_MAX_SERVER_RANGE_P95_MS: "35",
+        PERF_BUDGET_MAX_SERVER_RANGE_P99_MS: "55",
+        PERF_BUDGET_MAX_WINDOW_SHIFT_P95_MS: "10",
+        PERF_BUDGET_MAX_WINDOW_SHIFT_P99_MS: "16",
+      },
+      local: {
+        PERF_BUDGET_TOTAL_MS: "Infinity",
+        PERF_BUDGET_MAX_CLIENT_RANGE_P95_MS: "Infinity",
+        PERF_BUDGET_MAX_CLIENT_RANGE_P99_MS: "Infinity",
+        PERF_BUDGET_MAX_SERVER_RANGE_P95_MS: "Infinity",
+        PERF_BUDGET_MAX_SERVER_RANGE_P99_MS: "Infinity",
+        PERF_BUDGET_MAX_WINDOW_SHIFT_P95_MS: "Infinity",
+        PERF_BUDGET_MAX_WINDOW_SHIFT_P99_MS: "Infinity",
+      },
+    },
   },
 ]
 
@@ -63,9 +106,11 @@ const results = []
 let hasFailure = false
 
 for (const task of tasks) {
+  const taskBudgets = mode === "ci" ? task.budgets.ci : task.budgets.local
   const env = {
     ...baseEnv,
-    ...selectedBudgets,
+    ...selectedSharedBudgets,
+    ...taskBudgets,
     BENCH_OUTPUT_JSON: task.jsonPath,
   }
 
@@ -109,7 +154,13 @@ const report = {
   mode,
   failFast,
   generatedAt: new Date().toISOString(),
-  budgets: selectedBudgets,
+  budgets: {
+    shared: selectedSharedBudgets,
+    byTask: tasks.map((task) => ({
+      id: task.id,
+      budgets: mode === "ci" ? task.budgets.ci : task.budgets.local,
+    })),
+  },
   results,
   ok: !hasFailure,
 }

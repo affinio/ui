@@ -101,6 +101,83 @@ jobs:
             artifacts/playwright-flake-summary.json
           if-no-files-found: ignore
 
+  quality-gates:
+    runs-on: ubuntu-latest
+    needs: verify
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 10.28.1
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run datagrid quality lock (architecture + perf contracts + strict contract matrix + coverage + critical e2e)
+        run: pnpm run quality:lock:datagrid
+
+      - name: Upload quality gate artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: datagrid-quality-gates
+          path: |
+            artifacts/quality
+            artifacts/playwright-flake-summary.json
+            playwright-report
+            packages/datagrid-core/coverage
+            packages/datagrid-vue/coverage
+          if-no-files-found: ignore
+
+  benchmark-regression:
+    runs-on: ubuntu-latest
+    needs: quality-gates
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 10.28.1
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build datagrid-core benchmark target
+        run: pnpm --filter @affino/datagrid-core build
+
+      - name: Run benchmark regression harness
+        run: pnpm run bench:datagrid:harness:ci
+
+      - name: Upload benchmark artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: datagrid-benchmark-regression
+          path: artifacts/performance
+          if-no-files-found: ignore
+
 
   docs:
     runs-on: ubuntu-latest
