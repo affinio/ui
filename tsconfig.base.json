@@ -7,6 +7,8 @@
       "@affino/dialog-vue": ["./packages/dialog-vue/src/index.ts"],
       "@affino/datagrid-core": ["./packages/datagrid-core/src/index.ts"],
       "@affino/datagrid-core/*": ["./packages/datagrid-core/src/*"],
+      "@affino/datagrid-orchestration": ["./packages/datagrid-orchestration/src/index.ts"],
+      "@affino/datagrid-orchestration/*": ["./packages/datagrid-orchestration/src/*"],
       "@affino/datagrid-theme": ["./packages/datagrid-theme/src/index.ts"],
       "@affino/datagrid-theme/*": ["./packages/datagrid-theme/src/*"],
       "@affino/datagrid-plugins": ["./packages/datagrid-plugins/src/index.ts"],
