@@ -126,6 +126,9 @@ importers:
       '@affino/datagrid-core':
         specifier: workspace:*
         version: link:../packages/datagrid-core
+      '@affino/datagrid-theme':
+        specifier: workspace:*
+        version: link:../packages/datagrid-theme
       '@affino/dialog-vue':
         specifier: workspace:*
         version: link:../packages/dialog-vue
@@ -315,13 +318,33 @@ importers:
         specifier: ^4.0.15
         version: 4.0.15(@types/node@24.10.4)(jiti@2.6.1)(jsdom@27.3.0(postcss@8.5.6))(lightningcss@1.30.2)(terser@5.46.0)
 
-  packages/datagrid-core: {}
+  packages/datagrid-core:
+    dependencies:
+      '@affino/datagrid-plugins':
+        specifier: workspace:*
+        version: link:../datagrid-plugins
+      '@affino/datagrid-theme':
+        specifier: workspace:*
+        version: link:../datagrid-theme
+
+  packages/datagrid-orchestration:
+    dependencies:
+      '@affino/datagrid-core':
+        specifier: workspace:*
+        version: link:../datagrid-core
+
+  packages/datagrid-plugins: {}
+
+  packages/datagrid-theme: {}
 
   packages/datagrid-vue:
     dependencies:
       '@affino/datagrid-core':
         specifier: workspace:*
         version: link:../datagrid-core
+      '@affino/datagrid-orchestration':
+        specifier: workspace:*
+        version: link:../datagrid-orchestration
       '@affino/dialog-vue':
         specifier: workspace:^
         version: link:../dialog-vue
