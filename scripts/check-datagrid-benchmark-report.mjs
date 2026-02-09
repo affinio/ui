@@ -7,7 +7,7 @@ const reportPath = resolve(process.env.DATAGRID_BENCH_REPORT ?? "artifacts/perfo
 const outputPath = resolve(
   process.env.DATAGRID_BENCH_GATES_REPORT ?? "artifacts/quality/datagrid-benchmark-gates-report.json",
 )
-const requiredTasks = (process.env.DATAGRID_BENCH_REQUIRED_TASKS ?? "vue-adapters,laravel-morph,row-models")
+const requiredTasks = (process.env.DATAGRID_BENCH_REQUIRED_TASKS ?? "vue-adapters,laravel-morph,interaction-models,row-models")
   .split(",")
   .map(task => task.trim())
   .filter(Boolean)

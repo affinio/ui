@@ -104,6 +104,11 @@ registerFileCheck(
   "scripts/check-datagrid-benchmark-report.mjs",
   "Runtime benchmark report gate script",
 )
+registerFileCheck(
+  "interaction-benchmark-script",
+  "scripts/bench-datagrid-interactions.mjs",
+  "Interaction benchmark for selection/fill virtualization pressure",
+)
 
 registerTokenCheck(
   "viewport-object-pool-contract",
@@ -142,8 +147,22 @@ registerTokenCheck(
     "PERF_BUDGET_MAX_CLIENT_RANGE_P99_MS",
     "PERF_BUDGET_MAX_SERVER_RANGE_P99_MS",
     "PERF_BUDGET_MAX_WINDOW_SHIFT_P99_MS",
+    "PERF_BUDGET_MAX_SELECTION_DRAG_P99_MS",
+    "PERF_BUDGET_MAX_FILL_APPLY_P99_MS",
   ],
   "Benchmark harness propagates p99 budgets into CI profile",
+)
+
+registerTokenCheck(
+  "interaction-benchmark-p99-budgets",
+  "scripts/bench-datagrid-interactions.mjs",
+  [
+    "PERF_BUDGET_MAX_SELECTION_DRAG_P95_MS",
+    "PERF_BUDGET_MAX_SELECTION_DRAG_P99_MS",
+    "PERF_BUDGET_MAX_FILL_APPLY_P95_MS",
+    "PERF_BUDGET_MAX_FILL_APPLY_P99_MS",
+  ],
+  "Interaction benchmark enforces p95/p99 budgets for selection/fill flows",
 )
 
 registerTokenCheck(
@@ -156,7 +175,13 @@ registerTokenCheck(
 registerTokenCheck(
   "benchmark-regression-gate-script",
   "package.json",
-  ["bench:datagrid:harness:ci:gate", "check-datagrid-benchmark-report.mjs", "bench:regression"],
+  [
+    "bench:datagrid:harness:ci:gate",
+    "check-datagrid-benchmark-report.mjs",
+    "bench:regression",
+    "bench:datagrid:interactions",
+    "bench:datagrid:interactions:assert",
+  ],
   "Runtime benchmark regression uses explicit report gate script",
 )
 

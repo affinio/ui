@@ -100,6 +100,29 @@ const tasks = [
     },
   },
   {
+    id: "interaction-models",
+    command: "node",
+    args: ["./scripts/bench-datagrid-interactions.mjs"],
+    jsonPath: `${outputDir}/bench-datagrid-interactions.json`,
+    logPath: `${outputDir}/bench-datagrid-interactions.log`,
+    budgets: {
+      ci: {
+        PERF_BUDGET_TOTAL_MS: "3500",
+        PERF_BUDGET_MAX_SELECTION_DRAG_P95_MS: "5",
+        PERF_BUDGET_MAX_SELECTION_DRAG_P99_MS: "8",
+        PERF_BUDGET_MAX_FILL_APPLY_P95_MS: "8",
+        PERF_BUDGET_MAX_FILL_APPLY_P99_MS: "14",
+      },
+      local: {
+        PERF_BUDGET_TOTAL_MS: "Infinity",
+        PERF_BUDGET_MAX_SELECTION_DRAG_P95_MS: "Infinity",
+        PERF_BUDGET_MAX_SELECTION_DRAG_P99_MS: "Infinity",
+        PERF_BUDGET_MAX_FILL_APPLY_P95_MS: "Infinity",
+        PERF_BUDGET_MAX_FILL_APPLY_P99_MS: "Infinity",
+      },
+    },
+  },
+  {
     id: "row-models",
     command: "node",
     args: ["./scripts/bench-datagrid-rowmodels.mjs"],
