@@ -108,6 +108,7 @@ const tasks = [
     budgets: {
       ci: {
         PERF_BUDGET_TOTAL_MS: "3500",
+        PERF_BUDGET_MAX_VARIANCE_PCT: "120",
         PERF_BUDGET_MAX_SELECTION_DRAG_P95_MS: "5",
         PERF_BUDGET_MAX_SELECTION_DRAG_P99_MS: "8",
         PERF_BUDGET_MAX_FILL_APPLY_P95_MS: "8",
