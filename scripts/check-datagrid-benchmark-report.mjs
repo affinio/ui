@@ -82,6 +82,20 @@ function resolveHeapWorstCase(stat) {
   )
 }
 
+function isFiniteBudgetLiteral(value) {
+  if (typeof value === "number") {
+    return Number.isFinite(value)
+  }
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase()
+    if (normalized.length === 0 || normalized === "infinity") {
+      return false
+    }
+    return Number.isFinite(Number.parseFloat(normalized))
+  }
+  return false
+}
+
 if (!existsSync(reportPath)) {
   register(false, "report-file", "datagrid benchmark report is missing", { reportPath })
 } else {
@@ -120,6 +134,9 @@ if (report) {
   })
   register(Boolean(report.ok), "report-ok", "benchmark harness report must be ok=true")
 
+  const byTaskBudgets = Array.isArray(report.budgets?.byTask) ? report.budgets.byTask : []
+  register(byTaskBudgets.length > 0, "report-task-budget-map", "benchmark harness report must expose byTask budgets")
+
   if (expectedMode === "ci") {
     const sharedBudgets = report.budgets?.shared ?? {}
     const seedsRaw = String(sharedBudgets.BENCH_SEEDS ?? "")
@@ -145,10 +162,40 @@ if (report) {
       "CI shared heap budget must be finite",
       { value: sharedBudgets.PERF_BUDGET_MAX_HEAP_DELTA_MB },
     )
+
+    const sharedInfinityKeys = Object.entries(sharedBudgets)
+      .filter(([, value]) => typeof value === "string" && value.trim().toLowerCase() === "infinity")
+      .map(([key]) => key)
+    register(
+      sharedInfinityKeys.length === 0,
+      "shared-ci-no-infinity-budgets",
+      "CI shared budgets must not use Infinity values",
+      { sharedInfinityKeys },
+    )
   }
 
   const results = Array.isArray(report.results) ? report.results : []
   register(results.length > 0, "results-present", "benchmark harness report contains suite results")
+  register(
+    results.length >= requiredTasks.length,
+    "results-cover-required-count",
+    "benchmark harness report must include all required task results",
+    { resultsCount: results.length, requiredCount: requiredTasks.length },
+  )
+
+  const duplicateResultIds = [
+    ...new Set(
+      results
+        .map(result => (result && typeof result.id === "string" ? result.id : null))
+        .filter((id, index, array) => id != null && array.indexOf(id) !== index),
+    ),
+  ]
+  register(
+    duplicateResultIds.length === 0,
+    "results-no-duplicate-task-ids",
+    "benchmark harness report must not contain duplicate task ids",
+    { duplicateResultIds },
+  )
 
   for (const taskId of requiredTasks) {
     const result = results.find(item => item && item.id === taskId)
@@ -156,10 +203,46 @@ if (report) {
       register(false, `task-${taskId}-present`, `missing benchmark result for task '${taskId}'`)
       continue
     }
+    register(
+      Number.isFinite(result.durationMs) && result.durationMs > 0,
+      `task-${taskId}-duration-valid`,
+      `task '${taskId}' durationMs must be finite and > 0`,
+      { durationMs: result.durationMs },
+    )
+    register(
+      typeof result.logPath === "string" && result.logPath.length > 0,
+      `task-${taskId}-log-path`,
+      `task '${taskId}' must publish log path`,
+      { logPath: result.logPath ?? null },
+    )
+    register(
+      (result.ok === true && result.status === 0) || (result.ok === false && result.status !== 0),
+      `task-${taskId}-status-consistency`,
+      `task '${taskId}' status/ok must be consistent`,
+      { ok: result.ok, status: result.status },
+    )
     register(Boolean(result.ok), `task-${taskId}-ok`, `task '${taskId}' must pass`, {
       status: result.status,
       signal: result.signal,
     })
+
+    const taskBudgetEntry = byTaskBudgets.find(entry => entry && entry.id === taskId)
+    register(
+      Boolean(taskBudgetEntry),
+      `task-${taskId}-budget-map-entry`,
+      `task '${taskId}' must exist in report.budgets.byTask`,
+    )
+    if (expectedMode === "ci" && taskBudgetEntry?.budgets && typeof taskBudgetEntry.budgets === "object") {
+      const infiniteBudgetKeys = Object.entries(taskBudgetEntry.budgets)
+        .filter(([, value]) => !isFiniteBudgetLiteral(value))
+        .map(([key]) => key)
+      register(
+        infiniteBudgetKeys.length === 0,
+        `task-${taskId}-ci-budgets-finite`,
+        `task '${taskId}' CI budgets must be finite`,
+        { infiniteBudgetKeys },
+      )
+    }
 
     const linkedPath = resolveReportLinkedPath(result.jsonPath, dirname(reportPath))
     register(Boolean(linkedPath), `task-${taskId}-artifact`, `task '${taskId}' json artifact must exist`, {
@@ -195,6 +278,22 @@ if (report) {
       `task-${taskId}-budgets`,
       `task '${taskId}' artifact must expose budget section`,
     )
+    const benchmarkGeneratedAt = typeof benchmarkJson.generatedAt === "string" ? Date.parse(benchmarkJson.generatedAt) : Number.NaN
+    register(
+      Number.isFinite(benchmarkGeneratedAt),
+      `task-${taskId}-artifact-generated-at`,
+      `task '${taskId}' artifact must expose valid generatedAt`,
+      { generatedAt: benchmarkJson.generatedAt ?? null },
+    )
+    if (Number.isFinite(benchmarkGeneratedAt) && Number.isFinite(maxReportAgeMinutes) && maxReportAgeMinutes >= 0) {
+      const taskAgeMinutes = (Date.now() - benchmarkGeneratedAt) / (1000 * 60)
+      register(
+        taskAgeMinutes <= maxReportAgeMinutes,
+        `task-${taskId}-artifact-freshness`,
+        `task '${taskId}' artifact age is ${taskAgeMinutes.toFixed(1)} minutes (max ${maxReportAgeMinutes.toFixed(1)} minutes)`,
+        { taskAgeMinutes, maxReportAgeMinutes },
+      )
+    }
 
     register(Boolean(benchmarkJson.ok), `task-${taskId}-benchmark-ok`, `task '${taskId}' benchmark summary must be ok=true`)
     const budgetErrors = Array.isArray(benchmarkJson.budgetErrors) ? benchmarkJson.budgetErrors : []
