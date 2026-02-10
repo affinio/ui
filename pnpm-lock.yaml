@@ -65,6 +65,9 @@ importers:
       '@affino/datagrid-core':
         specifier: workspace:*
         version: link:../packages/datagrid-core
+      '@affino/datagrid-orchestration':
+        specifier: workspace:*
+        version: link:../packages/datagrid-orchestration
       '@affino/dialog-laravel':
         specifier: workspace:*
         version: link:../packages/dialog-laravel
