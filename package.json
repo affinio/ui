@@ -40,6 +40,7 @@
     "quality:architecture:datagrid": "node ./scripts/check-datagrid-architecture-acceptance.mjs",
     "quality:perf:datagrid": "node ./scripts/check-datagrid-perf-contracts.mjs",
     "quality:lock:datagrid": "pnpm run quality:architecture:datagrid && pnpm run quality:perf:datagrid && pnpm run test:datagrid:strict-contracts && pnpm run quality:gates:datagrid",
+    "quality:lock:datagrid:parity": "pnpm run quality:lock:datagrid && pnpm run bench:regression && pnpm run test:e2e:datagrid:parity",
     "codemod:datagrid:public-protocol": "node ./scripts/codemods/datagrid-public-protocol-codemod.mjs",
     "changeset": "changeset",
     "changeset:status": "changeset status --output /tmp/changeset-status.json",
