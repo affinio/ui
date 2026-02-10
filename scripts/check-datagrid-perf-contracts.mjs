@@ -164,6 +164,11 @@ registerFileCheck(
   "scripts/bench-datagrid-interactions.mjs",
   "Interaction benchmark for selection/fill virtualization pressure",
 )
+registerFileCheck(
+  "benchmark-baseline-lock-file",
+  "docs/perf/datagrid-benchmark-baseline.json",
+  "Benchmark baseline lock file for CI drift guard",
+)
 
 registerTokenCheck(
   "viewport-object-pool-contract",
@@ -434,6 +439,10 @@ registerTokenCheck(
     "bench:regression",
     "bench:datagrid:interactions",
     "bench:datagrid:interactions:assert",
+    "bench:datagrid:datasource-churn",
+    "bench:datagrid:datasource-churn:assert",
+    "bench:datagrid:derived-cache",
+    "bench:datagrid:derived-cache:assert",
   ],
   "Runtime benchmark regression uses explicit report gate script",
 )
@@ -445,6 +454,8 @@ registerTokenCheck(
     "id: \"vue-adapters\"",
     "id: \"laravel-morph\"",
     "id: \"interaction-models\"",
+    "id: \"datasource-churn\"",
+    "id: \"derived-cache\"",
     "id: \"row-models\"",
     "mode === \"ci\" ? task.budgets.ci : task.budgets.local",
   ],
@@ -529,29 +540,39 @@ registerTokenCheck(
     registerConditionCheck(
       assertBudgetId,
       false,
-      "Rowmodel/interaction assert scripts keep finite variance + heap budgets",
+      "Rowmodel/interaction/datasource/derived assert scripts keep finite variance + heap budgets",
       "package.json missing",
     )
   } else {
     const pkg = JSON.parse(readFileSync(packageJsonPath, "utf8"))
     const rowmodelsAssertScript = String(pkg?.scripts?.["bench:datagrid:rowmodels:assert"] ?? "")
     const interactionsAssertScript = String(pkg?.scripts?.["bench:datagrid:interactions:assert"] ?? "")
+    const datasourceAssertScript = String(pkg?.scripts?.["bench:datagrid:datasource-churn:assert"] ?? "")
+    const derivedCacheAssertScript = String(pkg?.scripts?.["bench:datagrid:derived-cache:assert"] ?? "")
     const rowmodelsVariance = extractEnvNumberFromScript(rowmodelsAssertScript, "PERF_BUDGET_MAX_VARIANCE_PCT")
     const rowmodelsHeap = extractEnvNumberFromScript(rowmodelsAssertScript, "PERF_BUDGET_MAX_HEAP_DELTA_MB")
     const interactionsVariance = extractEnvNumberFromScript(interactionsAssertScript, "PERF_BUDGET_MAX_VARIANCE_PCT")
     const interactionsHeap = extractEnvNumberFromScript(interactionsAssertScript, "PERF_BUDGET_MAX_HEAP_DELTA_MB")
+    const datasourceVariance = extractEnvNumberFromScript(datasourceAssertScript, "PERF_BUDGET_MAX_VARIANCE_PCT")
+    const datasourceHeap = extractEnvNumberFromScript(datasourceAssertScript, "PERF_BUDGET_MAX_HEAP_DELTA_MB")
+    const derivedVariance = extractEnvNumberFromScript(derivedCacheAssertScript, "PERF_BUDGET_MAX_VARIANCE_PCT")
+    const derivedHeap = extractEnvNumberFromScript(derivedCacheAssertScript, "PERF_BUDGET_MAX_HEAP_DELTA_MB")
     const ok =
       rowmodelsVariance != null &&
       rowmodelsHeap != null &&
       interactionsVariance != null &&
-      interactionsHeap != null
+      interactionsHeap != null &&
+      datasourceVariance != null &&
+      datasourceHeap != null &&
+      derivedVariance != null &&
+      derivedHeap != null
     registerConditionCheck(
       assertBudgetId,
       ok,
-      "Rowmodel/interaction assert scripts keep finite variance + heap budgets",
+      "Rowmodel/interaction/datasource/derived assert scripts keep finite variance + heap budgets",
       ok
         ? "ok"
-        : `missing finite budget(s): rowmodels variance=${rowmodelsVariance}, rowmodels heap=${rowmodelsHeap}, interactions variance=${interactionsVariance}, interactions heap=${interactionsHeap}`,
+        : `missing finite budget(s): rowmodels variance=${rowmodelsVariance}, rowmodels heap=${rowmodelsHeap}, interactions variance=${interactionsVariance}, interactions heap=${interactionsHeap}, datasource variance=${datasourceVariance}, datasource heap=${datasourceHeap}, derived variance=${derivedVariance}, derived heap=${derivedHeap}`,
     )
   }
 }
@@ -571,8 +592,13 @@ registerTokenCheck(
     "task-${taskId}-heap-budget-finite",
     "task-${taskId}-elapsed-variance",
     "task-${taskId}-heap-growth",
+    "baseline-file",
+    "task-${taskId}-baseline-entry",
+    "task-${taskId}-baseline-duration-drift",
+    "task-${taskId}-baseline-elapsed-drift",
+    "task-${taskId}-baseline-heap-drift",
   ],
-  "Benchmark gate enforces finite CI variance/heap budgets and aggregate variance+memory thresholds",
+  "Benchmark gate enforces finite CI variance/heap budgets, aggregate variance+memory thresholds, and baseline drift lock",
 )
 
 registerTokenCheck(

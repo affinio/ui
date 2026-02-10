@@ -7,12 +7,28 @@ const reportPath = resolve(process.env.DATAGRID_BENCH_REPORT ?? "artifacts/perfo
 const outputPath = resolve(
   process.env.DATAGRID_BENCH_GATES_REPORT ?? "artifacts/quality/datagrid-benchmark-gates-report.json",
 )
-const requiredTasks = (process.env.DATAGRID_BENCH_REQUIRED_TASKS ?? "vue-adapters,laravel-morph,interaction-models,row-models")
+const requiredTasks = (
+  process.env.DATAGRID_BENCH_REQUIRED_TASKS ??
+  "vue-adapters,laravel-morph,interaction-models,datasource-churn,derived-cache,row-models"
+)
   .split(",")
   .map(task => task.trim())
   .filter(Boolean)
 const expectedMode = process.env.DATAGRID_BENCH_EXPECT_MODE ?? "ci"
 const maxReportAgeMinutes = Number.parseFloat(process.env.DATAGRID_BENCH_MAX_REPORT_AGE_MINUTES ?? "180")
+const baselinePath = resolve(process.env.DATAGRID_BENCH_BASELINE ?? "docs/perf/datagrid-benchmark-baseline.json")
+const baselineRequired = (process.env.DATAGRID_BENCH_BASELINE_REQUIRED ?? (expectedMode === "ci" ? "true" : "false"))
+  .trim()
+  .toLowerCase() !== "false"
+const baselineDefaultDurationDriftPct = Number.parseFloat(
+  process.env.DATAGRID_BENCH_BASELINE_MAX_DURATION_DRIFT_PCT ?? "120",
+)
+const baselineDefaultElapsedDriftPct = Number.parseFloat(
+  process.env.DATAGRID_BENCH_BASELINE_MAX_ELAPSED_DRIFT_PCT ?? "60",
+)
+const baselineDefaultHeapDriftPct = Number.parseFloat(
+  process.env.DATAGRID_BENCH_BASELINE_MAX_HEAP_DRIFT_PCT ?? "120",
+)
 
 const failures = []
 const checks = []
@@ -96,6 +112,36 @@ function isFiniteBudgetLiteral(value) {
   return false
 }
 
+function resolveElapsedWorstCase(root) {
+  return (
+    readNestedNumber(root, "aggregate.elapsedMs.p99") ??
+    readNestedNumber(root, "aggregate.elapsedMs.p95") ??
+    readNestedNumber(root, "aggregate.elapsed.p99") ??
+    readNestedNumber(root, "aggregate.elapsed.p95") ??
+    readNestedNumber(root, "aggregate.elapsed.p90") ??
+    readNestedNumber(root, "aggregate.elapsedMs.p90") ??
+    readNestedNumber(root, "aggregate.elapsedMs.p50") ??
+    readNestedNumber(root, "aggregate.elapsed.p50") ??
+    readNestedNumber(root, "aggregate.elapsedMs.mean") ??
+    readNestedNumber(root, "aggregate.elapsed.mean")
+  )
+}
+
+function resolvePositiveDriftPct(current, baseline) {
+  if (!Number.isFinite(current) || !Number.isFinite(baseline) || baseline <= 0) {
+    return null
+  }
+  return ((current - baseline) / baseline) * 100
+}
+
+function resolveDriftLimit(taskConfig, defaults, key, fallback) {
+  return (
+    parseFiniteNumber(taskConfig?.[key]) ??
+    parseFiniteNumber(defaults?.[key]) ??
+    (Number.isFinite(fallback) ? fallback : null)
+  )
+}
+
 if (!existsSync(reportPath)) {
   register(false, "report-file", "datagrid benchmark report is missing", { reportPath })
 } else {
@@ -109,6 +155,28 @@ if (existsSync(reportPath)) {
     register(true, "report-json", "datagrid benchmark report is valid JSON")
   } catch (error) {
     register(false, "report-json", "failed to parse datagrid benchmark report", {
+      error: error instanceof Error ? error.message : String(error),
+    })
+  }
+}
+
+let baseline = null
+if (!existsSync(baselinePath)) {
+  register(!baselineRequired, "baseline-file", "benchmark baseline file availability", {
+    baselinePath,
+    baselineRequired,
+  })
+} else {
+  register(true, "baseline-file", "benchmark baseline file availability", {
+    baselinePath,
+    baselineRequired,
+  })
+  try {
+    baseline = JSON.parse(readFileSync(baselinePath, "utf8"))
+    register(true, "baseline-json", "benchmark baseline is valid JSON", { baselinePath })
+  } catch (error) {
+    register(false, "baseline-json", "failed to parse benchmark baseline JSON", {
+      baselinePath,
       error: error instanceof Error ? error.message : String(error),
     })
   }
@@ -175,6 +243,7 @@ if (report) {
   }
 
   const results = Array.isArray(report.results) ? report.results : []
+  const taskRuntimeMetrics = new Map()
   register(results.length > 0, "results-present", "benchmark harness report contains suite results")
   register(
     results.length >= requiredTasks.length,
@@ -203,6 +272,7 @@ if (report) {
       register(false, `task-${taskId}-present`, `missing benchmark result for task '${taskId}'`)
       continue
     }
+    const resultDurationMs = parseFiniteNumber(result.durationMs)
     register(
       Number.isFinite(result.durationMs) && result.durationMs > 0,
       `task-${taskId}-duration-valid`,
@@ -343,6 +413,14 @@ if (report) {
 
     const heapStat = benchmarkJson.aggregate?.heapDeltaMb ?? benchmarkJson.aggregate?.heapDelta ?? null
     const heapWorstCase = resolveHeapWorstCase(heapStat)
+    const elapsedWorstCase = resolveElapsedWorstCase(benchmarkJson)
+
+    taskRuntimeMetrics.set(taskId, {
+      durationMs: resultDurationMs,
+      elapsedWorstCaseMs: elapsedWorstCase,
+      heapWorstCaseMb: heapWorstCase,
+    })
+
     const heapEpsilonMb = parseFiniteNumber(benchmarkJson.budgets?.heapEpsilonMb) ?? 0
     if (maxHeapDeltaMb != null && heapWorstCase != null) {
       register(
@@ -351,6 +429,130 @@ if (report) {
         `task '${taskId}' heap delta ${heapWorstCase.toFixed(2)}MB must be <= ${(maxHeapDeltaMb + heapEpsilonMb).toFixed(2)}MB`,
         { heapWorstCaseMb: heapWorstCase, maxHeapDeltaMb, heapEpsilonMb },
       )
+    }
+  }
+
+  if (baseline) {
+    const baselineTasks = baseline.tasks && typeof baseline.tasks === "object" ? baseline.tasks : null
+    register(Boolean(baselineTasks), "baseline-tasks-map", "baseline must expose tasks map")
+
+    for (const taskId of requiredTasks) {
+      const runtime = taskRuntimeMetrics.get(taskId)
+      const taskBaseline = baselineTasks && typeof baselineTasks === "object" ? baselineTasks[taskId] : null
+
+      register(
+        Boolean(taskBaseline),
+        `task-${taskId}-baseline-entry`,
+        `baseline must contain task '${taskId}'`,
+      )
+      register(
+        Boolean(runtime),
+        `task-${taskId}-runtime-metrics`,
+        `runtime metrics must exist for task '${taskId}'`,
+      )
+
+      if (!taskBaseline || !runtime) {
+        continue
+      }
+
+      const maxDurationDriftPct = resolveDriftLimit(
+        taskBaseline,
+        baseline.defaults,
+        "maxDurationDriftPct",
+        baselineDefaultDurationDriftPct,
+      )
+      const baselineDurationMs = parseFiniteNumber(taskBaseline.durationMs)
+      const durationDriftPct = resolvePositiveDriftPct(runtime.durationMs, baselineDurationMs)
+      if (maxDurationDriftPct != null && durationDriftPct != null) {
+        register(
+          durationDriftPct <= maxDurationDriftPct,
+          `task-${taskId}-baseline-duration-drift`,
+          `task '${taskId}' duration drift ${durationDriftPct.toFixed(2)}% must be <= ${maxDurationDriftPct.toFixed(2)}%`,
+          {
+            currentDurationMs: runtime.durationMs,
+            baselineDurationMs,
+            durationDriftPct,
+            maxDurationDriftPct,
+          },
+        )
+      } else {
+        register(
+          false,
+          `task-${taskId}-baseline-duration-config`,
+          `task '${taskId}' baseline duration drift config is incomplete`,
+          {
+            currentDurationMs: runtime.durationMs,
+            baselineDurationMs,
+            maxDurationDriftPct,
+          },
+        )
+      }
+
+      const maxElapsedDriftPct = resolveDriftLimit(
+        taskBaseline,
+        baseline.defaults,
+        "maxAggregateElapsedDriftPct",
+        baselineDefaultElapsedDriftPct,
+      )
+      const baselineElapsedMs = parseFiniteNumber(taskBaseline.aggregateElapsedMs)
+      const elapsedDriftPct = resolvePositiveDriftPct(runtime.elapsedWorstCaseMs, baselineElapsedMs)
+      if (maxElapsedDriftPct != null && elapsedDriftPct != null) {
+        register(
+          elapsedDriftPct <= maxElapsedDriftPct,
+          `task-${taskId}-baseline-elapsed-drift`,
+          `task '${taskId}' elapsed drift ${elapsedDriftPct.toFixed(2)}% must be <= ${maxElapsedDriftPct.toFixed(2)}%`,
+          {
+            currentElapsedMs: runtime.elapsedWorstCaseMs,
+            baselineElapsedMs,
+            elapsedDriftPct,
+            maxElapsedDriftPct,
+          },
+        )
+      } else {
+        register(
+          false,
+          `task-${taskId}-baseline-elapsed-config`,
+          `task '${taskId}' baseline elapsed drift config is incomplete`,
+          {
+            currentElapsedMs: runtime.elapsedWorstCaseMs,
+            baselineElapsedMs,
+            maxElapsedDriftPct,
+          },
+        )
+      }
+
+      const maxHeapDriftPct = resolveDriftLimit(
+        taskBaseline,
+        baseline.defaults,
+        "maxAggregateHeapDriftPct",
+        baselineDefaultHeapDriftPct,
+      )
+      const baselineHeapMb = parseFiniteNumber(taskBaseline.aggregateHeapMb)
+      const heapDriftPct = resolvePositiveDriftPct(runtime.heapWorstCaseMb, baselineHeapMb)
+      if (maxHeapDriftPct != null && heapDriftPct != null) {
+        register(
+          heapDriftPct <= maxHeapDriftPct,
+          `task-${taskId}-baseline-heap-drift`,
+          `task '${taskId}' heap drift ${heapDriftPct.toFixed(2)}% must be <= ${maxHeapDriftPct.toFixed(2)}%`,
+          {
+            currentHeapMb: runtime.heapWorstCaseMb,
+            baselineHeapMb,
+            heapDriftPct,
+            maxHeapDriftPct,
+          },
+        )
+      } else {
+        register(
+          false,
+          `task-${taskId}-baseline-heap-config`,
+          `task '${taskId}' baseline heap drift config is incomplete`,
+          {
+            currentHeapMb: runtime.heapWorstCaseMb,
+            baselineHeapMb,
+            maxHeapDriftPct,
+          },
+        )
+      }
     }
   }
 }
@@ -362,6 +564,8 @@ const summary = {
   expectedMode,
   requiredTasks,
   maxReportAgeMinutes,
+  baselinePath,
+  baselineRequired,
   ok: failures.length === 0,
   totals: {
     checks: checks.length,

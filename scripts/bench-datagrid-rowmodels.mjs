@@ -13,6 +13,7 @@ const SERVER_ROW_COUNT = Number.parseInt(process.env.BENCH_SERVER_ROW_COUNT ?? "
 const SERVER_ITERATIONS = Number.parseInt(process.env.BENCH_SERVER_ITERATIONS ?? "180", 10)
 const SERVER_RANGE_SIZE = Number.parseInt(process.env.BENCH_SERVER_RANGE_SIZE ?? "180", 10)
 const SERVER_BLOCK_SIZE = Number.parseInt(process.env.BENCH_SERVER_BLOCK_SIZE ?? "256", 10)
+const SERVER_CACHE_BLOCK_LIMIT = Number.parseInt(process.env.BENCH_SERVER_CACHE_BLOCK_LIMIT ?? "96", 10)
 
 const WINDOW_SHIFT_WINDOW_SIZE = Number.parseInt(
   process.env.BENCH_WINDOW_SHIFT_WINDOW_SIZE ?? process.env.BENCH_INFINITE_WINDOW_SIZE ?? "1600",
@@ -88,6 +89,7 @@ assertPositiveInteger(SERVER_ROW_COUNT, "BENCH_SERVER_ROW_COUNT")
 assertPositiveInteger(SERVER_ITERATIONS, "BENCH_SERVER_ITERATIONS")
 assertPositiveInteger(SERVER_RANGE_SIZE, "BENCH_SERVER_RANGE_SIZE")
 assertPositiveInteger(SERVER_BLOCK_SIZE, "BENCH_SERVER_BLOCK_SIZE")
+assertPositiveInteger(SERVER_CACHE_BLOCK_LIMIT, "BENCH_SERVER_CACHE_BLOCK_LIMIT")
 assertPositiveInteger(WINDOW_SHIFT_WINDOW_SIZE, "BENCH_WINDOW_SHIFT_WINDOW_SIZE")
 assertPositiveInteger(WINDOW_SHIFT_ITERATIONS, "BENCH_WINDOW_SHIFT_ITERATIONS")
 assertPositiveInteger(WINDOW_SHIFT_TOTAL_ROWS, "BENCH_WINDOW_SHIFT_TOTAL_ROWS")
@@ -209,9 +211,10 @@ async function loadModelFactories() {
   )
 }
 
-function createServerSource(totalRows, blockSize) {
+function createServerSource(totalRows, blockSize, maxBlocks) {
   const rowCache = new Map()
   const blocksValue = new Map()
+  const rowRefCount = new Map()
   const loadedRangesValue = []
   const loading = { value: false }
   const error = { value: null }
@@ -234,6 +237,44 @@ function createServerSource(totalRows, blockSize) {
     diagnostics.value.cachedRows = rowCache.size
   }
 
+  function touchBlock(start) {
+    if (!blocksValue.has(start)) {
+      return
+    }
+    const rows = blocksValue.get(start)
+    blocksValue.delete(start)
+    blocksValue.set(start, rows)
+  }
+
+  function incrementRowRef(index) {
+    rowRefCount.set(index, (rowRefCount.get(index) ?? 0) + 1)
+  }
+
+  function decrementRowRef(index) {
+    const current = rowRefCount.get(index) ?? 0
+    if (current <= 1) {
+      rowRefCount.delete(index)
+      rowCache.delete(index)
+      return
+    }
+    rowRefCount.set(index, current - 1)
+  }
+
+  function evictOldestBlock() {
+    const oldest = blocksValue.keys().next().value
+    if (typeof oldest !== "number") {
+      return
+    }
+    const rows = blocksValue.get(oldest) ?? []
+    blocksValue.delete(oldest)
+    for (let offset = 0; offset < rows.length; offset += 1) {
+      decrementRowRef(oldest + offset)
+    }
+    while (loadedRangesValue.length > maxBlocks) {
+      loadedRangesValue.shift()
+    }
+  }
+
   async function fetchBlock(start) {
     const normalizedStart = Math.max(0, Math.min(totalRows - 1, Math.trunc(start)))
     loading.value = true
@@ -241,6 +282,7 @@ function createServerSource(totalRows, blockSize) {
     try {
       if (blocksValue.has(normalizedStart)) {
         diagnostics.value.cacheHits += 1
+        touchBlock(normalizedStart)
         return blocksValue.get(normalizedStart)
       }
       diagnostics.value.cacheMisses += 1
@@ -256,8 +298,14 @@ function createServerSource(totalRows, blockSize) {
         rows.push(row)
       }
       blocksValue.set(normalizedStart, rows)
+      for (let offset = 0; offset < rows.length; offset += 1) {
+        incrementRowRef(normalizedStart + offset)
+      }
       if (rows.length) {
         loadedRangesValue.push({ start: normalizedStart, end: normalizedStart + rows.length - 1 })
+      }
+      while (blocksValue.size > maxBlocks) {
+        evictOldestBlock()
       }
       updateDiagnostics()
       return rows
@@ -288,6 +336,7 @@ function createServerSource(totalRows, blockSize) {
     reset() {
       rowCache.clear()
       blocksValue.clear()
+      rowRefCount.clear()
       loadedRangesValue.length = 0
       updateDiagnostics()
     },
@@ -295,6 +344,7 @@ function createServerSource(totalRows, blockSize) {
     dispose() {
       rowCache.clear()
       blocksValue.clear()
+      rowRefCount.clear()
       loadedRangesValue.length = 0
       updateDiagnostics()
     },
@@ -340,7 +390,7 @@ async function runClientScenario(factories, seed) {
 
 async function runServerScenario(factories, seed) {
   const rng = createRng(seed)
-  const source = createServerSource(SERVER_ROW_COUNT, SERVER_BLOCK_SIZE)
+  const source = createServerSource(SERVER_ROW_COUNT, SERVER_BLOCK_SIZE, SERVER_CACHE_BLOCK_LIMIT)
   const model = factories.createServerBackedRowModel({ source })
   const durations = []
 
@@ -584,6 +634,7 @@ const summary = {
       iterations: SERVER_ITERATIONS,
       rangeSize: SERVER_RANGE_SIZE,
       blockSize: SERVER_BLOCK_SIZE,
+      cacheBlockLimit: SERVER_CACHE_BLOCK_LIMIT,
       batchSize: BENCH_ROWMODEL_MEASUREMENT_BATCH_SIZE,
     },
     windowShiftProxy: {
