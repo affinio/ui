@@ -304,6 +304,29 @@ registerTokenCheck(
   "Root scripts include strict contract gate",
 )
 registerTokenCheck(
+  "parity-lock-script",
+  "package.json",
+  ["quality:lock:datagrid:parity", "bench:regression", "test:e2e:datagrid:parity"],
+  "Root scripts include cross-framework parity lock command",
+)
+registerFileCheck(
+  "ci-workflow-file",
+  ".github/workflows/ci.yml",
+  "CI workflow exists for parity/quality lock enforcement",
+)
+registerTokenCheck(
+  "ci-workflow-quality-gates-job",
+  ".github/workflows/ci.yml",
+  [
+    "quality-gates:",
+    "pnpm run quality:lock:datagrid:parity",
+    "name: datagrid-quality-gates",
+    "artifacts/quality",
+    "artifacts/performance",
+  ],
+  "CI workflow runs parity lock in blocking quality-gates job and uploads quality/perf artifacts",
+)
+registerTokenCheck(
   "public-protocol-codemod-script",
   "package.json",
   ["codemod:datagrid:public-protocol"],

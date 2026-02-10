@@ -185,6 +185,31 @@ registerTokenCheck(
   "Runtime benchmark regression uses explicit report gate script",
 )
 
+registerTokenCheck(
+  "benchmark-gate-finite-ci-guards",
+  "scripts/check-datagrid-benchmark-report.mjs",
+  [
+    "shared-ci-variance-budget-finite",
+    "shared-ci-heap-budget-finite",
+    "task-${taskId}-variance-budget-finite",
+    "task-${taskId}-heap-budget-finite",
+    "task-${taskId}-elapsed-variance",
+    "task-${taskId}-heap-growth",
+  ],
+  "Benchmark gate enforces finite CI variance/heap budgets and aggregate variance+memory thresholds",
+)
+
+registerTokenCheck(
+  "benchmark-gate-ci-wiring",
+  ".github/workflows/ci.yml",
+  [
+    "quality-gates:",
+    "pnpm run quality:lock:datagrid:parity",
+    "name: datagrid-quality-gates",
+  ],
+  "CI quality-gates job executes parity lock and publishes benchmark/quality artifacts",
+)
+
 const totalChecks = checks.length
 const passedChecks = checks.filter(check => check.ok).length
 const failedChecks = checks.filter(check => !check.ok)
