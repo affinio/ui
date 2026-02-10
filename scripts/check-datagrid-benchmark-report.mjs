@@ -38,6 +38,50 @@ function resolveReportLinkedPath(candidate, fallbackBaseDir) {
   return null
 }
 
+function parseFiniteNumber(value) {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null
+  }
+  if (typeof value === "string") {
+    const normalized = value.trim()
+    if (normalized.length === 0 || normalized.toLowerCase() === "infinity") {
+      return null
+    }
+    const parsed = Number.parseFloat(normalized)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+  return null
+}
+
+function readNestedNumber(root, path) {
+  if (!root || typeof root !== "object") {
+    return null
+  }
+  const parts = path.split(".")
+  let current = root
+  for (const part of parts) {
+    if (!current || typeof current !== "object" || !(part in current)) {
+      return null
+    }
+    current = current[part]
+  }
+  return parseFiniteNumber(current)
+}
+
+function resolveHeapWorstCase(stat) {
+  if (!stat || typeof stat !== "object") {
+    return null
+  }
+  return (
+    parseFiniteNumber(stat.max) ??
+    parseFiniteNumber(stat.p99) ??
+    parseFiniteNumber(stat.p95) ??
+    parseFiniteNumber(stat.p90) ??
+    parseFiniteNumber(stat.p50) ??
+    parseFiniteNumber(stat.mean)
+  )
+}
+
 if (!existsSync(reportPath)) {
   register(false, "report-file", "datagrid benchmark report is missing", { reportPath })
 } else {
@@ -75,6 +119,33 @@ if (report) {
     actualMode: report.mode,
   })
   register(Boolean(report.ok), "report-ok", "benchmark harness report must be ok=true")
+
+  if (expectedMode === "ci") {
+    const sharedBudgets = report.budgets?.shared ?? {}
+    const seedsRaw = String(sharedBudgets.BENCH_SEEDS ?? "")
+    const seedCount = seedsRaw
+      .split(",")
+      .map(value => value.trim())
+      .filter(Boolean)
+      .length
+    register(seedCount >= 3, "shared-ci-seeds", "CI harness must run at least 3 seeds", { seedsRaw, seedCount })
+
+    const sharedVarianceBudget = parseFiniteNumber(sharedBudgets.PERF_BUDGET_MAX_VARIANCE_PCT)
+    register(
+      sharedVarianceBudget != null,
+      "shared-ci-variance-budget-finite",
+      "CI shared variance budget must be finite",
+      { value: sharedBudgets.PERF_BUDGET_MAX_VARIANCE_PCT },
+    )
+
+    const sharedHeapBudget = parseFiniteNumber(sharedBudgets.PERF_BUDGET_MAX_HEAP_DELTA_MB)
+    register(
+      sharedHeapBudget != null,
+      "shared-ci-heap-budget-finite",
+      "CI shared heap budget must be finite",
+      { value: sharedBudgets.PERF_BUDGET_MAX_HEAP_DELTA_MB },
+    )
+  }
 
   const results = Array.isArray(report.results) ? report.results : []
   register(results.length > 0, "results-present", "benchmark harness report contains suite results")
@@ -124,6 +195,64 @@ if (report) {
       `task-${taskId}-budgets`,
       `task '${taskId}' artifact must expose budget section`,
     )
+
+    register(Boolean(benchmarkJson.ok), `task-${taskId}-benchmark-ok`, `task '${taskId}' benchmark summary must be ok=true`)
+    const budgetErrors = Array.isArray(benchmarkJson.budgetErrors) ? benchmarkJson.budgetErrors : []
+    register(
+      budgetErrors.length === 0,
+      `task-${taskId}-budget-errors-empty`,
+      `task '${taskId}' benchmark summary must not contain budget errors`,
+      { budgetErrorsCount: budgetErrors.length },
+    )
+
+    if (expectedMode !== "ci") {
+      continue
+    }
+
+    const maxVariancePct = parseFiniteNumber(benchmarkJson.budgets?.maxVariancePct)
+    register(
+      maxVariancePct != null,
+      `task-${taskId}-variance-budget-finite`,
+      `task '${taskId}' maxVariancePct must be finite in CI`,
+      { value: benchmarkJson.budgets?.maxVariancePct ?? null },
+    )
+
+    const maxHeapDeltaMb = parseFiniteNumber(benchmarkJson.budgets?.maxHeapDeltaMb)
+    register(
+      maxHeapDeltaMb != null,
+      `task-${taskId}-heap-budget-finite`,
+      `task '${taskId}' maxHeapDeltaMb must be finite in CI`,
+      { value: benchmarkJson.budgets?.maxHeapDeltaMb ?? null },
+    )
+
+    const varianceMinMeanMs = parseFiniteNumber(benchmarkJson.budgets?.varianceMinMeanMs) ?? 0
+    const elapsedMean =
+      readNestedNumber(benchmarkJson, "aggregate.elapsedMs.mean") ??
+      readNestedNumber(benchmarkJson, "aggregate.elapsed.mean")
+    const elapsedCv =
+      readNestedNumber(benchmarkJson, "aggregate.elapsedMs.cvPct") ??
+      readNestedNumber(benchmarkJson, "aggregate.elapsed.cvPct")
+
+    if (maxVariancePct != null && elapsedMean != null && elapsedCv != null && elapsedMean >= varianceMinMeanMs) {
+      register(
+        elapsedCv <= maxVariancePct,
+        `task-${taskId}-elapsed-variance`,
+        `task '${taskId}' elapsed CV ${elapsedCv.toFixed(2)}% must be <= ${maxVariancePct.toFixed(2)}%`,
+        { elapsedCvPct: elapsedCv, maxVariancePct, elapsedMeanMs: elapsedMean, varianceMinMeanMs },
+      )
+    }
+
+    const heapStat = benchmarkJson.aggregate?.heapDeltaMb ?? benchmarkJson.aggregate?.heapDelta ?? null
+    const heapWorstCase = resolveHeapWorstCase(heapStat)
+    const heapEpsilonMb = parseFiniteNumber(benchmarkJson.budgets?.heapEpsilonMb) ?? 0
+    if (maxHeapDeltaMb != null && heapWorstCase != null) {
+      register(
+        heapWorstCase <= maxHeapDeltaMb + heapEpsilonMb,
+        `task-${taskId}-heap-growth`,
+        `task '${taskId}' heap delta ${heapWorstCase.toFixed(2)}MB must be <= ${(maxHeapDeltaMb + heapEpsilonMb).toFixed(2)}MB`,
+        { heapWorstCaseMb: heapWorstCase, maxHeapDeltaMb, heapEpsilonMb },
+      )
+    }
   }
 }
 
