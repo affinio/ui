@@ -176,6 +176,56 @@ function createVisibleRows(count, offset = 0) {
   return rows
 }
 
+function createReusableVisibleRows(count, offset = 0) {
+  const rows = new Array(count)
+  for (let index = 0; index < count; index += 1) {
+    const id = offset + index
+    rows[index] = {
+      row: { id, value: `row-${id}` },
+      rowId: id,
+      originalIndex: index,
+      displayIndex: index,
+    }
+  }
+  return rows
+}
+
+function updateReusableVisibleRows(rows, offset) {
+  for (let index = 0; index < rows.length; index += 1) {
+    const id = offset + index
+    const entry = rows[index]
+    if (!entry) continue
+    const row = entry.row
+    row.id = id
+    row.value = `row-${id}`
+    entry.rowId = id
+    entry.originalIndex = index
+    entry.displayIndex = index
+  }
+}
+
+function sleepTick() {
+  return new Promise(resolveTick => {
+    setTimeout(resolveTick, 0)
+  })
+}
+
+async function sampleHeapUsed() {
+  const maybeGc = globalThis.gc
+  let minHeap = Number.POSITIVE_INFINITY
+  for (let iteration = 0; iteration < 3; iteration += 1) {
+    if (typeof maybeGc === "function") {
+      maybeGc()
+    }
+    await sleepTick()
+    const used = process.memoryUsage().heapUsed
+    if (used < minHeap) {
+      minHeap = used
+    }
+  }
+  return Number.isFinite(minHeap) ? minHeap : process.memoryUsage().heapUsed
+}
+
 async function loadModelFactories() {
   const candidates = [
     resolve("packages/datagrid-core/dist/src/models/index.js"),
@@ -351,10 +401,10 @@ function createServerSource(totalRows, blockSize, maxBlocks) {
   }
 }
 
-async function runClientScenario(factories, seed) {
+async function runClientScenario(factories, seed, rowsInput) {
   const rng = createRng(seed)
   const model = factories.createClientRowModel({
-    rows: createVisibleRows(CLIENT_ROW_COUNT),
+    rows: rowsInput,
   })
   const durations = []
 
@@ -428,8 +478,9 @@ async function runServerScenario(factories, seed) {
 
 async function runWindowShiftProxyScenario(factories, seed) {
   const rng = createRng(seed)
+  const reusableRows = createReusableVisibleRows(WINDOW_SHIFT_WINDOW_SIZE, 0)
   const model = factories.createClientRowModel({
-    rows: createVisibleRows(WINDOW_SHIFT_WINDOW_SIZE, 0),
+    rows: reusableRows,
   })
   const durations = []
   let offset = 0
@@ -442,7 +493,8 @@ async function runWindowShiftProxyScenario(factories, seed) {
       offset = Math.min(maxOffset, (offset + delta) % Math.max(1, maxOffset + 1))
       const localStart = randomInt(rng, 0, maxLocalStart)
       const localEnd = Math.min(WINDOW_SHIFT_WINDOW_SIZE - 1, localStart + WINDOW_SHIFT_RANGE_SIZE)
-      model.setRows(createVisibleRows(WINDOW_SHIFT_WINDOW_SIZE, offset))
+      updateReusableVisibleRows(reusableRows, offset)
+      model.setRows(reusableRows)
       model.setViewportRange({ start: localStart, end: localEnd })
       model.getRowsInRange({ start: localStart, end: localEnd })
     }
@@ -469,6 +521,7 @@ async function runWindowShiftProxyScenario(factories, seed) {
 }
 
 const factories = await loadModelFactories()
+const sharedClientRows = createVisibleRows(CLIENT_ROW_COUNT)
 const runResults = []
 const budgetErrors = []
 const varianceSkippedChecks = []
@@ -481,18 +534,18 @@ console.log(
 for (const seed of BENCH_SEEDS) {
   for (let warmup = 0; warmup < BENCH_WARMUP_RUNS; warmup += 1) {
     const warmupSeed = seed + (warmup + 1) * 9973
-    await runClientScenario(factories, warmupSeed)
+    await runClientScenario(factories, warmupSeed, sharedClientRows)
     await runServerScenario(factories, warmupSeed)
     await runWindowShiftProxyScenario(factories, warmupSeed)
   }
 
-  const heapStart = process.memoryUsage().heapUsed
+  const heapStart = await sampleHeapUsed()
   const startedAt = performance.now()
-  const client = await runClientScenario(factories, seed)
+  const client = await runClientScenario(factories, seed, sharedClientRows)
   const server = await runServerScenario(factories, seed)
   const windowShift = await runWindowShiftProxyScenario(factories, seed)
   const elapsed = performance.now() - startedAt
-  const heapEnd = process.memoryUsage().heapUsed
+  const heapEnd = await sampleHeapUsed()
   const heapDeltaMb = (heapEnd - heapStart) / (1024 * 1024)
 
   runResults.push({

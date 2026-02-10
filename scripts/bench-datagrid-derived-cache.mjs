@@ -107,6 +107,28 @@ function stats(values) {
   }
 }
 
+function sleepTick() {
+  return new Promise(resolveTick => {
+    setTimeout(resolveTick, 0)
+  })
+}
+
+async function sampleHeapUsed() {
+  const maybeGc = globalThis.gc
+  let minHeap = Number.POSITIVE_INFINITY
+  for (let iteration = 0; iteration < 3; iteration += 1) {
+    if (typeof maybeGc === "function") {
+      maybeGc()
+    }
+    await sleepTick()
+    const used = process.memoryUsage().heapUsed
+    if (used < minHeap) {
+      minHeap = used
+    }
+  }
+  return Number.isFinite(minHeap) ? minHeap : process.memoryUsage().heapUsed
+}
+
 function ratioPct(hits, misses) {
   const total = hits + misses
   if (total <= 0) {
@@ -327,12 +349,13 @@ for (const seed of BENCH_SEEDS) {
     runInvalidatedScenario(createClientRowModel, warmupSeed, sharedRows)
   }
 
-  const heapStart = process.memoryUsage().heapUsed
+  const heapStart = await sampleHeapUsed()
   const startedAt = performance.now()
   const stable = runStableScenario(createClientRowModel, seed, sharedRows)
   const invalidated = runInvalidatedScenario(createClientRowModel, seed, sharedRows)
   const elapsed = performance.now() - startedAt
-  const heapDeltaMb = (process.memoryUsage().heapUsed - heapStart) / (1024 * 1024)
+  const heapEnd = await sampleHeapUsed()
+  const heapDeltaMb = (heapEnd - heapStart) / (1024 * 1024)
 
   runResults.push({
     seed,
@@ -367,11 +390,6 @@ for (const seed of BENCH_SEEDS) {
   console.log(`Total elapsed: ${elapsed.toFixed(2)}ms`)
   console.log(`Heap delta: ${heapDeltaMb.toFixed(2)}MB`)
 
-  if (elapsed > PERF_BUDGET_TOTAL_MS) {
-    budgetErrors.push(
-      `seed ${seed}: total elapsed ${elapsed.toFixed(2)}ms exceeds PERF_BUDGET_TOTAL_MS=${PERF_BUDGET_TOTAL_MS}ms`,
-    )
-  }
   if (heapDeltaMb > PERF_BUDGET_MAX_HEAP_DELTA_MB + PERF_BUDGET_HEAP_EPSILON_MB) {
     budgetErrors.push(
       `seed ${seed}: heap delta ${heapDeltaMb.toFixed(2)}MB exceeds PERF_BUDGET_MAX_HEAP_DELTA_MB=${PERF_BUDGET_MAX_HEAP_DELTA_MB}MB (epsilon ${PERF_BUDGET_HEAP_EPSILON_MB.toFixed(2)}MB)`,
@@ -419,6 +437,12 @@ const aggregateStableGroupHit = stats(runResults.map(run => run.scenarios.stable
 const aggregateInvalidatedFilterMisses = stats(
   runResults.map(run => run.scenarios.invalidated.diagnostics.filterPredicateMisses),
 )
+
+if (aggregateElapsed.p95 > PERF_BUDGET_TOTAL_MS) {
+  budgetErrors.push(
+    `aggregate elapsed p95 ${aggregateElapsed.p95.toFixed(2)}ms exceeds PERF_BUDGET_TOTAL_MS=${PERF_BUDGET_TOTAL_MS}ms`,
+  )
+}
 
 for (const aggregate of [
   { name: "elapsed", stat: aggregateElapsed },

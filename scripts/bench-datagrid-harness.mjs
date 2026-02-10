@@ -154,7 +154,7 @@ const tasks = [
   {
     id: "derived-cache",
     command: "node",
-    args: ["./scripts/bench-datagrid-derived-cache.mjs"],
+    args: ["--expose-gc", "./scripts/bench-datagrid-derived-cache.mjs"],
     jsonPath: `${outputDir}/bench-datagrid-derived-cache.json`,
     logPath: `${outputDir}/bench-datagrid-derived-cache.log`,
     budgets: {
@@ -182,7 +182,7 @@ const tasks = [
   {
     id: "row-models",
     command: "node",
-    args: ["./scripts/bench-datagrid-rowmodels.mjs"],
+    args: ["--expose-gc", "./scripts/bench-datagrid-rowmodels.mjs"],
     jsonPath: `${outputDir}/bench-datagrid-rowmodels.json`,
     logPath: `${outputDir}/bench-datagrid-rowmodels.log`,
     budgets: {
