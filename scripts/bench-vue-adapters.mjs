@@ -140,9 +140,35 @@ function computeFloatingPosition(anchorRect, surfaceRect, viewport) {
   return { left, top }
 }
 
+const dom = new JSDOM("<!doctype html><html><body></body></html>")
+const sharedDocument = dom.window.document
+let rootsInitialized = false
+
+function ensureRootsInitialized() {
+  if (rootsInitialized) {
+    return
+  }
+  rootsInitialized = true
+  for (const pkg of PACKAGES) {
+    const host = sharedDocument.createElement("section")
+    host.setAttribute("data-vue-bench-host", pkg.name)
+    for (let index = 0; index < ROOTS_PER_KIND; index += 1) {
+      const root = sharedDocument.createElement("div")
+      root.setAttribute(pkg.rootAttr, `${pkg.name}-${index}`)
+      const trigger = sharedDocument.createElement("button")
+      trigger.textContent = `trigger-${index}`
+      const content = sharedDocument.createElement("div")
+      content.textContent = `content-${index}`
+      root.appendChild(trigger)
+      root.appendChild(content)
+      host.appendChild(root)
+    }
+    sharedDocument.body.appendChild(host)
+  }
+}
+
 function runBench(seed) {
-  const dom = new JSDOM("<!doctype html><html><body></body></html>")
-  const { document } = dom.window
+  const document = sharedDocument
 
   let rngState = seed % 2147483647
   if (rngState <= 0) {
@@ -152,25 +178,6 @@ function runBench(seed) {
   function nextRandom() {
     rngState = (rngState * 16807) % 2147483647
     return (rngState - 1) / 2147483646
-  }
-
-  function createRoots() {
-    for (const pkg of PACKAGES) {
-      const host = document.createElement("section")
-      host.setAttribute("data-vue-bench-host", pkg.name)
-      for (let index = 0; index < ROOTS_PER_KIND; index += 1) {
-        const root = document.createElement("div")
-        root.setAttribute(pkg.rootAttr, `${pkg.name}-${index}`)
-        const trigger = document.createElement("button")
-        trigger.textContent = `trigger-${index}`
-        const content = document.createElement("div")
-        content.textContent = `content-${index}`
-        root.appendChild(trigger)
-        root.appendChild(content)
-        host.appendChild(root)
-      }
-      document.body.appendChild(host)
-    }
   }
 
   function runBootstrapProxy(pkg) {
@@ -273,7 +280,7 @@ function runBench(seed) {
     return measureBatched(runOnce)
   }
 
-  createRoots()
+  ensureRootsInitialized()
 
   const heapStart = process.memoryUsage().heapUsed
   const t0 = performance.now()
