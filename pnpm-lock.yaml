@@ -326,9 +326,6 @@ importers:
       '@affino/datagrid-plugins':
         specifier: workspace:*
         version: link:../datagrid-plugins
-      '@affino/datagrid-theme':
-        specifier: workspace:*
-        version: link:../datagrid-theme
 
   packages/datagrid-orchestration:
     dependencies:
@@ -348,24 +345,16 @@ importers:
       '@affino/datagrid-orchestration':
         specifier: workspace:*
         version: link:../datagrid-orchestration
-      '@affino/dialog-vue':
-        specifier: workspace:^
-        version: link:../dialog-vue
-      '@affino/listbox-core':
-        specifier: workspace:^
-        version: link:../listbox-core
-      '@affino/menu-vue':
-        specifier: workspace:^
-        version: link:../menu-vue
-      '@affino/popover-vue':
-        specifier: workspace:^
-        version: link:../popover-vue
       pinia:
         specifier: ^2.1.0 || ^3.0.0
         version: 3.0.4(typescript@5.9.3)(vue@3.5.25(typescript@5.9.3))
       vue:
         specifier: ^3.3.0
         version: 3.5.25(typescript@5.9.3)
+    devDependencies:
+      '@affino/datagrid-theme':
+        specifier: workspace:^
+        version: link:../datagrid-theme
 
   packages/dialog-core:
     dependencies:
