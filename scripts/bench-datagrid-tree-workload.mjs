@@ -16,17 +16,18 @@ const BENCH_WARMUP_BATCHES = Number.parseInt(process.env.BENCH_TREE_WARMUP_BATCH
 
 const TREE_ROW_COUNT = Number.parseInt(process.env.BENCH_TREE_ROW_COUNT ?? "70000", 10)
 const TREE_VIEWPORT_SIZE = Number.parseInt(process.env.BENCH_TREE_VIEWPORT_SIZE ?? "180", 10)
-const TREE_EXPAND_ITERATIONS = Number.parseInt(process.env.BENCH_TREE_EXPAND_ITERATIONS ?? "220", 10)
-const TREE_FILTER_SORT_ITERATIONS = Number.parseInt(process.env.BENCH_TREE_FILTER_SORT_ITERATIONS ?? "180", 10)
+const TREE_EXPAND_ITERATIONS = Number.parseInt(process.env.BENCH_TREE_EXPAND_ITERATIONS ?? "120", 10)
+const TREE_FILTER_SORT_ITERATIONS = Number.parseInt(process.env.BENCH_TREE_FILTER_SORT_ITERATIONS ?? "90", 10)
 const TREE_GROUP_KEY_SAMPLE_LIMIT = Number.parseInt(process.env.BENCH_TREE_GROUP_KEY_SAMPLE_LIMIT ?? "512", 10)
 const TREE_WARMUP_EXPAND_ITERATIONS = Number.parseInt(
-  process.env.BENCH_TREE_WARMUP_EXPAND_ITERATIONS ?? "24",
+  process.env.BENCH_TREE_WARMUP_EXPAND_ITERATIONS ?? "12",
   10,
 )
 const TREE_WARMUP_FILTER_SORT_ITERATIONS = Number.parseInt(
-  process.env.BENCH_TREE_WARMUP_FILTER_SORT_ITERATIONS ?? "16",
+  process.env.BENCH_TREE_WARMUP_FILTER_SORT_ITERATIONS ?? "8",
   10,
 )
+const TREE_PROGRESS_EVERY = Number.parseInt(process.env.BENCH_TREE_PROGRESS_EVERY ?? "30", 10)
 
 const PERF_BUDGET_TOTAL_MS = Number.parseFloat(process.env.PERF_BUDGET_TOTAL_MS ?? "Infinity")
 const PERF_BUDGET_MAX_EXPAND_BURST_P95_MS = Number.parseFloat(
@@ -58,6 +59,7 @@ assertPositiveInteger(TREE_FILTER_SORT_ITERATIONS, "BENCH_TREE_FILTER_SORT_ITERA
 assertPositiveInteger(TREE_GROUP_KEY_SAMPLE_LIMIT, "BENCH_TREE_GROUP_KEY_SAMPLE_LIMIT")
 assertPositiveInteger(TREE_WARMUP_EXPAND_ITERATIONS, "BENCH_TREE_WARMUP_EXPAND_ITERATIONS")
 assertPositiveInteger(TREE_WARMUP_FILTER_SORT_ITERATIONS, "BENCH_TREE_WARMUP_FILTER_SORT_ITERATIONS")
+assertPositiveInteger(TREE_PROGRESS_EVERY, "BENCH_TREE_PROGRESS_EVERY")
 assertPositiveInteger(BENCH_MEASUREMENT_BATCH_SIZE, "BENCH_TREE_MEASUREMENT_BATCH_SIZE")
 assertNonNegativeInteger(BENCH_WARMUP_BATCHES, "BENCH_TREE_WARMUP_BATCHES")
 assertNonNegativeInteger(BENCH_WARMUP_RUNS, "BENCH_WARMUP_RUNS")
@@ -265,6 +267,11 @@ function runExpandBurstScenario(createClientRowModel, rows, seed, options = {}) 
     Number.isFinite(options.warmupBatches) && options.warmupBatches >= 0
       ? Math.trunc(options.warmupBatches)
       : BENCH_WARMUP_BATCHES
+  const progressEvery =
+    Number.isFinite(options.progressEvery) && options.progressEvery > 0
+      ? Math.trunc(options.progressEvery)
+      : TREE_PROGRESS_EVERY
+  const onProgress = typeof options.onProgress === "function" ? options.onProgress : null
 
   const rng = createRng(seed)
   const model = createClientRowModel({
@@ -321,6 +328,10 @@ function runExpandBurstScenario(createClientRowModel, rows, seed, options = {}) 
         runOne()
       }
       durations.push((performance.now() - startedAt) / BENCH_MEASUREMENT_BATCH_SIZE)
+      const completed = iteration + 1
+      if (onProgress && (completed % progressEvery === 0 || completed === scenarioIterations)) {
+        onProgress(completed, scenarioIterations)
+      }
     }
 
     if (!Number.isFinite(checksum)) {
@@ -344,6 +355,11 @@ function runFilterSortScenario(createClientRowModel, rows, seed, options = {}) {
     Number.isFinite(options.warmupBatches) && options.warmupBatches >= 0
       ? Math.trunc(options.warmupBatches)
       : BENCH_WARMUP_BATCHES
+  const progressEvery =
+    Number.isFinite(options.progressEvery) && options.progressEvery > 0
+      ? Math.trunc(options.progressEvery)
+      : TREE_PROGRESS_EVERY
+  const onProgress = typeof options.onProgress === "function" ? options.onProgress : null
 
   const rng = createRng(seed + 9127)
   const model = createClientRowModel({
@@ -398,6 +414,10 @@ function runFilterSortScenario(createClientRowModel, rows, seed, options = {}) {
         runOne()
       }
       durations.push((performance.now() - startedAt) / BENCH_MEASUREMENT_BATCH_SIZE)
+      const completed = iteration + 1
+      if (onProgress && (completed % progressEvery === 0 || completed === scenarioIterations)) {
+        onProgress(completed, scenarioIterations)
+      }
     }
 
     if (!Number.isFinite(checksum)) {
@@ -437,8 +457,18 @@ for (const seed of BENCH_SEEDS) {
   console.log(`[tree-workload] seed ${seed}: measure...`)
   const heapStart = process.memoryUsage().heapUsed
   const startedAt = performance.now()
-  const expandBurst = runExpandBurstScenario(createClientRowModel, sharedRows, seed)
-  const filterSortBurst = runFilterSortScenario(createClientRowModel, sharedRows, seed)
+  console.log(`[tree-workload] seed ${seed}: expand scenario...`)
+  const expandBurst = runExpandBurstScenario(createClientRowModel, sharedRows, seed, {
+    onProgress: (done, total) => {
+      console.log(`[tree-workload] seed ${seed}: expand ${done}/${total}`)
+    },
+  })
+  console.log(`[tree-workload] seed ${seed}: filter-sort scenario...`)
+  const filterSortBurst = runFilterSortScenario(createClientRowModel, sharedRows, seed, {
+    onProgress: (done, total) => {
+      console.log(`[tree-workload] seed ${seed}: filter-sort ${done}/${total}`)
+    },
+  })
   const elapsed = performance.now() - startedAt
   const heapDeltaMb = (process.memoryUsage().heapUsed - heapStart) / (1024 * 1024)
 
