@@ -78,6 +78,7 @@ Performance и quality gates
 - docs/datagrid-grid-api.md
 - docs/datagrid-gridcore-service-registry.md
 - docs/datagrid-model-contracts.md
+- docs/datagrid-tree-data.md
 - docs/datagrid-data-source-protocol.md
 - docs/datagrid-cross-platform-adapter-protocol.md
 - docs/datagrid-plugin-capability-model.md

@@ -165,6 +165,11 @@ registerFileCheck(
   "Interaction benchmark for selection/fill virtualization pressure",
 )
 registerFileCheck(
+  "tree-workload-benchmark-script",
+  "scripts/bench-datagrid-tree-workload.mjs",
+  "Tree workload benchmark for deep hierarchy expand/filter/sort pressure",
+)
+registerFileCheck(
   "benchmark-baseline-lock-file",
   "docs/perf/datagrid-benchmark-baseline.json",
   "Benchmark baseline lock file for CI drift guard",
@@ -424,6 +429,18 @@ registerTokenCheck(
 )
 
 registerTokenCheck(
+  "tree-benchmark-p99-budgets",
+  "scripts/bench-datagrid-tree-workload.mjs",
+  [
+    "PERF_BUDGET_MAX_EXPAND_BURST_P95_MS",
+    "PERF_BUDGET_MAX_EXPAND_BURST_P99_MS",
+    "PERF_BUDGET_MAX_FILTER_SORT_BURST_P95_MS",
+    "PERF_BUDGET_MAX_FILTER_SORT_BURST_P99_MS",
+  ],
+  "Tree workload benchmark enforces p95/p99 budgets for deep tree expand/filter/sort flows",
+)
+
+registerTokenCheck(
   "quality-script-perf-contracts",
   "package.json",
   ["quality:perf:datagrid", "check-datagrid-perf-contracts.mjs"],
@@ -443,8 +460,23 @@ registerTokenCheck(
     "bench:datagrid:datasource-churn:assert",
     "bench:datagrid:derived-cache",
     "bench:datagrid:derived-cache:assert",
+    "bench:datagrid:tree",
+    "bench:datagrid:tree:assert",
   ],
   "Runtime benchmark regression uses explicit report gate script",
+)
+
+registerTokenCheck(
+  "quality-tree-gate-script",
+  "package.json",
+  [
+    "test:datagrid:tree:contracts",
+    "test:e2e:datagrid:tree",
+    "quality:gates:datagrid:tree",
+    "quality:lock:datagrid",
+    "bench:datagrid:tree:assert",
+  ],
+  "Quality lock includes explicit tree contracts/e2e/perf gate",
 )
 
 registerTokenCheck(
@@ -456,6 +488,7 @@ registerTokenCheck(
     "id: \"interaction-models\"",
     "id: \"datasource-churn\"",
     "id: \"derived-cache\"",
+    "id: \"tree-workload\"",
     "id: \"row-models\"",
     "mode === \"ci\" ? task.budgets.ci : task.budgets.local",
   ],
@@ -540,7 +573,7 @@ registerTokenCheck(
     registerConditionCheck(
       assertBudgetId,
       false,
-      "Rowmodel/interaction/datasource/derived assert scripts keep finite variance + heap budgets",
+      "Rowmodel/interaction/datasource/derived/tree assert scripts keep finite variance + heap budgets",
       "package.json missing",
     )
   } else {
@@ -549,6 +582,7 @@ registerTokenCheck(
     const interactionsAssertScript = String(pkg?.scripts?.["bench:datagrid:interactions:assert"] ?? "")
     const datasourceAssertScript = String(pkg?.scripts?.["bench:datagrid:datasource-churn:assert"] ?? "")
     const derivedCacheAssertScript = String(pkg?.scripts?.["bench:datagrid:derived-cache:assert"] ?? "")
+    const treeAssertScript = String(pkg?.scripts?.["bench:datagrid:tree:assert"] ?? "")
     const rowmodelsVariance = extractEnvNumberFromScript(rowmodelsAssertScript, "PERF_BUDGET_MAX_VARIANCE_PCT")
     const rowmodelsHeap = extractEnvNumberFromScript(rowmodelsAssertScript, "PERF_BUDGET_MAX_HEAP_DELTA_MB")
     const interactionsVariance = extractEnvNumberFromScript(interactionsAssertScript, "PERF_BUDGET_MAX_VARIANCE_PCT")
@@ -557,6 +591,8 @@ registerTokenCheck(
     const datasourceHeap = extractEnvNumberFromScript(datasourceAssertScript, "PERF_BUDGET_MAX_HEAP_DELTA_MB")
     const derivedVariance = extractEnvNumberFromScript(derivedCacheAssertScript, "PERF_BUDGET_MAX_VARIANCE_PCT")
     const derivedHeap = extractEnvNumberFromScript(derivedCacheAssertScript, "PERF_BUDGET_MAX_HEAP_DELTA_MB")
+    const treeVariance = extractEnvNumberFromScript(treeAssertScript, "PERF_BUDGET_MAX_VARIANCE_PCT")
+    const treeHeap = extractEnvNumberFromScript(treeAssertScript, "PERF_BUDGET_MAX_HEAP_DELTA_MB")
     const ok =
       rowmodelsVariance != null &&
       rowmodelsHeap != null &&
@@ -565,14 +601,16 @@ registerTokenCheck(
       datasourceVariance != null &&
       datasourceHeap != null &&
       derivedVariance != null &&
-      derivedHeap != null
+      derivedHeap != null &&
+      treeVariance != null &&
+      treeHeap != null
     registerConditionCheck(
       assertBudgetId,
       ok,
-      "Rowmodel/interaction/datasource/derived assert scripts keep finite variance + heap budgets",
+      "Rowmodel/interaction/datasource/derived/tree assert scripts keep finite variance + heap budgets",
       ok
         ? "ok"
-        : `missing finite budget(s): rowmodels variance=${rowmodelsVariance}, rowmodels heap=${rowmodelsHeap}, interactions variance=${interactionsVariance}, interactions heap=${interactionsHeap}, datasource variance=${datasourceVariance}, datasource heap=${datasourceHeap}, derived variance=${derivedVariance}, derived heap=${derivedHeap}`,
+        : `missing finite budget(s): rowmodels variance=${rowmodelsVariance}, rowmodels heap=${rowmodelsHeap}, interactions variance=${interactionsVariance}, interactions heap=${interactionsHeap}, datasource variance=${datasourceVariance}, datasource heap=${datasourceHeap}, derived variance=${derivedVariance}, derived heap=${derivedHeap}, tree variance=${treeVariance}, tree heap=${treeHeap}`,
     )
   }
 }
@@ -592,6 +630,8 @@ registerTokenCheck(
     "task-${taskId}-heap-budget-finite",
     "task-${taskId}-elapsed-variance",
     "task-${taskId}-heap-growth",
+    "task-tree-workload-present",
+    "task-tree-workload-ok",
     "baseline-file",
     "task-${taskId}-baseline-entry",
     "task-${taskId}-baseline-duration-drift",

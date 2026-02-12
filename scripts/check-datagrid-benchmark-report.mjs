@@ -20,6 +20,9 @@ const baselinePath = resolve(process.env.DATAGRID_BENCH_BASELINE ?? "docs/perf/d
 const baselineRequired = (process.env.DATAGRID_BENCH_BASELINE_REQUIRED ?? (expectedMode === "ci" ? "true" : "false"))
   .trim()
   .toLowerCase() !== "false"
+const requireTreeWorkload = (process.env.DATAGRID_BENCH_REQUIRE_TREE_WORKLOAD ?? (expectedMode === "ci" ? "true" : "false"))
+  .trim()
+  .toLowerCase() !== "false"
 const baselineDefaultDurationDriftPct = Number.parseFloat(
   process.env.DATAGRID_BENCH_BASELINE_MAX_DURATION_DRIFT_PCT ?? "120",
 )
@@ -265,6 +268,30 @@ if (report) {
     "benchmark harness report must not contain duplicate task ids",
     { duplicateResultIds },
   )
+
+  if (requireTreeWorkload) {
+    const treeResult = results.find(item => item && item.id === "tree-workload")
+    register(
+      Boolean(treeResult),
+      "task-tree-workload-present",
+      "tree workload benchmark result must be present in report",
+      { requireTreeWorkload },
+    )
+    if (treeResult) {
+      register(
+        treeResult.ok === true && treeResult.status === 0,
+        "task-tree-workload-ok",
+        "tree workload benchmark result must pass",
+        { status: treeResult.status, signal: treeResult.signal },
+      )
+      register(
+        typeof treeResult.jsonPath === "string" && treeResult.jsonPath.length > 0,
+        "task-tree-workload-artifact-path",
+        "tree workload benchmark result must publish artifact path",
+        { jsonPath: treeResult.jsonPath ?? null },
+      )
+    }
+  }
 
   for (const taskId of requiredTasks) {
     const result = results.find(item => item && item.id === taskId)

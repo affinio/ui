@@ -2,7 +2,7 @@
 
 import { mkdirSync, writeFileSync } from "node:fs"
 import { resolve } from "node:path"
-import { spawnSync } from "node:child_process"
+import { spawn } from "node:child_process"
 
 const mode = process.env.DATAGRID_BENCH_MODE === "ci" ? "ci" : "local"
 const failFast = process.env.BENCH_FAIL_FAST !== "false"
@@ -180,6 +180,32 @@ const tasks = [
     },
   },
   {
+    id: "tree-workload",
+    command: "node",
+    args: ["--expose-gc", "./scripts/bench-datagrid-tree-workload.mjs"],
+    jsonPath: `${outputDir}/bench-datagrid-tree-workload.json`,
+    logPath: `${outputDir}/bench-datagrid-tree-workload.log`,
+    budgets: {
+      ci: {
+        PERF_BUDGET_TOTAL_MS: "9000",
+        PERF_BUDGET_MAX_VARIANCE_PCT: "60",
+        PERF_BUDGET_MAX_HEAP_DELTA_MB: "140",
+        PERF_BUDGET_MAX_EXPAND_BURST_P95_MS: "25",
+        PERF_BUDGET_MAX_EXPAND_BURST_P99_MS: "40",
+        PERF_BUDGET_MAX_FILTER_SORT_BURST_P95_MS: "18",
+        PERF_BUDGET_MAX_FILTER_SORT_BURST_P99_MS: "30",
+      },
+      local: {
+        PERF_BUDGET_TOTAL_MS: "Infinity",
+        PERF_BUDGET_MAX_HEAP_DELTA_MB: "Infinity",
+        PERF_BUDGET_MAX_EXPAND_BURST_P95_MS: "Infinity",
+        PERF_BUDGET_MAX_EXPAND_BURST_P99_MS: "Infinity",
+        PERF_BUDGET_MAX_FILTER_SORT_BURST_P95_MS: "Infinity",
+        PERF_BUDGET_MAX_FILTER_SORT_BURST_P99_MS: "Infinity",
+      },
+    },
+  },
+  {
     id: "row-models",
     command: "node",
     args: ["--expose-gc", "./scripts/bench-datagrid-rowmodels.mjs"],
@@ -212,6 +238,55 @@ const tasks = [
 const results = []
 let hasFailure = false
 
+function runTask(command, args, env) {
+  return new Promise(resolveTask => {
+    const proc = spawn(command, args, {
+      env,
+      stdio: ["ignore", "pipe", "pipe"],
+    })
+
+    let stdout = ""
+    let stderr = ""
+    let settled = false
+
+    const finalize = (status, signal) => {
+      if (settled) {
+        return
+      }
+      settled = true
+      resolveTask({
+        status: typeof status === "number" ? status : 1,
+        signal: signal ?? null,
+        stdout,
+        stderr,
+      })
+    }
+
+    proc.stdout?.on("data", chunk => {
+      const text = chunk.toString()
+      stdout += text
+      process.stdout.write(text)
+    })
+
+    proc.stderr?.on("data", chunk => {
+      const text = chunk.toString()
+      stderr += text
+      process.stderr.write(text)
+    })
+
+    proc.on("error", error => {
+      const message = `Task process spawn error: ${error instanceof Error ? error.message : String(error)}\n`
+      stderr += message
+      process.stderr.write(message)
+      finalize(1, null)
+    })
+
+    proc.on("close", (code, signal) => {
+      finalize(code ?? 1, signal)
+    })
+  })
+}
+
 for (const task of tasks) {
   const taskBudgets = mode === "ci" ? task.budgets.ci : task.budgets.local
   const env = {
@@ -221,12 +296,9 @@ for (const task of tasks) {
     BENCH_OUTPUT_JSON: task.jsonPath,
   }
 
+  console.log(`\n[bench] running ${task.id}...`)
   const startedAt = Date.now()
-  const proc = spawnSync(task.command, task.args, {
-    env,
-    encoding: "utf8",
-    maxBuffer: 10 * 1024 * 1024,
-  })
+  const proc = await runTask(task.command, task.args, env)
   const durationMs = Date.now() - startedAt
 
   const stdout = proc.stdout ?? ""
@@ -234,8 +306,6 @@ for (const task of tasks) {
   const combined = `${stdout}${stderr ? `\n${stderr}` : ""}`.trim()
 
   writeFileSync(task.logPath, combined)
-  if (stdout) process.stdout.write(stdout)
-  if (stderr) process.stderr.write(stderr)
 
   const ok = proc.status === 0
   const result = {
