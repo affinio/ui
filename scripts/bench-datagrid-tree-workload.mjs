@@ -123,6 +123,13 @@ function stats(values) {
   }
 }
 
+function runOptionalGc() {
+  const gcRef = globalThis.gc
+  if (typeof gcRef === "function") {
+    gcRef()
+  }
+}
+
 function createRng(seed) {
   let state = seed % 2147483647
   if (state <= 0) state += 2147483646
@@ -455,6 +462,7 @@ for (const seed of BENCH_SEEDS) {
   }
 
   console.log(`[tree-workload] seed ${seed}: measure...`)
+  runOptionalGc()
   const heapStart = process.memoryUsage().heapUsed
   const startedAt = performance.now()
   console.log(`[tree-workload] seed ${seed}: expand scenario...`)
@@ -463,6 +471,7 @@ for (const seed of BENCH_SEEDS) {
       console.log(`[tree-workload] seed ${seed}: expand ${done}/${total}`)
     },
   })
+  runOptionalGc()
   console.log(`[tree-workload] seed ${seed}: filter-sort scenario...`)
   const filterSortBurst = runFilterSortScenario(createClientRowModel, sharedRows, seed, {
     onProgress: (done, total) => {
