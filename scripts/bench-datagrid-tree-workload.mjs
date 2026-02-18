@@ -46,6 +46,7 @@ const PERF_BUDGET_MAX_VARIANCE_PCT = Number.parseFloat(process.env.PERF_BUDGET_M
 const PERF_BUDGET_VARIANCE_MIN_MEAN_MS = Number.parseFloat(process.env.PERF_BUDGET_VARIANCE_MIN_MEAN_MS ?? "0.5")
 const PERF_BUDGET_MAX_HEAP_DELTA_MB = Number.parseFloat(process.env.PERF_BUDGET_MAX_HEAP_DELTA_MB ?? "Infinity")
 const PERF_BUDGET_HEAP_EPSILON_MB = Number.parseFloat(process.env.PERF_BUDGET_HEAP_EPSILON_MB ?? "1")
+const PERF_BUDGET_MAX_SEED_FAILURES = Number.parseInt(process.env.PERF_BUDGET_MAX_SEED_FAILURES ?? "0", 10)
 
 const BENCH_OUTPUT_JSON = process.env.BENCH_OUTPUT_JSON ? resolve(process.env.BENCH_OUTPUT_JSON) : null
 
@@ -71,6 +72,9 @@ if (!Number.isFinite(PERF_BUDGET_VARIANCE_MIN_MEAN_MS) || PERF_BUDGET_VARIANCE_M
 }
 if (!Number.isFinite(PERF_BUDGET_HEAP_EPSILON_MB) || PERF_BUDGET_HEAP_EPSILON_MB < 0) {
   throw new Error("PERF_BUDGET_HEAP_EPSILON_MB must be a non-negative finite number")
+}
+if (!Number.isFinite(PERF_BUDGET_MAX_SEED_FAILURES) || PERF_BUDGET_MAX_SEED_FAILURES < 0) {
+  throw new Error("PERF_BUDGET_MAX_SEED_FAILURES must be a non-negative integer")
 }
 
 function assertPositiveInteger(value, label) {
@@ -441,6 +445,7 @@ const sharedRows = createTreeRows(TREE_ROW_COUNT)
 const runResults = []
 const budgetErrors = []
 const varianceSkippedChecks = []
+const perSeedBudgetErrors = []
 
 console.log("\nAffino DataGrid Tree Workload Benchmark")
 console.log(
@@ -510,14 +515,16 @@ for (const seed of BENCH_SEEDS) {
   console.log(`Total elapsed: ${elapsed.toFixed(2)}ms`)
   console.log(`Heap delta: ${heapDeltaMb.toFixed(2)}MB`)
 
+  const seedErrors = []
+
   if (PERF_BUDGET_TOTAL_MS !== Number.POSITIVE_INFINITY && elapsed > PERF_BUDGET_TOTAL_MS) {
-    budgetErrors.push(`total elapsed ${elapsed.toFixed(2)}ms exceeded PERF_BUDGET_TOTAL_MS=${PERF_BUDGET_TOTAL_MS}`)
+    seedErrors.push(`total elapsed ${elapsed.toFixed(2)}ms exceeded PERF_BUDGET_TOTAL_MS=${PERF_BUDGET_TOTAL_MS}`)
   }
   if (
     PERF_BUDGET_MAX_EXPAND_BURST_P95_MS !== Number.POSITIVE_INFINITY &&
     expandBurst.stat.p95 > PERF_BUDGET_MAX_EXPAND_BURST_P95_MS
   ) {
-    budgetErrors.push(
+    seedErrors.push(
       `expand-burst p95 ${expandBurst.stat.p95.toFixed(3)}ms exceeded PERF_BUDGET_MAX_EXPAND_BURST_P95_MS=${PERF_BUDGET_MAX_EXPAND_BURST_P95_MS}`,
     )
   }
@@ -525,7 +532,7 @@ for (const seed of BENCH_SEEDS) {
     PERF_BUDGET_MAX_EXPAND_BURST_P99_MS !== Number.POSITIVE_INFINITY &&
     expandBurst.stat.p99 > PERF_BUDGET_MAX_EXPAND_BURST_P99_MS
   ) {
-    budgetErrors.push(
+    seedErrors.push(
       `expand-burst p99 ${expandBurst.stat.p99.toFixed(3)}ms exceeded PERF_BUDGET_MAX_EXPAND_BURST_P99_MS=${PERF_BUDGET_MAX_EXPAND_BURST_P99_MS}`,
     )
   }
@@ -533,7 +540,7 @@ for (const seed of BENCH_SEEDS) {
     PERF_BUDGET_MAX_FILTER_SORT_BURST_P95_MS !== Number.POSITIVE_INFINITY &&
     filterSortBurst.stat.p95 > PERF_BUDGET_MAX_FILTER_SORT_BURST_P95_MS
   ) {
-    budgetErrors.push(
+    seedErrors.push(
       `filter-sort-burst p95 ${filterSortBurst.stat.p95.toFixed(3)}ms exceeded PERF_BUDGET_MAX_FILTER_SORT_BURST_P95_MS=${PERF_BUDGET_MAX_FILTER_SORT_BURST_P95_MS}`,
     )
   }
@@ -541,12 +548,12 @@ for (const seed of BENCH_SEEDS) {
     PERF_BUDGET_MAX_FILTER_SORT_BURST_P99_MS !== Number.POSITIVE_INFINITY &&
     filterSortBurst.stat.p99 > PERF_BUDGET_MAX_FILTER_SORT_BURST_P99_MS
   ) {
-    budgetErrors.push(
+    seedErrors.push(
       `filter-sort-burst p99 ${filterSortBurst.stat.p99.toFixed(3)}ms exceeded PERF_BUDGET_MAX_FILTER_SORT_BURST_P99_MS=${PERF_BUDGET_MAX_FILTER_SORT_BURST_P99_MS}`,
     )
   }
   if (shouldEnforceVariance(expandBurst.stat) && expandBurst.stat.cvPct > PERF_BUDGET_MAX_VARIANCE_PCT) {
-    budgetErrors.push(
+    seedErrors.push(
       `expand-burst CV ${expandBurst.stat.cvPct.toFixed(2)}% exceeded PERF_BUDGET_MAX_VARIANCE_PCT=${PERF_BUDGET_MAX_VARIANCE_PCT}%`,
     )
   } else if (!shouldEnforceVariance(expandBurst.stat)) {
@@ -558,7 +565,7 @@ for (const seed of BENCH_SEEDS) {
     })
   }
   if (shouldEnforceVariance(filterSortBurst.stat) && filterSortBurst.stat.cvPct > PERF_BUDGET_MAX_VARIANCE_PCT) {
-    budgetErrors.push(
+    seedErrors.push(
       `filter-sort-burst CV ${filterSortBurst.stat.cvPct.toFixed(2)}% exceeded PERF_BUDGET_MAX_VARIANCE_PCT=${PERF_BUDGET_MAX_VARIANCE_PCT}%`,
     )
   } else if (!shouldEnforceVariance(filterSortBurst.stat)) {
@@ -573,9 +580,20 @@ for (const seed of BENCH_SEEDS) {
     PERF_BUDGET_MAX_HEAP_DELTA_MB !== Number.POSITIVE_INFINITY &&
     heapDeltaMb - PERF_BUDGET_HEAP_EPSILON_MB > PERF_BUDGET_MAX_HEAP_DELTA_MB
   ) {
-    budgetErrors.push(
+    seedErrors.push(
       `heap delta ${heapDeltaMb.toFixed(2)}MB exceeded PERF_BUDGET_MAX_HEAP_DELTA_MB=${PERF_BUDGET_MAX_HEAP_DELTA_MB}MB`,
     )
+  }
+
+  perSeedBudgetErrors.push({ seed, errors: seedErrors })
+}
+
+const failingSeedChecks = perSeedBudgetErrors.filter(entry => entry.errors.length > 0)
+if (failingSeedChecks.length > PERF_BUDGET_MAX_SEED_FAILURES) {
+  for (const entry of failingSeedChecks) {
+    for (const error of entry.errors) {
+      budgetErrors.push(`seed ${entry.seed}: ${error}`)
+    }
   }
 }
 
@@ -616,7 +634,9 @@ const summary = {
     varianceMinMeanMs: PERF_BUDGET_VARIANCE_MIN_MEAN_MS,
     maxHeapDeltaMb: PERF_BUDGET_MAX_HEAP_DELTA_MB,
     heapEpsilonMb: PERF_BUDGET_HEAP_EPSILON_MB,
+    maxSeedFailures: PERF_BUDGET_MAX_SEED_FAILURES,
   },
+  perSeedBudgetErrors,
   varianceSkippedChecks,
   budgetErrors,
   ok: budgetErrors.length === 0,

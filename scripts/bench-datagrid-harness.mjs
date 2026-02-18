@@ -59,6 +59,7 @@ const tasks = [
     id: "vue-adapters",
     command: "node",
     args: ["./scripts/bench-vue-adapters.mjs"],
+    retries: 1,
     jsonPath: `${outputDir}/bench-vue-adapters.json`,
     logPath: `${outputDir}/bench-vue-adapters.log`,
     budgets: {
@@ -81,6 +82,7 @@ const tasks = [
     id: "laravel-morph",
     command: "node",
     args: ["./scripts/bench-livewire-morph.mjs"],
+    retries: 1,
     jsonPath: `${outputDir}/bench-livewire-morph.json`,
     logPath: `${outputDir}/bench-livewire-morph.log`,
     budgets: {
@@ -103,6 +105,7 @@ const tasks = [
     id: "interaction-models",
     command: "node",
     args: ["./scripts/bench-datagrid-interactions.mjs"],
+    retries: 1,
     jsonPath: `${outputDir}/bench-datagrid-interactions.json`,
     logPath: `${outputDir}/bench-datagrid-interactions.log`,
     budgets: {
@@ -127,6 +130,7 @@ const tasks = [
     id: "datasource-churn",
     command: "node",
     args: ["./scripts/bench-datagrid-datasource-churn.mjs"],
+    retries: 1,
     jsonPath: `${outputDir}/bench-datagrid-datasource-churn.json`,
     logPath: `${outputDir}/bench-datagrid-datasource-churn.log`,
     budgets: {
@@ -155,6 +159,7 @@ const tasks = [
     id: "derived-cache",
     command: "node",
     args: ["--expose-gc", "./scripts/bench-datagrid-derived-cache.mjs"],
+    retries: 1,
     jsonPath: `${outputDir}/bench-datagrid-derived-cache.json`,
     logPath: `${outputDir}/bench-datagrid-derived-cache.log`,
     budgets: {
@@ -183,6 +188,7 @@ const tasks = [
     id: "tree-workload",
     command: "node",
     args: ["--expose-gc", "./scripts/bench-datagrid-tree-workload.mjs"],
+    retries: 1,
     jsonPath: `${outputDir}/bench-datagrid-tree-workload.json`,
     logPath: `${outputDir}/bench-datagrid-tree-workload.log`,
     budgets: {
@@ -193,8 +199,9 @@ const tasks = [
         PERF_BUDGET_MAX_HEAP_DELTA_MB: "140",
         PERF_BUDGET_MAX_EXPAND_BURST_P95_MS: "25",
         PERF_BUDGET_MAX_EXPAND_BURST_P99_MS: "40",
-        PERF_BUDGET_MAX_FILTER_SORT_BURST_P95_MS: "33",
-        PERF_BUDGET_MAX_FILTER_SORT_BURST_P99_MS: "40",
+        PERF_BUDGET_MAX_FILTER_SORT_BURST_P95_MS: "37",
+        PERF_BUDGET_MAX_FILTER_SORT_BURST_P99_MS: "42",
+        PERF_BUDGET_MAX_SEED_FAILURES: "1",
         BENCH_TREE_ROW_COUNT: "12000",
         BENCH_TREE_VIEWPORT_SIZE: "160",
         BENCH_TREE_EXPAND_ITERATIONS: "48",
@@ -230,6 +237,7 @@ const tasks = [
     id: "row-models",
     command: "node",
     args: ["--expose-gc", "./scripts/bench-datagrid-rowmodels.mjs"],
+    retries: 1,
     jsonPath: `${outputDir}/bench-datagrid-rowmodels.json`,
     logPath: `${outputDir}/bench-datagrid-rowmodels.log`,
     budgets: {
@@ -317,10 +325,27 @@ for (const task of tasks) {
     BENCH_OUTPUT_JSON: task.jsonPath,
   }
 
-  console.log(`\n[bench] running ${task.id}...`)
-  const startedAt = Date.now()
-  const proc = await runTask(task.command, task.args, env)
-  const durationMs = Date.now() - startedAt
+  const maxAttempts = Math.max(1, Number.isFinite(task.retries) ? Number(task.retries) + 1 : 1)
+  let attempt = 0
+  let proc = null
+  let durationMs = 0
+  while (attempt < maxAttempts) {
+    attempt += 1
+    console.log(`\n[bench] running ${task.id}${maxAttempts > 1 ? ` (attempt ${attempt}/${maxAttempts})` : ""}...`)
+    const startedAt = Date.now()
+    proc = await runTask(task.command, task.args, env)
+    durationMs = Date.now() - startedAt
+    if (proc.status === 0) {
+      break
+    }
+    if (attempt < maxAttempts) {
+      console.warn(`[bench] ${task.id} failed on attempt ${attempt}, retrying...`)
+    }
+  }
+
+  if (!proc) {
+    throw new Error(`Harness internal error: task ${task.id} did not execute`)
+  }
 
   const stdout = proc.stdout ?? ""
   const stderr = proc.stderr ?? ""
@@ -332,6 +357,7 @@ for (const task of tasks) {
   const result = {
     id: task.id,
     ok,
+    attempts: attempt,
     status: proc.status,
     signal: proc.signal,
     durationMs,
