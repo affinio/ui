@@ -12,16 +12,21 @@ export function AsChild({ componentLabel, forwardedProps, children }: AsChildPro
   if (!isValidElement(onlyChild)) {
     throw new Error(`${componentLabel} expects a single valid React element as its child`)
   }
-  type ElementWithRef = ReactElement & { ref?: Ref<unknown> | undefined }
+  type ElementWithRef = ReactElement<Record<string, unknown>> & { ref?: Ref<unknown> | undefined }
   const element = onlyChild as ElementWithRef
+  const elementProps = element.props
 
   const { ref: forwardedRef, className: forwardedClassName, ...restForwarded } = forwardedProps
   const composedRef = composeRefs(element.ref, forwardedRef as Ref<unknown> | undefined)
 
-  const mergedClassName = [forwardedClassName, element.props.className].filter(Boolean).join(" ").trim() || undefined
+  const elementClassName = typeof elementProps.className === "string"
+    ? elementProps.className
+    : undefined
+
+  const mergedClassName = [forwardedClassName, elementClassName].filter(Boolean).join(" ").trim() || undefined
 
   const mergedProps: Record<string, unknown> = {
-    ...element.props,
+    ...elementProps,
     ...restForwarded,
     ref: composedRef,
   }
