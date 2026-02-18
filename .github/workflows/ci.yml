@@ -93,7 +93,7 @@ jobs:
 
       - name: Upload Playwright interaction artifacts
         if: always() && matrix.suite == 'interaction'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: playwright-interaction-report
           path: |
@@ -131,7 +131,7 @@ jobs:
 
       - name: Upload quality gate artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: datagrid-quality-gates
           path: |
