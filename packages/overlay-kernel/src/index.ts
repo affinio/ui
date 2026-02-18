@@ -309,7 +309,33 @@ export class DefaultOverlayManager implements OverlayManager {
     const nextPriority =
       patch.priority !== undefined ? resolvePriority(entry.kind, patch.priority) : entry.priority
 
-    Object.assign(entry, patch)
+    if (patch.root !== undefined) {
+      entry.root = patch.root
+    }
+    if (patch.ownerId !== undefined) {
+      entry.ownerId = patch.ownerId
+    }
+    if (patch.modal !== undefined) {
+      entry.modal = patch.modal
+    }
+    if (patch.trapsFocus !== undefined) {
+      entry.trapsFocus = patch.trapsFocus
+    }
+    if (patch.blocksPointerOutside !== undefined) {
+      entry.blocksPointerOutside = patch.blocksPointerOutside
+    }
+    if (patch.inertSiblings !== undefined) {
+      entry.inertSiblings = patch.inertSiblings
+    }
+    if (patch.returnFocus !== undefined) {
+      entry.returnFocus = patch.returnFocus
+    }
+    if (patch.state !== undefined) {
+      entry.state = patch.state
+    }
+    if (patch.data !== undefined) {
+      entry.data = patch.data
+    }
     entry.priority = nextPriority
 
     let stackChanged = false

@@ -335,5 +335,40 @@ function escapeAttributeValue(value: string): string {
   if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
     return CSS.escape(value)
   }
-  return value.replace(/"/g, '\\"')
+  let result = ""
+  for (let index = 0; index < value.length; index += 1) {
+    const codePoint = value.charCodeAt(index)
+    const char = value.charAt(index)
+    const isDigit = codePoint >= 48 && codePoint <= 57
+    const isUpper = codePoint >= 65 && codePoint <= 90
+    const isLower = codePoint >= 97 && codePoint <= 122
+    const isAsciiAlphaNum = isDigit || isUpper || isLower
+    const isAllowedPunctuation = char === "-" || char === "_"
+    const isControl = codePoint === 0 || (codePoint >= 1 && codePoint <= 31) || codePoint === 127
+
+    if (isControl) {
+      const escapedCode = codePoint === 0 ? "fffd" : codePoint.toString(16)
+      result += `\\${escapedCode} `
+      continue
+    }
+
+    if ((index === 0 && isDigit) || (index === 1 && isDigit && value.charAt(0) === "-")) {
+      result += `\\${codePoint.toString(16)} `
+      continue
+    }
+
+    if (index === 0 && char === "-" && value.length === 1) {
+      result += "\\-"
+      continue
+    }
+
+    if (isAsciiAlphaNum || isAllowedPunctuation || codePoint >= 128) {
+      result += char
+      continue
+    }
+
+    result += `\\${char}`
+  }
+
+  return result
 }
