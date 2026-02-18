@@ -75,7 +75,7 @@
   },
   "devDependencies": {
     "@changesets/cli": "^2.27.11",
-    "@playwright/test": "^1.48.2",
+    "@playwright/test": "^1.58.2",
     "@vue/tsconfig": "^0.8.1",
     "@testing-library/vue": "^8.1.0",
     "@types/node": "^24.10.4",
