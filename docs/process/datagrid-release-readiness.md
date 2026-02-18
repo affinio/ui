@@ -90,3 +90,21 @@ Exit criteria (stable tag allowed):
 3. Verify CI quality/perf gates on release commit.
 4. Publish packages.
 5. Post-release smoke test and rollback readiness check.
+
+## 6) Scroll Lifecycle Guardrails
+
+For releases touching scroll pipeline primitives (`managed wheel`, `linked sync`, `idle gate`, `perf telemetry`, `ownership policy`):
+
+1. Keep telemetry diagnostic-only by default:
+  - no automatic runtime strategy switching based solely on telemetry snapshots.
+2. Any adaptive behavior (overscan, buffer, throttling, virtualization strategy) requires:
+  - explicit RFC,
+  - benchmark evidence,
+  - rollback plan,
+  - dedicated contract coverage.
+3. Preserve deterministic ownership semantics:
+  - propagation policy must remain explicit and documented,
+  - callback overrides must be tested against mode defaults.
+4. Do not couple perf telemetry with core deterministic contracts:
+  - orchestration/adapters may consume telemetry,
+  - core runtime contracts remain telemetry-agnostic.
