@@ -951,8 +951,8 @@ importers:
         specifier: ^0.19.1
         version: 0.19.1(@types/node@24.10.4)(storybook@8.6.15(prettier@3.6.2))(ts-node@10.9.2(@swc/core@1.15.11)(@types/node@24.10.4)(typescript@5.9.3))
       '@storybook/vue3':
-        specifier: ^8.6.15
-        version: 8.6.15(storybook@8.6.15(prettier@3.6.2))(vue@3.5.25(typescript@5.9.3))
+        specifier: ^10.2.7
+        version: 10.2.7(storybook@8.6.15(prettier@3.6.2))(vue@3.5.25(typescript@5.9.3))
       '@storybook/vue3-webpack5':
         specifier: ^8.6.15
         version: 8.6.15(@babel/preset-env@7.28.6(@babel/core@7.28.5))(@swc/core@1.15.11)(@vue/compiler-sfc@3.5.25)(esbuild@0.25.12)(storybook@8.6.15(prettier@3.6.2))(typescript@5.9.3)(vue@3.5.25(typescript@5.9.3))
@@ -2705,6 +2705,12 @@ packages:
     peerDependencies:
       '@vue/compiler-sfc': ^3.0.0
       storybook: ^8.6.15
+      vue: ^3.0.0
+
+  '@storybook/vue3@10.2.7':
+    resolution: {integrity: sha512-1BpNmaG7/HquCGDjUnqeWhy0rftm6suU8WDr0A/S2qdrcZjPFxipkfDjIuXtJyKGdQ/tOU+3wOZ7U53ZTxeC/A==}
+    peerDependencies:
+      storybook: ^10.2.7
       vue: ^3.0.0
 
   '@storybook/vue3@8.6.15':
@@ -9516,6 +9522,14 @@ snapshots:
       - typescript
       - uglify-js
       - webpack-cli
+
+  '@storybook/vue3@10.2.7(storybook@8.6.15(prettier@3.6.2))(vue@3.5.25(typescript@5.9.3))':
+    dependencies:
+      '@storybook/global': 5.0.0
+      storybook: 8.6.15(prettier@3.6.2)
+      type-fest: 2.19.0
+      vue: 3.5.25(typescript@5.9.3)
+      vue-component-type-helpers: 3.2.4
 
   '@storybook/vue3@8.6.15(storybook@8.6.15(prettier@3.6.2))(vue@3.5.25(typescript@5.9.3))':
     dependencies:
