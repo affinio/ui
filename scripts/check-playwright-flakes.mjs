@@ -34,16 +34,21 @@ function walkSuite(suite) {
     const tests = Array.isArray(spec.tests) ? spec.tests : []
     for (const test of tests) {
       totalTests += 1
-      const outcome = test.outcome ?? "unknown"
+      const rawStatus =
+        typeof test.status === "string"
+          ? test.status
+          : typeof test.outcome === "string"
+            ? test.outcome
+            : "unknown"
       const title = [spec.file, ...(Array.isArray(test.titlePath) ? test.titlePath : [test.title].filter(Boolean))]
         .join(" :: ")
         .replace(/\s+/g, " ")
         .trim()
 
-      if (outcome === "flaky") {
+      if (rawStatus === "flaky") {
         flakyTests += 1
         flakyTitles.push(title)
-      } else if (outcome === "expected") {
+      } else if (rawStatus === "expected" || rawStatus === "passed") {
         passedTests += 1
       } else {
         failedTests += 1
