@@ -323,6 +323,17 @@ function resolveMetricsSource(options?: FloatingRelayoutMetricsOptions): string 
   return options?.source?.trim() || "floating-unknown"
 }
 
+function sanitizeMetricsKey(key: string): string | null {
+  const trimmed = key.trim()
+  if (!trimmed) {
+    return null
+  }
+  if (trimmed === "__proto__" || trimmed === "constructor" || trimmed === "prototype") {
+    return null
+  }
+  return trimmed
+}
+
 function isMetricsEnabled(targetWindow: Window, options?: FloatingRelayoutMetricsOptions): boolean {
   const storeHost = getStoreHost(targetWindow)
   if (!storeHost) {
@@ -340,7 +351,11 @@ function ensureMetricsStore(
   if (!storeHost) {
     return {}
   }
-  const storeKey = options?.storeKey ?? DEFAULT_FLOATING_RELAYOUT_METRICS_STORE
+  const rawStoreKey = options?.storeKey ?? DEFAULT_FLOATING_RELAYOUT_METRICS_STORE
+  const storeKey = sanitizeMetricsKey(rawStoreKey)
+  if (!storeKey) {
+    return {}
+  }
   const existing = storeHost[storeKey]
   if (isMetricsStore(existing)) {
     return existing
@@ -358,7 +373,11 @@ function recordFloatingRelayoutMetric(
   if (!isMetricsEnabled(targetWindow, options)) {
     return
   }
-  const source = resolveMetricsSource(options)
+  const rawSource = resolveMetricsSource(options)
+  const source = sanitizeMetricsKey(rawSource)
+  if (!source) {
+    return
+  }
   const store = ensureMetricsStore(targetWindow, options)
   const current = store[source] ?? {
     activations: 0,
