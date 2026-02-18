@@ -17,6 +17,7 @@ const WORKSPACE_ALIAS_TARGETS: Record<string, string> = {
   "@affino/datagrid-vue": "packages/datagrid-vue/src",
   "@affino/grid-selection-core": "packages/grid-selection-core/src/index.ts",
   "@affino/grid-selection-vue": "packages/grid-selection-vue/src/index.ts",
+  "@affino/combobox-core": "packages/combobox-core/src/index.ts",
   "@affino/listbox-core": "packages/listbox-core/src/index.ts",
   "@affino/listbox-vue": "packages/listbox-vue/src/index.ts",
   "@affino/menu-core": "packages/menu-core/src/index.ts",
