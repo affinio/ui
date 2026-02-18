@@ -33,7 +33,7 @@
     "react": "^18.3.1",
     "react-dom": "^19.2.4",
     "typescript": "^5.9.3",
-    "vite": "^7.2.7",
+    "vite": "^7.3.1",
     "vitest": "^4.0.15"
   },
   "scripts": {
