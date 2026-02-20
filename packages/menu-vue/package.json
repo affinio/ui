@@ -1,6 +1,6 @@
 {
   "name": "@affino/menu-vue",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "author": "Anton Pavlov <a.pavlov@affino.dev>",
   "type": "module",
   "description": "Headless Vue 3 menu components with smart mouse prediction and full keyboard accessibility",

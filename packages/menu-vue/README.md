@@ -87,6 +87,32 @@ import '@affino/menu-vue/styles.css'
 5. Add nested `<UiSubMenu>` components for multi-level trees (level 3+ supported)
 6. Dive deeper in [docs/getting-started.md](./docs/getting-started.md)
 
+## Positioning API
+
+`UiMenu` and `UiMenuContent` now expose public positioning controls so teams can avoid local geometry hacks.
+
+```vue
+<UiMenu placement="bottom" align="start" :gutter="8" :viewport-padding="12">
+  <UiMenuTrigger>Open</UiMenuTrigger>
+  <UiMenuContent>
+    <UiMenuItem id="edit">Edit</UiMenuItem>
+  </UiMenuContent>
+</UiMenu>
+```
+
+Available props:
+
+- `placement?: "top" | "bottom" | "left" | "right" | "auto"`
+- `align?: "start" | "center" | "end" | "auto"`
+- `gutter?: number`
+- `viewportPadding?: number`
+
+Behavior and compatibility:
+
+- Defaults are preserved (`bottom` for root content, `right` for submenu content).
+- `UiMenuContent` / `UiSubMenuContent` can override values passed from `UiMenu` / `UiSubMenu`.
+- Props are forwarded to `useMenuPositioning` and then to `@affino/menu-core` positioning.
+
 
 ## Controller Surface
 

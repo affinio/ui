@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Teleport, computed, nextTick, onBeforeUnmount, onMounted, ref, watch, useAttrs } from "vue"
-import type { PositionResult } from "@affino/menu-core"
+import type { Alignment, Placement, PositionResult } from "@affino/menu-core"
 import type { MenuProviderValue } from "../context"
 import { useMenuPointerHandlers } from "../useMenuPointerHandlers"
 import { useMenuFocus } from "../useMenuFocus"
@@ -17,6 +17,10 @@ const props = defineProps<{
   variant: "menu" | "submenu"
   teleportTo?: string
   className?: string
+  placement?: Placement
+  align?: Alignment
+  gutter?: number
+  viewportPadding?: number
 }>()
 
 const root = ref<HTMLElement | null>(null)
@@ -47,9 +51,20 @@ const syncSubmenuGeometry = () => {
 }
 
 const preferredPlacement: PositionResult["placement"] = props.variant === "submenu" ? "right" : "bottom"
+const resolvedPlacement = computed<Placement | undefined>(() =>
+  props.placement ?? props.provider.positioning?.placement ?? preferredPlacement
+)
+const resolvedAlign = computed<Alignment | undefined>(() => props.align ?? props.provider.positioning?.align)
+const resolvedGutter = computed<number | undefined>(() => props.gutter ?? props.provider.positioning?.gutter)
+const resolvedViewportPadding = computed<number | undefined>(
+  () => props.viewportPadding ?? props.provider.positioning?.viewportPadding,
+)
 
 const updatePosition = useMenuPositioning(props.provider.controller, {
-  placement: preferredPlacement,
+  placement: resolvedPlacement.value,
+  align: resolvedAlign.value,
+  gutter: resolvedGutter.value,
+  viewportPadding: resolvedViewportPadding.value,
   afterUpdate: (position) => {
     lastPlacement.value = position.placement
     syncSubmenuGeometry()

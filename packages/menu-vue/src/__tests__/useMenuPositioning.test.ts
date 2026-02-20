@@ -45,4 +45,62 @@ describe("useMenuPositioning", () => {
       removeSpy.mockRestore()
     }
   })
+
+  it("forwards placement/align/gutter/viewportPadding to computePosition", async () => {
+    const host = document.createElement("div")
+    document.body.appendChild(host)
+
+    let computePositionSpy: ReturnType<typeof vi.spyOn> | null = null
+
+    const app = createApp(
+      defineComponent({
+        setup() {
+          const controller = useMenuController({ kind: "root" })
+
+          computePositionSpy = vi.spyOn(controller.core, "computePosition")
+          const update = useMenuPositioning(controller, {
+            placement: "left",
+            align: "end",
+            gutter: 14,
+            viewportPadding: 20,
+          })
+
+          onMounted(() => {
+            const trigger = document.createElement("button")
+            const panel = document.createElement("div")
+            trigger.getBoundingClientRect = () =>
+              ({ x: 700, y: 120, width: 100, height: 40, top: 120, left: 700, right: 800, bottom: 160 } as DOMRect)
+            panel.getBoundingClientRect = () =>
+              ({ x: 0, y: 0, width: 180, height: 220, top: 0, left: 0, right: 180, bottom: 220 } as DOMRect)
+
+            controller.triggerRef.value = trigger
+            controller.panelRef.value = panel
+            controller.open("programmatic")
+            update()
+          })
+
+          return () => h("div")
+        },
+      }),
+    )
+
+    try {
+      app.mount(host)
+      await nextTick()
+
+      expect(computePositionSpy).not.toBeNull()
+      expect(computePositionSpy).toHaveBeenCalled()
+      const callOptions = computePositionSpy?.mock.calls[0]?.[2]
+      expect(callOptions).toMatchObject({
+        placement: "left",
+        align: "end",
+        gutter: 14,
+        viewportPadding: 20,
+      })
+    } finally {
+      app.unmount()
+      host.remove()
+      computePositionSpy?.mockRestore()
+    }
+  })
 })

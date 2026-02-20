@@ -1,11 +1,19 @@
 <script setup lang="ts">
-import type { MenuCallbacks, MenuOptions } from "@affino/menu-core"
+import type { Alignment, MenuCallbacks, MenuOptions, Placement } from "@affino/menu-core"
 import { provideMenuProvider, provideSubmenuProvider, useMenuProvider } from "../context"
 import { uid } from "../id"
 import { useMenuController } from "../useMenuController"
 import { usePointerRecorder } from "../usePointerRecorder"
 
-const props = defineProps<{ id?: string; options?: MenuOptions; callbacks?: MenuCallbacks }>()
+const props = defineProps<{
+  id?: string
+  options?: MenuOptions
+  callbacks?: MenuCallbacks
+  placement?: Placement
+  align?: Alignment
+  gutter?: number
+  viewportPadding?: number
+}>()
 
 const parentProvider = useMenuProvider()
 const submenuItemId = props.id ?? uid("ui-submenu-item")
@@ -22,6 +30,12 @@ const provider = provideMenuProvider({
   controller,
   parent: parentProvider,
   submenuItemId,
+  positioning: {
+    placement: props.placement,
+    align: props.align,
+    gutter: props.gutter,
+    viewportPadding: props.viewportPadding,
+  },
 })
 
 provideSubmenuProvider({

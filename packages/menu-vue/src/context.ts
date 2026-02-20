@@ -1,13 +1,22 @@
 import { inject, provide } from "vue"
 import type { InjectionKey, ShallowRef } from "vue"
+import type { Alignment, Placement } from "@affino/menu-core"
 import type { MenuController } from "./useMenuController"
 import { useMenuTreeState, type MenuTreeSnapshot } from "./useMenuTreeState"
+
+export interface MenuPositioningOptions {
+  placement?: Placement
+  align?: Alignment
+  gutter?: number
+  viewportPadding?: number
+}
 
 export interface MenuProviderValue {
   controller: MenuController
   parentController: MenuController | null
   rootId: string
   submenuItemId?: string
+  positioning?: MenuPositioningOptions
   tree: {
     state: ShallowRef<MenuTreeSnapshot>
   }
@@ -30,6 +39,7 @@ interface ProvideMenuProviderArgs {
   parent?: MenuProviderValue | null
   rootId?: string
   submenuItemId?: string
+  positioning?: MenuPositioningOptions
 }
 
 /**
@@ -47,6 +57,7 @@ export function provideMenuProvider(value: ProvideMenuProviderArgs) {
     parentController: resolvedParentController,
     rootId: resolvedRootId,
     submenuItemId: value.submenuItemId,
+    positioning: value.positioning,
     parent,
     tree: {
       state: useMenuTreeState(controller),
