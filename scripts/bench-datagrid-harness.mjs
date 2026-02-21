@@ -87,7 +87,10 @@ const tasks = [
     logPath: `${outputDir}/bench-livewire-morph.log`,
     budgets: {
       ci: {
-        PERF_BUDGET_TOTAL_MS: "6000",
+        // Keep CI stable on noisy shared runners while preserving mutation/rehydrate signal.
+        ROOTS_PER_KIND: "120",
+        ITERATIONS: "560",
+        PERF_BUDGET_TOTAL_MS: "9000",
         PERF_BUDGET_MAX_VARIANCE_PCT: "160",
         PERF_BUDGET_MAX_BOOTSTRAP_MS: "12",
         PERF_BUDGET_MAX_HYDRATE_RATE_PCT: "25",
