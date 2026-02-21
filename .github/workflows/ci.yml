@@ -182,14 +182,16 @@ jobs:
       - name: Install Playwright browsers
         run: pnpm exec playwright install --with-deps chromium
 
+      - name: Ensure no stale web servers before datagrid parity quality lock
+        run: |
+          pkill -f "vite preview --host 127.0.0.1 --port 4173" || true
+          pkill -f "artisan serve --host=127.0.0.1 --port=4180" || true
+
       - name: Run datagrid parity quality lock (architecture + perf contracts + strict contracts + critical e2e + benchmark + parity e2e)
         env:
           PLAYWRIGHT_SKIP_WEB_BUILDS: "1"
           DEBUG: "pw:webserver"
-        run: |
-          pkill -f "vite preview --host 127.0.0.1 --port 4173" || true
-          pkill -f "artisan serve --host=127.0.0.1 --port=4180" || true
-          pnpm run quality:lock:datagrid:parity
+        run: pnpm run quality:lock:datagrid:parity
 
       - name: Upload quality gate artifacts
         if: always()
