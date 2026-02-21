@@ -1,3 +1,4 @@
+import { createProjectionStageEngine } from "@affino/projection-engine"
 import type {
   TreeviewActionFailureReason,
   TreeviewActionResult,
@@ -16,12 +17,20 @@ type InternalNode<Value> = {
   children: Value[]
 }
 
+type TreeviewProjectionStage = "visible"
+
 export class TreeviewCore<Value = string> {
   private nodes = new Map<Value, InternalNode<Value>>()
   private state: TreeviewState<Value>
   private snapshot: TreeviewSnapshot<Value>
   private subscribers = new Set<TreeviewSubscriber<Value>>()
-  private visibleCache: { expanded: Value[]; values: Value[] } | null = null
+  private visibleCache: Value[] | null = null
+  private readonly visibleProjection = createProjectionStageEngine<TreeviewProjectionStage>({
+    nodes: {
+      visible: {},
+    },
+    refreshEntryStage: "visible",
+  })
   private readonly loop: boolean
 
   constructor(options: TreeviewOptions<Value> = {}) {
@@ -47,6 +56,7 @@ export class TreeviewCore<Value = string> {
       this.nodes = this.buildNodeMap(nodes)
     }
     this.visibleCache = null
+    this.visibleProjection.requestRefreshPass()
     const next = this.normalizeState(this.state)
     this.patch(next, options.emit ?? true)
   }
@@ -362,6 +372,7 @@ export class TreeviewCore<Value = string> {
     }
     if (!expandedValuesEqual(this.state.expanded, normalizedNext.expanded)) {
       this.visibleCache = null
+      this.visibleProjection.requestRefreshPass()
     }
     this.state = normalizedNext
     this.snapshot = this.createSnapshot(normalizedNext)
@@ -496,15 +507,20 @@ export class TreeviewCore<Value = string> {
   }
 
   private getVisibleValuesCached(): Value[] {
-    if (this.visibleCache && expandedValuesEqual(this.visibleCache.expanded, this.state.expanded)) {
-      return this.visibleCache.values
+    if (this.visibleCache && !this.visibleProjection.hasDirtyStages()) {
+      return this.visibleCache
     }
-    const values = this.getVisibleValuesFor(new Set(this.state.expanded))
-    this.visibleCache = {
-      expanded: [...this.state.expanded],
-      values,
+    this.visibleProjection.recompute((stage, shouldRecompute) => {
+      if (stage !== "visible" || !shouldRecompute) {
+        return false
+      }
+      this.visibleCache = this.getVisibleValuesFor(new Set(this.state.expanded))
+      return true
+    })
+    if (!this.visibleCache) {
+      this.visibleCache = this.getVisibleValuesFor(new Set(this.state.expanded))
     }
-    return values
+    return this.visibleCache
   }
 
   private hasFocusableVisible(visible: Value[]): boolean {

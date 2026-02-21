@@ -15,6 +15,8 @@
       "@affino/datagrid-plugins/*": ["./packages/datagrid-plugins/src/*"],
       "@affino/datagrid-vue": ["./packages/datagrid-vue/src/index.ts"],
       "@affino/datagrid-vue/*": ["./packages/datagrid-vue/src/*"],
+      "@affino/projection-engine": ["./packages/projection-engine/src/index.ts"],
+      "@affino/projection-engine/*": ["./packages/projection-engine/src/*"],
       "@affino/menu-core": ["./packages/menu-core/src/index.ts"],
       "@affino/dialog-core/*": ["./packages/dialog-core/src/*"],
       "@affino/dialog-vue/*": ["./packages/dialog-vue/src/*"],

@@ -203,6 +203,7 @@ function createSyntheticDataSource(totalRows) {
 
 async function loadFactory() {
   const candidates = [
+    resolve("packages/datagrid-core/dist/src/models/dataSourceBackedRowModel.js"),
     resolve("packages/datagrid-core/dist/src/models/index.js"),
     resolve("packages/datagrid-core/dist/src/public.js"),
   ]

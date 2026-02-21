@@ -5,8 +5,21 @@
     "outDir": "dist",
     "declaration": true,
     "emitDeclarationOnly": false,
-    "declarationMap": true
+    "declarationMap": true,
+    "paths": {
+      "@affino/projection-engine": [
+        "../projection-engine/src/index.ts",
+        "../projection-engine/dist/index.d.ts"
+      ],
+      "@affino/projection-engine/*": [
+        "../projection-engine/src/*",
+        "../projection-engine/dist/*"
+      ]
+    }
   },
+  "references": [
+    { "path": "../projection-engine" }
+  ],
   "include": ["src"],
   "exclude": ["src/__tests__"]
 }

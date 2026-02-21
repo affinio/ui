@@ -20,6 +20,9 @@
     "build": "tsc -p tsconfig.json",
     "test": "vitest run"
   },
+  "dependencies": {
+    "@affino/projection-engine": "workspace:*"
+  },
   "license": "MIT",
   "devDependencies": {
     "vitest": "^4.0.15"

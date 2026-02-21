@@ -18,6 +18,7 @@ const ROW_COUNT = Number.parseInt(process.env.BENCH_DERIVED_CACHE_ROW_COUNT ?? "
 const RANGE_SIZE = Number.parseInt(process.env.BENCH_DERIVED_CACHE_RANGE_SIZE ?? "140", 10)
 const STABLE_ITERATIONS = Number.parseInt(process.env.BENCH_DERIVED_CACHE_STABLE_ITERATIONS ?? "240", 10)
 const INVALIDATED_ITERATIONS = Number.parseInt(process.env.BENCH_DERIVED_CACHE_INVALIDATED_ITERATIONS ?? "120", 10)
+const STABLE_REFRESH_EVERY = Number.parseInt(process.env.BENCH_DERIVED_CACHE_STABLE_REFRESH_EVERY ?? "24", 10)
 
 const PERF_BUDGET_TOTAL_MS = Number.parseFloat(process.env.PERF_BUDGET_TOTAL_MS ?? "Infinity")
 const PERF_BUDGET_MAX_STABLE_P95_MS = Number.parseFloat(process.env.PERF_BUDGET_MAX_STABLE_P95_MS ?? "Infinity")
@@ -50,6 +51,7 @@ assertPositiveInteger(ROW_COUNT, "BENCH_DERIVED_CACHE_ROW_COUNT")
 assertPositiveInteger(RANGE_SIZE, "BENCH_DERIVED_CACHE_RANGE_SIZE")
 assertPositiveInteger(STABLE_ITERATIONS, "BENCH_DERIVED_CACHE_STABLE_ITERATIONS")
 assertPositiveInteger(INVALIDATED_ITERATIONS, "BENCH_DERIVED_CACHE_INVALIDATED_ITERATIONS")
+assertPositiveInteger(STABLE_REFRESH_EVERY, "BENCH_DERIVED_CACHE_STABLE_REFRESH_EVERY")
 assertPositiveInteger(BENCH_MEASUREMENT_BATCH_SIZE, "BENCH_DERIVED_CACHE_MEASUREMENT_BATCH_SIZE")
 assertNonNegativeInteger(BENCH_WARMUP_BATCHES, "BENCH_DERIVED_CACHE_WARMUP_BATCHES")
 assertNonNegativeInteger(BENCH_WARMUP_RUNS, "BENCH_WARMUP_RUNS")
@@ -248,10 +250,15 @@ function runStableScenario(createClientRowModel, seed, rows) {
     model.refresh("manual")
 
     let page = 0
+    let refreshCounter = 0
     const runOne = () => {
       // Recompute projection without bumping sort/filter/group revisions.
       page = page === 0 ? 1 : 0
       model.setCurrentPage(page)
+      if (refreshCounter % STABLE_REFRESH_EVERY === 0) {
+        model.refresh("manual")
+      }
+      refreshCounter += 1
       const range = normalizeRange(randomInt(rng, 0, maxStart))
       model.setViewportRange(range)
       model.getRowsInRange(range)
@@ -283,7 +290,6 @@ function runStableScenario(createClientRowModel, seed, rows) {
 }
 
 function runInvalidatedScenario(createClientRowModel, seed, rows) {
-  const rng = createRng(seed + 6151)
   const model = createClientRowModel({ rows })
   const maxStart = Math.max(0, ROW_COUNT - RANGE_SIZE - 2)
   const pageSize = Math.max(32, Math.min(256, RANGE_SIZE))
@@ -296,12 +302,16 @@ function runInvalidatedScenario(createClientRowModel, seed, rows) {
     model.refresh("manual")
 
     let ownerIndex = 0
+    const rangeSpan = Math.max(1, maxStart + 1)
+    let rangeStart = seed % rangeSpan
+    const stride = Math.max(1, Math.floor(rangeSpan / 17))
     const runOne = () => {
       ownerIndex = (ownerIndex + 1) % OWNERS.length
       const owner = OWNERS[ownerIndex] ?? "NOC"
       const region = REGIONS[ownerIndex % REGIONS.length] ?? "us-east"
       model.setFilterModel(createFilter(owner, region))
-      const range = normalizeRange(randomInt(rng, 0, maxStart))
+      rangeStart = (rangeStart + stride) % rangeSpan
+      const range = normalizeRange(rangeStart)
       model.setViewportRange(range)
       model.getRowsInRange(range)
     }

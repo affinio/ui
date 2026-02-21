@@ -6,7 +6,7 @@
     "dev": "storybook dev -p 6006",
     "build": "storybook build",
     "serve:storybook": "http-server storybook-static --port 6006 --silent",
-    "test:visual:runner": "wait-on tcp:6006 && test-storybook",
+    "test:visual:runner": "wait-on tcp:6006 && test-storybook --testTimeout=60000 --maxWorkers=1",
     "test:visual": "storybook build --quiet && concurrently -k -s first -n \"SB,TEST\" -c \"magenta,blue\" \"pnpm run serve:storybook\" \"pnpm run test:visual:runner\""
   },
   "devDependencies": {

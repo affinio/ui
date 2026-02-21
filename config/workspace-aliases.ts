@@ -6,6 +6,7 @@ const WORKSPACE_ALIAS_TARGETS: Record<string, string> = {
   "@": "demo-vue/src",
   "@affino/dialog-core": "packages/dialog-core/src/index.ts",
   "@affino/dialog-vue": "packages/dialog-vue/src/index.ts",
+  "@affino/projection-engine": "packages/projection-engine/src/index.ts",
   "@affino/datagrid-theme": "packages/datagrid-theme/src/index.ts",
   "@affino/datagrid-plugins": "packages/datagrid-plugins/src/index.ts",
   "@affino/datagrid-core/advanced": "packages/datagrid-core/src/advanced.ts",
