@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { performance } from "node:perf_hooks"
-import { existsSync, mkdirSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
@@ -110,20 +110,43 @@ function quantile(values, q) {
 
 function stats(values) {
   if (!values.length) {
-    return { mean: 0, stdev: 0, p50: 0, p95: 0, p99: 0, cvPct: 0, min: 0, max: 0 }
+    return {
+      mean: 0,
+      stdev: 0,
+      p50: 0,
+      p95: 0,
+      p99: 0,
+      cvPct: 0,
+      cvPctRobust: 0,
+      min: 0,
+      max: 0,
+      robustSampleSize: 0,
+    }
   }
   const mean = values.reduce((sum, value) => sum + value, 0) / values.length
   const variance = values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / values.length
   const stdev = Math.sqrt(variance)
+  const sorted = [...values].sort((a, b) => a - b)
+  const trimFraction = 0.05
+  const maxTrimByCount = Math.floor((sorted.length - 1) / 2)
+  const trimCount = Math.max(0, Math.min(maxTrimByCount, Math.floor(sorted.length * trimFraction)))
+  const robustValues = trimCount > 0
+    ? sorted.slice(trimCount, sorted.length - trimCount)
+    : sorted
+  const robustMean = robustValues.reduce((sum, value) => sum + value, 0) / robustValues.length
+  const robustVariance = robustValues.reduce((sum, value) => sum + (value - robustMean) ** 2, 0) / robustValues.length
+  const robustStdev = Math.sqrt(robustVariance)
   return {
     mean,
     stdev,
-    p50: quantile(values, 0.5),
-    p95: quantile(values, 0.95),
-    p99: quantile(values, 0.99),
+    p50: quantile(sorted, 0.5),
+    p95: quantile(sorted, 0.95),
+    p99: quantile(sorted, 0.99),
     cvPct: mean === 0 ? 0 : (stdev / mean) * 100,
-    min: Math.min(...values),
-    max: Math.max(...values),
+    cvPctRobust: robustMean === 0 ? 0 : (robustStdev / robustMean) * 100,
+    min: sorted[0] ?? 0,
+    max: sorted[sorted.length - 1] ?? 0,
+    robustSampleSize: robustValues.length,
   }
 }
 
@@ -181,10 +204,29 @@ async function loadFactory() {
     resolve("packages/datagrid-core/dist/src/models/index.js"),
     resolve("packages/datagrid-core/dist/src/public.js"),
   ]
+  const sourceCandidates = [
+    resolve("packages/datagrid-core/src/models/clientRowModel.ts"),
+    resolve("packages/datagrid-core/src/public.ts"),
+  ]
+  const sourceTimestamps = sourceCandidates
+    .filter(candidate => existsSync(candidate))
+    .map(candidate => statSync(candidate).mtimeMs)
+  const newestSourceTimestamp = sourceTimestamps.length > 0
+    ? Math.max(...sourceTimestamps)
+    : 0
+  const allowStaleDist = process.env.BENCH_ALLOW_STALE_DIST === "1"
   let lastError = null
   for (const candidate of candidates) {
     if (!existsSync(candidate)) {
       continue
+    }
+    if (!allowStaleDist) {
+      const distTimestamp = statSync(candidate).mtimeMs
+      if (newestSourceTimestamp > distTimestamp) {
+        throw new Error(
+          `Datagrid dist artifact is stale (${candidate}). Run \`pnpm --filter @affino/datagrid-core build\` before benchmarks.`,
+        )
+      }
     }
     try {
       const module = await import(pathToFileURL(candidate).href)
@@ -395,14 +437,23 @@ function runFilterSortScenario(createClientRowModel, rows, seed, options = {}) {
       const owner = OWNERS[ownerIndex] ?? "NOC"
       const region = REGIONS[ownerIndex % REGIONS.length] ?? "us-east"
 
-      model.setFilterModel({
+      const nextSortModel = [{ key: "latency", direction: sortAsc ? "asc" : "desc" }]
+      const nextFilterModel = {
         columnFilters: {
           owner: [owner],
           region: [region],
         },
         advancedFilters: {},
-      })
-      model.setSortModel([{ key: "latency", direction: sortAsc ? "asc" : "desc" }])
+      }
+      if (typeof model.setSortAndFilterModel === "function") {
+        model.setSortAndFilterModel({
+          sortModel: nextSortModel,
+          filterModel: nextFilterModel,
+        })
+      } else {
+        model.setFilterModel(nextFilterModel)
+        model.setSortModel(nextSortModel)
+      }
 
       const rowCount = Math.max(1, model.getRowCount())
       const maxStart = Math.max(0, rowCount - TREE_VIEWPORT_SIZE - 1)

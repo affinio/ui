@@ -8,6 +8,10 @@ const BENCH_ROW_COUNTS = parsePositiveIntegerList(
   process.env.BENCH_TREE_ROW_MATRIX ?? "10000,25000,50000,100000",
   "BENCH_TREE_ROW_MATRIX",
 )
+const PERF_MATRIX_VARIANCE_MODE = String(process.env.PERF_MATRIX_VARIANCE_MODE ?? "robust").trim().toLowerCase()
+if (PERF_MATRIX_VARIANCE_MODE !== "robust" && PERF_MATRIX_VARIANCE_MODE !== "classic") {
+  throw new Error("PERF_MATRIX_VARIANCE_MODE must be either 'robust' or 'classic'")
+}
 const BENCH_OUTPUT_JSON = resolve(
   process.env.BENCH_OUTPUT_JSON ?? "artifacts/performance/bench-datagrid-tree-workload-matrix.json",
 )
@@ -274,10 +278,12 @@ function collectRowMetrics(report) {
   const expandP99 = runs.map(run => run?.scenarios?.expandBurst?.stat?.p99).filter(Number.isFinite)
   const filterSortP95 = runs.map(run => run?.scenarios?.filterSortBurst?.stat?.p95).filter(Number.isFinite)
   const filterSortP99 = runs.map(run => run?.scenarios?.filterSortBurst?.stat?.p99).filter(Number.isFinite)
-  const variancePct = runs.flatMap(run => [
-    run?.scenarios?.expandBurst?.stat?.cvPct,
-    run?.scenarios?.filterSortBurst?.stat?.cvPct,
-  ]).filter(Number.isFinite)
+  const variancePct = runs
+    .flatMap(run => [
+      resolveVarianceStat(run?.scenarios?.expandBurst?.stat),
+      resolveVarianceStat(run?.scenarios?.filterSortBurst?.stat),
+    ])
+    .filter(Number.isFinite)
   const heapDeltaMb = runs.map(run => run?.heapDeltaMb).filter(Number.isFinite)
   return {
     expandBurstP95MsMax: expandP95.length > 0 ? Math.max(...expandP95) : 0,
@@ -287,6 +293,16 @@ function collectRowMetrics(report) {
     variancePctMax: variancePct.length > 0 ? Math.max(...variancePct) : 0,
     heapDeltaMbMax: heapDeltaMb.length > 0 ? Math.max(...heapDeltaMb) : 0,
   }
+}
+
+function resolveVarianceStat(stat) {
+  if (!stat || typeof stat !== "object") {
+    return undefined
+  }
+  if (PERF_MATRIX_VARIANCE_MODE === "classic") {
+    return stat.cvPct
+  }
+  return stat.cvPctRobust ?? stat.cvPct
 }
 
 function evaluateRowBudgets(rowCount, metrics, budgets) {
