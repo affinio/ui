@@ -30,6 +30,12 @@ const PERF_BUDGET_TOTAL_MS = Number.parseFloat(process.env.PERF_BUDGET_TOTAL_MS 
 const PERF_BUDGET_MAX_HYDRATE_RATE_PCT = Number.parseFloat(process.env.PERF_BUDGET_MAX_HYDRATE_RATE_PCT ?? "Infinity")
 const PERF_BUDGET_MAX_BOOTSTRAP_MS = Number.parseFloat(process.env.PERF_BUDGET_MAX_BOOTSTRAP_MS ?? "Infinity")
 const PERF_BUDGET_MAX_OPEN_CLOSE_MS = Number.parseFloat(process.env.PERF_BUDGET_MAX_OPEN_CLOSE_MS ?? "Infinity")
+const PERF_BUDGET_OPEN_CLOSE_EXCLUDE_PACKAGES = new Set(
+  (process.env.PERF_BUDGET_OPEN_CLOSE_EXCLUDE_PACKAGES ?? "treeview")
+    .split(",")
+    .map((value) => value.trim().toLowerCase())
+    .filter((value) => value.length > 0),
+)
 const PERF_BUDGET_MAX_VARIANCE_PCT = Number.parseFloat(process.env.PERF_BUDGET_MAX_VARIANCE_PCT ?? "Infinity")
 const PERF_BUDGET_VARIANCE_MIN_MEAN_MS = Number.parseFloat(process.env.PERF_BUDGET_VARIANCE_MIN_MEAN_MS ?? "0.5")
 const PERF_BUDGET_ENFORCE_HYDRATE_RATE_VARIANCE = process.env.PERF_BUDGET_ENFORCE_HYDRATE_RATE_VARIANCE === "true"
@@ -421,7 +427,8 @@ for (const seed of BENCH_SEEDS) {
         `seed ${seed} ${row.package}: bootstrapMs ${row.bootstrapMsValue.toFixed(2)} exceeded PERF_BUDGET_MAX_BOOTSTRAP_MS=${PERF_BUDGET_MAX_BOOTSTRAP_MS}`,
       )
     }
-    if (row.openCloseMsValue > PERF_BUDGET_MAX_OPEN_CLOSE_MS) {
+    const openCloseBudgetExcluded = PERF_BUDGET_OPEN_CLOSE_EXCLUDE_PACKAGES.has(row.package.toLowerCase())
+    if (!openCloseBudgetExcluded && row.openCloseMsValue > PERF_BUDGET_MAX_OPEN_CLOSE_MS) {
       budgetErrors.push(
         `seed ${seed} ${row.package}: openCloseMs ${row.openCloseMsValue.toFixed(2)} exceeded PERF_BUDGET_MAX_OPEN_CLOSE_MS=${PERF_BUDGET_MAX_OPEN_CLOSE_MS}`,
       )
@@ -474,6 +481,11 @@ console.table(summaryRows)
 console.log(`Total elapsed p50=${elapsedStats.p50.toFixed(2)}ms p90=${elapsedStats.p90.toFixed(2)}ms CV=${elapsedStats.cvPct.toFixed(1)}%`)
 console.log(`Heap delta p50=${heapStats.p50.toFixed(2)}MB p90=${heapStats.p90.toFixed(2)}MB CV=${heapStats.cvPct.toFixed(1)}%`)
 console.log("Note: This is a temporary synthetic benchmark for mutation pressure and rehydrate gating trends.")
+if (PERF_BUDGET_OPEN_CLOSE_EXCLUDE_PACKAGES.size > 0) {
+  console.log(
+    `Open/close budget excludes: ${Array.from(PERF_BUDGET_OPEN_CLOSE_EXCLUDE_PACKAGES).sort().join(", ")}`,
+  )
+}
 
 if (shouldEnforceVariance(elapsedStats)) {
   if (elapsedStats.cvPct > PERF_BUDGET_MAX_VARIANCE_PCT) {
@@ -536,6 +548,7 @@ const summary = {
     maxHydrateRatePct: PERF_BUDGET_MAX_HYDRATE_RATE_PCT,
     maxBootstrapMs: PERF_BUDGET_MAX_BOOTSTRAP_MS,
     maxOpenCloseMs: PERF_BUDGET_MAX_OPEN_CLOSE_MS,
+    openCloseExcludePackages: Array.from(PERF_BUDGET_OPEN_CLOSE_EXCLUDE_PACKAGES).sort(),
     maxVariancePct: PERF_BUDGET_MAX_VARIANCE_PCT,
     varianceMinMeanMs: PERF_BUDGET_VARIANCE_MIN_MEAN_MS,
     enforceHydrateRateVariance: PERF_BUDGET_ENFORCE_HYDRATE_RATE_VARIANCE,

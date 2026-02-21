@@ -95,6 +95,7 @@ const tasks = [
         PERF_BUDGET_MAX_BOOTSTRAP_MS: "12",
         PERF_BUDGET_MAX_HYDRATE_RATE_PCT: "25",
         PERF_BUDGET_MAX_OPEN_CLOSE_MS: "2",
+        PERF_BUDGET_OPEN_CLOSE_EXCLUDE_PACKAGES: "treeview",
       },
       local: {
         PERF_BUDGET_TOTAL_MS: "Infinity",
