@@ -182,6 +182,12 @@ jobs:
       - name: Install Playwright browsers
         run: pnpm exec playwright install --with-deps chromium
 
+      - name: Build datagrid benchmark artifacts
+        run: |
+          pnpm --filter @affino/projection-engine build
+          pnpm --filter @affino/datagrid-plugins build
+          pnpm --filter @affino/datagrid-core build
+
       - name: Ensure no stale web servers before datagrid parity quality lock
         run: |
           pkill -f "vite preview --host 127.0.0.1 --port 4173" || true
