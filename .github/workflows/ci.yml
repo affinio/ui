@@ -83,6 +83,19 @@ jobs:
         run: composer install --no-interaction --prefer-dist --no-progress
         working-directory: demo-laravel
 
+      - name: Prepare Laravel demo environment
+        if: matrix.suite == 'interaction' || matrix.suite == 'visual'
+        run: |
+          test -f .env || cp .env.example .env
+          php artisan key:generate --force
+        working-directory: demo-laravel
+
+      - name: Build interaction web assets
+        if: matrix.suite == 'interaction' || matrix.suite == 'visual'
+        run: |
+          pnpm --filter demo-vue build-only
+          pnpm --dir demo-laravel build
+
       - name: Install Playwright browsers
         if: matrix.suite == 'interaction' || matrix.suite == 'visual'
         run: pnpm exec playwright install --with-deps chromium
@@ -97,6 +110,8 @@ jobs:
 
       - name: Run interaction matrix suite (e2e + flake gate)
         if: matrix.suite == 'interaction'
+        env:
+          PLAYWRIGHT_SKIP_WEB_BUILDS: "1"
         run: pnpm run test:matrix:interaction
 
       - name: Run visual matrix suite
@@ -145,10 +160,23 @@ jobs:
         run: composer install --no-interaction --prefer-dist --no-progress
         working-directory: demo-laravel
 
+      - name: Prepare Laravel demo environment
+        run: |
+          test -f .env || cp .env.example .env
+          php artisan key:generate --force
+        working-directory: demo-laravel
+
+      - name: Build interaction web assets
+        run: |
+          pnpm --filter demo-vue build-only
+          pnpm --dir demo-laravel build
+
       - name: Install Playwright browsers
         run: pnpm exec playwright install --with-deps chromium
 
       - name: Run datagrid parity quality lock (architecture + perf contracts + strict contracts + critical e2e + benchmark + parity e2e)
+        env:
+          PLAYWRIGHT_SKIP_WEB_BUILDS: "1"
         run: pnpm run quality:lock:datagrid:parity
 
       - name: Upload quality gate artifacts
