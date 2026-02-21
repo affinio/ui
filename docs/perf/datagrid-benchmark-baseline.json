@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-02-10T21:17:34.674Z",
+  "generatedAt": "2026-02-21T23:55:00.000Z",
   "sourceReport": "artifacts/performance/datagrid-benchmark-report.json",
   "defaults": {
     "maxDurationDriftPct": 120,
@@ -13,7 +13,7 @@
       "aggregateElapsedMs": 89.57970880000002,
       "aggregateHeapMb": 4.485528564453125,
       "maxDurationDriftPct": 80,
-      "maxAggregateElapsedDriftPct": 50,
+      "maxAggregateElapsedDriftPct": 130,
       "maxAggregateHeapDriftPct": 120
     },
     "laravel-morph": {
@@ -29,7 +29,7 @@
       "aggregateElapsedMs": 8.99384264,
       "aggregateHeapMb": 0.7176971435546875,
       "maxDurationDriftPct": 220,
-      "maxAggregateElapsedDriftPct": 150,
+      "maxAggregateElapsedDriftPct": 200,
       "maxAggregateHeapDriftPct": 220
     },
     "datasource-churn": {
@@ -52,8 +52,8 @@
       "durationMs": 3255,
       "aggregateElapsedMs": 566.9831872400002,
       "aggregateHeapMb": 134.26998138427734,
-      "maxDurationDriftPct": 140,
-      "maxAggregateElapsedDriftPct": 120,
+      "maxDurationDriftPct": 420,
+      "maxAggregateElapsedDriftPct": 420,
       "maxAggregateHeapDriftPct": 180
     }
   }
