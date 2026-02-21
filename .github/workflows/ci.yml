@@ -71,6 +71,18 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Setup PHP
+        if: matrix.suite == 'interaction' || matrix.suite == 'visual'
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.2"
+          tools: composer
+
+      - name: Install Laravel demo PHP dependencies
+        if: matrix.suite == 'interaction' || matrix.suite == 'visual'
+        run: composer install --no-interaction --prefer-dist --no-progress
+        working-directory: demo-laravel
+
       - name: Install Playwright browsers
         if: matrix.suite == 'interaction' || matrix.suite == 'visual'
         run: pnpm exec playwright install --with-deps chromium
@@ -122,6 +134,16 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.2"
+          tools: composer
+
+      - name: Install Laravel demo PHP dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+        working-directory: demo-laravel
 
       - name: Install Playwright browsers
         run: pnpm exec playwright install --with-deps chromium
