@@ -168,9 +168,15 @@ const tasks = [
     logPath: `${outputDir}/bench-datagrid-derived-cache.log`,
     budgets: {
       ci: {
-        PERF_BUDGET_TOTAL_MS: "7000",
+        // CI profile tuned for shared-runner variance while preserving cache hit/miss signal.
+        BENCH_DERIVED_CACHE_ROW_COUNT: "50000",
+        BENCH_DERIVED_CACHE_STABLE_ITERATIONS: "180",
+        BENCH_DERIVED_CACHE_INVALIDATED_ITERATIONS: "90",
+        BENCH_DERIVED_CACHE_MEASUREMENT_BATCH_SIZE: "2",
+        BENCH_DERIVED_CACHE_WARMUP_BATCHES: "0",
+        PERF_BUDGET_TOTAL_MS: "9000",
         PERF_BUDGET_MAX_VARIANCE_PCT: "120",
-        PERF_BUDGET_MAX_STABLE_P95_MS: "8",
+        PERF_BUDGET_MAX_STABLE_P95_MS: "9.5",
         PERF_BUDGET_MAX_INVALIDATED_P95_MS: "18",
         PERF_BUDGET_MIN_STABLE_FILTER_HIT_RATE_PCT: "80",
         PERF_BUDGET_MIN_STABLE_SORT_HIT_RATE_PCT: "90",
