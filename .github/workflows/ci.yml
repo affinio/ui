@@ -87,7 +87,9 @@ jobs:
         if: matrix.suite == 'interaction' || matrix.suite == 'visual'
         run: |
           test -f .env || cp .env.example .env
+          php -r "file_exists('database/database.sqlite') || touch('database/database.sqlite');"
           php artisan key:generate --force
+          php artisan migrate --force
         working-directory: demo-laravel
 
       - name: Build interaction web assets
@@ -112,7 +114,11 @@ jobs:
         if: matrix.suite == 'interaction'
         env:
           PLAYWRIGHT_SKIP_WEB_BUILDS: "1"
-        run: pnpm run test:matrix:interaction
+          DEBUG: "pw:webserver"
+        run: |
+          pkill -f "vite preview --host 127.0.0.1 --port 4173" || true
+          pkill -f "artisan serve --host=127.0.0.1 --port=4180" || true
+          pnpm run test:matrix:interaction
 
       - name: Run visual matrix suite
         if: matrix.suite == 'visual'
@@ -163,7 +169,9 @@ jobs:
       - name: Prepare Laravel demo environment
         run: |
           test -f .env || cp .env.example .env
+          php -r "file_exists('database/database.sqlite') || touch('database/database.sqlite');"
           php artisan key:generate --force
+          php artisan migrate --force
         working-directory: demo-laravel
 
       - name: Build interaction web assets
@@ -177,7 +185,11 @@ jobs:
       - name: Run datagrid parity quality lock (architecture + perf contracts + strict contracts + critical e2e + benchmark + parity e2e)
         env:
           PLAYWRIGHT_SKIP_WEB_BUILDS: "1"
-        run: pnpm run quality:lock:datagrid:parity
+          DEBUG: "pw:webserver"
+        run: |
+          pkill -f "vite preview --host 127.0.0.1 --port 4173" || true
+          pkill -f "artisan serve --host=127.0.0.1 --port=4180" || true
+          pnpm run quality:lock:datagrid:parity
 
       - name: Upload quality gate artifacts
         if: always()
