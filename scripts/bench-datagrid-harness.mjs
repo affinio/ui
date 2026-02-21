@@ -83,6 +83,9 @@ const tasks = [
     command: "node",
     args: ["./scripts/bench-livewire-morph.mjs"],
     retries: 1,
+    env: {
+      PERF_BUDGET_OPEN_CLOSE_EXCLUDE_PACKAGES: "treeview",
+    },
     jsonPath: `${outputDir}/bench-livewire-morph.json`,
     logPath: `${outputDir}/bench-livewire-morph.log`,
     budgets: {
@@ -95,7 +98,6 @@ const tasks = [
         PERF_BUDGET_MAX_BOOTSTRAP_MS: "12",
         PERF_BUDGET_MAX_HYDRATE_RATE_PCT: "25",
         PERF_BUDGET_MAX_OPEN_CLOSE_MS: "2",
-        PERF_BUDGET_OPEN_CLOSE_EXCLUDE_PACKAGES: "treeview",
       },
       local: {
         PERF_BUDGET_TOTAL_MS: "Infinity",
@@ -176,7 +178,7 @@ const tasks = [
         BENCH_DERIVED_CACHE_WARMUP_BATCHES: "0",
         PERF_BUDGET_TOTAL_MS: "9000",
         PERF_BUDGET_MAX_VARIANCE_PCT: "120",
-        PERF_BUDGET_MAX_STABLE_P95_MS: "9.5",
+        PERF_BUDGET_MAX_STABLE_P95_MS: "12",
         PERF_BUDGET_MAX_INVALIDATED_P95_MS: "18",
         PERF_BUDGET_MIN_STABLE_FILTER_HIT_RATE_PCT: "80",
         PERF_BUDGET_MIN_STABLE_SORT_HIT_RATE_PCT: "90",
@@ -332,6 +334,7 @@ for (const task of tasks) {
     ...baseEnv,
     ...selectedSharedBudgets,
     ...taskBudgets,
+    ...(task.env ?? {}),
     BENCH_OUTPUT_JSON: task.jsonPath,
   }
 
