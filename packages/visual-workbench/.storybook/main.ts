@@ -1,23 +1,22 @@
-import type { StorybookConfig } from "@storybook/vue3-webpack5"
+import type { StorybookConfig } from "@storybook/vue3-vite"
+import vue from "@vitejs/plugin-vue"
 import { createWorkspaceAliases } from "../../../config/workspace-aliases"
 
 const config: StorybookConfig = {
   stories: ["../stories/**/*.stories.@(ts|tsx|mdx)"],
-  addons: ["@storybook/addon-essentials", "@storybook/addon-interactions"],
+  addons: ["@storybook/addon-docs", "@storybook/addon-a11y"],
   framework: {
-    name: "@storybook/vue3-webpack5",
+    name: "@storybook/vue3-vite",
     options: {},
   },
-  docs: {
-    autodocs: "tag",
-  },
-  webpackFinal: async (webpackConfig) => {
-    webpackConfig.resolve = webpackConfig.resolve ?? {}
-    webpackConfig.resolve.alias = {
-      ...(webpackConfig.resolve.alias ?? {}),
+  viteFinal: async (viteConfig) => {
+    viteConfig.resolve = viteConfig.resolve ?? {}
+    viteConfig.resolve.alias = {
+      ...(viteConfig.resolve.alias ?? {}),
       ...createWorkspaceAliases(import.meta.url),
     }
-    return webpackConfig
+    viteConfig.plugins = [...(viteConfig.plugins ?? []), vue()]
+    return viteConfig
   },
 }
 

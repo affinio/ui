@@ -170,6 +170,11 @@ registerFileCheck(
   "Tree workload benchmark for deep hierarchy expand/filter/sort pressure",
 )
 registerFileCheck(
+  "tree-workload-matrix-benchmark-script",
+  "scripts/bench-datagrid-tree-workload-matrix.mjs",
+  "Tree workload benchmark matrix for row-scale envelopes (10k/25k/50k/100k)",
+)
+registerFileCheck(
   "benchmark-baseline-lock-file",
   "docs/perf/datagrid-benchmark-baseline.json",
   "Benchmark baseline lock file for CI drift guard",
@@ -441,6 +446,19 @@ registerTokenCheck(
 )
 
 registerTokenCheck(
+  "dependency-graph-benchmark-budgets",
+  "scripts/bench-datagrid-dependency-graph.mjs",
+  [
+    "PERF_BUDGET_MAX_REGISTER_MS",
+    "PERF_BUDGET_MAX_STRUCTURAL_EXPAND_P95_MS",
+    "PERF_BUDGET_MAX_COMPUTED_EXPAND_P95_MS",
+    "PERF_BUDGET_MIN_STRUCTURAL_AFFECTED_MEAN",
+    "PERF_BUDGET_MIN_COMPUTED_AFFECTED_MEAN",
+  ],
+  "Dependency-graph benchmark enforces dense-graph register/expand budgets",
+)
+
+registerTokenCheck(
   "quality-script-perf-contracts",
   "package.json",
   ["quality:perf:datagrid", "check-datagrid-perf-contracts.mjs"],
@@ -460,10 +478,30 @@ registerTokenCheck(
     "bench:datagrid:datasource-churn:assert",
     "bench:datagrid:derived-cache",
     "bench:datagrid:derived-cache:assert",
+    "bench:datagrid:dependency-graph",
+    "bench:datagrid:dependency-graph:assert",
     "bench:datagrid:tree",
     "bench:datagrid:tree:assert",
+    "bench:datagrid:tree:matrix",
+    "bench:datagrid:tree:matrix:assert",
+    "bench:datagrid:tree:matrix:assert:ci",
+    "bench:datagrid:tree:matrix:assert:nightly",
   ],
   "Runtime benchmark regression uses explicit report gate script",
+)
+
+registerTokenCheck(
+  "tree-workload-matrix-assert-budgets",
+  "package.json",
+  [
+    "PERF_MATRIX_BUDGET_MAX_EXPAND_BURST_P95_MS_BY_ROWS",
+    "PERF_MATRIX_BUDGET_MAX_EXPAND_BURST_P99_MS_BY_ROWS",
+    "PERF_MATRIX_BUDGET_MAX_FILTER_SORT_BURST_P95_MS_BY_ROWS",
+    "PERF_MATRIX_BUDGET_MAX_FILTER_SORT_BURST_P99_MS_BY_ROWS",
+    "PERF_MATRIX_BUDGET_MAX_VARIANCE_PCT_BY_ROWS",
+    "PERF_MATRIX_BUDGET_MAX_HEAP_DELTA_MB_BY_ROWS",
+  ],
+  "Tree workload matrix assert script defines row-scale p95/p99/variance/heap budgets",
 )
 
 registerTokenCheck(
@@ -475,6 +513,7 @@ registerTokenCheck(
     "quality:gates:datagrid:tree",
     "quality:lock:datagrid",
     "bench:datagrid:tree:assert",
+    "bench:datagrid:tree:matrix:assert:ci",
   ],
   "Quality lock includes explicit tree contracts/e2e/perf gate",
 )

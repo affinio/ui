@@ -10,15 +10,15 @@
     "test:visual": "storybook build --quiet && concurrently -k -s first -n \"SB,TEST\" -c \"magenta,blue\" \"pnpm run serve:storybook\" \"pnpm run test:visual:runner\""
   },
   "devDependencies": {
-    "@storybook/addon-essentials": "^8.6.15",
-    "@storybook/addon-interactions": "^8.6.15",
-    "@storybook/test": "^8.6.15",
+    "@storybook/addon-a11y": "^10.2.10",
+    "@storybook/addon-docs": "^10.2.10",
     "@storybook/test-runner": "^0.24.2",
-    "@storybook/vue3": "^10.2.7",
-    "@storybook/vue3-webpack5": "^8.6.15",
+    "@storybook/vue3": "^10.2.10",
+    "@storybook/vue3-vite": "^10.2.10",
+    "@vitejs/plugin-vue": "^6.0.1",
     "concurrently": "^9.2.1",
     "http-server": "^14.1.1",
-    "storybook": "^8.6.15",
+    "storybook": "^10.2.10",
     "ts-node": "^10.9.2",
     "vue": "^3.5.25",
     "wait-on": "^7.2.0"
