@@ -61,7 +61,7 @@ Stable tag policy (`datagrid stable candidate`):
 Entry criteria:
 
 - Checklist complete through item `12` in:
-  `/Users/anton/Projects/affinio/docs/datagrid-engine-9.5-pipeline-checklist.md`
+  `/Users/anton/Projects/affinio/docs/archive/datagrid/checklists/datagrid-engine-9.5-pipeline-checklist.md`
 - Quality gates green on `main`:
   - `pnpm run quality:gates:datagrid`
   - `pnpm run test:matrix:unit`

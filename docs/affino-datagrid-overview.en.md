@@ -84,4 +84,4 @@ Key References (repo docs)
 - docs/datagrid-plugin-capability-model.md
 - docs/datagrid-performance-gates.md
 - docs/datagrid-perf-by-design-runtime.md
-- docs/datagrid-wave2-enterprise-architecture-pipeline.md
+- docs/archive/datagrid/pipelines/datagrid-wave2-enterprise-architecture-pipeline.md
