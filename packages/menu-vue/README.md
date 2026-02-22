@@ -24,6 +24,8 @@ const actions = ['Edit', 'Duplicate', 'Archive']
 npm install @affino/menu-vue
 ```
 
+`@affino/menu-core` is bundled as an internal dependency of `@affino/menu-vue`, so Vue apps do not need to install it separately.
+
 ## Core Features
 
 - Headless Vue 3 components powered by `@affino/menu-core`
@@ -150,7 +152,7 @@ controller.setAnchor(triggerRect)
 Need to integrate the Affino core into another renderer? Instantiate the helper directly — it returns the same branch objects the Vue controller now uses internally.
 
 ```ts
-import { createMenuTree } from "@affino/menu-core"
+import { createMenuTree } from "@affino/menu-vue"
 
 const tree = createMenuTree({ options: { openDelay: 60, closeDelay: 90 } })
 

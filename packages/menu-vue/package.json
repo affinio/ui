@@ -15,16 +15,15 @@
     "./styles.css": "./dist/styles.css"
   },
   "peerDependencies": {
-    "@affino/menu-core": "^1.1.0",
     "vue": "^3.3.0"
   },
   "dependencies": {
+    "@affino/menu-core": "^1.1.0",
     "@affino/focus-utils": "workspace:^",
     "@affino/overlay-host": "workspace:^",
     "@affino/overlay-kernel": "workspace:^"
   },
   "devDependencies": {
-    "@affino/menu-core": "workspace:^",
     "@testing-library/vue": "^8.1.0",
     "@vitejs/plugin-vue": "^6.0.3",
     "@vitest/coverage-v8": "^4.0.15",
