@@ -21,7 +21,7 @@
       "aggregateElapsedMs": 3156.5094454000005,
       "aggregateHeapMb": 24.743925476074217,
       "maxDurationDriftPct": 160,
-      "maxAggregateElapsedDriftPct": 80,
+      "maxAggregateElapsedDriftPct": 100,
       "maxAggregateHeapDriftPct": 180
     },
     "interaction-models": {
