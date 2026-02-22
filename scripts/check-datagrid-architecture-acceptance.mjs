@@ -9,6 +9,10 @@ const reportPath = resolve(
 const targetScore = Number.parseFloat(process.env.DATAGRID_ARCH_ACCEPTANCE_TARGET_SCORE ?? "9.5")
 
 const checks = []
+const DOC_PATH_FALLBACKS = {
+  "docs/datagrid-ag-architecture-acceptance-checklist.md":
+    "docs/archive/datagrid/checklists/datagrid-ag-architecture-acceptance-checklist.md",
+}
 
 function registerFileCheck(id, file, description) {
   const absolutePath = resolve(file)
@@ -34,6 +38,25 @@ function registerOptionalFileCheck(id, file, description) {
     ok: true,
     message: ok ? "present" : "optional-missing",
   })
+}
+
+function registerAnyFileCheck(id, files, description) {
+  const fileList = Array.isArray(files) ? files : [files]
+  const matchedFile = fileList.find((file) => existsSync(resolve(file)))
+  checks.push({
+    id,
+    description,
+    type: "file-any",
+    file: matchedFile ?? fileList[0],
+    files: fileList,
+    ok: Boolean(matchedFile),
+    message: matchedFile ? `present: ${matchedFile}` : "missing",
+  })
+}
+
+function withDocFallback(file) {
+  const fallback = DOC_PATH_FALLBACKS[file]
+  return fallback ? [file, fallback] : [file]
 }
 
 function registerTokenCheck(id, file, tokens, description) {
@@ -542,9 +565,9 @@ registerFileCheck(
   "docs/datagrid-viewport-controller-decomposition.md",
   "Viewport decomposition architecture doc",
 )
-registerFileCheck(
+registerAnyFileCheck(
   "doc-acceptance-checklist",
-  "docs/datagrid-ag-architecture-acceptance-checklist.md",
+  withDocFallback("docs/datagrid-ag-architecture-acceptance-checklist.md"),
   "AG-style architecture acceptance checklist",
 )
 registerFileCheck(
