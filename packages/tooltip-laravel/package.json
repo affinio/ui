@@ -1,7 +1,7 @@
 {
   "name": "@affino/tooltip-laravel",
   "version": "0.1.0",
-  "description": "Livewire tooltip helper wired to @affino/tooltip-core",
+  "description": "Laravel / Livewire adapter for @affino/tooltip-core",
   "type": "module",
   "main": "dist/index.cjs",
   "module": "dist/index.js",
@@ -32,9 +32,10 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/affinio/affinio/tree/main/packages/tooltip-laravel"
+    "url": "git+https://github.com/affinio/affinio.git",
+    "directory": "packages/tooltip-laravel"
   },
-  "homepage": "https://affino.dev",
+  "homepage": "https://github.com/affinio/affinio/tree/main/packages/tooltip-laravel#readme",
   "bugs": {
     "url": "https://github.com/affinio/affinio/issues"
   },

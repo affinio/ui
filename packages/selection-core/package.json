@@ -3,7 +3,7 @@
   "version": "1.1.0",
   "author": "Anton Pavlov <a.pavlov@affino.dev>",
   "type": "module",
-  "description": "Framework-agnostic headless selection primitives for linear lists and adapters",
+  "description": "Headless selection core for Affino UI primitives",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -22,9 +22,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/affinio/affinio/tree/main/packages/selection-core"
+    "url": "git+https://github.com/affinio/affinio.git",
+    "directory": "packages/selection-core"
   },
-  "homepage": "https://affino.dev",
+  "homepage": "https://github.com/affinio/affinio/tree/main/packages/selection-core#readme",
   "license": "MIT",
   "keywords": [
     "selection",

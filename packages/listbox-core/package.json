@@ -3,7 +3,7 @@
   "version": "1.1.0",
   "author": "Anton Pavlov <a.pavlov@affino.dev>",
   "type": "module",
-  "description": "Headless listbox state machine built on @affino/selection-core",
+  "description": "Headless listbox core for Affino UI primitives",
   "files": [
     "dist"
   ],
@@ -30,9 +30,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/affinio/affinio/tree/main/packages/listbox-core"
+    "url": "git+https://github.com/affinio/affinio.git",
+    "directory": "packages/listbox-core"
   },
-  "homepage": "https://affino.dev",
+  "homepage": "https://github.com/affinio/affinio/tree/main/packages/listbox-core#readme",
   "license": "MIT",
   "keywords": [
     "listbox",

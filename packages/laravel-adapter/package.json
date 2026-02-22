@@ -1,7 +1,7 @@
 {
   "name": "@affino/laravel-adapter",
   "version": "0.1.0",
-  "description": "Unified Laravel bootstrap and manual-bridge runtime for Affino primitives",
+  "description": "Unified Laravel / Livewire adapter bootstrap for Affino UI primitives",
   "type": "module",
   "main": "dist/index.cjs",
   "module": "dist/index.js",
@@ -43,9 +43,10 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/affinio/affinio/tree/main/packages/laravel-adapter"
+    "url": "git+https://github.com/affinio/affinio.git",
+    "directory": "packages/laravel-adapter"
   },
-  "homepage": "https://affino.dev",
+  "homepage": "https://github.com/affinio/affinio/tree/main/packages/laravel-adapter#readme",
   "bugs": {
     "url": "https://github.com/affinio/affinio/issues"
   },

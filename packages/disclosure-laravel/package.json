@@ -1,7 +1,7 @@
 {
   "name": "@affino/disclosure-laravel",
   "version": "0.1.0",
-  "description": "Livewire disclosure helper wired to @affino/disclosure-core",
+  "description": "Laravel / Livewire adapter for @affino/disclosure-core",
   "type": "module",
   "main": "dist/index.cjs",
   "module": "dist/index.js",
@@ -30,9 +30,10 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/affinio/affinio/tree/main/packages/disclosure-laravel"
+    "url": "git+https://github.com/affinio/affinio.git",
+    "directory": "packages/disclosure-laravel"
   },
-  "homepage": "https://affino.dev",
+  "homepage": "https://github.com/affinio/affinio/tree/main/packages/disclosure-laravel#readme",
   "bugs": {
     "url": "https://github.com/affinio/affinio/issues"
   },

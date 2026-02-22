@@ -1,7 +1,7 @@
 {
   "name": "@affino/tabs-laravel",
   "version": "0.1.0",
-  "description": "Livewire tabs helper wired to @affino/tabs-core",
+  "description": "Laravel / Livewire adapter for @affino/tabs-core",
   "type": "module",
   "main": "dist/index.cjs",
   "module": "dist/index.js",
@@ -31,9 +31,10 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/affinio/affinio/tree/main/packages/tabs-laravel"
+    "url": "git+https://github.com/affinio/affinio.git",
+    "directory": "packages/tabs-laravel"
   },
-  "homepage": "https://affino.dev",
+  "homepage": "https://github.com/affinio/affinio/tree/main/packages/tabs-laravel#readme",
   "bugs": {
     "url": "https://github.com/affinio/affinio/issues"
   },

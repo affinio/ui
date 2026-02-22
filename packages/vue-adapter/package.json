@@ -1,7 +1,7 @@
 {
   "name": "@affino/vue-adapter",
   "version": "0.1.0",
-  "description": "Unified Vue integration facade for Affino overlays and primitives",
+  "description": "Unified Vue adapter bootstrap for Affino UI primitives",
   "type": "module",
   "main": "dist/index.cjs",
   "module": "dist/index.js",
@@ -35,9 +35,10 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/affinio/affinio/tree/main/packages/vue-adapter"
+    "url": "git+https://github.com/affinio/affinio.git",
+    "directory": "packages/vue-adapter"
   },
-  "homepage": "https://affino.dev",
+  "homepage": "https://github.com/affinio/affinio/tree/main/packages/vue-adapter#readme",
   "bugs": {
     "url": "https://github.com/affinio/affinio/issues"
   },

@@ -3,7 +3,7 @@
   "version": "1.1.0",
   "author": "Anton Pavlov <a.pavlov@affino.dev>",
   "type": "module",
-  "description": "Vue 3 adapters for @affino/selection-core and @affino/listbox-core",
+  "description": "Vue adapter for @affino/selection-core",
   "files": [
     "dist"
   ],
@@ -35,9 +35,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/affinio/affinio/tree/main/packages/selection-vue"
+    "url": "git+https://github.com/affinio/affinio.git",
+    "directory": "packages/selection-vue"
   },
-  "homepage": "https://affino.dev",
+  "homepage": "https://github.com/affinio/affinio/tree/main/packages/selection-vue#readme",
   "license": "MIT",
   "keywords": [
     "vue",

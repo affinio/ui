@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "author": "Anton Pavlov <a.pavlov@affino.dev>",
   "type": "module",
-  "description": "Headless combobox state helpers composed with @affino/listbox-core",
+  "description": "Headless combobox core for Affino UI primitives",
   "files": [
     "dist"
   ],
@@ -31,9 +31,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/affinio/affinio/tree/main/packages/combobox-core"
+    "url": "git+https://github.com/affinio/affinio.git",
+    "directory": "packages/combobox-core"
   },
-  "homepage": "https://affino.dev",
+  "homepage": "https://github.com/affinio/affinio/tree/main/packages/combobox-core#readme",
   "license": "MIT",
   "keywords": [
     "combobox",

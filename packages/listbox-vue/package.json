@@ -3,7 +3,7 @@
   "version": "1.1.0",
   "author": "Anton Pavlov <a.pavlov@affino.dev>",
   "type": "module",
-  "description": "Vue 3 composables for @affino/listbox-core",
+  "description": "Vue adapter for @affino/listbox-core",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -34,9 +34,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/affinio/affinio/tree/main/packages/listbox-vue"
+    "url": "git+https://github.com/affinio/affinio.git",
+    "directory": "packages/listbox-vue"
   },
-  "homepage": "https://affino.dev",
+  "homepage": "https://github.com/affinio/affinio/tree/main/packages/listbox-vue#readme",
   "bugs": {
     "url": "https://github.com/affinio/affinio/issues"
   },

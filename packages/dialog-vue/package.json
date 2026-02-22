@@ -3,7 +3,7 @@
   "version": "1.2.0",
   "author": "Anton Pavlov <a.pavlov@affino.dev>",
   "type": "module",
-  "description": "Vue 3 composables for the @affino/dialog-core controller",
+  "description": "Vue adapter for @affino/dialog-core",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -38,9 +38,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/affinio/affinio/tree/main/packages/dialog-vue"
+    "url": "git+https://github.com/affinio/affinio.git",
+    "directory": "packages/dialog-vue"
   },
-  "homepage": "https://affino.dev",
+  "homepage": "https://github.com/affinio/affinio/tree/main/packages/dialog-vue#readme",
   "keywords": [
     "vue",
     "dialog",

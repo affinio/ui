@@ -1,7 +1,7 @@
 {
   "name": "@affino/listbox-laravel",
   "version": "0.1.0",
-  "description": "Livewire listbox helper wired to @affino/listbox-core",
+  "description": "Laravel / Livewire adapter for @affino/listbox-core",
   "type": "module",
   "main": "dist/index.cjs",
   "module": "dist/index.js",
@@ -33,9 +33,10 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/affinio/affinio/tree/main/packages/listbox-laravel"
+    "url": "git+https://github.com/affinio/affinio.git",
+    "directory": "packages/listbox-laravel"
   },
-  "homepage": "https://affino.dev",
+  "homepage": "https://github.com/affinio/affinio/tree/main/packages/listbox-laravel#readme",
   "bugs": {
     "url": "https://github.com/affinio/affinio/issues"
   },

@@ -3,7 +3,7 @@
   "version": "2.0.0",
   "author": "Anton Pavlov <a.pavlov@affino.dev>",
   "type": "module",
-  "description": "Headless React menu components powered by @affino/menu-core",
+  "description": "React adapter and headless UI components for @affino/menu-core",
   "files": [
     "dist"
   ],
@@ -44,9 +44,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/affinio/affinio/tree/main/packages/menu-react"
+    "url": "git+https://github.com/affinio/affinio.git",
+    "directory": "packages/menu-react"
   },
-  "homepage": "https://affino.dev",
+  "homepage": "https://github.com/affinio/affinio/tree/main/packages/menu-react#readme",
   "keywords": [
     "react",
     "menu",

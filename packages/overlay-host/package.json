@@ -3,7 +3,7 @@
   "version": "1.1.0",
   "author": "Anton Pavlov <a.pavlov@affino.dev>",
   "type": "module",
-  "description": "Utilities for managing overlay portal hosts, scroll locking, and shared keydown handlers",
+  "description": "Overlay host and portal utilities for Affino UI primitives",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -21,9 +21,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/affinio/affinio/tree/main/packages/overlay-host"
+    "url": "git+https://github.com/affinio/affinio.git",
+    "directory": "packages/overlay-host"
   },
-  "homepage": "https://affino.dev",
+  "homepage": "https://github.com/affinio/affinio/tree/main/packages/overlay-host#readme",
   "keywords": [
     "overlay",
     "portal",

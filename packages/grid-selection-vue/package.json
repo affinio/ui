@@ -3,7 +3,7 @@
   "version": "1.1.0",
   "author": "Anton Pavlov <a.pavlov@affino.dev>",
   "type": "module",
-  "description": "Vue 3 adapters for @affino/grid-selection-core (stores + composables)",
+  "description": "Vue adapter for @affino/grid-selection-core",
   "files": [
     "dist"
   ],
@@ -34,9 +34,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/affinio/affinio/tree/main/packages/grid-selection-vue"
+    "url": "git+https://github.com/affinio/affinio.git",
+    "directory": "packages/grid-selection-vue"
   },
-  "homepage": "https://affino.dev",
+  "homepage": "https://github.com/affinio/affinio/tree/main/packages/grid-selection-vue#readme",
   "license": "MIT",
   "keywords": [
     "vue",

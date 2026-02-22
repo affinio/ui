@@ -3,7 +3,7 @@
   "version": "2.1.1",
   "author": "Anton Pavlov <a.pavlov@affino.dev>",
   "type": "module",
-  "description": "Headless Vue 3 menu components with smart mouse prediction and full keyboard accessibility",
+  "description": "Vue adapter and headless UI components for @affino/menu-core",
   "files": [
     "dist"
   ],
@@ -18,7 +18,7 @@
     "vue": "^3.3.0"
   },
   "dependencies": {
-    "@affino/menu-core": "^1.1.0",
+    "@affino/menu-core": "workspace:^",
     "@affino/focus-utils": "workspace:^",
     "@affino/overlay-host": "workspace:^",
     "@affino/overlay-kernel": "workspace:^"
@@ -40,9 +40,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/affinio/affinio/tree/main/packages/menu-vue"
+    "url": "git+https://github.com/affinio/affinio.git",
+    "directory": "packages/menu-vue"
   },
-  "homepage": "https://affino.dev",
+  "homepage": "https://github.com/affinio/affinio/tree/main/packages/menu-vue#readme",
   "keywords": [
     "vue",
     "vue3",

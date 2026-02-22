@@ -1,7 +1,7 @@
 {
   "name": "@affino/popover-laravel",
   "version": "0.1.0",
-  "description": "Livewire popover helper wired to @affino/popover-core",
+  "description": "Laravel / Livewire adapter for @affino/popover-core",
   "type": "module",
   "main": "dist/index.cjs",
   "module": "dist/index.js",
@@ -32,9 +32,10 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/affinio/affinio/tree/main/packages/popover-laravel"
+    "url": "git+https://github.com/affinio/affinio.git",
+    "directory": "packages/popover-laravel"
   },
-  "homepage": "https://affino.dev",
+  "homepage": "https://github.com/affinio/affinio/tree/main/packages/popover-laravel#readme",
   "bugs": {
     "url": "https://github.com/affinio/affinio/issues"
   },

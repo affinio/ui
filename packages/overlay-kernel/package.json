@@ -3,7 +3,7 @@
   "version": "0.2.0",
   "author": "Anton Pavlov <a.pavlov@affino.dev>",
   "type": "module",
-  "description": "Shared overlay interaction kernel that coordinates stacking, focus, pointer, and scroll policies across Affino primitives.",
+  "description": "Overlay interaction kernel for Affino UI primitives",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -22,9 +22,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/affinio/affinio/tree/main/packages/overlay-kernel"
+    "url": "git+https://github.com/affinio/affinio.git",
+    "directory": "packages/overlay-kernel"
   },
-  "homepage": "https://affino.dev",
+  "homepage": "https://github.com/affinio/affinio/tree/main/packages/overlay-kernel#readme",
   "keywords": [
     "overlay",
     "focus-management",

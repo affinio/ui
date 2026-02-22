@@ -1,7 +1,7 @@
 {
   "name": "@affino/menu-laravel",
   "version": "0.1.0",
-  "description": "Livewire menu helper wired to @affino/menu-core",
+  "description": "Laravel / Livewire adapter for @affino/menu-core",
   "type": "module",
   "main": "dist/index.cjs",
   "module": "dist/index.js",
@@ -33,9 +33,10 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/affinio/affinio/tree/main/packages/menu-laravel"
+    "url": "git+https://github.com/affinio/affinio.git",
+    "directory": "packages/menu-laravel"
   },
-  "homepage": "https://affino.dev",
+  "homepage": "https://github.com/affinio/affinio/tree/main/packages/menu-laravel#readme",
   "bugs": {
     "url": "https://github.com/affinio/affinio/issues"
   },

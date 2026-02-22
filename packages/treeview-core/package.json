@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "author": "Anton Pavlov <a.pavlov@affino.dev>",
   "type": "module",
-  "description": "Headless treeview controller for Affino primitives",
+  "description": "Headless treeview core for Affino UI primitives",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -29,9 +29,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/affinio/affinio/tree/main/packages/treeview-core"
+    "url": "git+https://github.com/affinio/affinio.git",
+    "directory": "packages/treeview-core"
   },
-  "homepage": "https://affino.dev",
+  "homepage": "https://github.com/affinio/affinio/tree/main/packages/treeview-core#readme",
   "bugs": {
     "url": "https://github.com/affinio/affinio/issues"
   },

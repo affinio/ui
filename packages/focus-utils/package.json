@@ -3,7 +3,7 @@
   "version": "1.1.0",
   "author": "Anton Pavlov <a.pavlov@affino.dev>",
   "type": "module",
-  "description": "Cross-framework focus helpers for overlays and menus",
+  "description": "Focus management utilities for Affino UI primitives",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -21,9 +21,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/affinio/affinio/tree/main/packages/focus-utils"
+    "url": "git+https://github.com/affinio/affinio.git",
+    "directory": "packages/focus-utils"
   },
-  "homepage": "https://affino.dev",
+  "homepage": "https://github.com/affinio/affinio/tree/main/packages/focus-utils#readme",
   "keywords": [
     "focus",
     "accessibility",

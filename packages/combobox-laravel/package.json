@@ -1,7 +1,7 @@
 {
   "name": "@affino/combobox-laravel",
   "version": "0.1.0",
-  "description": "Livewire combobox helper composed from @affino/listbox-core",
+  "description": "Laravel / Livewire adapter for @affino/combobox-core",
   "type": "module",
   "main": "dist/index.cjs",
   "module": "dist/index.js",
@@ -34,9 +34,10 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/affinio/affinio/tree/main/packages/combobox-laravel"
+    "url": "git+https://github.com/affinio/affinio.git",
+    "directory": "packages/combobox-laravel"
   },
-  "homepage": "https://affino.dev",
+  "homepage": "https://github.com/affinio/affinio/tree/main/packages/combobox-laravel#readme",
   "bugs": {
     "url": "https://github.com/affinio/affinio/issues"
   },

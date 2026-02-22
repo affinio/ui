@@ -695,6 +695,9 @@ importers:
       '@affino/focus-utils':
         specifier: workspace:^
         version: link:../focus-utils
+      '@affino/menu-core':
+        specifier: workspace:^
+        version: link:../menu-core
       '@affino/overlay-host':
         specifier: workspace:^
         version: link:../overlay-host
@@ -705,9 +708,6 @@ importers:
         specifier: ^3.3.0
         version: 3.5.25(typescript@5.9.3)
     devDependencies:
-      '@affino/menu-core':
-        specifier: workspace:^
-        version: link:../menu-core
       '@testing-library/vue':
         specifier: ^8.1.0
         version: 8.1.0(@vue/compiler-sfc@3.5.25)(vue@3.5.25(typescript@5.9.3))

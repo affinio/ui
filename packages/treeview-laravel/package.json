@@ -1,7 +1,7 @@
 {
   "name": "@affino/treeview-laravel",
   "version": "0.1.0",
-  "description": "Livewire treeview helper wired to @affino/treeview-core",
+  "description": "Laravel / Livewire adapter for @affino/treeview-core",
   "type": "module",
   "main": "dist/index.cjs",
   "module": "dist/index.js",
@@ -30,9 +30,10 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/affinio/affinio/tree/main/packages/treeview-laravel"
+    "url": "git+https://github.com/affinio/affinio.git",
+    "directory": "packages/treeview-laravel"
   },
-  "homepage": "https://affino.dev",
+  "homepage": "https://github.com/affinio/affinio/tree/main/packages/treeview-laravel#readme",
   "bugs": {
     "url": "https://github.com/affinio/affinio/issues"
   },
