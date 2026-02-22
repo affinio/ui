@@ -4,6 +4,7 @@
   "compilerOptions": {
     "declaration": true,
     "emitDeclarationOnly": true,
+    "rootDir": "src",
     "outDir": "dist",
     "stripInternal": true
   },
