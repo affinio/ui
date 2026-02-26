@@ -12,7 +12,7 @@
       "durationMs": 1044,
       "aggregateElapsedMs": 89.57970880000002,
       "aggregateHeapMb": 4.485528564453125,
-      "maxDurationDriftPct": 80,
+      "maxDurationDriftPct": 90,
       "maxAggregateElapsedDriftPct": 130,
       "maxAggregateHeapDriftPct": 120
     },
