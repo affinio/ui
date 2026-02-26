@@ -241,28 +241,3 @@ jobs:
 
       - name: Build Storybook
         run: pnpm --filter @affino/visual-workbench build
-
-  changeset:
-    runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
-    timeout-minutes: 10
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10.30.3
-
-      - name: Use Node.js 20
-        uses: actions/setup-node@v6
-        with:
-          node-version: 20
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Changeset status
-        run: pnpm run changeset:status

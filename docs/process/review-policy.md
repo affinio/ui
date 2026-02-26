@@ -6,7 +6,7 @@ Date: `2026-02-07`
 
 - At least one owner approval (per `CODEOWNERS`) for touched critical paths.
 - CI green: `check`, `build`, docs build, perf-assert, e2e (when applicable).
-- Changeset present for public package changes (or explicit rationale in PR).
+- Release notes/changelog impact documented for public package changes (or explicit rationale in PR).
 
 ## Change classes
 
@@ -29,5 +29,5 @@ Date: `2026-02-07`
 
 - API compatibility and migration impact.
 - Tests cover changed behavior and edge cases.
-- Docs/changelog/changeset are aligned with behavior.
+- Docs/changelog/release notes are aligned with behavior.
 - No hidden coupling to framework/DOM in core packages.

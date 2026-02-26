@@ -16,4 +16,3 @@ This section defines engineering process contracts for the monorepo.
 
 - `/.github/CODEOWNERS`
 - `/.github/PULL_REQUEST_TEMPLATE.md`
-- `/.changeset/config.json`

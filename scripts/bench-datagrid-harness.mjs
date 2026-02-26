@@ -58,7 +58,7 @@ const tasks = [
   {
     id: "vue-adapters",
     command: "node",
-    args: ["./scripts/bench-vue-adapters.mjs"],
+    args: ["--expose-gc", "./scripts/bench-vue-adapters.mjs"],
     retries: 1,
     jsonPath: `${outputDir}/bench-vue-adapters.json`,
     logPath: `${outputDir}/bench-vue-adapters.log`,
@@ -255,6 +255,7 @@ const tasks = [
     budgets: {
       ci: {
         PERF_BUDGET_TOTAL_MS: "9000",
+        PERF_BUDGET_MAX_VARIANCE_PCT: "60",
         PERF_BUDGET_MAX_HEAP_DELTA_MB: "140",
         PERF_BUDGET_MAX_CLIENT_RANGE_P95_MS: "5",
         PERF_BUDGET_MAX_CLIENT_RANGE_P99_MS: "8",

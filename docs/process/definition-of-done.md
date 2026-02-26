@@ -20,7 +20,7 @@ A change is considered done only if all applicable criteria are met.
 ## Documentation
 
 - README/docs-site updated for API/behavior changes.
-- Changelog/changeset updated for releasable packages.
+- Changelog/release notes updated for releasable packages.
 - Migration notes added for breaking/behavioral shifts.
 
 ## Release and ops

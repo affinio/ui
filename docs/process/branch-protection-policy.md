@@ -22,7 +22,6 @@ CI checks:
 - `CI / perf-assert`
 - `CI / docs`
 - `CI / e2e`
-- `CI / changeset`
 
 Security checks:
 

@@ -15,16 +15,13 @@ Coupling rules:
 
 - Core breaking change requires coordinated Vue adapter release with explicit migration notes.
 - Vue adapter peer dependency range changes are always at least `MINOR`, and `MAJOR` if integration breaks.
-- No silent runtime contract changes without changeset and migration section.
+- No silent runtime contract changes without release notes and migration section.
 
-## 2) Changeset and Release Notes Format
+## 2) Release Notes Format
 
-Changeset files are mandatory for releasable package changes.
+Release notes are mandatory for releasable package changes and must be present in the release PR.
 
-Use template:
-- `/Users/anton/Projects/affinio/.changeset/datagrid-template.md`
-
-Required sections in each changeset body:
+Required sections:
 
 - `## Summary`
 - `## User impact`
@@ -61,7 +58,7 @@ Stable tag policy (`datagrid stable candidate`):
 Entry criteria:
 
 - Checklist complete through item `12` in:
-  `/Users/anton/Projects/affinio/docs/archive/datagrid/checklists/datagrid-engine-9.5-pipeline-checklist.md`
+  `docs/archive/datagrid/checklists/datagrid-engine-9.5-pipeline-checklist.md`
 - Quality gates green on `main`:
   - `pnpm run quality:gates:datagrid`
   - `pnpm run test:matrix:unit`
@@ -75,7 +72,7 @@ Freeze window:
 
 - Minimum `72h` stabilization window on `main`.
 - Only blocker fixes allowed during freeze.
-- Any freeze fix requires changeset and explicit risk note.
+- Any freeze fix requires explicit release note and risk note.
 
 Exit criteria (stable tag allowed):
 
@@ -86,7 +83,7 @@ Exit criteria (stable tag allowed):
 ## 5) Release Execution Checklist
 
 1. Confirm entry criteria and freeze status.
-2. Generate/apply changesets in release PR.
+2. Prepare release notes and version updates in release PR.
 3. Verify CI quality/perf gates on release commit.
 4. Publish packages.
 5. Post-release smoke test and rollback readiness check.

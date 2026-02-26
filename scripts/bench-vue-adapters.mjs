@@ -88,6 +88,15 @@ function shouldEnforceVariance(stat) {
   )
 }
 
+function sampleHeapUsed() {
+  const maybeGc = globalThis.gc
+  if (typeof maybeGc === "function") {
+    maybeGc()
+    maybeGc()
+  }
+  return process.memoryUsage().heapUsed
+}
+
 function quantile(values, q) {
   if (!values.length) return 0
   const sorted = [...values].sort((a, b) => a - b)
@@ -282,7 +291,7 @@ function runBench(seed) {
 
   ensureRootsInitialized()
 
-  const heapStart = process.memoryUsage().heapUsed
+  const heapStart = sampleHeapUsed()
   const t0 = performance.now()
   const rows = PACKAGES.map((pkg) => {
     const bootstrapMs = runBootstrapProxy(pkg)
@@ -300,7 +309,7 @@ function runBench(seed) {
     }
   })
   const totalElapsed = performance.now() - t0
-  const heapEnd = process.memoryUsage().heapUsed
+  const heapEnd = sampleHeapUsed()
   const heapDeltaMb = (heapEnd - heapStart) / (1024 * 1024)
 
   return { rows, totalElapsed, heapDeltaMb }
