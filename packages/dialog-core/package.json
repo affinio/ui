@@ -3,7 +3,7 @@
   "version": "1.2.0",
   "author": "Anton Pavlov <a.pavlov@affino.dev>",
   "type": "module",
-  "description": "Headless dialog core for Affino UI primitives",
+  "description": "Headless dialog/overlay engine with async guards, focus orchestration, and mobile keyboard resilience",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -26,10 +26,9 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/affinio/affinio.git",
-    "directory": "packages/dialog-core"
+    "url": "https://github.com/affinio/affinio/tree/main/packages/dialog-core"
   },
-  "homepage": "https://github.com/affinio/affinio/tree/main/packages/dialog-core#readme",
+  "homepage": "https://affino.dev",
   "keywords": [
     "dialog",
     "modal",
