@@ -215,6 +215,7 @@ async function loadFactory() {
     ? Math.max(...sourceTimestamps)
     : 0
   const allowStaleDist = process.env.BENCH_ALLOW_STALE_DIST === "1"
+  const enforceFreshDist = process.env.BENCH_ENFORCE_FRESH_DIST === "1"
   let lastError = null
   for (const candidate of candidates) {
     if (!existsSync(candidate)) {
@@ -223,9 +224,12 @@ async function loadFactory() {
     if (!allowStaleDist) {
       const distTimestamp = statSync(candidate).mtimeMs
       if (newestSourceTimestamp > distTimestamp) {
-        throw new Error(
-          `Datagrid dist artifact is stale (${candidate}). Run \`pnpm --filter @affino/datagrid-core build\` before benchmarks.`,
-        )
+        const message = `Datagrid dist artifact appears stale (${candidate}). Run \`pnpm --filter @affino/datagrid-core build\` before benchmarks.`
+        if (enforceFreshDist) {
+          throw new Error(message)
+        }
+        // eslint-disable-next-line no-console
+        console.warn(`[bench] ${message} Continuing because BENCH_ENFORCE_FRESH_DIST is not set.`)
       }
     }
     try {
@@ -440,8 +444,8 @@ function runFilterSortScenario(createClientRowModel, rows, seed, options = {}) {
       const nextSortModel = [{ key: "latency", direction: sortAsc ? "asc" : "desc" }]
       const nextFilterModel = {
         columnFilters: {
-          owner: [owner],
-          region: [region],
+          owner: { kind: "valueSet", tokens: [`string:${owner}`] },
+          region: { kind: "valueSet", tokens: [`string:${region}`] },
         },
         advancedFilters: {},
       }

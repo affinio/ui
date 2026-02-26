@@ -179,14 +179,26 @@ function createRows(count) {
   return rows
 }
 
+const FILTER_MODEL_CACHE = new Map()
+
 function createFilter(owner, region) {
-  return {
+  const ownerKey = String(owner)
+  const regionKey = String(region)
+  const cacheKey = `${ownerKey}|${regionKey}`
+  const cached = FILTER_MODEL_CACHE.get(cacheKey)
+  if (cached) {
+    return cached
+  }
+
+  const filterModel = {
     columnFilters: {
-      owner: [owner],
-      region: [region],
+      owner: { kind: "valueSet", tokens: [`string:${ownerKey}`] },
+      region: { kind: "valueSet", tokens: [`string:${regionKey}`] },
     },
     advancedFilters: {},
   }
+  FILTER_MODEL_CACHE.set(cacheKey, filterModel)
+  return filterModel
 }
 
 async function loadFactory() {

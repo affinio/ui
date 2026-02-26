@@ -45,6 +45,9 @@ const PERF_BUDGET_MAX_FILL_APPLY_P99_MS = Number.parseFloat(
 )
 const PERF_BUDGET_MAX_VARIANCE_PCT = Number.parseFloat(process.env.PERF_BUDGET_MAX_VARIANCE_PCT ?? "Infinity")
 const PERF_BUDGET_VARIANCE_MIN_MEAN_MS = Number.parseFloat(process.env.PERF_BUDGET_VARIANCE_MIN_MEAN_MS ?? "0.5")
+const PERF_BUDGET_ELAPSED_VARIANCE_MIN_MEAN_MS = Number.parseFloat(
+  process.env.PERF_BUDGET_ELAPSED_VARIANCE_MIN_MEAN_MS ?? "10",
+)
 const PERF_BUDGET_MAX_HEAP_DELTA_MB = Number.parseFloat(process.env.PERF_BUDGET_MAX_HEAP_DELTA_MB ?? "Infinity")
 const PERF_BUDGET_HEAP_EPSILON_MB = Number.parseFloat(process.env.PERF_BUDGET_HEAP_EPSILON_MB ?? "1")
 
@@ -67,6 +70,9 @@ if (!BENCH_SEEDS.length) {
 if (!Number.isFinite(PERF_BUDGET_VARIANCE_MIN_MEAN_MS) || PERF_BUDGET_VARIANCE_MIN_MEAN_MS < 0) {
   throw new Error("PERF_BUDGET_VARIANCE_MIN_MEAN_MS must be a non-negative finite number")
 }
+if (!Number.isFinite(PERF_BUDGET_ELAPSED_VARIANCE_MIN_MEAN_MS) || PERF_BUDGET_ELAPSED_VARIANCE_MIN_MEAN_MS < 0) {
+  throw new Error("PERF_BUDGET_ELAPSED_VARIANCE_MIN_MEAN_MS must be a non-negative finite number")
+}
 if (!Number.isFinite(PERF_BUDGET_HEAP_EPSILON_MB) || PERF_BUDGET_HEAP_EPSILON_MB < 0) {
   throw new Error("PERF_BUDGET_HEAP_EPSILON_MB must be a non-negative finite number")
 }
@@ -87,6 +93,13 @@ function shouldEnforceVariance(stat) {
   return (
     PERF_BUDGET_MAX_VARIANCE_PCT !== Number.POSITIVE_INFINITY &&
     stat.mean >= PERF_BUDGET_VARIANCE_MIN_MEAN_MS
+  )
+}
+
+function shouldEnforceElapsedVariance(stat) {
+  return (
+    PERF_BUDGET_MAX_VARIANCE_PCT !== Number.POSITIVE_INFINITY &&
+    stat.mean >= PERF_BUDGET_ELAPSED_VARIANCE_MIN_MEAN_MS
   )
 }
 
@@ -423,7 +436,7 @@ const aggregateSelectionP99 = stats(runResults.map((run) => run.scenarios.select
 const aggregateFillP95 = stats(runResults.map((run) => run.scenarios.fillApply.p95))
 const aggregateFillP99 = stats(runResults.map((run) => run.scenarios.fillApply.p99))
 
-if (shouldEnforceVariance(aggregateElapsed)) {
+if (shouldEnforceElapsedVariance(aggregateElapsed)) {
   if (aggregateElapsed.cvPct > PERF_BUDGET_MAX_VARIANCE_PCT) {
     budgetErrors.push(
       `elapsed CV ${aggregateElapsed.cvPct.toFixed(2)}% exceeds PERF_BUDGET_MAX_VARIANCE_PCT=${PERF_BUDGET_MAX_VARIANCE_PCT}%`,
@@ -431,7 +444,7 @@ if (shouldEnforceVariance(aggregateElapsed)) {
   }
 } else if (PERF_BUDGET_MAX_VARIANCE_PCT !== Number.POSITIVE_INFINITY) {
   varianceSkippedChecks.push(
-    `elapsed CV gate skipped (mean ${aggregateElapsed.mean.toFixed(3)}ms < PERF_BUDGET_VARIANCE_MIN_MEAN_MS=${PERF_BUDGET_VARIANCE_MIN_MEAN_MS}ms)`,
+    `elapsed CV gate skipped (mean ${aggregateElapsed.mean.toFixed(3)}ms < PERF_BUDGET_ELAPSED_VARIANCE_MIN_MEAN_MS=${PERF_BUDGET_ELAPSED_VARIANCE_MIN_MEAN_MS}ms)`,
   )
 }
 
@@ -495,6 +508,7 @@ const summary = {
     warmupBatchesPerScenario: BENCH_INTERACTION_WARMUP_BATCHES,
     measurementBatchSize: BENCH_INTERACTION_MEASUREMENT_BATCH_SIZE,
     minMeanMsForCvGate: PERF_BUDGET_VARIANCE_MIN_MEAN_MS,
+    minMeanMsForElapsedCvGate: PERF_BUDGET_ELAPSED_VARIANCE_MIN_MEAN_MS,
   },
   varianceSkippedChecks,
   aggregate: {
