@@ -156,6 +156,7 @@ Use these when changing datagrid core/adapters/runtime contracts.
 - `pnpm run bench:datagrid:rowmodels`
 - `pnpm run bench:datagrid:datasource-churn`
 - `pnpm run bench:datagrid:derived-cache`
+- `pnpm run bench:datagrid:pivot`
 - `pnpm run bench:datagrid:dependency-graph`
 - `pnpm run bench:datagrid:tree`
 - `pnpm run bench:datagrid:tree:ci-light`
@@ -172,6 +173,7 @@ Use these when changing datagrid core/adapters/runtime contracts.
 - `pnpm run bench:datagrid:rowmodels:assert`
 - `pnpm run bench:datagrid:datasource-churn:assert`
 - `pnpm run bench:datagrid:derived-cache:assert`
+- `pnpm run bench:datagrid:pivot:assert`
 - `pnpm run bench:datagrid:dependency-graph:assert`
 - `pnpm run bench:datagrid:tree:assert`
 - `pnpm run bench:datagrid:tree:matrix:assert:ci`
@@ -258,4 +260,3 @@ If you changed docs-site / docs packaging:
   - `/Users/anton/Projects/affinio/package.json`
   - `/Users/anton/Projects/affinio/.github/workflows/ci.yml`
   - this file
-

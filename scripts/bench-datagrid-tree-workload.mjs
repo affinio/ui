@@ -28,6 +28,7 @@ const TREE_WARMUP_FILTER_SORT_ITERATIONS = Number.parseInt(
   10,
 )
 const TREE_PROGRESS_EVERY = Number.parseInt(process.env.BENCH_TREE_PROGRESS_EVERY ?? "30", 10)
+const BENCH_TREE_HEAP_TRACE = process.env.BENCH_TREE_HEAP_TRACE === "1"
 
 const PERF_BUDGET_TOTAL_MS = Number.parseFloat(process.env.PERF_BUDGET_TOTAL_MS ?? "Infinity")
 const PERF_BUDGET_MAX_EXPAND_BURST_P95_MS = Number.parseFloat(
@@ -150,11 +151,26 @@ function stats(values) {
   }
 }
 
-function runOptionalGc() {
-  const gcRef = globalThis.gc
-  if (typeof gcRef === "function") {
-    gcRef()
+function sleepTick() {
+  return new Promise(resolveTick => {
+    setTimeout(resolveTick, 0)
+  })
+}
+
+async function sampleHeapUsed() {
+  const maybeGc = globalThis.gc
+  let minHeap = Number.POSITIVE_INFINITY
+  for (let iteration = 0; iteration < 3; iteration += 1) {
+    if (typeof maybeGc === "function") {
+      maybeGc()
+    }
+    await sleepTick()
+    const used = process.memoryUsage().heapUsed
+    if (used < minHeap) {
+      minHeap = used
+    }
   }
+  return Number.isFinite(minHeap) ? minHeap : process.memoryUsage().heapUsed
 }
 
 function createRng(seed) {
@@ -208,11 +224,23 @@ async function loadFactory() {
     resolve("packages/datagrid-core/src/models/clientRowModel.ts"),
     resolve("packages/datagrid-core/src/public.ts"),
   ]
+  const buildMarkerCandidates = [
+    resolve("packages/datagrid-core/tsconfig.public.tsbuildinfo"),
+    resolve("packages/datagrid-core/tsconfig.tsbuildinfo"),
+    resolve("packages/datagrid-core/dist/tsconfig.public.tsbuildinfo"),
+    resolve("packages/datagrid-core/dist/tsconfig.tsbuildinfo"),
+  ]
   const sourceTimestamps = sourceCandidates
     .filter(candidate => existsSync(candidate))
     .map(candidate => statSync(candidate).mtimeMs)
   const newestSourceTimestamp = sourceTimestamps.length > 0
     ? Math.max(...sourceTimestamps)
+    : 0
+  const buildMarkerTimestamps = buildMarkerCandidates
+    .filter(candidate => existsSync(candidate))
+    .map(candidate => statSync(candidate).mtimeMs)
+  const newestBuildMarkerTimestamp = buildMarkerTimestamps.length > 0
+    ? Math.max(...buildMarkerTimestamps)
     : 0
   const allowStaleDist = process.env.BENCH_ALLOW_STALE_DIST === "1"
   const enforceFreshDist = process.env.BENCH_ENFORCE_FRESH_DIST === "1"
@@ -223,7 +251,8 @@ async function loadFactory() {
     }
     if (!allowStaleDist) {
       const distTimestamp = statSync(candidate).mtimeMs
-      if (newestSourceTimestamp > distTimestamp) {
+      const freshnessTimestamp = Math.max(distTimestamp, newestBuildMarkerTimestamp)
+      if (newestSourceTimestamp > freshnessTimestamp) {
         const message = `Datagrid dist artifact appears stale (${candidate}). Run \`pnpm --filter @affino/datagrid-core build\` before benchmarks.`
         if (enforceFreshDist) {
           throw new Error(message)
@@ -522,8 +551,7 @@ for (const seed of BENCH_SEEDS) {
   }
 
   console.log(`[tree-workload] seed ${seed}: measure...`)
-  runOptionalGc()
-  const heapStart = process.memoryUsage().heapUsed
+  const heapStart = await sampleHeapUsed()
   const startedAt = performance.now()
   console.log(`[tree-workload] seed ${seed}: expand scenario...`)
   const expandBurst = runExpandBurstScenario(createClientRowModel, sharedRows, seed, {
@@ -531,7 +559,7 @@ for (const seed of BENCH_SEEDS) {
       console.log(`[tree-workload] seed ${seed}: expand ${done}/${total}`)
     },
   })
-  runOptionalGc()
+  const heapAfterExpand = await sampleHeapUsed()
   console.log(`[tree-workload] seed ${seed}: filter-sort scenario...`)
   const filterSortBurst = runFilterSortScenario(createClientRowModel, sharedRows, seed, {
     onProgress: (done, total) => {
@@ -539,12 +567,21 @@ for (const seed of BENCH_SEEDS) {
     },
   })
   const elapsed = performance.now() - startedAt
-  const heapDeltaMb = (process.memoryUsage().heapUsed - heapStart) / (1024 * 1024)
+  const heapEnd = await sampleHeapUsed()
+  const heapDeltaMb = (heapEnd - heapStart) / (1024 * 1024)
 
   runResults.push({
     seed,
     elapsedMs: elapsed,
     heapDeltaMb,
+    ...(BENCH_TREE_HEAP_TRACE
+      ? {
+        heapTrace: {
+          afterExpandMb: (heapAfterExpand - heapStart) / (1024 * 1024),
+          afterFilterSortMb: (heapEnd - heapStart) / (1024 * 1024),
+        },
+      }
+      : {}),
     scenarios: { expandBurst, filterSortBurst },
   })
 
@@ -569,6 +606,10 @@ for (const seed of BENCH_SEEDS) {
   ])
   console.log(`Total elapsed: ${elapsed.toFixed(2)}ms`)
   console.log(`Heap delta: ${heapDeltaMb.toFixed(2)}MB`)
+  if (BENCH_TREE_HEAP_TRACE) {
+    const afterExpandDeltaMb = (heapAfterExpand - heapStart) / (1024 * 1024)
+    console.log(`Heap trace: after-expand=${afterExpandDeltaMb.toFixed(2)}MB after-filter-sort=${heapDeltaMb.toFixed(2)}MB`)
+  }
 
   const seedErrors = []
 

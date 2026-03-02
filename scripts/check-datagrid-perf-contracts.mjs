@@ -170,6 +170,11 @@ registerFileCheck(
   "Tree workload benchmark for deep hierarchy expand/filter/sort pressure",
 )
 registerFileCheck(
+  "pivot-workload-benchmark-script",
+  "scripts/bench-datagrid-pivot-workload.mjs",
+  "Pivot workload benchmark for pivot-stage rebuild and patch/reapply pressure",
+)
+registerFileCheck(
   "tree-workload-matrix-benchmark-script",
   "scripts/bench-datagrid-tree-workload-matrix.mjs",
   "Tree workload benchmark matrix for row-scale envelopes (10k/25k/50k/100k)",
@@ -478,6 +483,8 @@ registerTokenCheck(
     "bench:datagrid:datasource-churn:assert",
     "bench:datagrid:derived-cache",
     "bench:datagrid:derived-cache:assert",
+    "bench:datagrid:pivot",
+    "bench:datagrid:pivot:assert",
     "bench:datagrid:dependency-graph",
     "bench:datagrid:dependency-graph:assert",
     "bench:datagrid:tree",
@@ -527,6 +534,7 @@ registerTokenCheck(
     "id: \"interaction-models\"",
     "id: \"datasource-churn\"",
     "id: \"derived-cache\"",
+    "id: \"pivot-workload\"",
     "id: \"tree-workload\"",
     "id: \"row-models\"",
     "mode === \"ci\" ? task.budgets.ci : task.budgets.local",
@@ -612,7 +620,7 @@ registerTokenCheck(
     registerConditionCheck(
       assertBudgetId,
       false,
-      "Rowmodel/interaction/datasource/derived/tree assert scripts keep finite variance + heap budgets",
+      "Rowmodel/interaction/datasource/derived/pivot/tree assert scripts keep finite variance + heap budgets",
       "package.json missing",
     )
   } else {
@@ -621,6 +629,7 @@ registerTokenCheck(
     const interactionsAssertScript = String(pkg?.scripts?.["bench:datagrid:interactions:assert"] ?? "")
     const datasourceAssertScript = String(pkg?.scripts?.["bench:datagrid:datasource-churn:assert"] ?? "")
     const derivedCacheAssertScript = String(pkg?.scripts?.["bench:datagrid:derived-cache:assert"] ?? "")
+    const pivotAssertScript = String(pkg?.scripts?.["bench:datagrid:pivot:assert"] ?? "")
     const treeAssertScript = String(pkg?.scripts?.["bench:datagrid:tree:assert"] ?? "")
     const rowmodelsVariance = extractEnvNumberFromScript(rowmodelsAssertScript, "PERF_BUDGET_MAX_VARIANCE_PCT")
     const rowmodelsHeap = extractEnvNumberFromScript(rowmodelsAssertScript, "PERF_BUDGET_MAX_HEAP_DELTA_MB")
@@ -630,6 +639,8 @@ registerTokenCheck(
     const datasourceHeap = extractEnvNumberFromScript(datasourceAssertScript, "PERF_BUDGET_MAX_HEAP_DELTA_MB")
     const derivedVariance = extractEnvNumberFromScript(derivedCacheAssertScript, "PERF_BUDGET_MAX_VARIANCE_PCT")
     const derivedHeap = extractEnvNumberFromScript(derivedCacheAssertScript, "PERF_BUDGET_MAX_HEAP_DELTA_MB")
+    const pivotVariance = extractEnvNumberFromScript(pivotAssertScript, "PERF_BUDGET_MAX_VARIANCE_PCT")
+    const pivotHeap = extractEnvNumberFromScript(pivotAssertScript, "PERF_BUDGET_MAX_HEAP_DELTA_MB")
     const treeVariance = extractEnvNumberFromScript(treeAssertScript, "PERF_BUDGET_MAX_VARIANCE_PCT")
     const treeHeap = extractEnvNumberFromScript(treeAssertScript, "PERF_BUDGET_MAX_HEAP_DELTA_MB")
     const ok =
@@ -641,15 +652,17 @@ registerTokenCheck(
       datasourceHeap != null &&
       derivedVariance != null &&
       derivedHeap != null &&
+      pivotVariance != null &&
+      pivotHeap != null &&
       treeVariance != null &&
       treeHeap != null
     registerConditionCheck(
       assertBudgetId,
       ok,
-      "Rowmodel/interaction/datasource/derived/tree assert scripts keep finite variance + heap budgets",
+      "Rowmodel/interaction/datasource/derived/pivot/tree assert scripts keep finite variance + heap budgets",
       ok
         ? "ok"
-        : `missing finite budget(s): rowmodels variance=${rowmodelsVariance}, rowmodels heap=${rowmodelsHeap}, interactions variance=${interactionsVariance}, interactions heap=${interactionsHeap}, datasource variance=${datasourceVariance}, datasource heap=${datasourceHeap}, derived variance=${derivedVariance}, derived heap=${derivedHeap}, tree variance=${treeVariance}, tree heap=${treeHeap}`,
+        : `missing finite budget(s): rowmodels variance=${rowmodelsVariance}, rowmodels heap=${rowmodelsHeap}, interactions variance=${interactionsVariance}, interactions heap=${interactionsHeap}, datasource variance=${datasourceVariance}, datasource heap=${datasourceHeap}, derived variance=${derivedVariance}, derived heap=${derivedHeap}, pivot variance=${pivotVariance}, pivot heap=${pivotHeap}, tree variance=${treeVariance}, tree heap=${treeHeap}`,
     )
   }
 }
