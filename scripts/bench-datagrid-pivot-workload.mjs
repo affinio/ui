@@ -54,6 +54,7 @@ const PERF_BUDGET_MAX_VARIANCE_PCT = Number.parseFloat(process.env.PERF_BUDGET_M
 const PERF_BUDGET_VARIANCE_MIN_MEAN_MS = Number.parseFloat(process.env.PERF_BUDGET_VARIANCE_MIN_MEAN_MS ?? "0.5")
 const PERF_BUDGET_MAX_HEAP_DELTA_MB = Number.parseFloat(process.env.PERF_BUDGET_MAX_HEAP_DELTA_MB ?? "Infinity")
 const PERF_BUDGET_HEAP_EPSILON_MB = Number.parseFloat(process.env.PERF_BUDGET_HEAP_EPSILON_MB ?? "1")
+const PERF_BUDGET_MAX_SEED_FAILURES = Number.parseInt(process.env.PERF_BUDGET_MAX_SEED_FAILURES ?? "0", 10)
 
 const BENCH_OUTPUT_JSON = process.env.BENCH_OUTPUT_JSON ? resolve(process.env.BENCH_OUTPUT_JSON) : null
 
@@ -96,6 +97,7 @@ if (!Number.isFinite(PERF_BUDGET_VARIANCE_MIN_MEAN_MS) || PERF_BUDGET_VARIANCE_M
 if (!Number.isFinite(PERF_BUDGET_HEAP_EPSILON_MB) || PERF_BUDGET_HEAP_EPSILON_MB < 0) {
   throw new Error("PERF_BUDGET_HEAP_EPSILON_MB must be a non-negative finite number")
 }
+assertNonNegativeInteger(PERF_BUDGET_MAX_SEED_FAILURES, "PERF_BUDGET_MAX_SEED_FAILURES")
 
 function assertPositiveInteger(value, label) {
   if (!Number.isFinite(value) || value <= 0 || !Number.isInteger(value)) {
@@ -455,6 +457,7 @@ const createClientRowModel = await loadFactory()
 const sharedRows = createRows(PIVOT_ROW_COUNT)
 const runResults = []
 const budgetErrors = []
+const seedBudgetFailures = []
 const varianceSkippedChecks = []
 
 console.log("\nAffino DataGrid Pivot Workload Benchmark")
@@ -522,50 +525,70 @@ for (const seed of BENCH_SEEDS) {
   console.log(`Total elapsed: ${elapsedMs.toFixed(2)}ms`)
   console.log(`Heap delta: ${heapDeltaMb.toFixed(2)}MB`)
 
+  const seedErrors = []
+  const addSeedError = (message) => {
+    seedErrors.push(message)
+  }
+
   if (elapsedMs > PERF_BUDGET_TOTAL_MS) {
-    budgetErrors.push(
+    addSeedError(
       `seed ${seed}: total elapsed ${elapsedMs.toFixed(2)}ms exceeds PERF_BUDGET_TOTAL_MS=${PERF_BUDGET_TOTAL_MS}ms`,
     )
   }
   if (heapDeltaMb > PERF_BUDGET_MAX_HEAP_DELTA_MB + PERF_BUDGET_HEAP_EPSILON_MB) {
-    budgetErrors.push(
+    addSeedError(
       `seed ${seed}: heap delta ${heapDeltaMb.toFixed(2)}MB exceeds PERF_BUDGET_MAX_HEAP_DELTA_MB=${PERF_BUDGET_MAX_HEAP_DELTA_MB}MB (epsilon ${PERF_BUDGET_HEAP_EPSILON_MB.toFixed(2)}MB)`,
     )
   }
   if (pivotRebuild.stat.p95 > PERF_BUDGET_MAX_PIVOT_REBUILD_P95_MS) {
-    budgetErrors.push(
+    addSeedError(
       `seed ${seed}: pivot-rebuild p95 ${pivotRebuild.stat.p95.toFixed(3)}ms exceeds PERF_BUDGET_MAX_PIVOT_REBUILD_P95_MS=${PERF_BUDGET_MAX_PIVOT_REBUILD_P95_MS}ms`,
     )
   }
   if (pivotRebuild.stat.p99 > PERF_BUDGET_MAX_PIVOT_REBUILD_P99_MS) {
-    budgetErrors.push(
+    addSeedError(
       `seed ${seed}: pivot-rebuild p99 ${pivotRebuild.stat.p99.toFixed(3)}ms exceeds PERF_BUDGET_MAX_PIVOT_REBUILD_P99_MS=${PERF_BUDGET_MAX_PIVOT_REBUILD_P99_MS}ms`,
     )
   }
   if (pivotPatchFrozen.stat.p95 > PERF_BUDGET_MAX_PIVOT_PATCH_FROZEN_P95_MS) {
-    budgetErrors.push(
+    addSeedError(
       `seed ${seed}: pivot-patch-frozen p95 ${pivotPatchFrozen.stat.p95.toFixed(3)}ms exceeds PERF_BUDGET_MAX_PIVOT_PATCH_FROZEN_P95_MS=${PERF_BUDGET_MAX_PIVOT_PATCH_FROZEN_P95_MS}ms`,
     )
   }
   if (pivotPatchFrozen.stat.p99 > PERF_BUDGET_MAX_PIVOT_PATCH_FROZEN_P99_MS) {
-    budgetErrors.push(
+    addSeedError(
       `seed ${seed}: pivot-patch-frozen p99 ${pivotPatchFrozen.stat.p99.toFixed(3)}ms exceeds PERF_BUDGET_MAX_PIVOT_PATCH_FROZEN_P99_MS=${PERF_BUDGET_MAX_PIVOT_PATCH_FROZEN_P99_MS}ms`,
     )
   }
   if (pivotPatchReapply.stat.p95 > PERF_BUDGET_MAX_PIVOT_PATCH_REAPPLY_P95_MS) {
-    budgetErrors.push(
+    addSeedError(
       `seed ${seed}: pivot-patch-reapply p95 ${pivotPatchReapply.stat.p95.toFixed(3)}ms exceeds PERF_BUDGET_MAX_PIVOT_PATCH_REAPPLY_P95_MS=${PERF_BUDGET_MAX_PIVOT_PATCH_REAPPLY_P95_MS}ms`,
     )
   }
   if (pivotPatchReapply.stat.p99 > PERF_BUDGET_MAX_PIVOT_PATCH_REAPPLY_P99_MS) {
-    budgetErrors.push(
+    addSeedError(
       `seed ${seed}: pivot-patch-reapply p99 ${pivotPatchReapply.stat.p99.toFixed(3)}ms exceeds PERF_BUDGET_MAX_PIVOT_PATCH_REAPPLY_P99_MS=${PERF_BUDGET_MAX_PIVOT_PATCH_REAPPLY_P99_MS}ms`,
     )
   }
   if (pivotRebuild.pivotColumns.mean < PERF_BUDGET_MIN_PIVOT_COLUMNS) {
-    budgetErrors.push(
+    addSeedError(
       `seed ${seed}: pivot column mean ${pivotRebuild.pivotColumns.mean.toFixed(2)} below PERF_BUDGET_MIN_PIVOT_COLUMNS=${PERF_BUDGET_MIN_PIVOT_COLUMNS}`,
     )
+  }
+
+  if (seedErrors.length > 0) {
+    seedBudgetFailures.push({ seed, errors: seedErrors })
+  }
+}
+
+if (seedBudgetFailures.length > PERF_BUDGET_MAX_SEED_FAILURES) {
+  budgetErrors.push(
+    `seed failures ${seedBudgetFailures.length} exceed PERF_BUDGET_MAX_SEED_FAILURES=${PERF_BUDGET_MAX_SEED_FAILURES}`,
+  )
+  for (const failure of seedBudgetFailures) {
+    for (const error of failure.errors) {
+      budgetErrors.push(error)
+    }
   }
 }
 
@@ -646,8 +669,10 @@ const summary = {
     varianceMinMeanMs: PERF_BUDGET_VARIANCE_MIN_MEAN_MS,
     maxHeapDeltaMb: PERF_BUDGET_MAX_HEAP_DELTA_MB,
     heapEpsilonMb: PERF_BUDGET_HEAP_EPSILON_MB,
+    maxSeedFailures: PERF_BUDGET_MAX_SEED_FAILURES,
   },
   varianceSkippedChecks,
+  seedBudgetFailures,
   aggregate: {
     elapsedMs: aggregateElapsed,
     heapDeltaMb: aggregateHeap,
