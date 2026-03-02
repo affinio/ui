@@ -133,6 +133,8 @@ Use these when changing datagrid core/adapters/runtime contracts.
 
 - `pnpm run quality:architecture:datagrid`
   - Architecture acceptance + docs framework-track policy checks
+- `pnpm run quality:api:datagrid:flat`
+  - Flat GridApi usage anti-regression gate (baseline lock for adapters/demos)
 - `pnpm run quality:perf:datagrid`
   - Datagrid perf contracts checker
 - `pnpm run quality:gates:datagrid`

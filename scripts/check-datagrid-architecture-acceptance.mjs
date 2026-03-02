@@ -337,6 +337,18 @@ registerTokenCheck(
   "Root scripts include strict contract gate",
 )
 registerTokenCheck(
+  "flat-api-gate-script",
+  "package.json",
+  ["quality:api:datagrid:flat", "check-datagrid-flat-api-usage.mjs"],
+  "Root scripts include datagrid flat API usage gate",
+)
+registerTokenCheck(
+  "flat-api-gate-wired-into-architecture",
+  "package.json",
+  ["quality:architecture:datagrid", "check-datagrid-flat-api-usage.mjs"],
+  "Datagrid architecture gate runs flat API usage checker",
+)
+registerTokenCheck(
   "parity-lock-script",
   "package.json",
   ["quality:lock:datagrid:parity", "bench:regression", "test:e2e:datagrid:parity"],
@@ -536,6 +548,16 @@ registerFileCheck(
   "public-protocol-codemod-script-file",
   "scripts/codemods/datagrid-public-protocol-codemod.mjs",
   "Public protocol migration codemod script",
+)
+registerFileCheck(
+  "flat-api-gate-script-file",
+  "scripts/check-datagrid-flat-api-usage.mjs",
+  "Datagrid flat API usage gate script",
+)
+registerFileCheck(
+  "flat-api-gate-baseline-file",
+  "docs/quality/datagrid-flat-api-baseline.json",
+  "Datagrid flat API usage baseline lock file",
 )
 
 // 5) Architecture checklist docs.

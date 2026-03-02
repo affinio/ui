@@ -1,0 +1,14 @@
+{
+  "generatedAt": "2026-03-02T00:00:00.000Z",
+  "baselinePath": "docs/quality/datagrid-flat-api-baseline.json",
+  "scopes": {
+    "adapters": {
+      "total": 0,
+      "byMethod": {}
+    },
+    "demos": {
+      "total": 0,
+      "byMethod": {}
+    }
+  }
+}
