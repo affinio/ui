@@ -160,6 +160,11 @@ Use these when changing datagrid core/adapters/runtime contracts.
 - `pnpm run bench:datagrid:derived-cache`
 - `pnpm run bench:datagrid:pivot`
 - `pnpm run bench:datagrid:dependency-graph`
+- `pnpm run bench:datagrid:hardcore`
+- `pnpm run bench:datagrid:soak`
+- `pnpm run bench:datagrid:group-depth`
+- `pnpm run bench:datagrid:pivot:server-interop`
+- `pnpm run bench:datagrid:browser-frames`
 - `pnpm run bench:datagrid:tree`
 - `pnpm run bench:datagrid:tree:ci-light`
 - `pnpm run bench:datagrid:tree:stress`
@@ -177,6 +182,11 @@ Use these when changing datagrid core/adapters/runtime contracts.
 - `pnpm run bench:datagrid:derived-cache:assert`
 - `pnpm run bench:datagrid:pivot:assert`
 - `pnpm run bench:datagrid:dependency-graph:assert`
+- `pnpm run bench:datagrid:hardcore:assert`
+- `pnpm run bench:datagrid:soak:assert`
+- `pnpm run bench:datagrid:group-depth:assert`
+- `pnpm run bench:datagrid:pivot:server-interop:assert`
+- `pnpm run bench:datagrid:browser-frames:assert`
 - `pnpm run bench:datagrid:tree:assert`
 - `pnpm run bench:datagrid:tree:matrix:assert:ci`
 - `pnpm run bench:datagrid:tree:matrix:assert:nightly`
@@ -188,6 +198,11 @@ Rule of thumb:
 
 - use non-assert variants while tuning
 - use assert variants before merging/perf lock updates
+- `bench:datagrid:hardcore*` is a deep stress suite (cold start, sort/filter pressure, patch storm, determinism) and is intentionally kept outside CI blocking gates unless explicitly enabled.
+- `bench:datagrid:soak*` targets long-session leak/churn behavior.
+- `bench:datagrid:group-depth*` targets deep group-by expand/collapse pressure.
+- `bench:datagrid:pivot:server-interop*` targets server-backed pivot pull + interop/export/drilldown path.
+- `bench:datagrid:browser-frames*` targets real browser frame pacing and dropped-frame behavior (requires running demo web server).
 
 ## 6. Policy / Metadata / Repo Hygiene
 
