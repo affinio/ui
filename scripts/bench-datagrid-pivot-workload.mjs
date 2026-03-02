@@ -20,6 +20,15 @@ const PIVOT_REBUILD_ITERATIONS = Number.parseInt(process.env.BENCH_PIVOT_REBUILD
 const PIVOT_PATCH_FROZEN_ITERATIONS = Number.parseInt(process.env.BENCH_PIVOT_PATCH_FROZEN_ITERATIONS ?? "150", 10)
 const PIVOT_PATCH_REAPPLY_ITERATIONS = Number.parseInt(process.env.BENCH_PIVOT_PATCH_REAPPLY_ITERATIONS ?? "90", 10)
 const PIVOT_PATCH_ROWS_PER_ITERATION = Number.parseInt(process.env.BENCH_PIVOT_PATCH_ROWS_PER_ITERATION ?? "6", 10)
+const PIVOT_COLUMN_CARDINALITY = Number.parseInt(process.env.BENCH_PIVOT_COLUMN_CARDINALITY ?? "8", 10)
+const BENCH_PIVOT_INCLUDE_TOTALS = process.env.BENCH_PIVOT_INCLUDE_TOTALS === "1"
+
+const BENCH_PIVOT_PRIMARY_ROWS = process.env.BENCH_PIVOT_PRIMARY_ROWS ?? "team"
+const BENCH_PIVOT_PRIMARY_COLUMNS = process.env.BENCH_PIVOT_PRIMARY_COLUMNS ?? "year"
+const BENCH_PIVOT_PRIMARY_VALUES = process.env.BENCH_PIVOT_PRIMARY_VALUES ?? "revenue:sum,orders:count"
+const BENCH_PIVOT_ALT_ROWS = process.env.BENCH_PIVOT_ALT_ROWS ?? "region"
+const BENCH_PIVOT_ALT_COLUMNS = process.env.BENCH_PIVOT_ALT_COLUMNS ?? "quarter"
+const BENCH_PIVOT_ALT_VALUES = process.env.BENCH_PIVOT_ALT_VALUES ?? "revenue:sum,latency:avg"
 
 const PERF_BUDGET_TOTAL_MS = Number.parseFloat(process.env.PERF_BUDGET_TOTAL_MS ?? "Infinity")
 const PERF_BUDGET_MAX_PIVOT_REBUILD_P95_MS = Number.parseFloat(
@@ -52,24 +61,21 @@ const TEAMS = ["NOC", "SRE", "Core", "Platform", "Payments", "Data", "Ops", "Fro
 const REGIONS = ["us-east", "us-west", "eu-central", "ap-south", "sa-east"]
 const YEARS = [2022, 2023, 2024, 2025, 2026]
 const QUARTERS = ["Q1", "Q2", "Q3", "Q4"]
+const BUCKET_A_VALUES = createLabeledDomain("bucket-a", PIVOT_COLUMN_CARDINALITY)
+const BUCKET_B_VALUES = createLabeledDomain("bucket-b", PIVOT_COLUMN_CARDINALITY)
 
-const PIVOT_SPEC_PRIMARY = {
-  rows: ["team"],
-  columns: ["year"],
-  values: [
-    { field: "revenue", agg: "sum" },
-    { field: "orders", agg: "count" },
-  ],
-}
-
-const PIVOT_SPEC_ALT = {
-  rows: ["region"],
-  columns: ["quarter"],
-  values: [
-    { field: "revenue", agg: "sum" },
-    { field: "latency", agg: "avg" },
-  ],
-}
+const PIVOT_SPEC_PRIMARY = buildPivotSpec({
+  rowsInput: BENCH_PIVOT_PRIMARY_ROWS,
+  columnsInput: BENCH_PIVOT_PRIMARY_COLUMNS,
+  valuesInput: BENCH_PIVOT_PRIMARY_VALUES,
+  includeTotals: BENCH_PIVOT_INCLUDE_TOTALS,
+})
+const PIVOT_SPEC_ALT = buildPivotSpec({
+  rowsInput: BENCH_PIVOT_ALT_ROWS,
+  columnsInput: BENCH_PIVOT_ALT_COLUMNS,
+  valuesInput: BENCH_PIVOT_ALT_VALUES,
+  includeTotals: BENCH_PIVOT_INCLUDE_TOTALS,
+})
 
 assertPositiveInteger(PIVOT_ROW_COUNT, "BENCH_PIVOT_ROW_COUNT")
 assertPositiveInteger(PIVOT_VIEWPORT_SIZE, "BENCH_PIVOT_VIEWPORT_SIZE")
@@ -77,6 +83,7 @@ assertPositiveInteger(PIVOT_REBUILD_ITERATIONS, "BENCH_PIVOT_REBUILD_ITERATIONS"
 assertPositiveInteger(PIVOT_PATCH_FROZEN_ITERATIONS, "BENCH_PIVOT_PATCH_FROZEN_ITERATIONS")
 assertPositiveInteger(PIVOT_PATCH_REAPPLY_ITERATIONS, "BENCH_PIVOT_PATCH_REAPPLY_ITERATIONS")
 assertPositiveInteger(PIVOT_PATCH_ROWS_PER_ITERATION, "BENCH_PIVOT_PATCH_ROWS_PER_ITERATION")
+assertPositiveInteger(PIVOT_COLUMN_CARDINALITY, "BENCH_PIVOT_COLUMN_CARDINALITY")
 assertPositiveInteger(BENCH_MEASUREMENT_BATCH_SIZE, "BENCH_PIVOT_MEASUREMENT_BATCH_SIZE")
 assertNonNegativeInteger(BENCH_WARMUP_BATCHES, "BENCH_PIVOT_WARMUP_BATCHES")
 assertNonNegativeInteger(BENCH_WARMUP_RUNS, "BENCH_WARMUP_RUNS")
@@ -99,6 +106,68 @@ function assertPositiveInteger(value, label) {
 function assertNonNegativeInteger(value, label) {
   if (!Number.isFinite(value) || value < 0 || !Number.isInteger(value)) {
     throw new Error(`${label} must be a non-negative integer`)
+  }
+}
+
+function createLabeledDomain(prefix, cardinality) {
+  return Array.from({ length: cardinality }, (_, index) => `${prefix}-${String(index + 1).padStart(2, "0")}`)
+}
+
+function parseFieldList(input) {
+  const unique = new Set()
+  for (const rawValue of String(input ?? "").split(",")) {
+    const field = rawValue.trim()
+    if (!field) {
+      continue
+    }
+    unique.add(field)
+  }
+  return Array.from(unique)
+}
+
+function parsePivotValues(input) {
+  const allowedAgg = new Set(["sum", "avg", "min", "max", "count", "countNonNull", "first", "last"])
+  const parsed = []
+  const seen = new Set()
+  for (const rawValue of String(input ?? "").split(",")) {
+    const token = rawValue.trim()
+    if (!token) {
+      continue
+    }
+    const [fieldRaw, aggRaw = "sum"] = token.split(":")
+    const field = String(fieldRaw ?? "").trim()
+    const agg = String(aggRaw ?? "").trim()
+    if (!field || !allowedAgg.has(agg)) {
+      continue
+    }
+    const dedupeKey = `${field}:${agg}`
+    if (seen.has(dedupeKey)) {
+      continue
+    }
+    seen.add(dedupeKey)
+    parsed.push({ field, agg })
+  }
+  return parsed
+}
+
+function buildPivotSpec({ rowsInput, columnsInput, valuesInput, includeTotals }) {
+  const rows = parseFieldList(rowsInput)
+  const columns = parseFieldList(columnsInput)
+  const values = parsePivotValues(valuesInput)
+  if (!rows.length) {
+    throw new Error("Pivot spec requires at least one row axis. Set BENCH_PIVOT_*_ROWS.")
+  }
+  if (!columns.length) {
+    throw new Error("Pivot spec requires at least one column axis. Set BENCH_PIVOT_*_COLUMNS.")
+  }
+  if (!values.length) {
+    throw new Error("Pivot spec requires at least one value metric. Set BENCH_PIVOT_*_VALUES.")
+  }
+  return {
+    rows,
+    columns,
+    values,
+    ...(includeTotals ? { rowSubtotals: true, grandTotal: true } : {}),
   }
 }
 
@@ -189,12 +258,16 @@ function createRows(count) {
     const region = REGIONS[index % REGIONS.length] ?? "us-east"
     const year = YEARS[index % YEARS.length] ?? 2024
     const quarter = QUARTERS[index % QUARTERS.length] ?? "Q1"
+    const bucketA = BUCKET_A_VALUES[index % BUCKET_A_VALUES.length] ?? "bucket-a-01"
+    const bucketB = BUCKET_B_VALUES[Math.floor(index / BUCKET_A_VALUES.length) % BUCKET_B_VALUES.length] ?? "bucket-b-01"
     rows[index] = {
       rowId: index,
       team,
       region,
       year,
       quarter,
+      bucketA,
+      bucketB,
       orders: (index % 11) + 1,
       revenue: (index * 37) % 5000 + (year - 2021) * 10,
       latency: (index * 17) % 900,
@@ -266,7 +339,8 @@ async function loadFactory() {
 function runPivotRebuildScenario(createClientRowModel, seed, rows) {
   const rng = createRng(seed)
   const model = createClientRowModel({ rows })
-  const maxStart = Math.max(0, PIVOT_ROW_COUNT - PIVOT_VIEWPORT_SIZE - 1)
+  const rowCount = rows.length
+  const maxStart = Math.max(0, rowCount - PIVOT_VIEWPORT_SIZE - 1)
   const durations = []
   const pivotColumnCounts = []
   let useAlt = false
@@ -311,7 +385,8 @@ function runPivotRebuildScenario(createClientRowModel, seed, rows) {
 function runPivotPatchScenario(createClientRowModel, seed, rows, options) {
   const rng = createRng(seed)
   const model = createClientRowModel({ rows })
-  const maxStart = Math.max(0, PIVOT_ROW_COUNT - PIVOT_VIEWPORT_SIZE - 1)
+  const rowCount = rows.length
+  const maxStart = Math.max(0, rowCount - PIVOT_VIEWPORT_SIZE - 1)
   const durations = []
   let checksum = 0
 
@@ -322,7 +397,7 @@ function runPivotPatchScenario(createClientRowModel, seed, rows, options) {
     const runOne = () => {
       const updates = []
       for (let index = 0; index < PIVOT_PATCH_ROWS_PER_ITERATION; index += 1) {
-        const rowId = randomInt(rng, 0, PIVOT_ROW_COUNT - 1)
+        const rowId = randomInt(rng, 0, rowCount - 1)
         const revenueDelta = randomInt(rng, 1, 9)
         updates.push({
           rowId,
@@ -384,8 +459,10 @@ const varianceSkippedChecks = []
 
 console.log("\nAffino DataGrid Pivot Workload Benchmark")
 console.log(
-  `seeds=${BENCH_SEEDS.join(",")} rows=${PIVOT_ROW_COUNT} viewport=${PIVOT_VIEWPORT_SIZE} rebuildIterations=${PIVOT_REBUILD_ITERATIONS} patchFrozenIterations=${PIVOT_PATCH_FROZEN_ITERATIONS} patchReapplyIterations=${PIVOT_PATCH_REAPPLY_ITERATIONS} warmupRuns=${BENCH_WARMUP_RUNS} batchSize=${BENCH_MEASUREMENT_BATCH_SIZE}`,
+  `seeds=${BENCH_SEEDS.join(",")} rows=${PIVOT_ROW_COUNT} viewport=${PIVOT_VIEWPORT_SIZE} rebuildIterations=${PIVOT_REBUILD_ITERATIONS} patchFrozenIterations=${PIVOT_PATCH_FROZEN_ITERATIONS} patchReapplyIterations=${PIVOT_PATCH_REAPPLY_ITERATIONS} warmupRuns=${BENCH_WARMUP_RUNS} batchSize=${BENCH_MEASUREMENT_BATCH_SIZE} columnCardinality=${PIVOT_COLUMN_CARDINALITY}`,
 )
+console.log(`pivotPrimary rows=[${PIVOT_SPEC_PRIMARY.rows.join(",")}] columns=[${PIVOT_SPEC_PRIMARY.columns.join(",")}] values=[${PIVOT_SPEC_PRIMARY.values.map(value => `${value.field}:${value.agg}`).join(",")}]`)
+console.log(`pivotAlt rows=[${PIVOT_SPEC_ALT.rows.join(",")}] columns=[${PIVOT_SPEC_ALT.columns.join(",")}] values=[${PIVOT_SPEC_ALT.values.map(value => `${value.field}:${value.agg}`).join(",")}]`)
 
 for (const seed of BENCH_SEEDS) {
   for (let warmup = 0; warmup < BENCH_WARMUP_RUNS; warmup += 1) {
@@ -542,7 +619,10 @@ const summary = {
   config: {
     seeds: BENCH_SEEDS,
     rowCount: PIVOT_ROW_COUNT,
+    columnCardinality: PIVOT_COLUMN_CARDINALITY,
     viewportSize: PIVOT_VIEWPORT_SIZE,
+    pivotPrimary: PIVOT_SPEC_PRIMARY,
+    pivotAlt: PIVOT_SPEC_ALT,
     warmupRuns: BENCH_WARMUP_RUNS,
     warmupBatchesPerScenario: BENCH_WARMUP_BATCHES,
     measurementBatchSize: BENCH_MEASUREMENT_BATCH_SIZE,
