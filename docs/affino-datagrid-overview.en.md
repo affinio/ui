@@ -5,6 +5,7 @@ Updated: 2026-03-03
 Canonical capability inventory:
 
 - docs/datagrid-feature-catalog.md
+- docs/datagrid-commercial-packaging-plan.md
 
 Affino DataGrid is a headless, deterministic data grid engine designed for enterprise-scale performance and predictable behavior under heavy scrolling, selection, and editing workloads. It keeps core logic framework-agnostic and exposes thin adapters for Vue (and other targets), backed by contract tests and performance gates.
 
@@ -35,8 +36,9 @@ Practical policy:
 
 Core Capabilities
 
-- Stable namespace-based `DataGridApi` facade (`rows/columns/view/state/events/meta/policy/compute/diagnostics/plugins`).
+- Stable namespace-based `DataGridApi` facade (`lifecycle/rows/data/columns/view/pivot/selection/transaction/state/events/meta/policy/compute/diagnostics/plugins`).
 - Unified state contract (`api.state.get/set`) with partial/strict restore controls.
+- Public backpressure control surface (`api.data.pause/resume/flush`) for supported server/data-source models.
 - Typed public event surface (`api.events.on`) with deterministic in-process ordering.
 - Row model with sorting, filtering, grouping, pagination, and viewport range control.
 - Column model with canonical definitions, visibility, ordering, sizing, and pinning.
@@ -132,3 +134,9 @@ Key References (repo docs)
 - docs/datagrid-performance-gates.md
 - docs/datagrid-perf-by-design-runtime.md
 - docs/archive/datagrid/pipelines/datagrid-wave2-enterprise-architecture-pipeline.md
+
+Commercial Packaging (SKU layer)
+
+- `@affino/datagrid`: community commercial facade with default community gating.
+- `@affino/datagrid-pro`: pro activation package (`enableProFeatures`) that unlocks pro-gated runtime features.
+- `Enterprise`: support/SLA/integration tier layered operationally on top of Pro package.

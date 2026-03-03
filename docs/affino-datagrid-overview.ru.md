@@ -5,6 +5,7 @@
 Канонический перечень возможностей:
 
 - docs/datagrid-feature-catalog.md
+- docs/datagrid-commercial-packaging-plan.md
 
 Affino DataGrid — это headless и детерминированный движок для таблиц уровня enterprise, рассчитанный на стабильное поведение при тяжёлых сценариях скролла, выделения и редактирования. Core остаётся независимым от фреймворка, а адаптеры (например, Vue) остаются тонкими, с контрактными тестами и performance gate проверками.
 
@@ -35,8 +36,9 @@ Affino DataGrid — это headless и детерминированный дви
 
 Ключевые возможности core
 
-- Стабильный namespace-based фасад `DataGridApi` (`rows/columns/view/state/events/meta/policy/compute/diagnostics/plugins`).
+- Стабильный namespace-based фасад `DataGridApi` (`lifecycle/rows/data/columns/view/pivot/selection/transaction/state/events/meta/policy/compute/diagnostics/plugins`).
 - Unified state contract (`api.state.get/set`) с partial/strict restore контролями.
+- Публичный backpressure control surface (`api.data.pause/resume/flush`) для поддерживаемых server/data-source моделей.
 - Typed public event surface (`api.events.on`) с детерминированным in-process порядком событий.
 - Row model с сортировкой, фильтрацией, группировкой, пагинацией и управлением viewport диапазоном.
 - Column model с каноническими определениями, видимостью, порядком, размерами и pinning.
@@ -132,3 +134,9 @@ Performance и quality gates
 - docs/datagrid-performance-gates.md
 - docs/datagrid-perf-by-design-runtime.md
 - docs/archive/datagrid/pipelines/datagrid-wave2-enterprise-architecture-pipeline.md
+
+Коммерческая упаковка (SKU-слой)
+
+- `@affino/datagrid`: community-коммерческий фасад с дефолтным community-gating.
+- `@affino/datagrid-pro`: пакет активации pro-возможностей (`enableProFeatures`), снимающий pro-gated ограничения рантайма.
+- `Enterprise`: операционный слой поддержки/SLA/интеграции поверх Pro-пакета.
