@@ -20,8 +20,6 @@ Date: `2026-02-07`
 - No publish from non-`main` branches.
 - No manual version edits without release rationale in PR/release notes.
 - Changelog entries must reflect user-facing change, not internal noise.
-- DataGrid packages follow the stricter readiness profile:
-  `docs/process/datagrid-release-readiness.md`
 
 ## Emergency hotfix release
 
