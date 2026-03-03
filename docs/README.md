@@ -10,6 +10,7 @@ Start with:
 - [DataGrid runtime diagram](./diagram.md)
 - [DataGrid projection flow](./projection-flow.md)
 - [DataGrid mutation flow](./mutation-flow.md)
+- [DataGrid worker compute pipeline](./datagrid-worker-compute-pipeline.md)
 - [Archive index](./archive/README.md)
 - [Architecture reference](./reference/architecture.md)
 - [Process and governance](./process/README.md)

@@ -116,6 +116,7 @@ This is the heavy datagrid gate and includes:
 ## 3. Datagrid-Specific Tests
 
 - `pnpm run test:datagrid:unit`
+  - Includes `@affino/datagrid-worker` parity/unit transport checks
 - `pnpm run test:datagrid:integration`
 - `pnpm run test:datagrid:contracts`
 - `pnpm run test:datagrid:sugar:contracts`
@@ -164,6 +165,9 @@ Use these when changing datagrid core/adapters/runtime contracts.
 - `pnpm run bench:datagrid:soak`
 - `pnpm run bench:datagrid:group-depth`
 - `pnpm run bench:datagrid:pivot:server-interop`
+- `pnpm run bench:datagrid:worker:protocol`
+- `pnpm run bench:datagrid:worker:frames`
+- `pnpm run bench:datagrid:worker:pressure`
 - `pnpm run bench:datagrid:browser-frames`
 - `pnpm run bench:datagrid:tree`
 - `pnpm run bench:datagrid:tree:ci-light`
@@ -186,6 +190,9 @@ Use these when changing datagrid core/adapters/runtime contracts.
 - `pnpm run bench:datagrid:soak:assert`
 - `pnpm run bench:datagrid:group-depth:assert`
 - `pnpm run bench:datagrid:pivot:server-interop:assert`
+- `pnpm run bench:datagrid:worker:protocol:assert`
+- `pnpm run bench:datagrid:worker:frames:assert`
+- `pnpm run bench:datagrid:worker:pressure:assert`
 - `pnpm run bench:datagrid:browser-frames:assert`
 - `pnpm run bench:datagrid:tree:assert`
 - `pnpm run bench:datagrid:tree:matrix:assert:ci`
@@ -202,6 +209,9 @@ Rule of thumb:
 - `bench:datagrid:soak*` targets long-session leak/churn behavior.
 - `bench:datagrid:group-depth*` targets deep group-by expand/collapse pressure.
 - `bench:datagrid:pivot:server-interop*` targets server-backed pivot pull + interop/export/drilldown path.
+- `bench:datagrid:worker:protocol*` targets worker row-model protocol correctness/race behavior (`loading`, stale update dropping, message churn, roundtrip).
+- `bench:datagrid:worker:frames*` targets browser scroll frame pacing on `/datagrid/worker` for `main-thread` vs `worker-owned` runtime mode.
+- `bench:datagrid:worker:pressure*` targets heavy workload frame behavior on `/datagrid/worker` (100k rows, multi-sort, grouping, aggregation, patch storm, formatter+clone pressure) to expose real worker benefit under main-thread contention.
 - `bench:datagrid:browser-frames*` targets real browser frame pacing and dropped-frame behavior (requires running demo web server).
 
 ## 6. Policy / Metadata / Repo Hygiene

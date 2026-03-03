@@ -370,6 +370,9 @@ importers:
       '@affino/datagrid-orchestration':
         specifier: workspace:*
         version: link:../datagrid-orchestration
+      '@affino/datagrid-worker':
+        specifier: workspace:*
+        version: link:../datagrid-worker
       pinia:
         specifier: ^2.1.0 || ^3.0.0
         version: 3.0.4(typescript@5.9.3)(vue@3.4.38(typescript@5.9.3))
@@ -380,6 +383,12 @@ importers:
       '@affino/datagrid-theme':
         specifier: workspace:^
         version: link:../datagrid-theme
+
+  packages/datagrid-worker:
+    dependencies:
+      '@affino/datagrid-core':
+        specifier: workspace:*
+        version: link:../datagrid-core
 
   packages/dialog-core:
     dependencies:
