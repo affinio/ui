@@ -330,6 +330,21 @@ importers:
         specifier: ^4.0.15
         version: 4.0.15(@types/node@25.3.1)(jiti@2.6.1)(jsdom@28.1.0)(lightningcss@1.31.1)(terser@5.46.0)
 
+  packages/datagrid:
+    dependencies:
+      '@affino/datagrid-core':
+        specifier: workspace:^
+        version: link:../datagrid-core
+      '@affino/datagrid-vue':
+        specifier: workspace:^
+        version: link:../datagrid-vue
+      pinia:
+        specifier: ^2.1.0 || ^3.0.0
+        version: 3.0.4(typescript@5.9.3)(vue@3.4.38(typescript@5.9.3))
+      vue:
+        specifier: 3.4.38
+        version: 3.4.38(typescript@5.9.3)
+
   packages/datagrid-core:
     dependencies:
       '@affino/datagrid-plugins':
@@ -359,6 +374,12 @@ importers:
         version: link:../datagrid-core
 
   packages/datagrid-plugins: {}
+
+  packages/datagrid-pro:
+    dependencies:
+      '@affino/datagrid':
+        specifier: workspace:^
+        version: link:../datagrid
 
   packages/datagrid-theme: {}
 

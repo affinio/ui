@@ -80,10 +80,15 @@ Affino DataGrid — это headless и детерминированный дви
 Stable entrypoint: @affino/datagrid-core
 
 - createDataGridCore, createDataGridApi
-- createClientRowModel, createServerBackedRowModel
+- createClientRowModel
 - createDataGridColumnModel, createDataGridEditModel
 - selection summary helpers и канонические типы
 - semver protocol helpers и public protocol metadata
+
+Pro stable entrypoint: @affino/datagrid-core/pro
+
+- createServerBackedRowModel, createDataSourceBackedRowModel, createServerRowModel
+- createDataGridServerPivotRowId и server/data-source контракты
 
 Advanced entrypoint: @affino/datagrid-core/advanced
 
@@ -91,7 +96,6 @@ Advanced entrypoint: @affino/datagrid-core/advanced
 - createDataGridAdapterRuntime
 - createDataGridTransactionService
 - createDataGridViewportController
-- createDataSourceBackedRowModel
 - createDataGridA11yStateMachine
 
 Internal entrypoint: @affino/datagrid-core/internal
