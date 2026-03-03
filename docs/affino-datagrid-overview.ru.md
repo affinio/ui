@@ -1,6 +1,10 @@
 # Обзор Affino DataGrid
 
-Актуально: 2026-02-10
+Актуально: 2026-03-03
+
+Канонический перечень возможностей:
+
+- docs/datagrid-feature-catalog.md
 
 Affino DataGrid — это headless и детерминированный движок для таблиц уровня enterprise, рассчитанный на стабильное поведение при тяжёлых сценариях скролла, выделения и редактирования. Core остаётся независимым от фреймворка, а адаптеры (например, Vue) остаются тонкими, с контрактными тестами и performance gate проверками.
 
@@ -17,8 +21,23 @@ Affino DataGrid — это headless и детерминированный дви
 - @affino/datagrid-vue — тонкий Vue-адаптер, который мапит host события и рендерит состояние без пере-владения логикой.
 - @affino/datagrid-orchestration — фреймворк-агностичный слой orchestration хелперов, общий для Vue, Laravel и React.
 
+Гайд по выбору режима выполнения
+
+- main-thread: для небольших/средних таблиц с невысоким mutation pressure и минимальной операционной сложностью.
+- worker-owned: для интерактивно-нагруженных сценариев (частые patch/edit + sort/group/filter), где bottleneck — main thread responsiveness.
+- server-side row model: для очень больших/удаленных датасетов, где фильтрация/группировка/pivot/query shape должны принадлежать backend.
+
+Практическая политика:
+
+- Стартовать с main-thread.
+- Переходить на worker-owned, когда синхронное интерактивное давление вызывает UI-столлы.
+- Переходить на server-side, когда доминирует backend-owned обработка данных.
+
 Ключевые возможности core
 
+- Стабильный namespace-based фасад `DataGridApi` (`rows/columns/view/state/events/meta/policy/compute/diagnostics/plugins`).
+- Unified state contract (`api.state.get/set`) с partial/strict restore контролями.
+- Typed public event surface (`api.events.on`) с детерминированным in-process порядком событий.
 - Row model с сортировкой, фильтрацией, группировкой, пагинацией и управлением viewport диапазоном.
 - Column model с каноническими определениями, видимостью, порядком, размерами и pinning.
 - Headless edit model с детерминированными снапшотами и ревизиями.
@@ -28,6 +47,31 @@ Affino DataGrid — это headless и детерминированный дви
 - Transaction service с rollback, batching и undo/redo (advanced API).
 - Accessibility state machine для ARIA и клавиатурного поведения (advanced API).
 - Модель capability для плагинов с fail-fast доступом.
+
+Функциональная поверхность (что можно построить)
+
+- Spreadsheet-подобные сценарии: range selection, fill handle, range move, clipboard copy/paste/cut.
+- Editing lifecycle: patch rows, freeze/reapply поведение, детерминированные revision snapshots.
+- Pivot-сценарии: динамические pivot columns, subtotal/grand total, export/import layout, drilldown.
+- Group/tree-сценарии: детерминированная group projection, expand/collapse, aggregate pipeline.
+- Viewport/virtualization: предсказуемая синхронизация visible range и контракты производительного рендера.
+- Runtime diagnostics: compute/transport диагностика, quality gates, benchmark baselines.
+- Compute/policy control: переключение compute mode и projection policy (`mutable/immutable/excel-like`).
+- Extensibility surface: стабильная регистрация плагинов (`api.plugins`) + advanced runtime hooks.
+
+Срез производительности (простым языком)
+
+По последней worker pressure matrix (scaled patch profile):
+
+- 20k строк: worker-owned примерно в 5.4x быстрее main-thread по end-to-end сценарию.
+- 100k строк: worker-owned примерно в 1.6x быстрее.
+- 200k строк (более тяжелый patch size): worker-owned примерно в 1.34x быстрее.
+
+Как интерпретировать:
+
+- Worker-owned обычно оптимизирует отзывчивость UI.
+- Main-thread остаётся валидным для простых/меньших таблиц.
+- Server-side — следующий шаг, когда масштаб и shape данных принадлежат backend.
 
 Публичные уровни API
 
@@ -76,6 +120,9 @@ Performance и quality gates
 
 - docs/datagrid-architecture.md
 - docs/datagrid-grid-api.md
+- docs/datagrid-core-factories-reference.md
+- docs/datagrid-core-advanced-reference.md
+- docs/datagrid-state-events-compute-diagnostics.md
 - docs/datagrid-gridcore-service-registry.md
 - docs/datagrid-model-contracts.md
 - docs/datagrid-tree-data.md
