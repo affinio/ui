@@ -1,6 +1,6 @@
 {
   "name": "@affino/treeview-core",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "author": "Anton Pavlov <a.pavlov@affino.dev>",
   "type": "module",
   "description": "Headless treeview core for Affino UI primitives",
@@ -19,9 +19,6 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run"
-  },
-  "dependencies": {
-    "@affino/projection-engine": "workspace:*"
   },
   "license": "MIT",
   "devDependencies": {
@@ -43,5 +40,8 @@
     "treeview",
     "accessibility"
   ],
-  "module": "dist/index.js"
+  "module": "dist/index.js",
+  "dependencies": {
+    "@affino/projection-engine": "^0.2.2"
+  }
 }

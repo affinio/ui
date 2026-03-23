@@ -1,6 +1,6 @@
 {
   "name": "@affino/selection-core",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "author": "Anton Pavlov <a.pavlov@affino.dev>",
   "type": "module",
   "description": "Headless selection core for Affino UI primitives",
@@ -37,9 +37,6 @@
   "devDependencies": {
     "@vitest/coverage-v8": "^4.0.15",
     "vitest": "^4.0.15"
-  },
-  "dependencies": {
-    "@affino/grid-selection-core": "workspace:*"
   },
   "bugs": {
     "url": "https://github.com/affinio/affinio/issues"

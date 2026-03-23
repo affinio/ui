@@ -41,9 +41,6 @@ Notes for Consumers:
 
 ### Patch Changes
 
-- Updated dependencies
-  - @affino/grid-selection-core@1.1.0
-
 ## 1.0.0
 
 ### Minor Changes
@@ -51,6 +48,3 @@ Notes for Consumers:
 - 46f27ff: first changeset
 
 ### Patch Changes
-
-- Updated dependencies [46f27ff]
-  - @affino/grid-selection-core@1.0.0

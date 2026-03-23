@@ -1,0 +1,106 @@
+# -----------------------
+# Node / Workspace
+# -----------------------
+node_modules/
+.pnpm-store/
+.pnp.cjs
+.pnp.loader.mjs
+.pnp.loader.js
+
+# pnpm virtual store
+**/node_modules/.pnpm/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+*.log
+
+# Output folders
+dist/
+build/
+temp/
+tmp/
+
+# -----------------------
+# Editor files
+# -----------------------
+.vscode/
+.idea/
+*.iml
+
+# VSCode devcontainers
+.devcontainer/.env
+.devcontainer/.cache/
+.devcontainer/docker-compose.override.yml
+
+# -----------------------
+# OS files
+# -----------------------
+.DS_Store
+Thumbs.db
+
+# -----------------------
+# TypeScript / tooling
+# -----------------------
+*.tsbuildinfo
+tsconfig.tsbuildinfo
+
+# -----------------------
+# Test coverage
+# -----------------------
+coverage/
+*.lcov
+
+# -----------------------
+# Local env files
+# -----------------------
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# -----------------------
+# Packages
+# -----------------------
+# Ignore dist inside packages
+packages/*/dist/
+packages/*/*.tsbuildinfo
+
+# Guardrails: accidental TypeScript emit into package source trees
+packages/*/src/**/*.js
+packages/*/src/**/*.js.map
+packages/*/src/**/*.d.ts
+packages/*/src/**/*.d.ts.map
+!packages/datagrid-vue/src/shims-vue.d.ts
+
+# -----------------------
+# Optional: ignores for build tools
+# -----------------------
+.eslintcache
+.stylelintcache
+.cache/
+vite.config.ts.timestamp*
+.refs/
+
+# -----------------------
+# Vue specific
+# -----------------------
+*.vue.ts   # Volar-generated type declarations
+.vitepress/
+!docs-site/.vitepress/
+docs-site/.vitepress/theme/
+docs-site/.vitepress/cache/
+docs-site/.vitepress/dist/
+docs-site/.vitepress/.DS_Store
+
+test-results/
+playwright-report/
+storybook-static/
+/.storybook
+.tmp
+artifacts/
+sbom.cdx.json

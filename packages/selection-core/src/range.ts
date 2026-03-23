@@ -4,7 +4,6 @@ import type {
   GridSelectionPointLike,
   GridSelectionRange,
   GridSelectionRangeInput,
-  SelectionArea,
 } from "./types"
 import { clampIndex } from "./utils"
 

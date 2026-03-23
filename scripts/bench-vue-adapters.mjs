@@ -41,7 +41,6 @@ const PACKAGES = [
   { name: "popover-vue", rootAttr: "data-affino-popover-root", kind: "surface" },
   { name: "tooltip-vue", rootAttr: "data-affino-tooltip-root", kind: "surface" },
   { name: "selection-vue", rootAttr: "data-affino-selection-root", kind: "selection" },
-  { name: "grid-selection-vue", rootAttr: "data-affino-grid-selection-root", kind: "selection" },
   { name: "tabs-vue", rootAttr: "data-affino-tabs-root", kind: "tabs" },
   { name: "treeview-vue", rootAttr: "data-affino-treeview-root", kind: "treeview" },
   { name: "disclosure-vue", rootAttr: "data-affino-disclosure-root", kind: "disclosure" },

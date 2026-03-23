@@ -1,19 +1,18 @@
 # @affino/selection-core
 
-Headless linear selection primitives (1D ranges) that power select, listbox, command menu, and tree adapters.
+Headless selection primitives for Affino UI: linear selection (1D ranges) and grid selection (2D cells/areas).
 
-> Looking for the grid engine? Use [`@affino/grid-selection-core`](../grid-selection-core/README.md). This package now exports that API for backward compatibility while focusing on the new `linear` module.
->
-> Need Vue bindings or a listbox state machine? Use [`@affino/selection-vue`](../selection-vue/README.md) on top of
-> [`@affino/listbox-core`](../listbox-core/README.md).
+Need Vue bindings or a listbox state machine? Use [`@affino/selection-vue`](../selection-vue/README.md) on top of
+[`@affino/listbox-core`](../listbox-core/README.md).
 
 ## Features
 
 - Normalized 1D ranges (`start`, `end`) with anchor/focus semantics
+- Grid/cell selection snapshots with range + area normalization
 - Immutable merge/toggle/extend helpers
 - Deterministic `resolveLinearSelectionUpdate()` snapshots for stores/renderers
+- Deterministic `resolveSelectionUpdate()` snapshots for grid renderers/controllers
 - Zero DOM dependencies so adapters stay thin
-- Re-exports of `@affino/grid-selection-core` while consumers migrate
 
 ## Non-goals
 
@@ -44,32 +43,21 @@ state = toggleLinearIndex({ state, index: 4 })
 
 ## Package boundaries
 
-- `@affino/selection-core`: 1D linear selection only.
-- `@affino/grid-selection-core`: 2D row/column selection (tables, spreadsheets, tree grids).
-- `@affino/selection-core` re-exports `@affino/grid-selection-core` for compatibility during migration.
+- `@affino/selection-core`: canonical package for 1D linear selection and 2D grid selection.
+- `@affino/selection-vue`: Vue bindings and stores on top of the headless primitives.
 
 ## Migration guide
 
-### Path A: staying on compatibility imports (zero-risk)
+### Preferred imports
 
-If you currently import grid helpers from `@affino/selection-core`, code keeps working.
+Import both linear and grid helpers from `@affino/selection-core`.
 
 ```ts
-// still supported
 import { selectSingleCell } from "@affino/selection-core"
-```
-
-### Path B: recommended target (explicit package ownership)
-
-Move grid imports to `@affino/grid-selection-core` and keep linear imports in `@affino/selection-core`.
-
-```ts
-// recommended split
-import { selectSingleCell } from "@affino/grid-selection-core"
 import { selectLinearIndex } from "@affino/selection-core"
 ```
 
-### Path C: replace ad-hoc range mutation with intent operations
+### Replace ad-hoc range mutation with intent operations
 
 Prefer operation helpers over manual `ranges` editing:
 
@@ -87,4 +75,4 @@ Use `resolveLinearSelectionUpdate` only when hydrating external snapshots.
 - `resolveLinearSelectionUpdate` throws if `activeRangeIndex` is out of bounds.
 - Use one canonical source of truth for selection state in the adapter.
 
-See `/demo-vue` for integration patterns and use `@affino/grid-selection-core` directly for grid/table flows.
+See `/demo-vue` for integration patterns.

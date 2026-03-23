@@ -1,0 +1,21 @@
+{
+  "name": "affinio-ui",
+  "dockerComposeFile": [
+    "../docker-compose.yml"
+  ],
+  "service": "dev",
+  "workspaceFolder": "/workspace",
+  "postCreateCommand": "corepack enable && pnpm install",
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-azuretools.vscode-docker",
+        "Vue.volar",
+        "esbenp.prettier-vscode"
+      ]
+    }
+  },
+
+  "shutdownAction": "stopCompose"
+}

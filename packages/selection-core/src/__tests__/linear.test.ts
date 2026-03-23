@@ -176,8 +176,8 @@ describe("linear selection operations", () => {
   })
 })
 
-describe("grid compatibility re-exports", () => {
-  it("exposes grid-selection-core operations through selection-core", () => {
+describe("grid selection operations", () => {
+  it("exposes native grid operations through selection-core", () => {
     const context = {
       grid: { rowCount: 3, colCount: 3 },
     }
