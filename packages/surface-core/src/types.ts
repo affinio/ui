@@ -41,6 +41,7 @@ export interface PointerMeta {
 export interface PointerEventLike {
   clientX?: number
   clientY?: number
+  pointerType?: string
   meta?: PointerMeta
   preventDefault?: () => void
 }

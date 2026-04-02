@@ -106,6 +106,29 @@ describe("SubmenuCore", () => {
     expect(parent.getSnapshot().open).toBe(false)
   })
 
+  it("ignores touch hover transitions on submenu triggers", () => {
+    const { parent, submenu } = setupMenus()
+    parent.open("programmatic")
+    parent.highlight("parent-item")
+    const touchEvent = { pointerType: "touch", clientX: 10, clientY: 10 } as Parameters<
+      NonNullable<ReturnType<typeof submenu.getTriggerProps>["onPointerEnter"]>
+    >[0]
+
+    const trigger = submenu.getTriggerProps()
+    trigger.onPointerEnter?.(touchEvent)
+    vi.runAllTimers()
+
+    expect(submenu.getSnapshot().open).toBe(false)
+
+    trigger.onClick?.({ preventDefault: vi.fn() })
+    expect(submenu.getSnapshot().open).toBe(true)
+
+    trigger.onPointerLeave?.(touchEvent)
+    vi.runAllTimers()
+
+    expect(submenu.getSnapshot().open).toBe(true)
+  })
+
   it("responds to kernel owner-close cascades when the parent closes", () => {
     const manager = createOverlayManager()
     const parent = new MenuCore({ id: "parent", overlayManager: manager })

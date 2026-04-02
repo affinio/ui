@@ -3,7 +3,7 @@ import { dirname, join, parse } from "node:path"
 import { fileURLToPath, URL } from "node:url"
 
 const WORKSPACE_ALIAS_TARGETS: Record<string, string> = {
-  "@": "demo-vue/src",
+  "@": "packages/demo-vue/src",
   "@affino/dialog-core": "packages/dialog-core/src/index.ts",
   "@affino/dialog-vue": "packages/dialog-vue/src/index.ts",
   "@affino/datagrid-theme": "packages/datagrid-theme/src/index.ts",
@@ -20,6 +20,7 @@ const WORKSPACE_ALIAS_TARGETS: Record<string, string> = {
   "@affino/datagrid-vue": "packages/datagrid-vue/src",
   "@affino/datagrid-laravel/pro": "packages/datagrid-laravel/resources/js/pro.ts",
   "@affino/combobox-core": "packages/combobox-core/src/index.ts",
+  "@affino/combobox-vue": "packages/combobox-vue/src/index.ts",
   "@affino/listbox-core": "packages/listbox-core/src/index.ts",
   "@affino/listbox-vue": "packages/listbox-vue/src/index.ts",
   "@affino/menu-core": "packages/menu-core/src/index.ts",

@@ -184,4 +184,40 @@ describe("UiMenu", () => {
       expect(screen.getByText("Gamma Child")).toBeTruthy()
     })
   })
+
+  it("keeps second-level submenu open on touch interactions", async () => {
+    renderMenu(`
+      <UiMenu :options="{ openDelay: 0, closeDelay: 0 }">
+        <UiMenuTrigger>Root Touch</UiMenuTrigger>
+        <UiMenuContent>
+          <UiSubMenu :options="{ openDelay: 0, closeDelay: 0 }">
+            <UiSubMenuTrigger>Level One</UiSubMenuTrigger>
+            <UiSubMenuContent>
+              <UiSubMenu :options="{ openDelay: 0, closeDelay: 0 }">
+                <UiSubMenuTrigger>Level Two</UiSubMenuTrigger>
+                <UiSubMenuContent>
+                  <UiMenuItem id="deep-child">Deep Child</UiMenuItem>
+                </UiSubMenuContent>
+              </UiSubMenu>
+            </UiSubMenuContent>
+          </UiSubMenu>
+        </UiMenuContent>
+      </UiMenu>
+    `)
+
+    await fireEvent.click(screen.getByRole("button", { name: /root touch/i }))
+
+    const firstLevelTrigger = await screen.findByRole("menuitem", { name: /level one/i })
+    await fireEvent.click(firstLevelTrigger)
+
+    const secondLevelTrigger = await screen.findByRole("menuitem", { name: /level two/i })
+    await fireEvent.pointerEnter(secondLevelTrigger, { pointerType: "touch", clientX: 24, clientY: 24 })
+    await fireEvent.pointerLeave(secondLevelTrigger, { pointerType: "touch", clientX: 24, clientY: 24 })
+    await fireEvent.click(secondLevelTrigger)
+
+    await waitFor(() => {
+      expect(screen.getAllByRole("menu")).toHaveLength(3)
+      expect(screen.getByText("Deep Child")).toBeTruthy()
+    })
+  })
 })

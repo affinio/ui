@@ -113,12 +113,18 @@ export class SubmenuCore extends MenuCore {
       "aria-expanded": this.getSnapshot().open,
       "aria-controls": `${this.id}-panel`,
       onPointerEnter: (event) => {
+        if (!this.shouldHandleHoverPointer(event)) {
+          return
+        }
         this.recordPointerFromEvent(event)
         this.parent.highlight(this.parentItemId)
         this.keepChainOpen()
         this.timers.scheduleOpen(() => this.open("pointer"))
       },
       onPointerLeave: (event) => {
+        if (!this.shouldHandleHoverPointer(event)) {
+          return
+        }
         if (this.shouldHoldPointer(event)) return
         this.parent.releasePointerHighlightHold(this.parentItemId)
         this.timers.scheduleClose(() => this.close("pointer"))
@@ -137,12 +143,18 @@ export class SubmenuCore extends MenuCore {
     return {
       ...props,
       onPointerEnter: (event) => {
+        if (!this.shouldHandleHoverPointer(event)) {
+          return
+        }
         props.onPointerEnter?.(event)
         this.recordPointerFromEvent(event)
         this.keepChainOpen()
         this.parent.releasePointerHighlightHold(this.parentItemId)
       },
       onPointerLeave: (event) => {
+        if (!this.shouldHandleHoverPointer(event)) {
+          return
+        }
         if (this.shouldHoldPointer(event)) return
         this.parent.releasePointerHighlightHold(this.parentItemId)
         props.onPointerLeave?.(event)
@@ -155,6 +167,9 @@ export class SubmenuCore extends MenuCore {
     return {
       ...props,
       onPointerEnter: (event) => {
+        if (!this.shouldHandleHoverPointer(event)) {
+          return
+        }
         props.onPointerEnter?.(event)
         this.recordPointerFromEvent(event)
       },
@@ -207,6 +222,10 @@ export class SubmenuCore extends MenuCore {
   private keepChainOpen() {
     this.timers.cancelClose()
     this.parent.cancelPendingClose()
+  }
+
+  private shouldHandleHoverPointer(event?: PointerEventLike) {
+    return !event?.pointerType || event.pointerType === "mouse"
   }
 
   private handleNestedTriggerKeydown(event: KeyboardEvent) {

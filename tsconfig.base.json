@@ -63,10 +63,22 @@
       "@affino/focus-utils/*": ["./packages/focus-utils/src/*"],
       "@affino/aria-utils": ["./packages/aria-utils/src/index.ts"],
       "@affino/aria-utils/*": ["./packages/aria-utils/src/*"],
+      "@affino/combobox-core": ["./packages/combobox-core/src/index.ts"],
+      "@affino/combobox-core/*": ["./packages/combobox-core/src/*"],
       "@affino/selection-core/*": ["./packages/selection-core/src/*"],
+      "@affino/selection-vue": ["./packages/selection-vue/src/index.ts"],
+      "@affino/selection-vue/*": ["./packages/selection-vue/src/*"],
       "@affino/menu-core/*": ["./packages/menu-core/src/*"],
       "@affino/menu-vue/*": ["./packages/menu-vue/src/*"],
-      "@/*": ["./demo-vue/src/*"]
+      "@affino/popover-vue": ["./packages/popover-vue/src/index.ts"],
+      "@affino/popover-vue/*": ["./packages/popover-vue/src/*"],
+      "@affino/treeview-core": ["./packages/treeview-core/src/index.ts"],
+      "@affino/treeview-core/*": ["./packages/treeview-core/src/*"],
+      "@affino/treeview-vue": ["./packages/treeview-vue/src/index.ts"],
+      "@affino/treeview-vue/*": ["./packages/treeview-vue/src/*"],
+      "@affino/vue-adapter": ["./packages/vue-adapter/src/index.ts"],
+      "@affino/vue-adapter/*": ["./packages/vue-adapter/src/*"],
+      "@/*": ["./packages/demo-vue/src/*"]
     }
   }
 }

@@ -19,7 +19,7 @@
     "lint": "pnpm -r --if-present lint",
     "format": "pnpm -r --if-present format",
     "test": "pnpm -r --if-present test",
-    "test:vue-matrix": "pnpm --filter @affino/dialog-vue test && pnpm --filter @affino/menu-vue test && pnpm --filter @affino/popover-vue test && pnpm --filter @affino/tooltip-vue test && pnpm --filter @affino/selection-vue test && pnpm --filter @affino/treeview-vue test && pnpm --filter @affino/vue-adapter test",
+    "test:vue-matrix": "pnpm --filter @affino/dialog-vue test && pnpm --filter @affino/menu-vue test && pnpm --filter @affino/popover-vue test && pnpm --filter @affino/tooltip-vue test && pnpm --filter @affino/selection-vue test && pnpm --filter @affino/combobox-vue test && pnpm --filter @affino/treeview-vue test && pnpm --filter @affino/vue-adapter test",
     "test:unit": "pnpm -r --if-present test",
     "test:datagrid:unit": "pnpm --filter @affino/datagrid-core test:unit && pnpm --filter @affino/datagrid-worker test && pnpm --filter @affino/datagrid-vue test:unit",
     "test:datagrid:integration": "pnpm --filter @affino/datagrid-core test:integration && pnpm --filter @affino/datagrid-vue test:integration",

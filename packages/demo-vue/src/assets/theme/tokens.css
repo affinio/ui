@@ -1,0 +1,67 @@
+:root {
+	color-scheme: light;
+
+	--font-body: "Manrope", "Avenir Next", "Segoe UI", sans-serif;
+	--font-display: "Fraunces", Georgia, serif;
+
+	--color-paper-50: #fffaf1;
+	--color-paper-100: #f8f1e6;
+	--color-paper-150: #f4ecdf;
+	--color-paper-200: #efe5d4;
+	--color-paper-300: #e7d8c3;
+
+	--color-ink-900: #2e241b;
+	--color-ink-700: #4a3a29;
+	--color-ink-600: #584632;
+	--color-ink-500: #74593a;
+
+	--color-teal-600: #2f6f6c;
+	--color-teal-500: #4d8a87;
+	--color-teal-100: rgba(47, 111, 108, 0.14);
+	--color-coral-500: #d37c5e;
+	--color-coral-600: #c76643;
+	--color-amber-500: #f59e0b;
+	--color-orange-600: #ea580c;
+
+	--page-bg: var(--color-paper-150);
+	--page-gradient: radial-gradient(circle at 18% 16%, rgba(224, 122, 95, 0.18), transparent 38%),
+		radial-gradient(circle at 82% 2%, rgba(47, 111, 108, 0.18), transparent 34%),
+		linear-gradient(180deg, var(--color-paper-100) 0%, #f3ecdf 48%, var(--color-paper-200) 100%);
+
+	--surface: rgba(255, 252, 247, 0.86);
+	--surface-alt: rgba(251, 247, 239, 0.94);
+	--surface-solid: var(--color-paper-50);
+	--surface-card: rgba(255, 251, 245, 0.78);
+	--surface-card-strong: rgba(255, 248, 240, 0.96);
+	--surface-button: rgba(255, 249, 240, 0.92);
+	--surface-button-hover: rgba(247, 237, 223, 0.96);
+	--glass-bg: rgba(255, 250, 241, 0.7);
+	--glass-border: rgba(95, 78, 54, 0.12);
+	--glass-highlight: rgba(95, 78, 54, 0.2);
+	--border-strong: rgba(103, 82, 56, 0.28);
+
+	--text-primary: var(--color-ink-900);
+	--text-muted: rgba(74, 58, 41, 0.74);
+	--text-soft: rgba(88, 70, 50, 0.58);
+
+	--accent: var(--color-teal-600);
+	--accent-soft: var(--color-teal-100);
+	--accent-strong: var(--color-coral-500);
+	--shadow-soft: 0 20px 60px rgba(120, 94, 61, 0.12);
+
+	--button-primary-text: #fff8f0;
+	--button-primary-bg: linear-gradient(120deg, var(--accent), var(--accent-strong));
+	--button-primary-shadow: 0 16px 36px rgba(104, 82, 57, 0.16);
+	--button-secondary-text: var(--text-primary);
+	--button-secondary-bg: linear-gradient(180deg, rgba(255, 250, 244, 0.96), rgba(246, 236, 224, 0.92));
+	--button-secondary-border: rgba(139, 92, 46, 0.18);
+	--button-secondary-shadow: 0 12px 24px rgba(102, 72, 43, 0.08);
+	--button-ghost-text: var(--text-primary);
+	--button-ghost-bg: rgba(255, 255, 255, 0.45);
+	--button-ghost-border: rgba(139, 92, 46, 0.16);
+	--button-focus-ring: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+[data-theme='dark'] {
+	color-scheme: light;
+}

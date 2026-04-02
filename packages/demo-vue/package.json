@@ -1,0 +1,62 @@
+{
+  "name": "demo-vue",
+  "version": "0.0.5",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "pnpm type-check && pnpm build-only",
+    "preview": "vite preview",
+    "build-only": "vite build",
+    "type-check": "vue-tsc --build",
+    "lint": "eslint . --fix --cache",
+    "format": "prettier --write --experimental-cli src/"
+  },
+  "dependencies": {
+    "@affino/dialog-vue": "workspace:*",
+    "@affino/disclosure-vue": "workspace:*",
+    "@affino/treeview-vue": "workspace:*",
+    "@affino/aria-utils": "workspace:*",
+    "@affino/focus-utils": "workspace:*",
+    "@affino/menu-core": "workspace:*",
+    "@affino/menu-vue": "workspace:*",
+    "@affino/overlay-host": "workspace:*",
+    "@affino/overlay-kernel": "workspace:*",
+    "@affino/combobox-vue": "workspace:*",
+    "@affino/listbox-vue": "workspace:*",
+    "@affino/selection-vue": "workspace:*",
+    "@affino/tooltip-vue": "workspace:*",
+    "@affino/tabs-vue": "workspace:*",
+    "@affino/vue-adapter": "workspace:*",
+    "@affino/selection-core": "workspace:*",
+    "@affino/virtualization-core": "workspace:*",
+    "@tailwindcss/vite": "^4.2.0",
+    "pinia": "^3.0.4",
+    "shiki": "^3.22.0",
+    "tailwindcss": "^4.2.0",
+    "vue": "^3.5.25",
+    "vue-router": "^4.6.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "@vitejs/plugin-vue": "^6.0.4",
+    "@vitejs/plugin-vue-jsx": "^5.1.4",
+    "@vue/eslint-config-prettier": "^10.2.0",
+    "@vue/eslint-config-typescript": "^14.6.0",
+    "@vue/tsconfig": "^0.8.1",
+    "esbuild": "^0.24.0",
+    "eslint": "^9.39.1",
+    "eslint-plugin-vue": "~10.8.0",
+    "jiti": "^2.6.1",
+    "prettier": "3.8.1",
+    "typescript": "~5.9.0",
+    "vite": "^7.3.1",
+    "vite-plugin-vue-devtools": "^8.0.6",
+    "vue-tsc": "^3.2.5"
+  },
+  "description": "Sandbox package for Affino Vue component demos",
+  "license": "MIT"
+}

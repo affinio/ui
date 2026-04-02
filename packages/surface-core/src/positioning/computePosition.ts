@@ -60,9 +60,14 @@ export function computePosition(anchor: Rect, surface: Rect, options: PositionOp
     best = { left: anchor.x, top: anchor.y, placement: "right", align: "start", overflow: Number.POSITIVE_INFINITY }
   }
 
+  const minLeft = config.viewportPadding
+  const maxLeft = Math.max(minLeft, config.viewportWidth - config.viewportPadding - surface.width)
+  const minTop = config.viewportPadding
+  const maxTop = Math.max(minTop, config.viewportHeight - config.viewportPadding - surface.height)
+
   return {
-    left: clamp(best.left, config.viewportPadding, config.viewportWidth - config.viewportPadding - surface.width),
-    top: clamp(best.top, config.viewportPadding, config.viewportHeight - config.viewportPadding - surface.height),
+    left: clamp(best.left, minLeft, maxLeft),
+    top: clamp(best.top, minTop, maxTop),
     placement: best.placement,
     align: best.align,
   }

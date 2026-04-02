@@ -4,6 +4,7 @@ export function toPointerPayload(event: PointerEvent, meta: PointerMeta = {}): P
   return {
     clientX: event.clientX,
     clientY: event.clientY,
+    pointerType: event.pointerType,
     meta,
     preventDefault: () => event.preventDefault(),
   }

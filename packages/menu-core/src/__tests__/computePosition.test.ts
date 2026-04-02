@@ -35,4 +35,19 @@ describe("computePosition", () => {
     expect(result.left).toBeCloseTo(80)
     expect(result.align).toBe("center")
   })
+
+  it("pins oversized panels to viewport padding instead of letting them escape upward", () => {
+    const smallViewportAnchor: Rect = { x: 40, y: 260, width: 44, height: 28 }
+    const tallPanel: Rect = { x: 0, y: 0, width: 180, height: 520 }
+
+    const result = computePosition(smallViewportAnchor, tallPanel, {
+      placement: "top",
+      viewportWidth: 320,
+      viewportHeight: 480,
+      viewportPadding: 8,
+      gutter: 6,
+    })
+
+    expect(result.top).toBe(8)
+  })
 })
