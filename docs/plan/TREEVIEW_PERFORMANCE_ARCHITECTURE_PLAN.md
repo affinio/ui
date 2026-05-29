@@ -244,9 +244,9 @@ Progress:
 
 - Added a no-op patch fast path for `registerNodes(nodes, { mode: "patch" })`: unchanged existing nodes now skip source finalization, visible projection invalidation, state normalization, and subscriber emission.
 - Disabled-only patches now update node state without rebuilding parent/child links, roots, preorder, depth, or subtree indexes.
-- Valid node additions under existing parents/roots now update affected parent/root lists plus source indexes without full source finalization.
+- Valid node additions, including parent/child additions in the same patch, now update affected parent/root lists plus source indexes without full source finalization.
 - Existing-node reparent patches with valid non-cyclic parents now rebuild only affected parent child lists plus source indexes instead of full source finalization.
-- Mixed add+reparent patches and additions that depend on new parents in the same patch still route through full source finalization.
+- Mixed add+reparent patches still route through full source finalization.
 
 ## Slice 4: Visible Projection And Navigation Index
 

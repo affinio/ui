@@ -437,7 +437,6 @@ export class TreeviewCore<Value = string> {
     let topologyChanged = false
     const addedNodePatches: Array<AddedNodePatch<Value>> = []
     const parentPatches: Array<ParentPatch<Value>> = []
-    let valuesBeforeAdd: Set<Value> | null = null
     nodes.forEach((node) => {
       const parent = node.parent ?? null
       const disabled = node.disabled ?? false
@@ -455,9 +454,6 @@ export class TreeviewCore<Value = string> {
         }
         return
       }
-      if (!valuesBeforeAdd) {
-        valuesBeforeAdd = new Set(this.nodes.keys())
-      }
       this.nodes.set(node.value, {
         value: node.value,
         parent,
@@ -469,7 +465,7 @@ export class TreeviewCore<Value = string> {
       changed = true
     })
     if (topologyChanged) {
-      if (this.canApplyIncrementalAddPatch(addedNodePatches, parentPatches, valuesBeforeAdd ?? new Set())) {
+      if (this.canApplyIncrementalAddPatch(addedNodePatches, parentPatches)) {
         this.applyIncrementalAddPatch(addedNodePatches)
       } else if (!addedNodePatches.length && this.canApplyIncrementalParentPatch(parentPatches)) {
         this.applyIncrementalParentPatch(parentPatches)
@@ -483,16 +479,19 @@ export class TreeviewCore<Value = string> {
   private canApplyIncrementalAddPatch(
     addedNodePatches: ReadonlyArray<AddedNodePatch<Value>>,
     parentPatches: ReadonlyArray<ParentPatch<Value>>,
-    valuesBeforePatch: ReadonlySet<Value>,
   ): boolean {
     if (!addedNodePatches.length || parentPatches.length > 0) {
       return false
     }
+    const addedValues = new Set(addedNodePatches.map((patch) => patch.value))
     return addedNodePatches.every((patch) => {
       if (patch.parent === patch.value) {
         return false
       }
-      return patch.parent === null || valuesBeforePatch.has(patch.parent)
+      if (patch.parent !== null && !this.nodes.has(patch.parent)) {
+        return false
+      }
+      return patch.parent === null || !addedValues.has(patch.parent) || !this.isAncestorOf(patch.value, patch.parent)
     })
   }
 

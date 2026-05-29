@@ -77,6 +77,17 @@ const results = {
       }
     } }
   }),
+  registerPatchDependentAdd: measureInstrumented(() => {
+    const core = createInstrumentedCore({ nodes: balancedNodes, defaultExpanded: ["node-0"], defaultActive: "node-0" })
+    return { core, run: () => {
+      for (let index = 0; index < TOPOLOGY_PATCH_ITERATIONS; index += 1) {
+        core.registerNodes([
+          { value: `added-parent-${index}`, parent: "node-0" },
+          { value: `added-child-${index}`, parent: `added-parent-${index}` },
+        ], { mode: "patch" })
+      }
+    } }
+  }),
   registerPatchSingleReparent: measureInstrumented(() => {
     const core = createInstrumentedCore({ nodes: balancedNodes, defaultExpanded: ["node-0"], defaultActive: "node-0" })
     const moved = balancedNodes[balancedNodes.length - 1]
