@@ -356,11 +356,14 @@ const onToggleClick = (value: NodeValue): void => {
           class="treeview-node"
           :class="{
             'is-selected': selectedValue === row.value,
+            'is-active': activeValue === row.value,
             'is-matched': isMatched(row.value),
           }"
           :style="{ '--tree-level': String(resolveLevel(row.value)), transform: `translateY(${row.top}px)` }"
+          :data-value="row.value"
           :data-tree-last="isLastSibling(row.value) ? 'true' : 'false'"
           :data-state="selectedValue === row.value ? 'selected' : 'idle'"
+          :data-active="activeValue === row.value ? 'true' : 'false'"
           :data-matched="isMatched(row.value) ? 'true' : 'false'"
           role="treeitem"
           :aria-level="String(resolveLevel(row.value))"
@@ -421,6 +424,8 @@ const onToggleClick = (value: NodeValue): void => {
   --tree-toggle-symbol: #6b4f3a;
   --tree-select-bg: rgba(251, 191, 36, 0.2);
   --tree-select-fg: #241912;
+  --tree-active-bg: rgba(20, 184, 166, 0.14);
+  --tree-active-border: rgba(15, 118, 110, 0.46);
   --tree-focus: rgba(234, 88, 12, 0.55);
   background: var(--tree-bg);
   color: var(--tree-fg);
@@ -609,6 +614,16 @@ const onToggleClick = (value: NodeValue): void => {
 .treeview-node[data-state="selected"] {
   background-color: var(--tree-select-bg);
   color: var(--tree-select-fg);
+}
+
+.treeview-node.is-active,
+.treeview-node[data-active="true"] {
+  box-shadow: inset 3px 0 0 var(--tree-active-border);
+}
+
+.treeview-node.is-active:not(.is-selected),
+.treeview-node[data-active="true"][data-state="idle"] {
+  background-color: var(--tree-active-bg);
 }
 
 .treeview-node.is-matched .treeview-node__label,

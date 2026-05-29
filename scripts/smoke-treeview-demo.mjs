@@ -29,6 +29,10 @@ const countRowsIntersectingViewport = async (page) => {
   })
 }
 
+const getActiveRowValue = async (page) => {
+  return page.locator('[role=treeitem][data-active="true"]').first().getAttribute("data-value")
+}
+
 const isActiveElementInsideViewport = async (page) => {
   return page.evaluate(() => {
     const viewportElement = document.querySelector(".treeview-rows")
@@ -113,12 +117,19 @@ try {
   const initialRows = await page.locator("[role=treeitem]").count()
   assertPositive("initialRows", initialRows)
 
+  const firstRowValue = await page.locator("[role=treeitem]").first().getAttribute("data-value")
   await page.locator("[role=treeitem]").first().click()
+  const activeAfterClick = await getActiveRowValue(page)
+  if (activeAfterClick !== firstRowValue) {
+    throw new Error(`click did not set active row, expected ${firstRowValue}, received ${activeAfterClick}`)
+  }
+
   for (let index = 0; index < 30; index += 1) {
     await page.keyboard.press("ArrowDown")
   }
   await page.waitForTimeout(160)
 
+  const activeAfterKeyboard = await getActiveRowValue(page)
   const keyboardScrollTop = await viewport.evaluate((element) => element.scrollTop)
   const keyboardRowsIntersectingViewport = await countRowsIntersectingViewport(page)
   const keyboardFocusVisible = await isActiveElementInsideViewport(page)
@@ -128,6 +139,9 @@ try {
   }
   if (!keyboardFocusVisible) {
     throw new Error("keyboard navigation focus is outside the virtual viewport")
+  }
+  if (!activeAfterKeyboard || activeAfterKeyboard === activeAfterClick) {
+    throw new Error(`keyboard navigation did not move active row, active=${activeAfterKeyboard}`)
   }
 
   await viewport.evaluate((element, nextScrollTop) => {
@@ -167,6 +181,8 @@ try {
     route,
     serverStarted: Boolean(server),
     initialRows,
+    activeAfterClick,
+    activeAfterKeyboard,
     keyboardScrollTop,
     keyboardRowsIntersectingViewport,
     keyboardFocusVisible,
