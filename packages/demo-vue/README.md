@@ -31,4 +31,4 @@ pnpm run smoke:treeview:demo
 - This package intentionally does not include datagrid demos.
 - The sandbox is intentionally Vue-only and focuses on compact, copy-paste friendly examples.
 - Overlay diagnostics are visible in the floating stack panel during local development.
-- `pnpm run smoke:treeview:demo` starts the Vite demo server automatically when `TREEVIEW_DEMO_URL` is not already available and writes screenshots to `artifacts/treeview-smoke` unless `TREEVIEW_SMOKE_SCREENSHOTS=0`.
+- `pnpm run smoke:treeview:demo` starts the Vite demo server automatically when `TREEVIEW_DEMO_URL` is not already available and writes desktop and mobile screenshots to `artifacts/treeview-smoke` unless `TREEVIEW_SMOKE_SCREENSHOTS=0`.

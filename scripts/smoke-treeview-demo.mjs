@@ -60,6 +60,10 @@ const isActiveElementInsideViewport = async (page) => {
   })
 }
 
+const hasPageHorizontalOverflow = async (page) => {
+  return page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)
+}
+
 const captureScreenshot = async (page, name) => {
   if (!captureScreenshots) {
     return null
@@ -251,10 +255,49 @@ try {
   assertPositive("rowsAfterNoMatchClear", rowsAfterNoMatchClear)
   assertPositive("rowsAfterNoMatchClearInViewport", rowsAfterNoMatchClearInViewport)
 
+
+  const mobilePage = await browser.newPage({
+    isMobile: true,
+    viewport: { width: 390, height: 844 },
+  })
+  await mobilePage.goto(route, { waitUntil: "networkidle" })
+  await mobilePage.locator(".treeview-rows").waitFor()
+  const mobileInitialRows = await mobilePage.locator("[role=treeitem]").count()
+  assertPositive("mobileInitialRows", mobileInitialRows)
+  const mobileHasHorizontalOverflow = await hasPageHorizontalOverflow(mobilePage)
+  if (mobileHasHorizontalOverflow) {
+    throw new Error("mobile viewport has horizontal page overflow")
+  }
+  const mobileInitialScreenshot = await captureScreenshot(mobilePage, "treeview-mobile-initial")
+
+  const mobileViewport = mobilePage.locator(".treeview-rows")
+  await mobileViewport.evaluate((element, nextScrollTop) => {
+    element.scrollTop = nextScrollTop
+    element.dispatchEvent(new Event("scroll", { bubbles: true }))
+  }, Math.floor(scrollTop / 2))
+  await mobilePage.waitForTimeout(160)
+  const mobileRowsAfterScroll = await mobilePage.locator("[role=treeitem]").count()
+  const mobileRowsIntersectingViewport = await countRowsIntersectingViewport(mobilePage)
+  assertPositive("mobileRowsAfterScroll", mobileRowsAfterScroll)
+  assertPositive("mobileRowsIntersectingViewport", mobileRowsIntersectingViewport)
+
+  await mobilePage.getByLabel("Search project map").fill(searchQuery)
+  await mobilePage.waitForTimeout(160)
+  const mobileRowsAfterSearch = await mobilePage.locator("[role=treeitem]").count()
+  const mobileMatchedRows = await mobilePage.locator('[role=treeitem][data-matched="true"]').count()
+  const mobileSearchFocused = await mobilePage.getByLabel("Search project map").evaluate((element) => document.activeElement === element)
+  assertPositive("mobileRowsAfterSearch", mobileRowsAfterSearch)
+  assertPositive("mobileMatchedRows", mobileMatchedRows)
+  if (!mobileSearchFocused) {
+    throw new Error("mobile search input lost focus during projection update")
+  }
+  const mobileSearchScreenshot = await captureScreenshot(mobilePage, "treeview-mobile-search")
+  await mobilePage.close()
+
   console.log(JSON.stringify({
     route,
     serverStarted: Boolean(server),
-    screenshots: [initialScreenshot, scrolledScreenshot, searchScreenshot, emptyScreenshot].filter(Boolean),
+    screenshots: [initialScreenshot, scrolledScreenshot, searchScreenshot, emptyScreenshot, mobileInitialScreenshot, mobileSearchScreenshot].filter(Boolean),
     initialRows,
     activeAfterClick,
     activeAfterKeyboard,
@@ -280,6 +323,13 @@ try {
     searchInputFocusedAfterNoMatch,
     rowsAfterNoMatchClear,
     rowsAfterNoMatchClearInViewport,
+    mobileInitialRows,
+    mobileHasHorizontalOverflow,
+    mobileRowsAfterScroll,
+    mobileRowsIntersectingViewport,
+    mobileRowsAfterSearch,
+    mobileMatchedRows,
+    mobileSearchFocused,
     summary,
   }, null, 2))
 } finally {
