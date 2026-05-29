@@ -294,6 +294,12 @@ const onNodeKeydown = (event: KeyboardEvent, value: NodeValue) => {
   }
 }
 
+const onNodeClick = (value: NodeValue): void => {
+  treeview.select(value)
+  treeview.focus(value)
+  refreshAndSyncScroll()
+}
+
 const onToggleClick = (value: NodeValue): void => {
   treeview.toggle(value)
   treeview.focus(value)
@@ -363,7 +369,7 @@ const onToggleClick = (value: NodeValue): void => {
           :aria-selected="selectedValue === row.value ? 'true' : 'false'"
           :aria-expanded="hasChildren(row.value) ? (expandedSet.has(row.value) ? 'true' : 'false') : undefined"
           :tabindex="activeValue === row.value ? 0 : -1"
-          @click="treeview.select(row.value)"
+          @click="onNodeClick(row.value)"
           @keydown="onNodeKeydown($event, row.value)"
         >
           <span class="treeview-node__rail" aria-hidden="true">

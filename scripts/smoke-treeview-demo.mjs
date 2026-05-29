@@ -15,6 +15,33 @@ const assertPositive = (name, value) => {
   }
 }
 
+const countRowsIntersectingViewport = async (page) => {
+  return page.locator("[role=treeitem]").evaluateAll((rows) => {
+    const viewportElement = document.querySelector(".treeview-rows")
+    if (!viewportElement) {
+      return 0
+    }
+    const viewportRect = viewportElement.getBoundingClientRect()
+    return rows.filter((row) => {
+      const rowRect = row.getBoundingClientRect()
+      return rowRect.bottom > viewportRect.top && rowRect.top < viewportRect.bottom
+    }).length
+  })
+}
+
+const isActiveElementInsideViewport = async (page) => {
+  return page.evaluate(() => {
+    const viewportElement = document.querySelector(".treeview-rows")
+    const activeElement = document.activeElement
+    if (!viewportElement || !(activeElement instanceof HTMLElement) || activeElement.getAttribute("role") !== "treeitem") {
+      return false
+    }
+    const viewportRect = viewportElement.getBoundingClientRect()
+    const activeRect = activeElement.getBoundingClientRect()
+    return activeRect.bottom > viewportRect.top && activeRect.top < viewportRect.bottom
+  })
+}
+
 const isRouteAvailable = async () => {
   try {
     const response = await fetch(route, { method: "GET" })
@@ -86,6 +113,23 @@ try {
   const initialRows = await page.locator("[role=treeitem]").count()
   assertPositive("initialRows", initialRows)
 
+  await page.locator("[role=treeitem]").first().click()
+  for (let index = 0; index < 30; index += 1) {
+    await page.keyboard.press("ArrowDown")
+  }
+  await page.waitForTimeout(160)
+
+  const keyboardScrollTop = await viewport.evaluate((element) => element.scrollTop)
+  const keyboardRowsIntersectingViewport = await countRowsIntersectingViewport(page)
+  const keyboardFocusVisible = await isActiveElementInsideViewport(page)
+  assertPositive("keyboardRowsIntersectingViewport", keyboardRowsIntersectingViewport)
+  if (!(keyboardScrollTop > 0)) {
+    throw new Error(`keyboard navigation did not scroll the virtual viewport, scrollTop=${keyboardScrollTop}`)
+  }
+  if (!keyboardFocusVisible) {
+    throw new Error("keyboard navigation focus is outside the virtual viewport")
+  }
+
   await viewport.evaluate((element, nextScrollTop) => {
     element.scrollTop = nextScrollTop
     element.dispatchEvent(new Event("scroll", { bubbles: true }))
@@ -95,17 +139,7 @@ try {
   const rowsAfterScroll = await page.locator("[role=treeitem]").count()
   assertPositive("rowsAfterScroll", rowsAfterScroll)
 
-  const rowsIntersectingViewport = await page.locator("[role=treeitem]").evaluateAll((rows) => {
-    const viewportElement = document.querySelector(".treeview-rows")
-    if (!viewportElement) {
-      return 0
-    }
-    const viewportRect = viewportElement.getBoundingClientRect()
-    return rows.filter((row) => {
-      const rowRect = row.getBoundingClientRect()
-      return rowRect.bottom > viewportRect.top && rowRect.top < viewportRect.bottom
-    }).length
-  })
+  const rowsIntersectingViewport = await countRowsIntersectingViewport(page)
   assertPositive("rowsIntersectingViewport", rowsIntersectingViewport)
 
   await page.getByLabel("Search project map").fill(searchQuery)
@@ -122,15 +156,27 @@ try {
     throw new Error("Search input lost focus during projection update")
   }
 
+  await page.getByLabel("Clear treeview search").click()
+  await page.waitForTimeout(160)
+  const rowsAfterClear = await page.locator("[role=treeitem]").count()
+  const rowsAfterClearInViewport = await countRowsIntersectingViewport(page)
+  assertPositive("rowsAfterClear", rowsAfterClear)
+  assertPositive("rowsAfterClearInViewport", rowsAfterClearInViewport)
+
   console.log(JSON.stringify({
     route,
     serverStarted: Boolean(server),
     initialRows,
+    keyboardScrollTop,
+    keyboardRowsIntersectingViewport,
+    keyboardFocusVisible,
     rowsAfterScroll,
     rowsIntersectingViewport,
     rowsAfterSearch,
     matchedRows,
     searchInputFocused,
+    rowsAfterClear,
+    rowsAfterClearInViewport,
     summary,
   }, null, 2))
 } finally {
