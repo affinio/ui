@@ -5,5 +5,6 @@ describe("treeview-vue index exports", () => {
   it("exposes core and controller helpers", () => {
     expect(typeof api.TreeviewCore).toBe("function")
     expect(typeof api.useTreeviewController).toBe("function")
+    expect(typeof api.useVirtualTreeviewController).toBe("function")
   })
 })
