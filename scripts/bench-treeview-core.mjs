@@ -19,6 +19,10 @@ const WARMUP_COUNT = readNonNegativeInt("BENCH_TREEVIEW_WARMUP_COUNT", 2)
 const PATCH_PERCENT = readPositiveFloat("BENCH_TREEVIEW_PATCH_PERCENT", 1)
 const BURST_ITERATIONS = readPositiveInt("BENCH_TREEVIEW_BURST_ITERATIONS", 1000)
 const WINDOW_SIZE = readPositiveInt("BENCH_TREEVIEW_WINDOW_SIZE", 100)
+const TOPOLOGY_PATCH_ITERATIONS = readPositiveInt(
+  "BENCH_TREEVIEW_TOPOLOGY_PATCH_ITERATIONS",
+  Math.min(BURST_ITERATIONS, 50),
+)
 const OUTPUT_JSON = resolve(process.env.BENCH_OUTPUT_JSON ?? "artifacts/performance/bench-treeview-core.json")
 
 const budgets = {
@@ -65,12 +69,20 @@ const results = {
       }
     } }
   }),
+  registerPatchSingleAdd: measureInstrumented(() => {
+    const core = createInstrumentedCore({ nodes: balancedNodes, defaultExpanded: ["node-0"], defaultActive: "node-0" })
+    return { core, run: () => {
+      for (let index = 0; index < TOPOLOGY_PATCH_ITERATIONS; index += 1) {
+        core.registerNodes([{ value: `added-${index}`, parent: "node-0" }], { mode: "patch" })
+      }
+    } }
+  }),
   registerPatchSingleReparent: measureInstrumented(() => {
     const core = createInstrumentedCore({ nodes: balancedNodes, defaultExpanded: ["node-0"], defaultActive: "node-0" })
     const moved = balancedNodes[balancedNodes.length - 1]
     const originalParent = moved.parent
     return { core, run: () => {
-      for (let index = 0; index < BURST_ITERATIONS; index += 1) {
+      for (let index = 0; index < TOPOLOGY_PATCH_ITERATIONS; index += 1) {
         core.registerNodes([{ value: moved.value, parent: index % 2 === 0 ? "node-0" : originalParent }], { mode: "patch" })
       }
     } }
@@ -135,6 +147,7 @@ const report = {
     patchPercent: PATCH_PERCENT,
     burstIterations: BURST_ITERATIONS,
     windowSize: WINDOW_SIZE,
+    topologyPatchIterations: TOPOLOGY_PATCH_ITERATIONS,
   },
   totalMs,
   heapDeltaMb: (heapAfter - heapBefore) / 1024 / 1024,

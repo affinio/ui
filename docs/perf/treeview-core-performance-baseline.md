@@ -31,6 +31,7 @@ The core harness measures:
 - 1% patch registration;
 - no-op patch registration fast-path coverage;
 - disabled-only patch registration without source topology rebuilds;
+- single valid node add patch coverage without full source finalization;
 - single existing-node reparent patch coverage without full source finalization;
 - expand/collapse burst;
 - focus next/previous burst;
@@ -65,6 +66,7 @@ Supported budget environment variables:
 - `PERF_BUDGET_MAX_SELECT_BURST_P95_MS`
 - `PERF_BUDGET_MAX_VISIBLE_READ_P95_MS`
 - `PERF_BUDGET_MAX_HEAP_DELTA_MB`
+- `BENCH_TREEVIEW_TOPOLOGY_PATCH_ITERATIONS` controls single-add/reparent topology patch sample size
 - `PERF_BUDGET_MAX_SCROLL_P95_MS` for the Vue virtual harness
 - `PERF_BUDGET_MAX_BLANK_VIEWPORTS` for the Vue virtual harness
 

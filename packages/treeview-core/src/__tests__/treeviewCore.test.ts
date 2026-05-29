@@ -256,6 +256,30 @@ describe("TreeviewCore", () => {
     expect(core.getSnapshot().selected).toBe(null)
   })
 
+  it("adds a single valid node without full source finalization", () => {
+    const core = new TreeviewCore<string>({
+      nodes: [
+        { value: "root", parent: null },
+        { value: "alpha", parent: "root" },
+      ],
+      defaultExpanded: ["root"],
+      defaultActive: "root",
+    })
+    const internals = core as unknown as {
+      finalizeNodeMap: (map: Map<string, unknown>) => void
+      preorderValues: string[]
+    }
+    const finalizeNodeMap = vi.spyOn(internals, "finalizeNodeMap")
+
+    core.registerNodes([{ value: "beta", parent: "root" }], { mode: "patch" })
+
+    expect(finalizeNodeMap).not.toHaveBeenCalled()
+    expect(core.getChildren("root")).toEqual(["alpha", "beta"])
+    expect(core.getNodeMeta("beta")).toMatchObject({ parent: "root", depth: 1 })
+    expect(core.getVisibleValues()).toEqual(["root", "alpha", "beta"])
+    expect(internals.preorderValues).toEqual(["root", "alpha", "beta"])
+  })
+
   it("skips source topology rebuild for disabled-only patch updates", () => {
     const core = new TreeviewCore<string>({
       nodes: [
