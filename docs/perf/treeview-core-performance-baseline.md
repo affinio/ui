@@ -37,6 +37,7 @@ The core harness measures:
 - focus next/previous burst;
 - active-only focus burst;
 - active-only select burst;
+- search apply/clear with visible-window reads;
 - indexed focus next/previous over the visible projection, including active-only expanded snapshot reuse;
 - full visible-array read;
 - window read using `getVisibleWindow(start, end)`, with unit coverage for same-window cache reuse.
@@ -67,6 +68,7 @@ Supported budget environment variables:
 - `PERF_BUDGET_MAX_VISIBLE_READ_P95_MS`
 - `PERF_BUDGET_MAX_HEAP_DELTA_MB`
 - `BENCH_TREEVIEW_TOPOLOGY_PATCH_ITERATIONS` controls single-add/reparent topology patch sample size
+- `BENCH_TREEVIEW_SEARCH_ITERATIONS` controls search apply/clear sample size
 - `PERF_BUDGET_MAX_SCROLL_P95_MS` for the Vue virtual harness
 - `PERF_BUDGET_MAX_BLANK_VIEWPORTS` for the Vue virtual harness
 

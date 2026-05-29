@@ -180,6 +180,8 @@ export function useVirtualTreeviewController<Value = string>(
     collapse: refreshAfter(controller.collapse),
     toggle: refreshAfter(controller.toggle),
     expandPath: refreshAfter(controller.expandPath),
+    setSearchQuery: refreshAfter(controller.setSearchQuery),
+    clearSearchQuery: refreshAfter(controller.clearSearchQuery),
     setScrollTop,
     setViewportHeight,
     scrollToIndex,
@@ -210,7 +212,8 @@ function rowsEqual<Value>(
       currentRow.disabled !== nextRow.disabled ||
       currentRow.expanded !== nextRow.expanded ||
       currentRow.selected !== nextRow.selected ||
-      currentRow.active !== nextRow.active
+      currentRow.active !== nextRow.active ||
+      currentRow.matched !== nextRow.matched
     ) {
       return false
     }

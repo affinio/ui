@@ -23,6 +23,10 @@ const TOPOLOGY_PATCH_ITERATIONS = readPositiveInt(
   "BENCH_TREEVIEW_TOPOLOGY_PATCH_ITERATIONS",
   Math.min(BURST_ITERATIONS, 50),
 )
+const SEARCH_ITERATIONS = readPositiveInt(
+  "BENCH_TREEVIEW_SEARCH_ITERATIONS",
+  Math.min(BURST_ITERATIONS, 25),
+)
 const OUTPUT_JSON = resolve(process.env.BENCH_OUTPUT_JSON ?? "artifacts/performance/bench-treeview-core.json")
 
 const budgets = {
@@ -142,6 +146,16 @@ const results = {
       for (const value of values) core.requestSelect(value)
     } }
   }),
+  searchApplyClear: measureInstrumented(() => {
+    const core = createInstrumentedCore({ nodes: balancedNodes, defaultExpanded: expandedBalanced, defaultActive: "node-0" })
+    return { core, run: () => {
+      for (let index = 0; index < SEARCH_ITERATIONS; index += 1) {
+        core.setSearchQuery(`node-${index}`)
+        core.getVisibleWindow(0, WINDOW_SIZE)
+        core.clearSearchQuery()
+      }
+    } }
+  }),
   visibleReadFullArray: measureInstrumented(() => {
     const core = createInstrumentedCore({ nodes: balancedNodes, defaultExpanded: expandedBalanced, defaultActive: "node-0" })
     return { core, run: () => {
@@ -174,6 +188,7 @@ const report = {
     burstIterations: BURST_ITERATIONS,
     windowSize: WINDOW_SIZE,
     topologyPatchIterations: TOPOLOGY_PATCH_ITERATIONS,
+    searchIterations: SEARCH_ITERATIONS,
   },
   totalMs,
   heapDeltaMb: (heapAfter - heapBefore) / 1024 / 1024,

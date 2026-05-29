@@ -15,6 +15,7 @@ type InternalNode<Value> = {
   value: Value
   parent: Value | null
   disabled: boolean
+  text: string
   children: Value[]
 }
 
@@ -72,6 +73,12 @@ export class TreeviewCore<Value = string> {
     values: ReadonlyArray<Value>
   } | null = null
   private visibleNavigationLookupCount = 0
+  private searchQuery = ""
+  private normalizedSearchQuery = ""
+  private searchMatchedValues = new Set<Value>()
+  private searchVisibleValues = new Set<Value>()
+  private searchMatchCount = 0
+  private readonly textAccessor: (node: TreeviewNode<Value>) => string
   private readonly visibleProjection = createProjectionStageEngine<TreeviewProjectionStage>({
     nodes: {
       visible: {},
@@ -82,6 +89,7 @@ export class TreeviewCore<Value = string> {
 
   constructor(options: TreeviewOptions<Value> = {}) {
     this.loop = options.loop ?? false
+    this.textAccessor = options.textAccessor ?? defaultTextAccessor
     this.state = {
       active: options.defaultActive ?? null,
       selected: options.defaultSelected ?? null,
@@ -104,6 +112,7 @@ export class TreeviewCore<Value = string> {
     if (!result.changed) {
       return
     }
+    this.rebuildSearchProjection()
     this.invalidateVisibleProjection()
     const next = this.normalizeState(this.state)
     this.patch(next, options.emit ?? true)
@@ -311,6 +320,31 @@ export class TreeviewCore<Value = string> {
     })
   }
 
+  setSearchQuery(query: string): void {
+    const nextQuery = normalizeSearchQuery(query)
+    if (nextQuery === this.normalizedSearchQuery) {
+      return
+    }
+    this.searchQuery = query
+    this.normalizedSearchQuery = nextQuery
+    this.rebuildSearchProjection()
+    this.invalidateVisibleProjection()
+    const previousSnapshot = this.snapshot
+    this.patch(this.normalizeState(this.state))
+    if (this.snapshot === previousSnapshot) {
+      this.snapshot = this.createSnapshot(this.state)
+      this.subscribers.forEach((subscriber) => subscriber(this.snapshot))
+    }
+  }
+
+  clearSearchQuery(): void {
+    this.setSearchQuery("")
+  }
+
+  getSearchMatchCount(): number {
+    return this.searchMatchCount
+  }
+
   getVisibleValues(): Value[] {
     return [...this.getVisibleValuesCached()]
   }
@@ -370,6 +404,7 @@ export class TreeviewCore<Value = string> {
       expanded: this.isExpanded(value),
       selected: this.isSelected(value),
       active: this.isActive(value),
+      matched: this.searchMatchedValues.has(value),
     })
   }
 
@@ -425,6 +460,7 @@ export class TreeviewCore<Value = string> {
         value: node.value,
         parent: node.parent ?? null,
         disabled: node.disabled ?? false,
+        text: this.normalizeNodeText(node),
         children: [],
       })
     })
@@ -440,6 +476,7 @@ export class TreeviewCore<Value = string> {
     nodes.forEach((node) => {
       const parent = node.parent ?? null
       const disabled = node.disabled ?? false
+      const text = this.normalizeNodeText(node)
       const existing = this.nodes.get(node.value)
       if (existing) {
         if (existing.parent !== parent) {
@@ -452,12 +489,17 @@ export class TreeviewCore<Value = string> {
           existing.disabled = disabled
           changed = true
         }
+        if (existing.text !== text) {
+          existing.text = text
+          changed = true
+        }
         return
       }
       this.nodes.set(node.value, {
         value: node.value,
         parent,
         disabled,
+        text,
         children: [],
       })
       addedNodePatches.push({ value: node.value, parent })
@@ -583,6 +625,10 @@ export class TreeviewCore<Value = string> {
     this.rootValues = roots
   }
 
+  private normalizeNodeText(node: TreeviewNode<Value>): string {
+    return normalizeSearchQuery(this.textAccessor(node))
+  }
+
   private isAncestorOf(ancestor: Value, value: Value): boolean {
     let current: Value | null = value
     while (current !== null) {
@@ -683,6 +729,7 @@ export class TreeviewCore<Value = string> {
     this.preorderIndexByValue = preorderIndexByValue
     this.depthByValue = depthByValue
     this.subtreeEndIndexByValue = subtreeEndIndexByValue
+    this.rebuildSearchProjection()
   }
 
   private getParentCycleValues(map: Map<Value, InternalNode<Value>>): Set<Value> {
@@ -878,6 +925,28 @@ export class TreeviewCore<Value = string> {
     return this.visibleCache
   }
 
+  private rebuildSearchProjection(): void {
+    this.searchMatchedValues = new Set<Value>()
+    this.searchVisibleValues = new Set<Value>()
+    if (!this.normalizedSearchQuery) {
+      this.searchMatchCount = 0
+      return
+    }
+    this.nodes.forEach((node, value) => {
+      if (!node.text.includes(this.normalizedSearchQuery)) {
+        return
+      }
+      this.searchMatchedValues.add(value)
+      this.searchVisibleValues.add(value)
+      let current = node.parent
+      while (current !== null) {
+        this.searchVisibleValues.add(current)
+        current = this.nodes.get(current)?.parent ?? null
+      }
+    })
+    this.searchMatchCount = this.searchMatchedValues.size
+  }
+
   private computeVisibleProjection(expanded: ReadonlySet<Value>): VisibleProjection<Value> {
     const visible: Value[] = []
     const visibleIndexByValue = new Map<Value, number>()
@@ -897,13 +966,17 @@ export class TreeviewCore<Value = string> {
           continue
         }
         visited.add(value)
-        visibleIndexByValue.set(value, visible.length)
-        if (!node.disabled) {
-          enabledVisibleValues.push(value)
-          enabledVisibleIndexes.push(visible.length)
+        const searchActive = this.normalizedSearchQuery !== ""
+        const searchVisible = !searchActive || this.searchVisibleValues.has(value)
+        if (searchVisible) {
+          visibleIndexByValue.set(value, visible.length)
+          if (!node.disabled) {
+            enabledVisibleValues.push(value)
+            enabledVisibleIndexes.push(visible.length)
+          }
+          visible.push(value)
         }
-        visible.push(value)
-        if (!expanded.has(value)) {
+        if (!searchActive && !expanded.has(value)) {
           continue
         }
         for (let index = node.children.length - 1; index >= 0; index -= 1) {
@@ -1047,6 +1120,14 @@ function expandedValuesEqual<Value>(a: Value[], b: Value[]): boolean {
     }
   }
   return true
+}
+
+function defaultTextAccessor<Value>(node: TreeviewNode<Value>): string {
+  return node.text ?? String(node.value)
+}
+
+function normalizeSearchQuery(value: string): string {
+  return value.trim().toLocaleLowerCase()
 }
 
 function toUniqueList<Value>(values: ReadonlyArray<Value>): Value[] {

@@ -62,7 +62,35 @@ describe("useTreeviewController", () => {
       expanded: true,
       selected: false,
       active: true,
+      matched: false,
     })
+
+    scope.stop()
+  })
+
+  it("exposes search projection helpers", () => {
+    const scope = effectScope()
+    let controller!: TreeviewController<string>
+    scope.run(() => {
+      controller = useTreeviewController<string>({
+        nodes: [
+          { value: "root", parent: null, text: "Workspace" },
+          { value: "alpha", parent: "root", text: "Billing" },
+          { value: "beta", parent: "root", text: "Security" },
+        ],
+        defaultExpanded: ["root"],
+        defaultActive: "alpha",
+      })
+    })
+
+    controller.setSearchQuery("security")
+
+    expect(controller.getVisibleValues()).toEqual(["root", "beta"])
+    expect(controller.getSearchMatchCount()).toBe(1)
+    expect(controller.getNodeMeta("beta")).toMatchObject({ matched: true })
+
+    controller.clearSearchQuery()
+    expect(controller.getVisibleValues()).toEqual(["root", "alpha", "beta"])
 
     scope.stop()
   })

@@ -117,6 +117,7 @@ describe("TreeviewCore", () => {
       expanded: true,
       selected: false,
       active: true,
+      matched: false,
     })
     expect(core.getNodeMeta("gamma")).toEqual({
       value: "gamma",
@@ -127,6 +128,7 @@ describe("TreeviewCore", () => {
       expanded: false,
       selected: true,
       active: false,
+      matched: false,
     })
     expect(core.getNodeMeta("missing")).toBe(null)
   })
@@ -161,6 +163,61 @@ describe("TreeviewCore", () => {
 
     expect(after).not.toBe(before)
     expect(after).toEqual(["root", "alpha", "beta"])
+  })
+
+  it("filters visible projection to search matches and ancestors", () => {
+    const core = new TreeviewCore<string>({
+      nodes: [
+        { value: "root", parent: null, text: "Workspace" },
+        { value: "alpha", parent: "root", text: "Billing" },
+        { value: "beta", parent: "root", text: "Settings" },
+        { value: "gamma", parent: "beta", text: "Security policy" },
+      ],
+      defaultExpanded: ["root"],
+      defaultActive: "alpha",
+    })
+    const snapshots: string[] = []
+    const subscription = core.subscribe((state) => {
+      snapshots.push(state.active ?? "null")
+    })
+
+    core.setSearchQuery("security")
+
+    expect(core.getVisibleValues()).toEqual(["root", "beta", "gamma"])
+    expect(core.getSearchMatchCount()).toBe(1)
+    expect(core.getNodeMeta("gamma")).toMatchObject({ matched: true })
+    expect(core.getNodeMeta("beta")).toMatchObject({ matched: false })
+    expect(core.getSnapshot().active).toBe("root")
+
+    core.clearSearchQuery()
+
+    expect(core.getVisibleValues()).toEqual(["root", "alpha", "beta"])
+    expect(core.getSearchMatchCount()).toBe(0)
+    expect(core.getSnapshot().expanded).toEqual(["root"])
+    expect(snapshots).toEqual(["alpha", "root", "root"])
+
+    subscription.unsubscribe()
+  })
+
+  it("uses textAccessor and refreshes search text on patch", () => {
+    const core = new TreeviewCore<string>({
+      nodes: [
+        { value: "root", parent: null },
+        { value: "alpha", parent: "root" },
+      ],
+      defaultExpanded: ["root"],
+      textAccessor: (node) => `label:${node.text ?? node.value}`,
+    })
+
+    core.setSearchQuery("updated")
+    expect(core.getVisibleValues()).toEqual([])
+    expect(core.getSearchMatchCount()).toBe(0)
+
+    core.registerNodes([{ value: "alpha", parent: "root", text: "Updated item" }], { mode: "patch" })
+
+    expect(core.getVisibleValues()).toEqual(["root", "alpha"])
+    expect(core.getSearchMatchCount()).toBe(1)
+    expect(core.getNodeMeta("alpha")).toMatchObject({ matched: true })
   })
 
   it("collapses focused branches back to parent", () => {

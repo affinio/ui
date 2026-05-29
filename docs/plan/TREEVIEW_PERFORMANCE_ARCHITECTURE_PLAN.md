@@ -383,6 +383,14 @@ Expected result:
 
 - Search/filter becomes a projection stage, not an external full source replacement.
 
+Progress:
+
+- Added first-class query projection with `setSearchQuery(query)`, `clearSearchQuery()`, and `getSearchMatchCount()`.
+- Added node text indexing through `TreeviewNode.text` and `TreeviewOptions.textAccessor`.
+- Search now shows direct matches plus ancestors, preserves expansion state on clear, and exposes direct-hit metadata through `TreeviewNodeMeta.matched`.
+- Wired search helpers through `useTreeviewController()` and `useVirtualTreeviewController()`.
+- Remaining Slice 6 work: match navigation, disabled-node matching policy, richer match metadata/ranges, and larger 20k/100k search baselines.
+
 ## Slice 7: Vue Virtualized Rendering Adapter
 
 Purpose: make `@affino/treeview-vue` usable as a high-performance UI surface, not only a thin controller.

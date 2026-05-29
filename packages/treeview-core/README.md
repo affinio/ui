@@ -15,8 +15,8 @@ import { TreeviewCore } from "@affino/treeview-core"
 
 const tree = new TreeviewCore<string>({
   nodes: [
-    { value: "root", parent: null },
-    { value: "child", parent: "root" },
+    { value: "root", parent: null, text: "Workspace" },
+    { value: "child", parent: "root", text: "Security settings" },
   ],
   defaultExpanded: ["root"],
   defaultActive: "root",
@@ -61,11 +61,17 @@ Legacy imperative methods remain and delegate internally:
 - `expandPath(value)`
 - `clearSelection()`
 - `getVisibleValues()`
+- `getVisibleCount()` / `getVisibleAt(index)` / `getVisibleWindow(start, end)`
+- `setSearchQuery(query)` / `clearSearchQuery()` / `getSearchMatchCount()`
 - `getChildren(value)` / `getParent(value)`
 - `isExpanded(value)` / `isSelected(value)` / `isActive(value)`
 - `getSnapshot()`
 - `subscribe(listener)`
 - `destroy()`
+
+## Search projection
+
+Nodes can provide `text`, or consumers can pass `textAccessor` in options. `setSearchQuery(query)` filters the visible projection to matching nodes and their ancestors without mutating expansion state. `TreeviewNodeMeta.matched` marks direct matches for UI highlighting. Clearing the query restores the regular expansion-driven visible projection.
 
 ## Snapshot guarantees
 

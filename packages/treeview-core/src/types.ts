@@ -2,6 +2,7 @@ export type TreeviewNode<Value = string> = Readonly<{
   value: Value
   parent: Value | null
   disabled?: boolean
+  text?: string
 }>
 
 export type TreeviewState<Value = string> = {
@@ -27,6 +28,7 @@ export type TreeviewNodeMeta<Value = string> = Readonly<{
   expanded: boolean
   selected: boolean
   active: boolean
+  matched: boolean
 }>
 
 export type TreeviewOptions<Value = string> = {
@@ -35,6 +37,7 @@ export type TreeviewOptions<Value = string> = {
   defaultSelected?: Value | null
   defaultExpanded?: ReadonlyArray<Value>
   loop?: boolean
+  textAccessor?: (node: TreeviewNode<Value>) => string
 }
 
 export type TreeviewRegisterMode = "replace" | "patch"

@@ -32,6 +32,9 @@ export interface TreeviewController<Value = string> {
   readonly getVisibleIndex: (value: Value) => number
   readonly getVisibleWindow: (start: number, end: number) => ReadonlyArray<Value>
   readonly getNodeMeta: (value: Value) => TreeviewNodeMeta<Value> | null
+  readonly setSearchQuery: (query: string) => void
+  readonly clearSearchQuery: () => void
+  readonly getSearchMatchCount: () => number
   readonly dispose: () => void
 }
 
@@ -82,6 +85,9 @@ export function useTreeviewController<Value = string>(
     getVisibleIndex: (value) => core.getVisibleIndex(value),
     getVisibleWindow: (start, end) => core.getVisibleWindow(start, end),
     getNodeMeta: (value) => core.getNodeMeta(value),
+    setSearchQuery: (query) => core.setSearchQuery(query),
+    clearSearchQuery: () => core.clearSearchQuery(),
+    getSearchMatchCount: () => core.getSearchMatchCount(),
     dispose,
   }
 }
