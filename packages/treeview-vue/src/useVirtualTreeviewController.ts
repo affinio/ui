@@ -74,14 +74,19 @@ export function useVirtualTreeviewController<Value = string>(
       if (!meta) {
         return
       }
+      const index = start + offset
+      const top = index * rowHeight.value
       metas.push(meta)
       rows.push(Object.freeze({
         ...meta,
-        index: start + offset,
-        top: (start + offset) * rowHeight.value,
+        index,
+        top,
         height: rowHeight.value,
       }))
     })
+    if (rowsEqual(visibleRows.value, rows)) {
+      return
+    }
     visibleWindow.value = Object.freeze(metas)
     visibleRows.value = Object.freeze(rows)
   }
@@ -97,12 +102,20 @@ export function useVirtualTreeviewController<Value = string>(
   }
 
   const setScrollTop = (value: number) => {
-    scrollTop.value = normalizeNonNegativeNumber(value, 0)
+    const nextScrollTop = normalizeNonNegativeNumber(value, 0)
+    if (nextScrollTop === scrollTop.value) {
+      return
+    }
+    scrollTop.value = nextScrollTop
     scheduleRefresh()
   }
 
   const setViewportHeight = (value: number) => {
-    viewportHeight.value = normalizeNonNegativeNumber(value, 0)
+    const nextViewportHeight = normalizeNonNegativeNumber(value, 0)
+    if (nextViewportHeight === viewportHeight.value) {
+      return
+    }
+    viewportHeight.value = nextViewportHeight
     scheduleRefresh()
   }
 
@@ -172,6 +185,35 @@ export function useVirtualTreeviewController<Value = string>(
     refreshWindow,
     dispose,
   }
+}
+
+function rowsEqual<Value>(
+  current: ReadonlyArray<VirtualTreeviewRow<Value>>,
+  next: ReadonlyArray<VirtualTreeviewRow<Value>>,
+): boolean {
+  if (current.length !== next.length) {
+    return false
+  }
+  for (let index = 0; index < current.length; index += 1) {
+    const currentRow = current[index]
+    const nextRow = next[index]
+    if (
+      !Object.is(currentRow.value, nextRow.value) ||
+      !Object.is(currentRow.parent, nextRow.parent) ||
+      currentRow.index !== nextRow.index ||
+      currentRow.top !== nextRow.top ||
+      currentRow.height !== nextRow.height ||
+      currentRow.depth !== nextRow.depth ||
+      currentRow.childCount !== nextRow.childCount ||
+      currentRow.disabled !== nextRow.disabled ||
+      currentRow.expanded !== nextRow.expanded ||
+      currentRow.selected !== nextRow.selected ||
+      currentRow.active !== nextRow.active
+    ) {
+      return false
+    }
+  }
+  return true
 }
 
 function normalizePositiveNumber(value: number, fallback: number): number {

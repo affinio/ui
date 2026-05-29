@@ -106,6 +106,40 @@ describe("useVirtualTreeviewController", () => {
     scope.stop()
     vi.useRealTimers()
   })
+
+  it("keeps virtual row refs stable when the window signature does not change", async () => {
+    vi.useFakeTimers()
+    const scope = effectScope()
+    let controller!: VirtualTreeviewController<string>
+    scope.run(() => {
+      controller = useVirtualTreeviewController<string>({
+        nodes: NODES,
+        defaultExpanded: ["root", "beta"],
+        rowHeight: 10,
+        viewportHeight: 20,
+        overscan: 0,
+      })
+    })
+
+    const initialWindow = controller.visibleWindow.value
+    const initialRows = controller.visibleRows.value
+
+    controller.setScrollTop(0)
+    vi.runOnlyPendingTimers()
+    await nextTick()
+
+    expect(controller.visibleWindow.value).toBe(initialWindow)
+    expect(controller.visibleRows.value).toBe(initialRows)
+
+    controller.refreshWindow()
+
+    expect(controller.visibleWindow.value).toBe(initialWindow)
+    expect(controller.visibleRows.value).toBe(initialRows)
+
+    scope.stop()
+    vi.useRealTimers()
+  })
+
   it("renders positioned virtual rows without blanking the viewport", async () => {
     vi.useFakeTimers()
     let controller!: VirtualTreeviewController<string>

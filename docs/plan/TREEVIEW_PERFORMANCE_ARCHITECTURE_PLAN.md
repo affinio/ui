@@ -423,6 +423,8 @@ Progress:
 - The virtual controller owns viewport state (`scrollTop`, `rowHeight`, `viewportHeight`, `totalHeight`) and exposes metadata rows via `visibleWindow`.
 - Added `visibleRows` with stable row metadata plus `index`, `top`, and `height` so render layers can position rows without recalculating offsets in templates.
 - Scroll and viewport updates are requestAnimationFrame-batched; tree mutations refresh the current window synchronously.
+- Repeated scroll/viewport writes to the same value now skip scheduled refreshes.
+- Virtual row/window shallow refs are retained when the computed window metadata is unchanged, reducing Vue render churn for no-op scroll refreshes and state changes outside the rendered window.
 - Added a jsdom rendered fixture that positions virtual rows and verifies scroll-window updates do not blank the viewport.
 - Remaining Slice 7 work: add browser frame/blank-viewport validation against a real fixture.
 
