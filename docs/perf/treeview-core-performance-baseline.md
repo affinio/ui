@@ -31,7 +31,7 @@ The core harness measures:
 - 1% patch registration;
 - no-op patch registration fast-path coverage;
 - disabled-only patch registration without source topology rebuilds;
-- single valid node add patch coverage without full source finalization;
+- valid node add patch coverage without full source finalization;
 - single existing-node reparent patch coverage without full source finalization;
 - expand/collapse burst;
 - focus next/previous burst;

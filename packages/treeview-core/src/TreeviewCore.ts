@@ -437,6 +437,7 @@ export class TreeviewCore<Value = string> {
     let topologyChanged = false
     const addedNodePatches: Array<AddedNodePatch<Value>> = []
     const parentPatches: Array<ParentPatch<Value>> = []
+    let valuesBeforeAdd: Set<Value> | null = null
     nodes.forEach((node) => {
       const parent = node.parent ?? null
       const disabled = node.disabled ?? false
@@ -454,6 +455,9 @@ export class TreeviewCore<Value = string> {
         }
         return
       }
+      if (!valuesBeforeAdd) {
+        valuesBeforeAdd = new Set(this.nodes.keys())
+      }
       this.nodes.set(node.value, {
         value: node.value,
         parent,
@@ -465,8 +469,8 @@ export class TreeviewCore<Value = string> {
       changed = true
     })
     if (topologyChanged) {
-      if (this.canApplyIncrementalAddPatch(addedNodePatches, parentPatches)) {
-        this.applyIncrementalAddPatch(addedNodePatches[0])
+      if (this.canApplyIncrementalAddPatch(addedNodePatches, parentPatches, valuesBeforeAdd ?? new Set())) {
+        this.applyIncrementalAddPatch(addedNodePatches)
       } else if (!addedNodePatches.length && this.canApplyIncrementalParentPatch(parentPatches)) {
         this.applyIncrementalParentPatch(parentPatches[0])
       } else {
@@ -479,26 +483,41 @@ export class TreeviewCore<Value = string> {
   private canApplyIncrementalAddPatch(
     addedNodePatches: ReadonlyArray<AddedNodePatch<Value>>,
     parentPatches: ReadonlyArray<ParentPatch<Value>>,
+    valuesBeforePatch: ReadonlySet<Value>,
   ): boolean {
-    if (addedNodePatches.length !== 1 || parentPatches.length > 0) {
+    if (!addedNodePatches.length || parentPatches.length > 0) {
       return false
     }
-    const patch = addedNodePatches[0]
-    if (!patch || patch.parent === patch.value) {
-      return false
-    }
-    return patch.parent === null || this.nodes.has(patch.parent)
+    return addedNodePatches.every((patch) => {
+      if (patch.parent === patch.value) {
+        return false
+      }
+      return patch.parent === null || valuesBeforePatch.has(patch.parent)
+    })
   }
 
-  private applyIncrementalAddPatch(patch: AddedNodePatch<Value>): void {
-    if (patch.parent === null) {
-      this.rootValues = [...this.rootValues, patch.value]
-    } else {
-      const parentNode = this.nodes.get(patch.parent)
-      if (parentNode) {
-        parentNode.children = [...parentNode.children, patch.value]
+  private applyIncrementalAddPatch(addedNodePatches: ReadonlyArray<AddedNodePatch<Value>>): void {
+    const addedRoots: Value[] = []
+    const addedChildrenByParent = new Map<Value, Value[]>()
+    addedNodePatches.forEach((patch) => {
+      if (patch.parent === null) {
+        addedRoots.push(patch.value)
+        return
       }
+      const children = addedChildrenByParent.get(patch.parent) ?? []
+      children.push(patch.value)
+      addedChildrenByParent.set(patch.parent, children)
+    })
+
+    if (addedRoots.length) {
+      this.rootValues = [...this.rootValues, ...addedRoots]
     }
+    addedChildrenByParent.forEach((children, parent) => {
+      const parentNode = this.nodes.get(parent)
+      if (parentNode) {
+        parentNode.children = [...parentNode.children, ...children]
+      }
+    })
     this.rebuildSourceIndexes(this.nodes)
   }
 
