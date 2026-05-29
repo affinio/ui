@@ -87,6 +87,21 @@ const results = {
       }
     } }
   }),
+  registerPatchBatchReparent: measureInstrumented(() => {
+    const core = createInstrumentedCore({ nodes: balancedNodes, defaultExpanded: ["node-0"], defaultActive: "node-0" })
+    const first = balancedNodes[balancedNodes.length - 1]
+    const second = balancedNodes[balancedNodes.length - 2]
+    const firstParent = first.parent
+    const secondParent = second.parent
+    return { core, run: () => {
+      for (let index = 0; index < TOPOLOGY_PATCH_ITERATIONS; index += 1) {
+        core.registerNodes([
+          { value: first.value, parent: index % 2 === 0 ? "node-0" : firstParent },
+          { value: second.value, parent: index % 2 === 0 ? "node-0" : secondParent },
+        ], { mode: "patch" })
+      }
+    } }
+  }),
   expandCollapseBurst: measureInstrumented(() => {
     const core = createInstrumentedCore({ nodes: balancedNodes, defaultExpanded: ["node-0"], defaultActive: "node-0" })
     const branchIds = balancedNodes.filter((node, index) => index > 0 && hasLikelyChildren(index, NODE_COUNT, 4)).slice(0, BURST_ITERATIONS).map((node) => node.value)

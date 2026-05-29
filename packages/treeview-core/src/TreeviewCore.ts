@@ -472,7 +472,7 @@ export class TreeviewCore<Value = string> {
       if (this.canApplyIncrementalAddPatch(addedNodePatches, parentPatches, valuesBeforeAdd ?? new Set())) {
         this.applyIncrementalAddPatch(addedNodePatches)
       } else if (!addedNodePatches.length && this.canApplyIncrementalParentPatch(parentPatches)) {
-        this.applyIncrementalParentPatch(parentPatches[0])
+        this.applyIncrementalParentPatch(parentPatches)
       } else {
         this.finalizeNodeMap(this.nodes)
       }
@@ -522,23 +522,36 @@ export class TreeviewCore<Value = string> {
   }
 
   private canApplyIncrementalParentPatch(parentPatches: ReadonlyArray<ParentPatch<Value>>): boolean {
-    if (parentPatches.length !== 1) {
+    if (!parentPatches.length) {
       return false
     }
-    const patch = parentPatches[0]
-    if (!patch || patch.parent === patch.value) {
-      return false
-    }
-    if (patch.parent !== null && !this.nodes.has(patch.parent)) {
-      return false
-    }
-    return patch.parent === null || !this.isAncestorOf(patch.value, patch.parent)
+    return parentPatches.every((patch) => {
+      if (patch.parent === patch.value) {
+        return false
+      }
+      if (patch.parent !== null && !this.nodes.has(patch.parent)) {
+        return false
+      }
+      return patch.parent === null || !this.isAncestorOf(patch.value, patch.parent)
+    })
   }
 
-  private applyIncrementalParentPatch(patch: ParentPatch<Value>): void {
-    this.rebuildChildrenForParent(patch.previousParent)
-    this.rebuildChildrenForParent(patch.parent)
-    if (patch.previousParent === null || patch.parent === null) {
+  private applyIncrementalParentPatch(parentPatches: ReadonlyArray<ParentPatch<Value>>): void {
+    const affectedParents = new Set<Value>()
+    let rootsChanged = false
+    parentPatches.forEach((patch) => {
+      if (patch.previousParent === null || patch.parent === null) {
+        rootsChanged = true
+      }
+      if (patch.previousParent !== null) {
+        affectedParents.add(patch.previousParent)
+      }
+      if (patch.parent !== null) {
+        affectedParents.add(patch.parent)
+      }
+    })
+    affectedParents.forEach((parent) => this.rebuildChildrenForParent(parent))
+    if (rootsChanged) {
       this.rebuildRootValues(this.nodes)
     }
     this.rebuildSourceIndexes(this.nodes)
