@@ -65,6 +65,16 @@ const results = {
       }
     } }
   }),
+  registerPatchSingleReparent: measureInstrumented(() => {
+    const core = createInstrumentedCore({ nodes: balancedNodes, defaultExpanded: ["node-0"], defaultActive: "node-0" })
+    const moved = balancedNodes[balancedNodes.length - 1]
+    const originalParent = moved.parent
+    return { core, run: () => {
+      for (let index = 0; index < BURST_ITERATIONS; index += 1) {
+        core.registerNodes([{ value: moved.value, parent: index % 2 === 0 ? "node-0" : originalParent }], { mode: "patch" })
+      }
+    } }
+  }),
   expandCollapseBurst: measureInstrumented(() => {
     const core = createInstrumentedCore({ nodes: balancedNodes, defaultExpanded: ["node-0"], defaultActive: "node-0" })
     const branchIds = balancedNodes.filter((node, index) => index > 0 && hasLikelyChildren(index, NODE_COUNT, 4)).slice(0, BURST_ITERATIONS).map((node) => node.value)
@@ -205,10 +215,17 @@ function createInstrumentedCore(options) {
     emittedSnapshotCount: -1,
     visibleRecomputeCount: 0,
     traversalRebuildCount: 0,
+    sourceFinalizeCount: 0,
   }
   core.subscribe(() => {
     counters.emittedSnapshotCount += 1
   })
+
+  const originalFinalizeNodeMap = core.finalizeNodeMap.bind(core)
+  core.finalizeNodeMap = (...args) => {
+    counters.sourceFinalizeCount += 1
+    return originalFinalizeNodeMap(...args)
+  }
 
   const originalCommitVisibleProjection = core.commitVisibleProjection.bind(core)
   core.commitVisibleProjection = (...args) => {
@@ -280,6 +297,7 @@ function measureInstrumented(factory) {
     traversalRebuildCount: maxCounter(counters, "traversalRebuildCount"),
     visibleProjectionVersion: maxCounter(counters, "visibleProjectionVersion"),
     visibleNavigationLookupCount: maxCounter(counters, "visibleNavigationLookupCount"),
+    sourceFinalizeCount: maxCounter(counters, "sourceFinalizeCount"),
   }
 }
 
@@ -318,7 +336,7 @@ function printReport(report, outputJson) {
   console.log(`[treeview-core] ${report.config.nodeCount} nodes, ${report.config.sampleCount} samples`)
   for (const [name, result] of Object.entries(report.results)) {
     const counters = "traversalRebuildCount" in result
-      ? ` emitted=${result.emittedSnapshotCount} visible=${result.visibleRecomputeCount} traversal=${result.traversalRebuildCount} projectionVersion=${result.visibleProjectionVersion} navLookups=${result.visibleNavigationLookupCount}`
+      ? ` emitted=${result.emittedSnapshotCount} visible=${result.visibleRecomputeCount} traversal=${result.traversalRebuildCount} sourceFinalize=${result.sourceFinalizeCount} projectionVersion=${result.visibleProjectionVersion} navLookups=${result.visibleNavigationLookupCount}`
       : ""
     if (result.failed) {
       console.log(`${name}: failed ${result.error}`)

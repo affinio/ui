@@ -31,6 +31,7 @@ The core harness measures:
 - 1% patch registration;
 - no-op patch registration fast-path coverage;
 - disabled-only patch registration without source topology rebuilds;
+- single existing-node reparent patch coverage without full source finalization;
 - expand/collapse burst;
 - focus next/previous burst;
 - active-only focus burst;
@@ -39,7 +40,7 @@ The core harness measures:
 - full visible-array read;
 - window read using `getVisibleWindow(start, end)`, with unit coverage for same-window cache reuse.
 
-Each core workload reports p50, p95, p99, max elapsed time, heap delta, and, where available, emitted snapshot count, committed visible projection recomputes, projection version, navigation lookups, and legacy traversal-order read counters. Expand/collapse should keep traversal-order reads at 0 now that canonical expanded sorting uses the preorder index; normalization-only visible reads should not advance projection counters.
+Each core workload reports p50, p95, p99, max elapsed time, heap delta, and, where available, emitted snapshot count, committed visible projection recomputes, source finalization count, projection version, navigation lookups, and legacy traversal-order read counters. Expand/collapse should keep traversal-order reads at 0 now that canonical expanded sorting uses the preorder index; normalization-only visible reads should not advance projection counters.
 
 The Vue virtual harness uses a jsdom-mounted `useVirtualTreeviewController()` fixture and measures:
 

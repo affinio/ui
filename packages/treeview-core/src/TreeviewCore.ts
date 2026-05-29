@@ -24,6 +24,12 @@ type NodeMapPatchResult = {
   changed: boolean
 }
 
+type ParentPatch<Value> = {
+  value: Value
+  previousParent: Value | null
+  parent: Value | null
+}
+
 type VisibleProjection<Value> = {
   visible: Value[]
   visibleIndexByValue: Map<Value, number>
@@ -424,12 +430,15 @@ export class TreeviewCore<Value = string> {
   private patchNodeMap(nodes: ReadonlyArray<TreeviewNode<Value>>): NodeMapPatchResult {
     let changed = false
     let topologyChanged = false
+    let addedNode = false
+    const parentPatches: Array<ParentPatch<Value>> = []
     nodes.forEach((node) => {
       const parent = node.parent ?? null
       const disabled = node.disabled ?? false
       const existing = this.nodes.get(node.value)
       if (existing) {
         if (existing.parent !== parent) {
+          parentPatches.push({ value: node.value, previousParent: existing.parent, parent })
           existing.parent = parent
           topologyChanged = true
           changed = true
@@ -446,13 +455,79 @@ export class TreeviewCore<Value = string> {
         disabled,
         children: [],
       })
+      addedNode = true
       topologyChanged = true
       changed = true
     })
     if (topologyChanged) {
-      this.finalizeNodeMap(this.nodes)
+      if (!addedNode && this.canApplyIncrementalParentPatch(parentPatches)) {
+        this.applyIncrementalParentPatch(parentPatches[0])
+      } else {
+        this.finalizeNodeMap(this.nodes)
+      }
     }
     return { changed }
+  }
+
+  private canApplyIncrementalParentPatch(parentPatches: ReadonlyArray<ParentPatch<Value>>): boolean {
+    if (parentPatches.length !== 1) {
+      return false
+    }
+    const patch = parentPatches[0]
+    if (!patch || patch.parent === patch.value) {
+      return false
+    }
+    if (patch.parent !== null && !this.nodes.has(patch.parent)) {
+      return false
+    }
+    return patch.parent === null || !this.isAncestorOf(patch.value, patch.parent)
+  }
+
+  private applyIncrementalParentPatch(patch: ParentPatch<Value>): void {
+    this.rebuildChildrenForParent(patch.previousParent)
+    this.rebuildChildrenForParent(patch.parent)
+    if (patch.previousParent === null || patch.parent === null) {
+      this.rebuildRootValues(this.nodes)
+    }
+    this.rebuildSourceIndexes(this.nodes)
+  }
+
+  private rebuildChildrenForParent(parent: Value | null): void {
+    if (parent === null) {
+      return
+    }
+    const parentNode = this.nodes.get(parent)
+    if (!parentNode) {
+      return
+    }
+    const children: Value[] = []
+    this.nodes.forEach((node) => {
+      if (node.parent === parent) {
+        children.push(node.value)
+      }
+    })
+    parentNode.children = children
+  }
+
+  private rebuildRootValues(map: Map<Value, InternalNode<Value>>): void {
+    const roots: Value[] = []
+    map.forEach((node) => {
+      if (node.parent === null) {
+        roots.push(node.value)
+      }
+    })
+    this.rootValues = roots
+  }
+
+  private isAncestorOf(ancestor: Value, value: Value): boolean {
+    let current: Value | null = value
+    while (current !== null) {
+      if (current === ancestor) {
+        return true
+      }
+      current = this.nodes.get(current)?.parent ?? null
+    }
+    return false
   }
 
   private finalizeNodeMap(map: Map<Value, InternalNode<Value>>): void {
@@ -471,15 +546,12 @@ export class TreeviewCore<Value = string> {
       }
     })
 
-    const roots: Value[] = []
     map.forEach((node) => {
-      if (node.parent === null) {
-        roots.push(node.value)
-        return
+      if (node.parent !== null) {
+        map.get(node.parent)?.children.push(node.value)
       }
-      map.get(node.parent)?.children.push(node.value)
     })
-    this.rootValues = roots
+    this.rebuildRootValues(map)
     this.rebuildSourceIndexes(map)
   }
 

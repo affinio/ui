@@ -281,6 +281,35 @@ describe("TreeviewCore", () => {
     expect(core.getNodeMeta("beta")).toMatchObject({ disabled: true })
   })
 
+  it("updates a single existing reparent without full source finalization", () => {
+    const core = new TreeviewCore<string>({
+      nodes: [
+        { value: "root", parent: null },
+        { value: "alpha", parent: "root" },
+        { value: "beta", parent: "root" },
+      ],
+      defaultExpanded: ["root"],
+      defaultActive: "root",
+    })
+    const internals = core as unknown as {
+      finalizeNodeMap: (map: Map<string, unknown>) => void
+      preorderValues: string[]
+    }
+    const finalizeNodeMap = vi.spyOn(internals, "finalizeNodeMap")
+
+    core.registerNodes([{ value: "beta", parent: "alpha" }], { mode: "patch" })
+
+    expect(finalizeNodeMap).not.toHaveBeenCalled()
+    expect(core.getChildren("root")).toEqual(["alpha"])
+    expect(core.getChildren("alpha")).toEqual(["beta"])
+    expect(core.getNodeMeta("beta")).toMatchObject({ parent: "alpha", depth: 2 })
+    expect(core.getVisibleValues()).toEqual(["root", "alpha"])
+    expect(internals.preorderValues).toEqual(["root", "alpha", "beta"])
+
+    core.expand("alpha")
+    expect(core.getVisibleValues()).toEqual(["root", "alpha", "beta"])
+  })
+
   it("skips source invalidation for no-op register patch updates", () => {
     const core = new TreeviewCore<string>({
       nodes: [
