@@ -199,6 +199,12 @@ Expected result:
 
 - Source index cost is paid at source registration, not during navigation or active updates.
 
+Progress:
+
+- Replaced recursive traversal and visible projection walks with iterative DFS, preserving preorder child order while avoiding stack overflow on deep chains.
+- Added a 10k expanded-chain contract test and confirmed `registerReplaceDeep` now records successful benchmark timings instead of `RangeError`.
+- Remaining Slice 2 work: introduce explicit source graph index ownership for roots/depth/preorder metadata instead of deriving roots from `nodes` during projection reads.
+
 ## Slice 3: Incremental Source Patches
 
 Purpose: make patch registration actually incremental.

@@ -111,6 +111,23 @@ describe("TreeviewCore", () => {
     expect(core.getSnapshot().selected).toBe(null)
   })
 
+  it("handles deep expanded chains without recursive stack overflow", () => {
+    const nodes: TreeviewNode<string>[] = Array.from({ length: 10000 }, (_entry, index) => ({
+      value: `node-${index}`,
+      parent: index === 0 ? null : `node-${index - 1}`,
+    }))
+    const expanded = nodes.slice(0, -1).map((node) => node.value)
+    const core = new TreeviewCore<string>({
+      nodes,
+      defaultExpanded: expanded,
+      defaultActive: "node-9999",
+    })
+
+    expect(core.getSnapshot().active).toBe("node-9999")
+    expect(core.getSnapshot().expanded).toHaveLength(9999)
+    expect(core.getVisibleValues()).toHaveLength(10000)
+  })
+
   it("keeps expanded order canonical across mutation order", () => {
     const nodes: TreeviewNode<string>[] = [
       { value: "root", parent: null },

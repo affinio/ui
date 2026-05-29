@@ -24,7 +24,7 @@ pnpm --dir packages/treeview-core run bench:assert
 
 The initial harness measures:
 
-- balanced, wide, and deep replace registration;
+- balanced, wide, and deep replace registration, including deep-chain stack-safety coverage;
 - 1% patch registration;
 - expand/collapse burst;
 - focus next/previous burst;

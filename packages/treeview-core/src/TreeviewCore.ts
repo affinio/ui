@@ -496,26 +496,33 @@ export class TreeviewCore<Value = string> {
     const order: Value[] = []
     const visited = new Set<Value>()
 
-    const visit = (value: Value, path: Set<Value>) => {
-      if (visited.has(value) || path.has(value)) {
-        return
+    const visit = (start: Value) => {
+      const stack: Value[] = [start]
+      while (stack.length) {
+        const value = stack.pop()
+        if (value === undefined || visited.has(value)) {
+          continue
+        }
+        const node = this.nodes.get(value)
+        if (!node) {
+          continue
+        }
+        visited.add(value)
+        order.push(value)
+        for (let index = node.children.length - 1; index >= 0; index -= 1) {
+          const child = node.children[index]
+          if (child !== undefined && !visited.has(child)) {
+            stack.push(child)
+          }
+        }
       }
-      const node = this.nodes.get(value)
-      if (!node) {
-        return
-      }
-      path.add(value)
-      visited.add(value)
-      order.push(value)
-      node.children.forEach((child) => visit(child, path))
-      path.delete(value)
     }
 
     const roots = Array.from(this.nodes.values()).filter((node) => node.parent === null)
-    roots.forEach((root) => visit(root.value, new Set<Value>()))
+    roots.forEach((root) => visit(root.value))
     this.nodes.forEach((_node, value) => {
       if (!visited.has(value)) {
-        visit(value, new Set<Value>())
+        visit(value)
       }
     })
     this.traversalOrderCache = order
@@ -546,24 +553,32 @@ export class TreeviewCore<Value = string> {
   private getVisibleValuesFor(expanded: ReadonlySet<Value>): Value[] {
     const roots = Array.from(this.nodes.values()).filter((node) => node.parent === null)
     const visible: Value[] = []
+    const visited = new Set<Value>()
 
-    const visit = (value: Value, path: Set<Value>) => {
-      const node = this.nodes.get(value)
-      if (!node) {
-        return
+    roots.forEach((root) => {
+      const stack: Value[] = [root.value]
+      while (stack.length) {
+        const value = stack.pop()
+        if (value === undefined || visited.has(value)) {
+          continue
+        }
+        const node = this.nodes.get(value)
+        if (!node) {
+          continue
+        }
+        visited.add(value)
+        visible.push(value)
+        if (!expanded.has(value)) {
+          continue
+        }
+        for (let index = node.children.length - 1; index >= 0; index -= 1) {
+          const child = node.children[index]
+          if (child !== undefined && !visited.has(child)) {
+            stack.push(child)
+          }
+        }
       }
-      if (path.has(value)) {
-        return
-      }
-      path.add(value)
-      visible.push(value)
-      if (expanded.has(value)) {
-        node.children.forEach((child) => visit(child, path))
-      }
-      path.delete(value)
-    }
-
-    roots.forEach((root) => visit(root.value, new Set()))
+    })
     return visible
   }
 
