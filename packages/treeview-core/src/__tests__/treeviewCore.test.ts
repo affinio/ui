@@ -137,11 +137,30 @@ describe("TreeviewCore", () => {
       defaultExpanded: ["root", "beta"],
       defaultActive: "root",
     })
-    const window = core.getVisibleWindow(0, 2)
+    const window = core.getVisibleWindow(0, 2) as string[]
+    const sameWindow = core.getVisibleWindow(0, 2)
 
-    window.push("mutated")
-
+    expect(Object.isFrozen(window)).toBe(true)
+    expect(sameWindow).toBe(window)
+    expect(() => {
+      window.push("mutated")
+    }).toThrow(TypeError)
     expect(core.getVisibleWindow(0, 4)).toEqual(["root", "alpha", "beta", "gamma"])
+  })
+
+  it("invalidates cached windows when visible projection changes", () => {
+    const core = new TreeviewCore<string>({
+      nodes: DEFAULT_NODES,
+      defaultExpanded: ["root"],
+      defaultActive: "root",
+    })
+    const before = core.getVisibleWindow(0, 3)
+
+    core.expand("beta")
+    const after = core.getVisibleWindow(0, 3)
+
+    expect(after).not.toBe(before)
+    expect(after).toEqual(["root", "alpha", "beta"])
   })
 
   it("collapses focused branches back to parent", () => {

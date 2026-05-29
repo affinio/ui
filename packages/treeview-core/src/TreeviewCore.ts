@@ -50,6 +50,12 @@ export class TreeviewCore<Value = string> {
   private previousEnabledValueByVisibleIndex: Array<Value | null> = []
   private visibleProjectionVersion = 0
   private visibleProjectionRecomputeCount = 0
+  private visibleWindowCache: {
+    version: number
+    start: number
+    end: number
+    values: ReadonlyArray<Value>
+  } | null = null
   private visibleNavigationLookupCount = 0
   private readonly visibleProjection = createProjectionStageEngine<TreeviewProjectionStage>({
     nodes: {
@@ -82,8 +88,7 @@ export class TreeviewCore<Value = string> {
     } else {
       this.nodes = this.buildNodeMap(nodes)
     }
-    this.visibleCache = null
-    this.visibleProjection.requestRefreshPass()
+    this.invalidateVisibleProjection()
     const next = this.normalizeState(this.state)
     this.patch(next, options.emit ?? true)
   }
@@ -310,14 +315,29 @@ export class TreeviewCore<Value = string> {
     return this.visibleIndexByValue.get(value) ?? -1
   }
 
-  getVisibleWindow(start: number, end: number): Value[] {
+  getVisibleWindow(start: number, end: number): ReadonlyArray<Value> {
     const visible = this.getVisibleValuesCached()
     const safeStart = clampVisibleWindowIndex(start, visible.length)
     const safeEnd = clampVisibleWindowIndex(end, visible.length)
     if (safeEnd <= safeStart) {
-      return []
+      return EMPTY_VISIBLE_WINDOW
     }
-    return visible.slice(safeStart, safeEnd)
+    if (
+      this.visibleWindowCache &&
+      this.visibleWindowCache.version === this.visibleProjectionVersion &&
+      this.visibleWindowCache.start === safeStart &&
+      this.visibleWindowCache.end === safeEnd
+    ) {
+      return this.visibleWindowCache.values
+    }
+    const values = Object.freeze(visible.slice(safeStart, safeEnd))
+    this.visibleWindowCache = {
+      version: this.visibleProjectionVersion,
+      start: safeStart,
+      end: safeEnd,
+      values,
+    }
+    return values
   }
 
   getNodeMeta(value: Value): TreeviewNodeMeta<Value> | null {
@@ -548,8 +568,7 @@ export class TreeviewCore<Value = string> {
     }
     if (!expandedValuesEqual(this.state.expanded, normalizedNext.expanded)) {
       this.expandedSet = new Set(normalizedNext.expanded)
-      this.visibleCache = null
-      this.visibleProjection.requestRefreshPass()
+      this.invalidateVisibleProjection()
     }
     this.state = normalizedNext
     this.snapshot = this.createSnapshot(normalizedNext)
@@ -674,6 +693,12 @@ export class TreeviewCore<Value = string> {
     return this.preorderValues
   }
 
+  private invalidateVisibleProjection(): void {
+    this.visibleCache = null
+    this.visibleWindowCache = null
+    this.visibleProjection.requestRefreshPass()
+  }
+
   private getVisibleValuesCached(): Value[] {
     if (this.visibleCache && !this.visibleProjection.hasDirtyStages()) {
       return this.visibleCache
@@ -765,6 +790,7 @@ export class TreeviewCore<Value = string> {
     this.nextEnabledValueByVisibleIndex = projection.nextEnabledValueByVisibleIndex
     this.visibleProjectionVersion += 1
     this.visibleProjectionRecomputeCount += 1
+    this.visibleWindowCache = null
     return projection.visible
   }
 
@@ -812,6 +838,8 @@ export class TreeviewCore<Value = string> {
     return false
   }
 }
+
+const EMPTY_VISIBLE_WINDOW: ReadonlyArray<never> = Object.freeze([])
 
 function clampVisibleWindowIndex(index: number, length: number): number {
   if (!Number.isFinite(index)) {

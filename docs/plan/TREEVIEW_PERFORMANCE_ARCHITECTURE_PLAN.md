@@ -325,7 +325,8 @@ Progress:
 - Added core window/read APIs: `getVisibleCount()`, `getVisibleAt(index)`, `getVisibleIndex(value)`, `getVisibleWindow(start, end)`, and `getNodeMeta(value)`.
 - Kept `getVisibleValues()` as the compatibility full-array copy API.
 - Updated the core benchmark window workload to use `getVisibleWindow()` instead of copying via `getVisibleValues().slice(...)`.
-- Remaining Slice 5 work: avoid allocating a new window array when the requested window signature is unchanged, and wire row metadata into the Vue adapter.
+- Added frozen last-window caching so repeated reads of the same clamped window and projection version reuse the same array and cannot mutate internal visible state.
+- Remaining Slice 5 work: wire row metadata into the Vue adapter and decide whether multi-window caching is worth the memory tradeoff.
 
 ## Slice 6: First-Class Search And Filter Projection
 
