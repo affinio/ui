@@ -24,6 +24,7 @@ export class TreeviewCore<Value = string> {
   private state: TreeviewState<Value>
   private snapshot: TreeviewSnapshot<Value>
   private subscribers = new Set<TreeviewSubscriber<Value>>()
+  private rootValues: Value[] = []
   private expandedSet = new Set<Value>()
   private traversalOrderCache: Value[] | null = null
   private visibleCache: Value[] | null = null
@@ -354,15 +355,59 @@ export class TreeviewCore<Value = string> {
       node.children = []
     })
     map.forEach((node) => {
-      if (node.parent === null) {
-        return
-      }
-      if (node.parent === node.value || !map.has(node.parent)) {
+      if (node.parent !== null && (node.parent === node.value || !map.has(node.parent))) {
         node.parent = null
+      }
+    })
+    this.getParentCycleValues(map).forEach((value) => {
+      const node = map.get(value)
+      if (node) {
+        node.parent = null
+      }
+    })
+
+    const roots: Value[] = []
+    map.forEach((node) => {
+      if (node.parent === null) {
+        roots.push(node.value)
         return
       }
       map.get(node.parent)?.children.push(node.value)
     })
+    this.rootValues = roots
+  }
+
+  private getParentCycleValues(map: Map<Value, InternalNode<Value>>): Set<Value> {
+    const cycleValues = new Set<Value>()
+    const resolvedValues = new Set<Value>()
+    map.forEach((_node, start) => {
+      if (resolvedValues.has(start)) {
+        return
+      }
+      const path: Value[] = []
+      const pathIndexByValue = new Map<Value, number>()
+      let current: Value | null = start
+      while (current !== null) {
+        if (resolvedValues.has(current)) {
+          break
+        }
+        const cycleStart = pathIndexByValue.get(current)
+        if (cycleStart !== undefined) {
+          for (let index = cycleStart; index < path.length; index += 1) {
+            const value = path[index]
+            if (value !== undefined) {
+              cycleValues.add(value)
+            }
+          }
+          break
+        }
+        pathIndexByValue.set(current, path.length)
+        path.push(current)
+        current = map.get(current)?.parent ?? null
+      }
+      path.forEach((value) => resolvedValues.add(value))
+    })
+    return cycleValues
   }
 
   private patch(next: TreeviewState<Value>, emit = true): void {
@@ -518,8 +563,7 @@ export class TreeviewCore<Value = string> {
       }
     }
 
-    const roots = Array.from(this.nodes.values()).filter((node) => node.parent === null)
-    roots.forEach((root) => visit(root.value))
+    this.rootValues.forEach((root) => visit(root))
     this.nodes.forEach((_node, value) => {
       if (!visited.has(value)) {
         visit(value)
@@ -551,12 +595,11 @@ export class TreeviewCore<Value = string> {
   }
 
   private getVisibleValuesFor(expanded: ReadonlySet<Value>): Value[] {
-    const roots = Array.from(this.nodes.values()).filter((node) => node.parent === null)
     const visible: Value[] = []
     const visited = new Set<Value>()
 
-    roots.forEach((root) => {
-      const stack: Value[] = [root.value]
+    this.rootValues.forEach((root) => {
+      const stack: Value[] = [root]
       while (stack.length) {
         const value = stack.pop()
         if (value === undefined || visited.has(value)) {

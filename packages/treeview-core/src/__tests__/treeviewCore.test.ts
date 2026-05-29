@@ -91,6 +91,25 @@ describe("TreeviewCore", () => {
     expect(core.getSnapshot().expanded).toEqual(["root"])
   })
 
+  it("normalizes missing parents and parent cycles into stable roots", () => {
+    const core = new TreeviewCore<string>({
+      nodes: [
+        { value: "alpha", parent: "beta" },
+        { value: "beta", parent: "alpha" },
+        { value: "orphan", parent: "missing" },
+        { value: "root", parent: null },
+        { value: "child", parent: "root" },
+      ],
+      defaultExpanded: ["root", "alpha", "beta", "orphan"],
+    })
+
+    expect(core.getParent("alpha")).toBe(null)
+    expect(core.getParent("beta")).toBe(null)
+    expect(core.getParent("orphan")).toBe(null)
+    expect(core.getVisibleValues()).toEqual(["alpha", "beta", "orphan", "root", "child"])
+    expect(core.getSnapshot().expanded).toEqual(["root"])
+  })
+
   it("supports partial node updates with register patch mode", () => {
     const core = new TreeviewCore<string>({
       nodes: [
