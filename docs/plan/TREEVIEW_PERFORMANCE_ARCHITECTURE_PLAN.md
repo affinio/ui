@@ -389,7 +389,7 @@ Progress:
 - Added node text indexing through `TreeviewNode.text` and `TreeviewOptions.textAccessor`.
 - Search now shows direct matches plus ancestors, preserves expansion state on clear, and exposes direct-hit metadata through `TreeviewNodeMeta.matched`.
 - Wired search helpers through `useTreeviewController()` and `useVirtualTreeviewController()`.
-- Wired `/treeview` in `packages/demo-vue` to exercise search projection, direct match styling, and input-focus preservation in the sandbox route.
+- Wired `/treeview` in `packages/demo-vue` to exercise a virtualized ~2.4k-node fixture, search projection, direct match styling, and input-focus preservation in the sandbox route.
 - Remaining Slice 6 work: match navigation, disabled-node matching policy, richer match metadata/ranges, and larger 20k/100k search baselines.
 
 ## Slice 7: Vue Virtualized Rendering Adapter

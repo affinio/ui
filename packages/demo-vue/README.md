@@ -10,7 +10,7 @@ Included demo areas:
 - popover
 - disclosure
 - tabs
-- treeview (`/treeview`, including search projection and matched-node styling)
+- treeview (`/treeview`, including a virtualized ~2.4k-node performance fixture, search projection, and matched-node styling)
 - selection
 - combobox
 - virtualization

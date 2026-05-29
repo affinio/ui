@@ -1,55 +1,52 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch, type ComponentPublicInstance } from "vue"
-import { useTreeviewController, type TreeviewNode } from "@affino/treeview-vue"
+import { useVirtualTreeviewController, type TreeviewNode } from "@affino/treeview-vue"
 
-type NodeValue =
-  | "workspace"
-  | "roadmap"
-  | "backlog"
-  | "priority"
-  | "design-spikes"
-  | "sprint"
-  | "release-train"
-  | "qa"
-  | "incidents"
-  | "sev1"
-  | "sev2"
-  | "postmortems"
-  | "action-items"
-  | "archive"
+type NodeValue = string
 
-const nodes: TreeviewNode<NodeValue>[] = [
-  { value: "workspace", parent: null },
-  { value: "roadmap", parent: "workspace" },
-  { value: "backlog", parent: "roadmap" },
-  { value: "priority", parent: "backlog" },
-  { value: "design-spikes", parent: "backlog" },
-  { value: "sprint", parent: "roadmap" },
-  { value: "release-train", parent: "sprint" },
-  { value: "qa", parent: "workspace" },
-  { value: "incidents", parent: "qa" },
-  { value: "sev1", parent: "incidents" },
-  { value: "sev2", parent: "incidents" },
-  { value: "postmortems", parent: "qa" },
-  { value: "action-items", parent: "postmortems" },
-  { value: "archive", parent: "workspace" },
-]
+type DemoNodeMeta = {
+  title: string
+  detail: string
+}
 
-const nodeMeta: Record<NodeValue, { title: string; detail: string }> = {
-  workspace: { title: "Workspace", detail: "Primary product workspace root" },
-  roadmap: { title: "Roadmap", detail: "Quarter planning lanes" },
-  backlog: { title: "Backlog", detail: "Candidate stories and design spikes" },
-  priority: { title: "Priority", detail: "Urgent items for the next cut" },
-  "design-spikes": { title: "Design spikes", detail: "Exploration tracks before build" },
-  sprint: { title: "Sprint", detail: "Execution lane with active goals" },
-  "release-train": { title: "Release train", detail: "Current rollout checkpoints" },
-  qa: { title: "Quality", detail: "Validation, incidents, and release gates" },
-  incidents: { title: "Incidents", detail: "Live triage and recovery timelines" },
-  sev1: { title: "SEV-1", detail: "Immediate recovery branch" },
-  sev2: { title: "SEV-2", detail: "Follow-up mitigation queue" },
-  postmortems: { title: "Postmortems", detail: "Root-cause notes and owner actions" },
-  "action-items": { title: "Action items", detail: "Assigned prevention tasks" },
-  archive: { title: "Archive", detail: "Retired branches and snapshots" },
+const targetNodeCount = 2400
+const maxChildren = 10
+const virtualRowHeight = 32
+const virtualViewportHeight = 520
+
+const nodes: TreeviewNode<NodeValue>[] = []
+const nodeMeta: Record<NodeValue, DemoNodeMeta> = {}
+const defaultExpanded: NodeValue[] = []
+
+const addNode = (value: NodeValue, parent: NodeValue | null, title: string, detail: string): void => {
+  nodes.push({ value, parent, text: `${title} ${detail}` })
+  nodeMeta[value] = { title, detail }
+}
+
+addNode("workspace", null, "Workspace", "Synthetic perf root with thousands of nested branches")
+defaultExpanded.push("workspace")
+
+const queue: Array<{ value: NodeValue; depth: number; ordinal: number }> = [{ value: "workspace", depth: 1, ordinal: 0 }]
+let cursor = 0
+let nextId = 1
+while (cursor < queue.length && nodes.length < targetNodeCount) {
+  const parent = queue[cursor++]!
+  if (parent.depth >= 6) {
+    continue
+  }
+  const childCount = Math.min(maxChildren, 4 + ((parent.ordinal * 3 + parent.depth) % 7))
+  for (let index = 0; index < childCount && nodes.length < targetNodeCount; index += 1) {
+    const id = nextId++
+    const value = `node-${id}`
+    const depth = parent.depth + 1
+    const title = `Node ${id}`
+    const detail = `Depth ${depth}, child ${index + 1} of ${parent.value}`
+    addNode(value, parent.value, title, detail)
+    queue.push({ value, depth, ordinal: id })
+    if (depth <= 5) {
+      defaultExpanded.push(value)
+    }
+  }
 }
 
 const childrenByParent = new Map<NodeValue | null, NodeValue[]>()
@@ -58,6 +55,7 @@ nodes.forEach((node) => {
   siblings.push(node.value)
   childrenByParent.set(node.parent, siblings)
 })
+
 const nodesByValue = new Map<NodeValue, TreeviewNode<NodeValue>>()
 nodes.forEach((node) => {
   nodesByValue.set(node.value, node)
@@ -68,6 +66,7 @@ const parentByValue = new Map<NodeValue, NodeValue | null>()
 nodes.forEach((node) => {
   parentByValue.set(node.value, node.parent)
 })
+
 const resolveLevel = (value: NodeValue): number => {
   const cached = levelByValue.get(value)
   if (cached) {
@@ -88,13 +87,15 @@ const resolveLevel = (value: NodeValue): number => {
   return level
 }
 
-const treeview = useTreeviewController<NodeValue>({
+const treeview = useVirtualTreeviewController<NodeValue>({
   nodes,
-  textAccessor: (node) => `${nodeMeta[node.value].title} ${nodeMeta[node.value].detail}`,
-  defaultExpanded: ["workspace", "roadmap", "backlog", "sprint", "qa", "incidents", "postmortems"],
-  defaultSelected: "backlog",
-  defaultActive: "backlog",
+  defaultExpanded,
+  defaultSelected: "node-42",
+  defaultActive: "node-42",
   loop: true,
+  rowHeight: virtualRowHeight,
+  viewportHeight: virtualViewportHeight,
+  overscan: 10,
 })
 
 const searchInput = ref<HTMLInputElement | null>(null)
@@ -104,13 +105,12 @@ const snapshot = computed(() => treeview.state.value)
 const activeValue = computed(() => snapshot.value.active)
 const selectedValue = computed(() => snapshot.value.selected)
 const expandedSet = computed(() => new Set(snapshot.value.expanded))
-
-const visibleNodes = computed(() => {
+const visibleRows = computed(() => treeview.visibleRows.value)
+const totalHeight = computed(() => treeview.totalHeight.value)
+const totalNodeCount = nodes.length
+const visibleNodeCount = computed(() => {
   snapshot.value
-  return treeview
-    .getVisibleValues()
-    .map((value) => nodesByValue.get(value))
-    .filter((node): node is TreeviewNode<NodeValue> => Boolean(node))
+  return treeview.getVisibleCount()
 })
 
 const searchMatchCount = computed(() => {
@@ -176,6 +176,8 @@ const selectedMeta = computed(() => {
   return nodeMeta[selected]
 })
 
+const getTitle = (value: NodeValue): string => nodeMeta[value]?.title ?? String(value)
+const getDetail = (value: NodeValue): string => nodeMeta[value]?.detail ?? ""
 const hasChildren = (value: NodeValue) => (childrenByParent.get(value) ?? []).length > 0
 
 const itemElements = new Map<NodeValue, HTMLButtonElement>()
@@ -196,6 +198,7 @@ watch(
     if (!active) {
       return
     }
+    treeview.scrollToValue(active)
     await nextTick()
     const target = itemElements.get(active)
     if (!target || target.hidden || target === document.activeElement || document.activeElement === searchInput.value) {
@@ -208,6 +211,13 @@ watch(
     }
   },
 )
+
+const onRowsScroll = (event: Event): void => {
+  const target = event.currentTarget
+  if (target instanceof HTMLElement) {
+    treeview.setScrollTop(target.scrollTop)
+  }
+}
 
 const onNodeKeydown = (event: KeyboardEvent, value: NodeValue) => {
   switch (event.key) {
@@ -292,61 +302,70 @@ const onToggleClick = (value: NodeValue): void => {
       </span>
     </div>
 
-    <div class="treeview-rows" role="tree" aria-label="Project map treeview">
-      <button
-        v-for="node in visibleNodes"
-        :key="node.value"
-        :ref="bindItemElement(node.value)"
-        type="button"
-        class="treeview-node"
-        :class="{
-          'is-selected': selectedValue === node.value,
-          'is-matched': isMatched(node.value),
-        }"
-        :style="{ '--tree-level': String(resolveLevel(node.value)) }"
-        :data-tree-last="isLastSibling(node.value) ? 'true' : 'false'"
-        :data-state="selectedValue === node.value ? 'selected' : 'idle'"
-        :data-matched="isMatched(node.value) ? 'true' : 'false'"
-        role="treeitem"
-        :aria-level="String(resolveLevel(node.value))"
-        :aria-setsize="String(getSiblingCount(node.value))"
-        :aria-posinset="String(getPosInSet(node.value))"
-        :aria-selected="selectedValue === node.value ? 'true' : 'false'"
-        :aria-expanded="hasChildren(node.value) ? (expandedSet.has(node.value) ? 'true' : 'false') : undefined"
-        :tabindex="activeValue === node.value ? 0 : -1"
-        @click="treeview.select(node.value)"
-        @keydown="onNodeKeydown($event, node.value)"
-      >
-        <span class="treeview-node__rail" aria-hidden="true">
-          <span class="treeview-node__guides">
+    <div
+      class="treeview-rows"
+      role="tree"
+      aria-label="Project map treeview"
+      :style="{ height: `${virtualViewportHeight}px` }"
+      @scroll.passive="onRowsScroll"
+    >
+      <div class="treeview-rows__spacer" :style="{ height: `${totalHeight}px` }">
+        <button
+          v-for="row in visibleRows"
+          :key="row.value"
+          :ref="bindItemElement(row.value)"
+          type="button"
+          class="treeview-node"
+          :class="{
+            'is-selected': selectedValue === row.value,
+            'is-matched': isMatched(row.value),
+          }"
+          :style="{ '--tree-level': String(resolveLevel(row.value)), transform: `translateY(${row.top}px)` }"
+          :data-tree-last="isLastSibling(row.value) ? 'true' : 'false'"
+          :data-state="selectedValue === row.value ? 'selected' : 'idle'"
+          :data-matched="isMatched(row.value) ? 'true' : 'false'"
+          role="treeitem"
+          :aria-level="String(resolveLevel(row.value))"
+          :aria-setsize="String(getSiblingCount(row.value))"
+          :aria-posinset="String(getPosInSet(row.value))"
+          :aria-selected="selectedValue === row.value ? 'true' : 'false'"
+          :aria-expanded="hasChildren(row.value) ? (expandedSet.has(row.value) ? 'true' : 'false') : undefined"
+          :tabindex="activeValue === row.value ? 0 : -1"
+          @click="treeview.select(row.value)"
+          @keydown="onNodeKeydown($event, row.value)"
+        >
+          <span class="treeview-node__rail" aria-hidden="true">
+            <span class="treeview-node__guides">
+              <span
+                v-for="(draw, index) in getAncestorGuides(row.value)"
+                :key="`${row.value}-guide-${index}`"
+                class="treeview-node__guide"
+                :data-draw="draw ? 'true' : 'false'"
+                :style="{ '--guide-index': String(index) }"
+              />
+            </span>
+            <span class="treeview-node__stem" />
             <span
-              v-for="(draw, index) in getAncestorGuides(node.value)"
-              :key="`${node.value}-guide-${index}`"
-              class="treeview-node__guide"
-              :data-draw="draw ? 'true' : 'false'"
-              :style="{ '--guide-index': String(index) }"
+              v-if="hasChildren(row.value)"
+              class="treeview-node__toggle"
+              :data-state="expandedSet.has(row.value) ? 'expanded' : 'collapsed'"
+              @click.stop.prevent="onToggleClick(row.value)"
             />
+            <span v-else class="treeview-node__toggle treeview-node__toggle--dot" />
           </span>
-          <span class="treeview-node__stem" />
-          <span
-            v-if="hasChildren(node.value)"
-            class="treeview-node__toggle"
-            :data-state="expandedSet.has(node.value) ? 'expanded' : 'collapsed'"
-            @click.stop.prevent="onToggleClick(node.value)"
-          />
-          <span v-else class="treeview-node__toggle treeview-node__toggle--dot" />
-        </span>
-        <span class="treeview-node__content">
-          <span class="treeview-node__label">{{ nodeMeta[node.value].title }}</span>
-          <span class="treeview-node__detail">{{ nodeMeta[node.value].detail }}</span>
-        </span>
-      </button>
+          <span class="treeview-node__content">
+            <span class="treeview-node__label">{{ getTitle(row.value) }}</span>
+            <span class="treeview-node__detail">{{ getDetail(row.value) }}</span>
+          </span>
+        </button>
+      </div>
     </div>
 
     <footer class="treeview-footer">
       <p class="ui-eyebrow">Current selection</p>
       <p v-if="selectedMeta">{{ selectedMeta.title }} | {{ selectedMeta.detail }}</p>
       <p v-else>No node selected</p>
+      <p>{{ visibleNodeCount }} visible / {{ totalNodeCount }} total nodes</p>
     </footer>
   </section>
 </template>
@@ -426,9 +445,16 @@ const onToggleClick = (value: NodeValue): void => {
 }
 
 .treeview-rows {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
+  position: relative;
+  overflow: auto;
+  border: 1px solid var(--tree-border);
+  background: rgba(255, 255, 255, 0.32);
+  contain: strict;
+}
+
+.treeview-rows__spacer {
+  position: relative;
+  min-width: 100%;
 }
 
 .treeview-node {
@@ -437,7 +463,9 @@ const onToggleClick = (value: NodeValue): void => {
   --tree-toggle-size: 0.86rem;
   --tree-toggle-center: calc(var(--tree-offset) + (var(--tree-toggle-size) / 2));
   --tree-content-gap: 0.38rem;
-  position: relative;
+  position: absolute;
+  left: 0;
+  top: 0;
   width: 100%;
   border: 0;
   border-radius: 0;
