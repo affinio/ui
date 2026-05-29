@@ -1,3 +1,5 @@
+import { mkdir } from "node:fs/promises"
+import { join } from "node:path"
 import { spawn } from "node:child_process"
 import { setTimeout as delay } from "node:timers/promises"
 import { chromium } from "@playwright/test"
@@ -9,6 +11,8 @@ const searchQuery = process.env.TREEVIEW_SMOKE_QUERY ?? "depth 6"
 const noMatchQuery = process.env.TREEVIEW_SMOKE_NO_MATCH_QUERY ?? "definitely-no-treeview-match"
 const serverTimeoutMs = Number.parseInt(process.env.TREEVIEW_SMOKE_SERVER_TIMEOUT_MS ?? "15000", 10)
 const autoStartServer = process.env.TREEVIEW_SMOKE_START_SERVER !== "0"
+const screenshotDir = process.env.TREEVIEW_SMOKE_SCREENSHOT_DIR ?? "artifacts/treeview-smoke"
+const captureScreenshots = process.env.TREEVIEW_SMOKE_SCREENSHOTS !== "0"
 
 const assertPositive = (name, value) => {
   if (!(value > 0)) {
@@ -54,6 +58,16 @@ const isActiveElementInsideViewport = async (page) => {
     const activeRect = activeElement.getBoundingClientRect()
     return activeRect.bottom > viewportRect.top && activeRect.top < viewportRect.bottom
   })
+}
+
+const captureScreenshot = async (page, name) => {
+  if (!captureScreenshots) {
+    return null
+  }
+  await mkdir(screenshotDir, { recursive: true })
+  const path = join(screenshotDir, `${name}.png`)
+  await page.screenshot({ path, fullPage: false })
+  return path
 }
 
 const isRouteAvailable = async () => {
@@ -126,6 +140,7 @@ try {
 
   const initialRows = await page.locator("[role=treeitem]").count()
   assertPositive("initialRows", initialRows)
+  const initialScreenshot = await captureScreenshot(page, "treeview-initial")
 
   const firstRowValue = await page.locator("[role=treeitem]").first().getAttribute("data-value")
   await page.locator("[role=treeitem]").first().click()
@@ -165,6 +180,7 @@ try {
 
   const rowsIntersectingViewport = await countRowsIntersectingViewport(page)
   assertPositive("rowsIntersectingViewport", rowsIntersectingViewport)
+  const scrolledScreenshot = await captureScreenshot(page, "treeview-scrolled")
 
   await page.getByLabel("Search project map").fill(searchQuery)
   await page.waitForTimeout(160)
@@ -179,6 +195,7 @@ try {
   if (!searchInputFocused) {
     throw new Error("Search input lost focus during projection update")
   }
+  const searchScreenshot = await captureScreenshot(page, "treeview-search")
 
   await page.getByLabel("Clear treeview search").click()
   await page.waitForTimeout(160)
@@ -225,6 +242,7 @@ try {
   if (rowsAfterNoMatch !== 0 || visibleAfterNoMatch !== 0 || !emptySearchVisible || !searchInputFocusedAfterNoMatch) {
     throw new Error(JSON.stringify({ rowsAfterNoMatch, visibleAfterNoMatch, emptySearchVisible, searchInputFocusedAfterNoMatch }))
   }
+  const emptyScreenshot = await captureScreenshot(page, "treeview-empty-search")
 
   await page.getByLabel("Clear treeview search").click()
   await page.waitForTimeout(160)
@@ -236,6 +254,7 @@ try {
   console.log(JSON.stringify({
     route,
     serverStarted: Boolean(server),
+    screenshots: [initialScreenshot, scrolledScreenshot, searchScreenshot, emptyScreenshot].filter(Boolean),
     initialRows,
     activeAfterClick,
     activeAfterKeyboard,
