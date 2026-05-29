@@ -140,6 +140,58 @@ describe("useVirtualTreeviewController", () => {
     vi.useRealTimers()
   })
 
+  it("refreshes virtual rows for search projection without blanking", async () => {
+    vi.useFakeTimers()
+    const scope = effectScope()
+    let controller!: VirtualTreeviewController<string>
+    scope.run(() => {
+      controller = useVirtualTreeviewController<string>({
+        nodes: [
+          { value: "root", parent: null, text: "Workspace" },
+          { value: "alpha", parent: "root", text: "Billing" },
+          { value: "beta", parent: "root", text: "Settings" },
+          { value: "gamma", parent: "beta", text: "Security" },
+          { value: "omega", parent: "root", text: "Archive" },
+        ],
+        defaultExpanded: ["root"],
+        defaultActive: "alpha",
+        rowHeight: 10,
+        viewportHeight: 20,
+        overscan: 0,
+      })
+    })
+
+    controller.setSearchQuery("security")
+    vi.runOnlyPendingTimers()
+    await nextTick()
+
+    expect(controller.totalHeight.value).toBe(30)
+    expect(controller.scrollTop.value).toBe(0)
+    expect(controller.visibleRows.value.map((row) => ({ value: row.value, matched: row.matched }))).toEqual([
+      { value: "root", matched: false },
+      { value: "beta", matched: false },
+    ])
+    expect(controller.getSearchMatchCount()).toBe(1)
+
+    controller.setScrollTop(20)
+    vi.runOnlyPendingTimers()
+    await nextTick()
+
+    expect(controller.scrollTop.value).toBe(10)
+    expect(controller.visibleRows.value.map((row) => ({ value: row.value, matched: row.matched, top: row.top }))).toEqual([
+      { value: "beta", matched: false, top: 10 },
+      { value: "gamma", matched: true, top: 20 },
+    ])
+    expect(controller.visibleRows.value.length).toBeGreaterThan(0)
+
+    controller.clearSearchQuery()
+    expect(controller.totalHeight.value).toBe(40)
+    expect(controller.visibleRows.value.map((row) => row.value)).toEqual(["alpha", "beta"])
+
+    scope.stop()
+    vi.useRealTimers()
+  })
+
   it("renders positioned virtual rows without blanking the viewport", async () => {
     vi.useFakeTimers()
     let controller!: VirtualTreeviewController<string>

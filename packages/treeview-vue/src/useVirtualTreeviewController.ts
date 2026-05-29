@@ -199,8 +199,8 @@ function rowsEqual<Value>(
     return false
   }
   for (let index = 0; index < current.length; index += 1) {
-    const currentRow = current[index]
-    const nextRow = next[index]
+    const currentRow = current[index]!
+    const nextRow = next[index]!
     if (
       !Object.is(currentRow.value, nextRow.value) ||
       !Object.is(currentRow.parent, nextRow.parent) ||

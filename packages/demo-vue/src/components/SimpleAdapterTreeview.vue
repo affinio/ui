@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, watch, type ComponentPublicInstance } from "vue"
+import { computed, nextTick, ref, watch, type ComponentPublicInstance } from "vue"
 import { useTreeviewController, type TreeviewNode } from "@affino/treeview-vue"
 
 type NodeValue =
@@ -58,6 +58,10 @@ nodes.forEach((node) => {
   siblings.push(node.value)
   childrenByParent.set(node.parent, siblings)
 })
+const nodesByValue = new Map<NodeValue, TreeviewNode<NodeValue>>()
+nodes.forEach((node) => {
+  nodesByValue.set(node.value, node)
+})
 
 const levelByValue = new Map<NodeValue, number>()
 const parentByValue = new Map<NodeValue, NodeValue | null>()
@@ -86,31 +90,46 @@ const resolveLevel = (value: NodeValue): number => {
 
 const treeview = useTreeviewController<NodeValue>({
   nodes,
+  textAccessor: (node) => `${nodeMeta[node.value].title} ${nodeMeta[node.value].detail}`,
   defaultExpanded: ["workspace", "roadmap", "backlog", "sprint", "qa", "incidents", "postmortems"],
   defaultSelected: "backlog",
   defaultActive: "backlog",
   loop: true,
 })
 
+const searchInput = ref<HTMLInputElement | null>(null)
+const searchQuery = ref("")
+
 const snapshot = computed(() => treeview.state.value)
 const activeValue = computed(() => snapshot.value.active)
 const selectedValue = computed(() => snapshot.value.selected)
 const expandedSet = computed(() => new Set(snapshot.value.expanded))
 
-const isVisible = (value: NodeValue): boolean => {
-  let parent = parentByValue.get(value) ?? null
-  while (parent) {
-    if (!expandedSet.value.has(parent)) {
-      return false
-    }
-    parent = parentByValue.get(parent) ?? null
-  }
-  return true
+const visibleNodes = computed(() => {
+  snapshot.value
+  return treeview
+    .getVisibleValues()
+    .map((value) => nodesByValue.get(value))
+    .filter((node): node is TreeviewNode<NodeValue> => Boolean(node))
+})
+
+const searchMatchCount = computed(() => {
+  snapshot.value
+  return treeview.getSearchMatchCount()
+})
+
+const applySearchQuery = (query: string): void => {
+  searchQuery.value = query
+  treeview.setSearchQuery(query)
 }
 
-const visibleNodes = computed(() => {
-  return nodes.filter((node) => isVisible(node.value))
-})
+const clearSearchQuery = (): void => {
+  searchQuery.value = ""
+  treeview.clearSearchQuery()
+  searchInput.value?.focus()
+}
+
+const isMatched = (value: NodeValue): boolean => treeview.getNodeMeta(value)?.matched ?? false
 
 const getSiblings = (value: NodeValue): NodeValue[] => {
   const parent = parentByValue.get(value) ?? null
@@ -179,7 +198,7 @@ watch(
     }
     await nextTick()
     const target = itemElements.get(active)
-    if (!target || target.hidden || target === document.activeElement) {
+    if (!target || target.hidden || target === document.activeElement || document.activeElement === searchInput.value) {
       return
     }
     try {
@@ -249,6 +268,30 @@ const onToggleClick = (value: NodeValue): void => {
 
 <template>
   <section class="treeview-shell ui-demo-shell">
+    <div class="treeview-search" role="search">
+      <input
+        ref="searchInput"
+        class="treeview-search__input"
+        type="search"
+        :value="searchQuery"
+        placeholder="Search project map"
+        aria-label="Search project map"
+        @input="applySearchQuery(($event.target as HTMLInputElement).value)"
+      >
+      <button
+        class="treeview-search__clear"
+        type="button"
+        :disabled="searchQuery.length === 0"
+        aria-label="Clear treeview search"
+        @click="clearSearchQuery"
+      >
+        Clear
+      </button>
+      <span class="treeview-search__count" aria-live="polite">
+        {{ searchMatchCount }} matches
+      </span>
+    </div>
+
     <div class="treeview-rows" role="tree" aria-label="Project map treeview">
       <button
         v-for="node in visibleNodes"
@@ -258,10 +301,12 @@ const onToggleClick = (value: NodeValue): void => {
         class="treeview-node"
         :class="{
           'is-selected': selectedValue === node.value,
+          'is-matched': isMatched(node.value),
         }"
         :style="{ '--tree-level': String(resolveLevel(node.value)) }"
         :data-tree-last="isLastSibling(node.value) ? 'true' : 'false'"
         :data-state="selectedValue === node.value ? 'selected' : 'idle'"
+        :data-matched="isMatched(node.value) ? 'true' : 'false'"
         role="treeitem"
         :aria-level="String(resolveLevel(node.value))"
         :aria-setsize="String(getSiblingCount(node.value))"
@@ -331,6 +376,53 @@ const onToggleClick = (value: NodeValue): void => {
   font-size: 0.95rem;
   line-height: 1.25;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.45);
+}
+
+.treeview-search {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0 0 0.6rem;
+}
+
+.treeview-search__input {
+  min-width: 0;
+  min-height: 2rem;
+  border: 1px solid var(--tree-border);
+  border-radius: 0;
+  background: rgba(255, 255, 255, 0.76);
+  color: var(--tree-fg);
+  padding: 0.35rem 0.5rem;
+  font: inherit;
+}
+
+.treeview-search__input:focus-visible,
+.treeview-search__clear:focus-visible {
+  outline: 1px dotted var(--tree-focus);
+  outline-offset: 2px;
+}
+
+.treeview-search__clear {
+  min-height: 2rem;
+  border: 1px solid var(--tree-border);
+  border-radius: 0;
+  background: rgba(255, 255, 255, 0.68);
+  color: var(--tree-fg);
+  padding: 0.35rem 0.65rem;
+  font: inherit;
+  cursor: pointer;
+}
+
+.treeview-search__clear:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.treeview-search__count {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  white-space: nowrap;
 }
 
 .treeview-rows {
@@ -441,6 +533,14 @@ const onToggleClick = (value: NodeValue): void => {
   color: var(--tree-select-fg);
 }
 
+.treeview-node.is-matched .treeview-node__label,
+.treeview-node[data-matched="true"] .treeview-node__label {
+  background: rgba(234, 88, 12, 0.16);
+  color: #241912;
+  outline: 1px solid rgba(234, 88, 12, 0.22);
+  outline-offset: 2px;
+}
+
 .treeview-node:focus-visible,
 .treeview-node[data-state="selected"][aria-selected="true"] {
   outline: 1px dotted var(--tree-focus);
@@ -508,7 +608,18 @@ const onToggleClick = (value: NodeValue): void => {
 
 .treeview-footer {
   border-top: 1px dashed var(--tree-line);
+  margin-top: 0.65rem;
   padding-top: 0.85rem;
+}
+
+@media (max-width: 520px) {
+  .treeview-search {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .treeview-search__count {
+    grid-column: 1 / -1;
+  }
 }
 
 .treeview-footer .ui-eyebrow {

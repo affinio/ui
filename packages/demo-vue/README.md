@@ -10,7 +10,7 @@ Included demo areas:
 - popover
 - disclosure
 - tabs
-- treeview
+- treeview (`/treeview`, including search projection and matched-node styling)
 - selection
 - combobox
 - virtualization
