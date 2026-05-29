@@ -34,7 +34,7 @@ The initial harness measures:
 - full visible-array read;
 - placeholder window read using `getVisibleValues().slice(...)` until the Slice 5 window API exists.
 
-Each workload reports p50, p95, p99, max elapsed time, heap delta, and, where available, emitted snapshot count plus visible projection and legacy traversal-order read counters. Expand/collapse should keep traversal-order reads at 0 now that canonical expanded sorting uses the preorder index.
+Each workload reports p50, p95, p99, max elapsed time, heap delta, and, where available, emitted snapshot count, visible projection recomputes, projection version, navigation lookups, and legacy traversal-order read counters. Expand/collapse should keep traversal-order reads at 0 now that canonical expanded sorting uses the preorder index.
 
 ## Budgets
 

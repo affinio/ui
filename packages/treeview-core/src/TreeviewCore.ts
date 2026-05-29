@@ -36,6 +36,11 @@ export class TreeviewCore<Value = string> {
   private visibleIndexByValue = new Map<Value, number>()
   private enabledVisibleValues: Value[] = []
   private enabledVisibleIndexes: number[] = []
+  private nextEnabledValueByVisibleIndex: Array<Value | null> = []
+  private previousEnabledValueByVisibleIndex: Array<Value | null> = []
+  private visibleProjectionVersion = 0
+  private visibleProjectionRecomputeCount = 0
+  private visibleNavigationLookupCount = 0
   private readonly visibleProjection = createProjectionStageEngine<TreeviewProjectionStage>({
     nodes: {
       visible: {},
@@ -668,30 +673,48 @@ export class TreeviewCore<Value = string> {
       }
     })
 
+    const previousEnabledValueByVisibleIndex: Array<Value | null> = Array.from({ length: visible.length }, () => null)
+    const nextEnabledValueByVisibleIndex: Array<Value | null> = Array.from({ length: visible.length }, () => null)
+    let previousEnabled: Value | null = null
+    for (let index = 0; index < visible.length; index += 1) {
+      previousEnabledValueByVisibleIndex[index] = previousEnabled
+      const value = visible[index]
+      if (value !== undefined && this.isNodeFocusable(value)) {
+        previousEnabled = value
+      }
+    }
+    let nextEnabled: Value | null = null
+    for (let index = visible.length - 1; index >= 0; index -= 1) {
+      nextEnabledValueByVisibleIndex[index] = nextEnabled
+      const value = visible[index]
+      if (value !== undefined && this.isNodeFocusable(value)) {
+        nextEnabled = value
+      }
+    }
+
     this.visibleIndexByValue = visibleIndexByValue
     this.enabledVisibleValues = enabledVisibleValues
     this.enabledVisibleIndexes = enabledVisibleIndexes
+    this.previousEnabledValueByVisibleIndex = previousEnabledValueByVisibleIndex
+    this.nextEnabledValueByVisibleIndex = nextEnabledValueByVisibleIndex
+    this.visibleProjectionVersion += 1
+    this.visibleProjectionRecomputeCount += 1
     return visible
   }
 
   private findAdjacentEnabledVisible(currentIndex: number, direction: 1 | -1): Value | null {
+    this.visibleNavigationLookupCount += 1
     if (!this.enabledVisibleValues.length) {
       return null
     }
 
     if (direction === 1) {
-      const nextEnabledIndex = findFirstGreaterThan(this.enabledVisibleIndexes, currentIndex)
-      if (nextEnabledIndex !== -1) {
-        return this.enabledVisibleValues[nextEnabledIndex] ?? null
-      }
-      return this.loop ? this.enabledVisibleValues[0] ?? null : null
+      return this.nextEnabledValueByVisibleIndex[currentIndex]
+        ?? (this.loop ? this.enabledVisibleValues[0] ?? null : null)
     }
 
-    const previousEnabledIndex = findLastLessThan(this.enabledVisibleIndexes, currentIndex)
-    if (previousEnabledIndex !== -1) {
-      return this.enabledVisibleValues[previousEnabledIndex] ?? null
-    }
-    return this.loop ? this.enabledVisibleValues[this.enabledVisibleValues.length - 1] ?? null : null
+    return this.previousEnabledValueByVisibleIndex[currentIndex]
+      ?? (this.loop ? this.enabledVisibleValues[this.enabledVisibleValues.length - 1] ?? null : null)
   }
 
   private getFirstEnabledVisible(): Value | null {
@@ -722,40 +745,6 @@ export class TreeviewCore<Value = string> {
     }
     return false
   }
-}
-
-function findFirstGreaterThan(values: number[], target: number): number {
-  let low = 0
-  let high = values.length - 1
-  let result = -1
-  while (low <= high) {
-    const mid = Math.floor((low + high) / 2)
-    const value = values[mid]
-    if (value !== undefined && value > target) {
-      result = mid
-      high = mid - 1
-    } else {
-      low = mid + 1
-    }
-  }
-  return result
-}
-
-function findLastLessThan(values: number[], target: number): number {
-  let low = 0
-  let high = values.length - 1
-  let result = -1
-  while (low <= high) {
-    const mid = Math.floor((low + high) / 2)
-    const value = values[mid]
-    if (value !== undefined && value < target) {
-      result = mid
-      low = mid + 1
-    } else {
-      high = mid - 1
-    }
-  }
-  return result
 }
 
 function statesEqual<Value>(a: TreeviewState<Value>, b: TreeviewState<Value>): boolean {

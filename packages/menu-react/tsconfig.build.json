@@ -7,7 +7,6 @@
     "outDir": "dist",
     "stripInternal": true,
     "rootDir": "src",
-    "baseUrl": ".",
     "paths": {
       "@affino/menu-core": ["../menu-core/dist/index"],
       "@affino/menu-core/*": ["../menu-core/dist/*"],

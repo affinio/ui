@@ -45,8 +45,16 @@ describe("TreeviewCore", () => {
       visibleIndexByValue: Map<string, number>
       enabledVisibleValues: string[]
       enabledVisibleIndexes: number[]
+      nextEnabledValueByVisibleIndex: Array<string | null>
+      previousEnabledValueByVisibleIndex: Array<string | null>
+      visibleProjectionVersion: number
+      visibleProjectionRecomputeCount: number
+      visibleNavigationLookupCount: number
     }
     internals.visibleCache = visible
+    const projectionVersion = internals.visibleProjectionVersion
+    const recomputeCount = internals.visibleProjectionRecomputeCount
+    const lookupCount = internals.visibleNavigationLookupCount
 
     core.focusNext()
 
@@ -56,6 +64,11 @@ describe("TreeviewCore", () => {
     expect(internals.visibleIndexByValue.get("beta")).toBe(4)
     expect(internals.enabledVisibleValues).toEqual(["root", "alpha", "beta"])
     expect(internals.enabledVisibleIndexes).toEqual([0, 2, 4])
+    expect(internals.nextEnabledValueByVisibleIndex[2]).toBe("beta")
+    expect(internals.previousEnabledValueByVisibleIndex[2]).toBe("root")
+    expect(internals.visibleProjectionVersion).toBe(projectionVersion)
+    expect(internals.visibleProjectionRecomputeCount).toBe(recomputeCount)
+    expect(internals.visibleNavigationLookupCount).toBe(lookupCount + 1)
   })
 
   it("moves focus through visible nodes", () => {

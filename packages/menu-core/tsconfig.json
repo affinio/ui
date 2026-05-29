@@ -6,7 +6,6 @@
     "declaration": true,
     "emitDeclarationOnly": false,
     "declarationMap": true,
-    "baseUrl": ".",
     "paths": {
       "@affino/surface-core": ["../surface-core/dist/index"],
       "@affino/surface-core/*": ["../surface-core/dist/*"]

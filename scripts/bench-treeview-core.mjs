@@ -255,7 +255,11 @@ function measureInstrumented(factory) {
     const startedAt = performance.now()
     measured.run()
     samples.push(performance.now() - startedAt)
-    counters.push(measured.core.__benchCounters)
+    counters.push({
+      ...measured.core.__benchCounters,
+      visibleProjectionVersion: measured.core.visibleProjectionVersion,
+      visibleNavigationLookupCount: measured.core.visibleNavigationLookupCount,
+    })
   }
   const heapAfter = sampleHeapUsed()
   return {
@@ -264,6 +268,8 @@ function measureInstrumented(factory) {
     emittedSnapshotCount: maxCounter(counters, "emittedSnapshotCount"),
     visibleRecomputeCount: maxCounter(counters, "visibleRecomputeCount"),
     traversalRebuildCount: maxCounter(counters, "traversalRebuildCount"),
+    visibleProjectionVersion: maxCounter(counters, "visibleProjectionVersion"),
+    visibleNavigationLookupCount: maxCounter(counters, "visibleNavigationLookupCount"),
   }
 }
 
@@ -302,7 +308,7 @@ function printReport(report, outputJson) {
   console.log(`[treeview-core] ${report.config.nodeCount} nodes, ${report.config.sampleCount} samples`)
   for (const [name, result] of Object.entries(report.results)) {
     const counters = "traversalRebuildCount" in result
-      ? ` emitted=${result.emittedSnapshotCount} visible=${result.visibleRecomputeCount} traversal=${result.traversalRebuildCount}`
+      ? ` emitted=${result.emittedSnapshotCount} visible=${result.visibleRecomputeCount} traversal=${result.traversalRebuildCount} projectionVersion=${result.visibleProjectionVersion} navLookups=${result.visibleNavigationLookupCount}`
       : ""
     if (result.failed) {
       console.log(`${name}: failed ${result.error}`)

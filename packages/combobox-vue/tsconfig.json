@@ -6,7 +6,6 @@
     "declaration": true,
     "declarationMap": true,
     "emitDeclarationOnly": false,
-    "baseUrl": ".",
     "paths": {
       "@affino/combobox-core": ["../combobox-core/src/index.ts"],
       "@affino/combobox-core/*": ["../combobox-core/src/*"]
