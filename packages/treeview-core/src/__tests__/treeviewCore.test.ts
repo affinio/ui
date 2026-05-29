@@ -245,9 +245,43 @@ describe("TreeviewCore", () => {
     expect(core.getChildren("root")).toEqual(["alpha", "beta"])
     expect(core.getVisibleValues()).toEqual(["root", "alpha", "beta"])
 
+    core.registerNodes([
+      { value: "parent", parent: "root" },
+      { value: "child", parent: "parent" },
+    ], { mode: "patch" })
+    expect(core.getChildren("parent")).toEqual(["child"])
+
     core.registerNodes([{ value: "alpha", parent: "root", disabled: true }], { mode: "patch" })
     expect(core.getSnapshot().active).toBe("root")
     expect(core.getSnapshot().selected).toBe(null)
+  })
+
+  it("skips source invalidation for no-op register patch updates", () => {
+    const core = new TreeviewCore<string>({
+      nodes: [
+        { value: "root", parent: null },
+        { value: "alpha", parent: "root" },
+        { value: "beta", parent: "root" },
+      ],
+      defaultExpanded: ["root"],
+      defaultActive: "alpha",
+    })
+    const internals = core as unknown as { visibleProjectionVersion: number }
+    const normalizeState = vi.spyOn(
+      core as unknown as { normalizeState: (state: unknown) => unknown },
+      "normalizeState",
+    )
+    const beforeWindow = core.getVisibleWindow(0, 3)
+    const beforeSnapshot = core.getSnapshot()
+    const beforeProjectionVersion = internals.visibleProjectionVersion
+
+    core.registerNodes([{ value: "alpha", parent: "root" }], { mode: "patch" })
+
+    expect(normalizeState).not.toHaveBeenCalled()
+    expect(core.getSnapshot()).toBe(beforeSnapshot)
+    expect(core.getVisibleWindow(0, 3)).toBe(beforeWindow)
+    expect(internals.visibleProjectionVersion).toBe(beforeProjectionVersion)
+    expect(core.getChildren("root")).toEqual(["alpha", "beta"])
   })
 
   it("builds source-owned preorder and depth indexes", () => {

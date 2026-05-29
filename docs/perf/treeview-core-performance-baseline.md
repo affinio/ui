@@ -29,6 +29,7 @@ The core harness measures:
 
 - balanced, wide, and deep replace registration, including deep-chain stack-safety coverage;
 - 1% patch registration;
+- no-op patch registration fast-path coverage;
 - expand/collapse burst;
 - focus next/previous burst;
 - active-only focus burst;

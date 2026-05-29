@@ -56,6 +56,15 @@ const results = {
     const core = new TreeviewCore({ nodes: balancedNodes, defaultExpanded: ["node-0"], defaultActive: "node-0" })
     core.registerNodes(patchNodes, { mode: "patch" })
   }),
+  registerPatchNoop: measureInstrumented(() => {
+    const core = createInstrumentedCore({ nodes: balancedNodes, defaultExpanded: ["node-0"], defaultActive: "node-0" })
+    const noopPatchNodes = balancedNodes.slice(Math.max(1, balancedNodes.length - patchNodes.length))
+    return { core, run: () => {
+      for (let index = 0; index < BURST_ITERATIONS; index += 1) {
+        core.registerNodes(noopPatchNodes, { mode: "patch" })
+      }
+    } }
+  }),
   expandCollapseBurst: measureInstrumented(() => {
     const core = createInstrumentedCore({ nodes: balancedNodes, defaultExpanded: ["node-0"], defaultActive: "node-0" })
     const branchIds = balancedNodes.filter((node, index) => index > 0 && hasLikelyChildren(index, NODE_COUNT, 4)).slice(0, BURST_ITERATIONS).map((node) => node.value)

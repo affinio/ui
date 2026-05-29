@@ -240,6 +240,11 @@ Expected result:
 
 - Small source patches avoid full-tree child-array rebuild.
 
+Progress:
+
+- Added a no-op patch fast path for `registerNodes(nodes, { mode: "patch" })`: unchanged existing nodes now skip source finalization, visible projection invalidation, state normalization, and subscriber emission.
+- Patch additions and semantic parent/disabled changes still route through full source finalization until affected-parent index updates are implemented.
+
 ## Slice 4: Visible Projection And Navigation Index
 
 Purpose: make expansion/collapse and keyboard navigation predictable for large visible trees.

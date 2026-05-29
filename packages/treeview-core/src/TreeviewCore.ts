@@ -83,10 +83,11 @@ export class TreeviewCore<Value = string> {
     nodes: ReadonlyArray<TreeviewNode<Value>>,
     options: TreeviewRegisterOptions = {},
   ): void {
-    if (options.mode === "patch") {
-      this.patchNodeMap(nodes)
-    } else {
-      this.nodes = this.buildNodeMap(nodes)
+    const changed = options.mode === "patch"
+      ? this.patchNodeMap(nodes)
+      : this.replaceNodeMap(nodes)
+    if (!changed) {
+      return
     }
     this.invalidateVisibleProjection()
     const next = this.normalizeState(this.state)
@@ -397,6 +398,11 @@ export class TreeviewCore<Value = string> {
     this.visibleCache = null
   }
 
+  private replaceNodeMap(nodes: ReadonlyArray<TreeviewNode<Value>>): boolean {
+    this.nodes = this.buildNodeMap(nodes)
+    return true
+  }
+
   private buildNodeMap(nodes: ReadonlyArray<TreeviewNode<Value>>): Map<Value, InternalNode<Value>> {
     const map = new Map<Value, InternalNode<Value>>()
     nodes.forEach((node) => {
@@ -411,22 +417,32 @@ export class TreeviewCore<Value = string> {
     return map
   }
 
-  private patchNodeMap(nodes: ReadonlyArray<TreeviewNode<Value>>): void {
+  private patchNodeMap(nodes: ReadonlyArray<TreeviewNode<Value>>): boolean {
+    let changed = false
     nodes.forEach((node) => {
+      const parent = node.parent ?? null
+      const disabled = node.disabled ?? false
       const existing = this.nodes.get(node.value)
       if (existing) {
-        existing.parent = node.parent ?? null
-        existing.disabled = node.disabled ?? false
+        if (existing.parent !== parent || existing.disabled !== disabled) {
+          existing.parent = parent
+          existing.disabled = disabled
+          changed = true
+        }
         return
       }
       this.nodes.set(node.value, {
         value: node.value,
-        parent: node.parent ?? null,
-        disabled: node.disabled ?? false,
+        parent,
+        disabled,
         children: [],
       })
+      changed = true
     })
-    this.finalizeNodeMap(this.nodes)
+    if (changed) {
+      this.finalizeNodeMap(this.nodes)
+    }
+    return changed
   }
 
   private finalizeNodeMap(map: Map<Value, InternalNode<Value>>): void {
