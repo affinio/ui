@@ -426,6 +426,7 @@ Progress:
 - Repeated scroll/viewport writes to the same value now skip scheduled refreshes.
 - Virtual row/window shallow refs are retained when the computed window metadata is unchanged, reducing Vue render churn for no-op scroll refreshes and state changes outside the rendered window.
 - Added a jsdom rendered fixture that positions virtual rows and verifies scroll-window updates do not blank the viewport.
+- Added `bench-treeview-vue-virtual.mjs` with a jsdom-mounted virtual controller scroll-window workload, rendered-row bounds, blank viewport count, heap delta, and conservative smoke budgets.
 - Remaining Slice 7 work: add browser frame/blank-viewport validation against a real fixture.
 
 ## Slice 8: Worker Projection Mode

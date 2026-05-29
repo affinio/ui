@@ -22,6 +22,8 @@ export type VirtualTreeviewRow<Value = string> = Readonly<TreeviewNodeMeta<Value
   height: number
 }>
 
+type FrameHandle = number | ReturnType<typeof globalThis.setTimeout>
+
 export interface VirtualTreeviewController<Value = string> extends TreeviewController<Value> {
   readonly scrollTop: ShallowRef<number>
   readonly rowHeight: ShallowRef<number>
@@ -53,7 +55,7 @@ export function useVirtualTreeviewController<Value = string>(
   const visibleWindow = shallowRef<ReadonlyArray<TreeviewNodeMeta<Value>>>(Object.freeze([]))
   const visibleRows = shallowRef<ReadonlyArray<VirtualTreeviewRow<Value>>>(Object.freeze([]))
   const overscan = Math.max(0, Math.floor(normalizeNonNegativeNumber(initialOverscan, 4)))
-  let frame: ReturnType<typeof requestFrame> | null = null
+  let frame: FrameHandle | null = null
   let disposed = false
 
   const refreshWindow = () => {
@@ -228,7 +230,7 @@ function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value))
 }
 
-function requestFrame(callback: () => void): number {
+function requestFrame(callback: () => void): FrameHandle {
   const request = globalThis.requestAnimationFrame
   if (typeof request === "function") {
     return request(() => callback())
@@ -236,10 +238,10 @@ function requestFrame(callback: () => void): number {
   return globalThis.setTimeout(callback, 0)
 }
 
-function cancelFrame(handle: number): void {
+function cancelFrame(handle: FrameHandle): void {
   const cancel = globalThis.cancelAnimationFrame
   if (typeof cancel === "function") {
-    cancel(handle)
+    cancel(handle as number)
     return
   }
   globalThis.clearTimeout(handle)
