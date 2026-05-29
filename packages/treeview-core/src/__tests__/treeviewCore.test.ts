@@ -348,6 +348,25 @@ describe("TreeviewCore", () => {
     }).toThrow(TypeError)
   })
 
+  it("reuses frozen expanded snapshots for active and selected only updates", () => {
+    const core = new TreeviewCore<string>({
+      nodes: DEFAULT_NODES,
+      defaultExpanded: ["root"],
+      defaultActive: "root",
+    })
+    const initialExpanded = core.getSnapshot().expanded
+
+    core.focus("alpha")
+    const focusedExpanded = core.getSnapshot().expanded
+    core.select("beta")
+    const selectedExpanded = core.getSnapshot().expanded
+    core.clearSelection()
+
+    expect(focusedExpanded).toBe(initialExpanded)
+    expect(selectedExpanded).toBe(initialExpanded)
+    expect(core.getSnapshot().expanded).toBe(initialExpanded)
+  })
+
   it("does not normalize expanded order for active-only focus changes", () => {
     const nodes: TreeviewNode<string>[] = [
       { value: "root", parent: null },

@@ -23,6 +23,8 @@ export class TreeviewCore<Value = string> {
   private nodes = new Map<Value, InternalNode<Value>>()
   private state: TreeviewState<Value>
   private snapshot: TreeviewSnapshot<Value>
+  private snapshotExpandedSource: Value[] | null = null
+  private snapshotExpandedValues: ReadonlyArray<Value> = Object.freeze([])
   private subscribers = new Set<TreeviewSubscriber<Value>>()
   private rootValues: Value[] = []
   private preorderValues: Value[] = []
@@ -499,10 +501,14 @@ export class TreeviewCore<Value = string> {
   }
 
   private createSnapshot(state: TreeviewState<Value>): TreeviewSnapshot<Value> {
+    if (this.snapshotExpandedSource !== state.expanded) {
+      this.snapshotExpandedSource = state.expanded
+      this.snapshotExpandedValues = Object.freeze([...state.expanded])
+    }
     return Object.freeze({
       active: state.active,
       selected: state.selected,
-      expanded: Object.freeze([...state.expanded]),
+      expanded: this.snapshotExpandedValues,
     })
   }
 
@@ -763,6 +769,9 @@ function statesEqual<Value>(a: TreeviewState<Value>, b: TreeviewState<Value>): b
 }
 
 function expandedValuesEqual<Value>(a: Value[], b: Value[]): boolean {
+  if (a === b) {
+    return true
+  }
   if (a.length !== b.length) {
     return false
   }

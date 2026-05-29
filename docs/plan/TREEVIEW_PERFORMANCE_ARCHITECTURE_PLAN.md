@@ -279,7 +279,9 @@ Progress:
 
 - Added visible projection indexes: `visibleIndexByValue`, `enabledVisibleValues`, and `enabledVisibleIndexes` are rebuilt with visible projection.
 - `focusNext`/`focusPrevious` now use indexed visible positions plus binary search over enabled indexes instead of `visible.findIndex` plus per-row enabled scans.
-- Remaining Slice 4 work: remove active-only expanded equality work from focus bursts and expose projection version/counters as first-class internals.
+- Removed active/selected-only expanded equality and frozen expanded snapshot churn; focus/select hot paths now reuse the canonical expanded reference and frozen expanded snapshot.
+- Benchmark focus next/previous burst dropped from roughly 130ms to roughly 1.5ms in the 10k smoke run.
+- Remaining Slice 4 work: expose projection version/counters as first-class internals and decide whether enabled navigation should use direct next/previous arrays instead of binary search.
 
 ## Slice 5: Windowed Tree API For Virtualization
 
