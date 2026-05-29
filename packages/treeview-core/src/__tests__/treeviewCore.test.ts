@@ -144,11 +144,15 @@ describe("TreeviewCore", () => {
       preorderValues: string[]
       preorderIndexByValue: Map<string, number>
       depthByValue: Map<string, number>
+      subtreeEndIndexByValue: Map<string, number>
     }
 
     expect(internals.preorderValues).toEqual(["root", "alpha", "alpha-child", "beta"])
     expect(internals.preorderIndexByValue.get("beta")).toBe(3)
     expect(internals.depthByValue.get("alpha-child")).toBe(2)
+    expect(internals.subtreeEndIndexByValue.get("root")).toBe(4)
+    expect(internals.subtreeEndIndexByValue.get("alpha")).toBe(3)
+    expect(internals.subtreeEndIndexByValue.get("beta")).toBe(4)
   })
 
   it("handles deep expanded chains without recursive stack overflow", () => {
@@ -166,6 +170,29 @@ describe("TreeviewCore", () => {
     expect(core.getSnapshot().active).toBe("node-9999")
     expect(core.getSnapshot().expanded).toHaveLength(9999)
     expect(core.getVisibleValues()).toHaveLength(10000)
+  })
+
+  it("normalizes expanded values by source preorder without traversal reads", () => {
+    const core = new TreeviewCore<string>({
+      nodes: [
+        { value: "root", parent: null },
+        { value: "alpha", parent: "root" },
+        { value: "alpha-child", parent: "alpha" },
+        { value: "beta", parent: "root" },
+        { value: "beta-child", parent: "beta" },
+      ],
+      defaultExpanded: ["root"],
+    })
+    const traversal = vi.spyOn(
+      core as unknown as { getNodeTraversalOrder: () => string[] },
+      "getNodeTraversalOrder",
+    )
+
+    core.expand("beta")
+    core.expand("alpha")
+
+    expect(core.getSnapshot().expanded).toEqual(["root", "alpha", "beta"])
+    expect(traversal).not.toHaveBeenCalled()
   })
 
   it("keeps expanded order canonical across mutation order", () => {

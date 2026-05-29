@@ -28,6 +28,7 @@ export class TreeviewCore<Value = string> {
   private preorderValues: Value[] = []
   private preorderIndexByValue = new Map<Value, number>()
   private depthByValue = new Map<Value, number>()
+  private subtreeEndIndexByValue = new Map<Value, number>()
   private expandedSet = new Set<Value>()
   private visibleCache: Value[] | null = null
   private readonly visibleProjection = createProjectionStageEngine<TreeviewProjectionStage>({
@@ -383,6 +384,7 @@ export class TreeviewCore<Value = string> {
     const preorderValues: Value[] = []
     const preorderIndexByValue = new Map<Value, number>()
     const depthByValue = new Map<Value, number>()
+    const subtreeEndIndexByValue = new Map<Value, number>()
     const visited = new Set<Value>()
 
     const visit = (start: Value, startDepth: number) => {
@@ -416,9 +418,32 @@ export class TreeviewCore<Value = string> {
       }
     })
 
+    const openAncestors: Array<{ value: Value; depth: number }> = []
+    preorderValues.forEach((value, index) => {
+      const depth = depthByValue.get(value) ?? 0
+      while (openAncestors.length) {
+        const current = openAncestors[openAncestors.length - 1]
+        if (!current || current.depth < depth) {
+          break
+        }
+        const closed = openAncestors.pop()
+        if (closed) {
+          subtreeEndIndexByValue.set(closed.value, index)
+        }
+      }
+      openAncestors.push({ value, depth })
+    })
+    while (openAncestors.length) {
+      const closed = openAncestors.pop()
+      if (closed) {
+        subtreeEndIndexByValue.set(closed.value, preorderValues.length)
+      }
+    }
+
     this.preorderValues = preorderValues
     this.preorderIndexByValue = preorderIndexByValue
     this.depthByValue = depthByValue
+    this.subtreeEndIndexByValue = subtreeEndIndexByValue
   }
 
   private getParentCycleValues(map: Map<Value, InternalNode<Value>>): Set<Value> {
@@ -566,16 +591,20 @@ export class TreeviewCore<Value = string> {
   }
 
   private normalizeExpandedValues(values: Iterable<Value>): Value[] {
-    const expandedSet = new Set<Value>()
+    const expanded: Value[] = []
+    const seen = new Set<Value>()
     for (const value of values) {
-      if (this.hasChildren(value)) {
-        expandedSet.add(value)
+      if (!seen.has(value) && this.hasChildren(value) && this.preorderIndexByValue.has(value)) {
+        seen.add(value)
+        expanded.push(value)
       }
     }
-    if (!expandedSet.size) {
-      return []
+    if (expanded.length <= 1) {
+      return expanded
     }
-    return this.getNodeTraversalOrder().filter((value) => expandedSet.has(value))
+    return expanded.sort(
+      (a, b) => (this.preorderIndexByValue.get(a) ?? 0) - (this.preorderIndexByValue.get(b) ?? 0),
+    )
   }
 
   private getNodeTraversalOrder(): Value[] {
