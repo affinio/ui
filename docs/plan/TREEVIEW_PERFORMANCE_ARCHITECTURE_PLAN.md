@@ -421,6 +421,7 @@ Progress:
 
 - Added `useVirtualTreeviewController()` as an opt-in Vue composable layered on the existing controller.
 - The virtual controller owns viewport state (`scrollTop`, `rowHeight`, `viewportHeight`, `totalHeight`) and exposes metadata rows via `visibleWindow`.
+- Added `visibleRows` with stable row metadata plus `index`, `top`, and `height` so render layers can position rows without recalculating offsets in templates.
 - Scroll and viewport updates are requestAnimationFrame-batched; tree mutations refresh the current window synchronously.
 - Remaining Slice 7 work: wire this composable into a rendered component/sandbox fixture and add browser frame/blank-viewport validation.
 

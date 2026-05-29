@@ -16,12 +16,19 @@ export type VirtualTreeviewOptions<Value = string> = TreeviewOptions<Value> & {
   viewportHeight?: number
 }
 
+export type VirtualTreeviewRow<Value = string> = Readonly<TreeviewNodeMeta<Value> & {
+  index: number
+  top: number
+  height: number
+}>
+
 export interface VirtualTreeviewController<Value = string> extends TreeviewController<Value> {
   readonly scrollTop: ShallowRef<number>
   readonly rowHeight: ShallowRef<number>
   readonly viewportHeight: ShallowRef<number>
   readonly totalHeight: ShallowRef<number>
   readonly visibleWindow: ShallowRef<ReadonlyArray<TreeviewNodeMeta<Value>>>
+  readonly visibleRows: ShallowRef<ReadonlyArray<VirtualTreeviewRow<Value>>>
   readonly setScrollTop: (value: number) => void
   readonly setViewportHeight: (value: number) => void
   readonly scrollToIndex: (index: number) => void
@@ -44,6 +51,7 @@ export function useVirtualTreeviewController<Value = string>(
   const viewportHeight = shallowRef(normalizeNonNegativeNumber(initialViewportHeight, 320))
   const totalHeight = shallowRef(0)
   const visibleWindow = shallowRef<ReadonlyArray<TreeviewNodeMeta<Value>>>(Object.freeze([]))
+  const visibleRows = shallowRef<ReadonlyArray<VirtualTreeviewRow<Value>>>(Object.freeze([]))
   const overscan = Math.max(0, Math.floor(normalizeNonNegativeNumber(initialOverscan, 4)))
   let frame: ReturnType<typeof requestFrame> | null = null
   let disposed = false
@@ -59,11 +67,23 @@ export function useVirtualTreeviewController<Value = string>(
     const visibleRowCount = viewportHeight.value === 0 ? 0 : Math.ceil(viewportHeight.value / rowHeight.value)
     const start = Math.max(0, firstVisibleIndex - overscan)
     const end = Math.min(count, firstVisibleIndex + visibleRowCount + overscan)
-    const rows = controller
-      .getVisibleWindow(start, end)
-      .map((value) => controller.getNodeMeta(value))
-      .filter((meta): meta is TreeviewNodeMeta<Value> => meta !== null)
-    visibleWindow.value = Object.freeze(rows)
+    const metas: TreeviewNodeMeta<Value>[] = []
+    const rows: VirtualTreeviewRow<Value>[] = []
+    controller.getVisibleWindow(start, end).forEach((value, offset) => {
+      const meta = controller.getNodeMeta(value)
+      if (!meta) {
+        return
+      }
+      metas.push(meta)
+      rows.push(Object.freeze({
+        ...meta,
+        index: start + offset,
+        top: (start + offset) * rowHeight.value,
+        height: rowHeight.value,
+      }))
+    })
+    visibleWindow.value = Object.freeze(metas)
+    visibleRows.value = Object.freeze(rows)
   }
 
   const scheduleRefresh = () => {
@@ -132,6 +152,7 @@ export function useVirtualTreeviewController<Value = string>(
     viewportHeight,
     totalHeight,
     visibleWindow,
+    visibleRows,
     registerNodes: refreshAfter(controller.registerNodes),
     select: refreshAfter(controller.select),
     clearSelection: refreshAfter(controller.clearSelection),

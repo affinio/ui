@@ -38,6 +38,13 @@ describe("useVirtualTreeviewController", () => {
       expanded: true,
       active: true,
     })
+    expect(controller.visibleRows.value.map((row) => ({ value: row.value, index: row.index, top: row.top, height: row.height }))).toEqual([
+      { value: "root", index: 0, top: 0, height: 10 },
+      { value: "alpha", index: 1, top: 10, height: 10 },
+      { value: "beta", index: 2, top: 20, height: 10 },
+    ])
+    expect(Object.isFrozen(controller.visibleRows.value)).toBe(true)
+    expect(Object.isFrozen(controller.visibleRows.value[0])).toBe(true)
 
     scope.stop()
   })
@@ -63,6 +70,7 @@ describe("useVirtualTreeviewController", () => {
     await nextTick()
 
     expect(controller.visibleWindow.value.map((row) => row.value)).toEqual(["beta", "gamma"])
+    expect(controller.visibleRows.value.map((row) => row.top)).toEqual([20, 30])
     expect(controller.scrollTop.value).toBe(20)
 
     scope.stop()
