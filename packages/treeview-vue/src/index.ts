@@ -1,3 +1,5 @@
 export * from "@affino/treeview-core"
 export { useTreeviewController } from "./useTreeviewController"
+export { useVirtualTreeviewController } from "./useVirtualTreeviewController"
 export type { TreeviewController } from "./useTreeviewController"
+export type { VirtualTreeviewController, VirtualTreeviewOptions } from "./useVirtualTreeviewController"

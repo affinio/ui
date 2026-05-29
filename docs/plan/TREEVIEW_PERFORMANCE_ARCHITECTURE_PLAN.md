@@ -417,6 +417,13 @@ Expected result:
 
 - Rendering cost is bounded by viewport size, not by tree size.
 
+Progress:
+
+- Added `useVirtualTreeviewController()` as an opt-in Vue composable layered on the existing controller.
+- The virtual controller owns viewport state (`scrollTop`, `rowHeight`, `viewportHeight`, `totalHeight`) and exposes metadata rows via `visibleWindow`.
+- Scroll and viewport updates are requestAnimationFrame-batched; tree mutations refresh the current window synchronously.
+- Remaining Slice 7 work: wire this composable into a rendered component/sandbox fixture and add browser frame/blank-viewport validation.
+
 ## Slice 8: Worker Projection Mode
 
 Purpose: support 20k-100k workloads where search/filter/projection may block input on weaker devices.
