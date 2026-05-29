@@ -32,7 +32,7 @@ The initial harness measures:
 - active-only select burst;
 - indexed focus next/previous over the visible projection, including active-only expanded snapshot reuse;
 - full visible-array read;
-- placeholder window read using `getVisibleValues().slice(...)` until the Slice 5 window API exists.
+- window read using `getVisibleWindow(start, end)`.
 
 Each workload reports p50, p95, p99, max elapsed time, heap delta, and, where available, emitted snapshot count, committed visible projection recomputes, projection version, navigation lookups, and legacy traversal-order read counters. Expand/collapse should keep traversal-order reads at 0 now that canonical expanded sorting uses the preorder index; normalization-only visible reads should not advance projection counters.
 

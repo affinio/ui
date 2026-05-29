@@ -89,6 +89,61 @@ describe("TreeviewCore", () => {
     expect(core.getSnapshot().active).toBe("root")
   })
 
+  it("exposes windowed visible reads and node metadata", () => {
+    const core = new TreeviewCore<string>({
+      nodes: DEFAULT_NODES,
+      defaultExpanded: ["root", "beta"],
+      defaultActive: "beta",
+      defaultSelected: "gamma",
+    })
+
+    expect(core.getVisibleCount()).toBe(4)
+    expect(core.getVisibleAt(0)).toBe("root")
+    expect(core.getVisibleAt(3)).toBe("gamma")
+    expect(core.getVisibleAt(-1)).toBe(null)
+    expect(core.getVisibleAt(4)).toBe(null)
+    expect(core.getVisibleIndex("gamma")).toBe(3)
+    expect(core.getVisibleIndex("missing")).toBe(-1)
+    expect(core.getVisibleWindow(-10, 2)).toEqual(["root", "alpha"])
+    expect(core.getVisibleWindow(2, 99)).toEqual(["beta", "gamma"])
+    expect(core.getVisibleWindow(3, 2)).toEqual([])
+
+    expect(core.getNodeMeta("beta")).toEqual({
+      value: "beta",
+      parent: "root",
+      depth: 1,
+      childCount: 1,
+      disabled: false,
+      expanded: true,
+      selected: false,
+      active: true,
+    })
+    expect(core.getNodeMeta("gamma")).toEqual({
+      value: "gamma",
+      parent: "beta",
+      depth: 2,
+      childCount: 0,
+      disabled: false,
+      expanded: false,
+      selected: true,
+      active: false,
+    })
+    expect(core.getNodeMeta("missing")).toBe(null)
+  })
+
+  it("keeps window reads from mutating internal visible arrays", () => {
+    const core = new TreeviewCore<string>({
+      nodes: DEFAULT_NODES,
+      defaultExpanded: ["root", "beta"],
+      defaultActive: "root",
+    })
+    const window = core.getVisibleWindow(0, 2)
+
+    window.push("mutated")
+
+    expect(core.getVisibleWindow(0, 4)).toEqual(["root", "alpha", "beta", "gamma"])
+  })
+
   it("collapses focused branches back to parent", () => {
     const core = new TreeviewCore<string>({
       nodes: DEFAULT_NODES,

@@ -320,6 +320,13 @@ Expected result:
 
 - Consumers can virtualize without full visible-array copies per scroll/render.
 
+Progress:
+
+- Added core window/read APIs: `getVisibleCount()`, `getVisibleAt(index)`, `getVisibleIndex(value)`, `getVisibleWindow(start, end)`, and `getNodeMeta(value)`.
+- Kept `getVisibleValues()` as the compatibility full-array copy API.
+- Updated the core benchmark window workload to use `getVisibleWindow()` instead of copying via `getVisibleValues().slice(...)`.
+- Remaining Slice 5 work: avoid allocating a new window array when the requested window signature is unchanged, and wire row metadata into the Vue adapter.
+
 ## Slice 6: First-Class Search And Filter Projection
 
 Purpose: support fast tree search/filter without replacing all nodes from the outside.

@@ -93,11 +93,12 @@ const results = {
       }
     } }
   }),
-  visibleReadWindowPlaceholder: measureInstrumented(() => {
+  visibleReadWindow: measureInstrumented(() => {
     const core = createInstrumentedCore({ nodes: balancedNodes, defaultExpanded: expandedBalanced, defaultActive: "node-0" })
     return { core, run: () => {
       for (let index = 0; index < BURST_ITERATIONS; index += 1) {
-        core.getVisibleValues().slice(index % WINDOW_SIZE, (index % WINDOW_SIZE) + WINDOW_SIZE)
+        const start = index % WINDOW_SIZE
+        core.getVisibleWindow(start, start + WINDOW_SIZE)
       }
     } }
   }),

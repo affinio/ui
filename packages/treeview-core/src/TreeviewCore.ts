@@ -3,6 +3,7 @@ import type {
   TreeviewActionFailureReason,
   TreeviewActionResult,
   TreeviewNode,
+  TreeviewNodeMeta,
   TreeviewOptions,
   TreeviewRegisterOptions,
   TreeviewSnapshot,
@@ -291,6 +292,49 @@ export class TreeviewCore<Value = string> {
 
   getVisibleValues(): Value[] {
     return [...this.getVisibleValuesCached()]
+  }
+
+  getVisibleCount(): number {
+    return this.getVisibleValuesCached().length
+  }
+
+  getVisibleAt(index: number): Value | null {
+    if (!Number.isInteger(index) || index < 0) {
+      return null
+    }
+    return this.getVisibleValuesCached()[index] ?? null
+  }
+
+  getVisibleIndex(value: Value): number {
+    this.getVisibleValuesCached()
+    return this.visibleIndexByValue.get(value) ?? -1
+  }
+
+  getVisibleWindow(start: number, end: number): Value[] {
+    const visible = this.getVisibleValuesCached()
+    const safeStart = clampVisibleWindowIndex(start, visible.length)
+    const safeEnd = clampVisibleWindowIndex(end, visible.length)
+    if (safeEnd <= safeStart) {
+      return []
+    }
+    return visible.slice(safeStart, safeEnd)
+  }
+
+  getNodeMeta(value: Value): TreeviewNodeMeta<Value> | null {
+    const node = this.nodes.get(value)
+    if (!node) {
+      return null
+    }
+    return Object.freeze({
+      value,
+      parent: node.parent,
+      depth: this.depthByValue.get(value) ?? 0,
+      childCount: node.children.length,
+      disabled: node.disabled,
+      expanded: this.isExpanded(value),
+      selected: this.isSelected(value),
+      active: this.isActive(value),
+    })
   }
 
   getChildren(value: Value): Value[] {
@@ -767,6 +811,19 @@ export class TreeviewCore<Value = string> {
     }
     return false
   }
+}
+
+function clampVisibleWindowIndex(index: number, length: number): number {
+  if (!Number.isFinite(index)) {
+    return index < 0 ? 0 : length
+  }
+  if (index <= 0) {
+    return 0
+  }
+  if (index >= length) {
+    return length
+  }
+  return Math.trunc(index)
 }
 
 function statesEqual<Value>(a: TreeviewState<Value>, b: TreeviewState<Value>): boolean {

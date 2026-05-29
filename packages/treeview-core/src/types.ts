@@ -18,6 +18,17 @@ export type TreeviewSnapshot<Value = string> = Readonly<{
 
 export type TreeviewSubscriber<Value = string> = (state: TreeviewSnapshot<Value>) => void
 
+export type TreeviewNodeMeta<Value = string> = Readonly<{
+  value: Value
+  parent: Value | null
+  depth: number
+  childCount: number
+  disabled: boolean
+  expanded: boolean
+  selected: boolean
+  active: boolean
+}>
+
 export type TreeviewOptions<Value = string> = {
   nodes?: ReadonlyArray<TreeviewNode<Value>>
   defaultActive?: Value | null
