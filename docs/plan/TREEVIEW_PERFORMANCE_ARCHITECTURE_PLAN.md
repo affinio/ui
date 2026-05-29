@@ -275,6 +275,12 @@ Expected result:
 
 - Navigation becomes O(1) or close to O(1) after visible projection exists.
 
+Progress:
+
+- Added visible projection indexes: `visibleIndexByValue`, `enabledVisibleValues`, and `enabledVisibleIndexes` are rebuilt with visible projection.
+- `focusNext`/`focusPrevious` now use indexed visible positions plus binary search over enabled indexes instead of `visible.findIndex` plus per-row enabled scans.
+- Remaining Slice 4 work: remove active-only expanded equality work from focus bursts and expose projection version/counters as first-class internals.
+
 ## Slice 5: Windowed Tree API For Virtualization
 
 Purpose: avoid requiring consumers to copy or render the full visible array.

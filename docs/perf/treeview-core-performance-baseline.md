@@ -30,6 +30,7 @@ The initial harness measures:
 - focus next/previous burst;
 - active-only focus burst;
 - active-only select burst;
+- indexed focus next/previous over the visible projection;
 - full visible-array read;
 - placeholder window read using `getVisibleValues().slice(...)` until the Slice 5 window API exists.
 

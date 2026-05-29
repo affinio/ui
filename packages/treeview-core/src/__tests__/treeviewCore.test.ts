@@ -25,6 +25,39 @@ describe("TreeviewCore", () => {
     expect(core.isExpanded("beta")).toBe(true)
   })
 
+  it("uses visible navigation indexes for focus movement", () => {
+    const core = new TreeviewCore<string>({
+      nodes: [
+        { value: "root", parent: null },
+        { value: "disabled-a", parent: "root", disabled: true },
+        { value: "alpha", parent: "root" },
+        { value: "disabled-b", parent: "root", disabled: true },
+        { value: "beta", parent: "root" },
+      ],
+      defaultExpanded: ["root"],
+      defaultActive: "alpha",
+    })
+    const visible = core.getVisibleValues()
+    const findIndex = vi.spyOn(visible, "findIndex")
+    const find = vi.spyOn(visible, "find")
+    const internals = core as unknown as {
+      visibleCache: string[] | null
+      visibleIndexByValue: Map<string, number>
+      enabledVisibleValues: string[]
+      enabledVisibleIndexes: number[]
+    }
+    internals.visibleCache = visible
+
+    core.focusNext()
+
+    expect(core.getSnapshot().active).toBe("beta")
+    expect(findIndex).not.toHaveBeenCalled()
+    expect(find).not.toHaveBeenCalled()
+    expect(internals.visibleIndexByValue.get("beta")).toBe(4)
+    expect(internals.enabledVisibleValues).toEqual(["root", "alpha", "beta"])
+    expect(internals.enabledVisibleIndexes).toEqual([0, 2, 4])
+  })
+
   it("moves focus through visible nodes", () => {
     const core = new TreeviewCore<string>({
       nodes: DEFAULT_NODES,

@@ -31,6 +31,9 @@ export class TreeviewCore<Value = string> {
   private subtreeEndIndexByValue = new Map<Value, number>()
   private expandedSet = new Set<Value>()
   private visibleCache: Value[] | null = null
+  private visibleIndexByValue = new Map<Value, number>()
+  private enabledVisibleValues: Value[] = []
+  private enabledVisibleIndexes: number[] = []
   private readonly visibleProjection = createProjectionStageEngine<TreeviewProjectionStage>({
     nodes: {
       visible: {},
@@ -152,17 +155,14 @@ export class TreeviewCore<Value = string> {
   }
 
   requestFocusNext(): TreeviewActionResult {
-    const visible = this.getVisibleValuesCached()
-    if (!visible.length) {
-      return actionFailure("no-focusable-node")
-    }
-    const currentIndex = visible.findIndex((value) => value === this.state.active)
-    if (currentIndex === -1) {
+    this.getVisibleValuesCached()
+    const currentIndex = this.state.active === null ? undefined : this.visibleIndexByValue.get(this.state.active)
+    if (currentIndex === undefined) {
       return this.requestFocusFirst()
     }
-    const target = this.findAdjacentEnabledVisible(visible, currentIndex, 1)
+    const target = this.findAdjacentEnabledVisible(currentIndex, 1)
     if (target === null) {
-      if (!this.hasFocusableVisible(visible)) {
+      if (!this.enabledVisibleValues.length) {
         return actionFailure("no-focusable-node")
       }
       return actionFailure("boundary")
@@ -180,17 +180,14 @@ export class TreeviewCore<Value = string> {
   }
 
   requestFocusPrevious(): TreeviewActionResult {
-    const visible = this.getVisibleValuesCached()
-    if (!visible.length) {
-      return actionFailure("no-focusable-node")
-    }
-    const currentIndex = visible.findIndex((value) => value === this.state.active)
-    if (currentIndex === -1) {
+    this.getVisibleValuesCached()
+    const currentIndex = this.state.active === null ? undefined : this.visibleIndexByValue.get(this.state.active)
+    if (currentIndex === undefined) {
       return this.requestFocusLast()
     }
-    const target = this.findAdjacentEnabledVisible(visible, currentIndex, -1)
+    const target = this.findAdjacentEnabledVisible(currentIndex, -1)
     if (target === null) {
-      if (!this.hasFocusableVisible(visible)) {
+      if (!this.enabledVisibleValues.length) {
         return actionFailure("no-focusable-node")
       }
       return actionFailure("boundary")
@@ -628,12 +625,11 @@ export class TreeviewCore<Value = string> {
     return this.visibleCache
   }
 
-  private hasFocusableVisible(visible: Value[]): boolean {
-    return visible.some((value) => this.isNodeFocusable(value))
-  }
-
   private getVisibleValuesFor(expanded: ReadonlySet<Value>): Value[] {
     const visible: Value[] = []
+    const visibleIndexByValue = new Map<Value, number>()
+    const enabledVisibleValues: Value[] = []
+    const enabledVisibleIndexes: number[] = []
     const visited = new Set<Value>()
 
     this.rootValues.forEach((root) => {
@@ -648,6 +644,11 @@ export class TreeviewCore<Value = string> {
           continue
         }
         visited.add(value)
+        visibleIndexByValue.set(value, visible.length)
+        if (!node.disabled) {
+          enabledVisibleValues.push(value)
+          enabledVisibleIndexes.push(visible.length)
+        }
         visible.push(value)
         if (!expanded.has(value)) {
           continue
@@ -660,51 +661,41 @@ export class TreeviewCore<Value = string> {
         }
       }
     })
+
+    this.visibleIndexByValue = visibleIndexByValue
+    this.enabledVisibleValues = enabledVisibleValues
+    this.enabledVisibleIndexes = enabledVisibleIndexes
     return visible
   }
 
-  private findAdjacentEnabledVisible(
-    visible: Value[],
-    currentIndex: number,
-    direction: 1 | -1,
-  ): Value | null {
-    if (!visible.length) {
+  private findAdjacentEnabledVisible(currentIndex: number, direction: 1 | -1): Value | null {
+    if (!this.enabledVisibleValues.length) {
       return null
     }
 
-    let index = currentIndex
-    for (let steps = 0; steps < visible.length; steps += 1) {
-      index += direction
-      if (index < 0 || index >= visible.length) {
-        if (!this.loop) {
-          return null
-        }
-        index = direction === 1 ? 0 : visible.length - 1
+    if (direction === 1) {
+      const nextEnabledIndex = findFirstGreaterThan(this.enabledVisibleIndexes, currentIndex)
+      if (nextEnabledIndex !== -1) {
+        return this.enabledVisibleValues[nextEnabledIndex] ?? null
       }
-      const candidate = visible[index]
-      if (candidate === undefined) {
-        continue
-      }
-      if (this.isNodeFocusable(candidate)) {
-        return candidate
-      }
+      return this.loop ? this.enabledVisibleValues[0] ?? null : null
     }
-    return null
+
+    const previousEnabledIndex = findLastLessThan(this.enabledVisibleIndexes, currentIndex)
+    if (previousEnabledIndex !== -1) {
+      return this.enabledVisibleValues[previousEnabledIndex] ?? null
+    }
+    return this.loop ? this.enabledVisibleValues[this.enabledVisibleValues.length - 1] ?? null : null
   }
 
   private getFirstEnabledVisible(): Value | null {
-    return this.getVisibleValuesCached().find((value) => this.isNodeFocusable(value)) ?? null
+    this.getVisibleValuesCached()
+    return this.enabledVisibleValues[0] ?? null
   }
 
   private getLastEnabledVisible(): Value | null {
-    const visible = this.getVisibleValuesCached()
-    for (let index = visible.length - 1; index >= 0; index -= 1) {
-      const value = visible[index]
-      if (value !== undefined && this.isNodeFocusable(value)) {
-        return value
-      }
-    }
-    return null
+    this.getVisibleValuesCached()
+    return this.enabledVisibleValues[this.enabledVisibleValues.length - 1] ?? null
   }
 
   private hasChildren(value: Value): boolean {
@@ -725,6 +716,40 @@ export class TreeviewCore<Value = string> {
     }
     return false
   }
+}
+
+function findFirstGreaterThan(values: number[], target: number): number {
+  let low = 0
+  let high = values.length - 1
+  let result = -1
+  while (low <= high) {
+    const mid = Math.floor((low + high) / 2)
+    const value = values[mid]
+    if (value !== undefined && value > target) {
+      result = mid
+      high = mid - 1
+    } else {
+      low = mid + 1
+    }
+  }
+  return result
+}
+
+function findLastLessThan(values: number[], target: number): number {
+  let low = 0
+  let high = values.length - 1
+  let result = -1
+  while (low <= high) {
+    const mid = Math.floor((low + high) / 2)
+    const value = values[mid]
+    if (value !== undefined && value < target) {
+      result = mid
+      low = mid + 1
+    } else {
+      high = mid - 1
+    }
+  }
+  return result
 }
 
 function statesEqual<Value>(a: TreeviewState<Value>, b: TreeviewState<Value>): boolean {
