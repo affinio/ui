@@ -326,7 +326,8 @@ Progress:
 - Kept `getVisibleValues()` as the compatibility full-array copy API.
 - Updated the core benchmark window workload to use `getVisibleWindow()` instead of copying via `getVisibleValues().slice(...)`.
 - Added frozen last-window caching so repeated reads of the same clamped window and projection version reuse the same array and cannot mutate internal visible state.
-- Remaining Slice 5 work: wire row metadata into the Vue adapter and decide whether multi-window caching is worth the memory tradeoff.
+- Wired windowed visible reads and node metadata through `useTreeviewController()` for Vue consumers.
+- Remaining Slice 5 work: decide whether multi-window caching is worth the memory tradeoff and add a dedicated virtualized Vue composable if product usage requires scroll state ownership.
 
 ## Slice 6: First-Class Search And Filter Projection
 

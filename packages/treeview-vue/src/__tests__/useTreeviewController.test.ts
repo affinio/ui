@@ -32,6 +32,41 @@ describe("useTreeviewController", () => {
     scope.stop()
   })
 
+  it("exposes windowed visible reads and node metadata", () => {
+    const scope = effectScope()
+    let controller!: TreeviewController<string>
+    scope.run(() => {
+      controller = useTreeviewController<string>({
+        nodes: [
+          { value: "root", parent: null },
+          { value: "alpha", parent: "root" },
+          { value: "beta", parent: "root" },
+          { value: "gamma", parent: "beta" },
+        ],
+        defaultExpanded: ["root", "beta"],
+        defaultActive: "beta",
+        defaultSelected: "gamma",
+      })
+    })
+
+    expect(controller.getVisibleCount()).toBe(4)
+    expect(controller.getVisibleAt(1)).toBe("alpha")
+    expect(controller.getVisibleIndex("gamma")).toBe(3)
+    expect(controller.getVisibleWindow(1, 3)).toEqual(["alpha", "beta"])
+    expect(controller.getNodeMeta("beta")).toEqual({
+      value: "beta",
+      parent: "root",
+      depth: 1,
+      childCount: 1,
+      disabled: false,
+      expanded: true,
+      selected: false,
+      active: true,
+    })
+
+    scope.stop()
+  })
+
   it("exposes tree navigation helpers", () => {
     const scope = effectScope()
     let controller!: TreeviewController<string>

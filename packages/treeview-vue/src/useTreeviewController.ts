@@ -3,6 +3,7 @@ import type { ShallowRef } from "vue"
 import {
   TreeviewCore,
   type TreeviewNode,
+  type TreeviewNodeMeta,
   type TreeviewOptions,
   type TreeviewSnapshot,
 } from "@affino/treeview-core"
@@ -26,6 +27,11 @@ export interface TreeviewController<Value = string> {
   readonly isSelected: (value: Value) => boolean
   readonly isActive: (value: Value) => boolean
   readonly getVisibleValues: () => Value[]
+  readonly getVisibleCount: () => number
+  readonly getVisibleAt: (index: number) => Value | null
+  readonly getVisibleIndex: (value: Value) => number
+  readonly getVisibleWindow: (start: number, end: number) => ReadonlyArray<Value>
+  readonly getNodeMeta: (value: Value) => TreeviewNodeMeta<Value> | null
   readonly dispose: () => void
 }
 
@@ -71,6 +77,11 @@ export function useTreeviewController<Value = string>(
     isSelected: (value) => core.isSelected(value),
     isActive: (value) => core.isActive(value),
     getVisibleValues: () => core.getVisibleValues(),
+    getVisibleCount: () => core.getVisibleCount(),
+    getVisibleAt: (index) => core.getVisibleAt(index),
+    getVisibleIndex: (value) => core.getVisibleIndex(value),
+    getVisibleWindow: (start, end) => core.getVisibleWindow(start, end),
+    getNodeMeta: (value) => core.getNodeMeta(value),
     dispose,
   }
 }
