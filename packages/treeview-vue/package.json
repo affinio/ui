@@ -1,6 +1,6 @@
 {
   "name": "@affino/treeview-vue",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": "Anton Pavlov <a.pavlov@affino.dev>",
   "type": "module",
   "description": "Vue adapter for @affino/treeview-core",
@@ -13,7 +13,8 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [
-    "dist"
+    "dist",
+    "!dist/__tests__"
   ],
   "sideEffects": false,
   "peerDependencies": {

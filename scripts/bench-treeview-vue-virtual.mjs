@@ -65,7 +65,8 @@ for (let sample = 0; sample < SAMPLE_COUNT; sample += 1) {
 const elapsedMs = performance.now() - startedAt
 const heapAfter = sampleHeapUsed()
 const heapDeltaMb = (heapAfter - heapBefore) / 1024 / 1024
-const scrollStats = stats(samples)
+const scrollRunStats = stats(samples)
+const scrollStepEstimateStats = stats(samples.map((sample) => sample / SCROLL_STEPS))
 const report = {
   name: "treeview-vue-virtual",
   config: {
@@ -85,7 +86,8 @@ const report = {
   blankViewportCount,
   checksum,
   samples,
-  scrollFrameMs: scrollStats,
+  scrollRunMs: scrollRunStats,
+  scrollStepEstimateMs: scrollStepEstimateStats,
 }
 
 if (OUTPUT_JSON) {
@@ -97,8 +99,8 @@ const failures = []
 if (elapsedMs > PERF_BUDGET_TOTAL_MS) {
   failures.push(`total ${elapsedMs.toFixed(2)}ms > budget ${PERF_BUDGET_TOTAL_MS}ms`)
 }
-if (scrollStats.p95 > PERF_BUDGET_MAX_SCROLL_P95_MS) {
-  failures.push(`scroll p95 ${scrollStats.p95.toFixed(2)}ms > budget ${PERF_BUDGET_MAX_SCROLL_P95_MS}ms`)
+if (scrollRunStats.p95 > PERF_BUDGET_MAX_SCROLL_P95_MS) {
+  failures.push(`scroll run p95 ${scrollRunStats.p95.toFixed(2)}ms > budget ${PERF_BUDGET_MAX_SCROLL_P95_MS}ms`)
 }
 if (blankViewportCount > PERF_BUDGET_MAX_BLANK_VIEWPORTS) {
   failures.push(`blank viewport count ${blankViewportCount} > budget ${PERF_BUDGET_MAX_BLANK_VIEWPORTS}`)
@@ -107,8 +109,9 @@ if (heapDeltaMb > PERF_BUDGET_MAX_HEAP_DELTA_MB) {
   failures.push(`heap delta ${heapDeltaMb.toFixed(2)}MB > budget ${PERF_BUDGET_MAX_HEAP_DELTA_MB}MB`)
 }
 
-console.log(`[treeview-vue-virtual] ${NODE_COUNT} nodes, ${SCROLL_STEPS} scroll steps, ${SAMPLE_COUNT} samples`)
-console.log(`  scroll p50=${scrollStats.p50.toFixed(2)}ms p95=${scrollStats.p95.toFixed(2)}ms p99=${scrollStats.p99.toFixed(2)}ms max=${scrollStats.max.toFixed(2)}ms`)
+console.log(`[treeview-vue-virtual] ${NODE_COUNT} nodes, ${SCROLL_STEPS} scroll steps per sample, ${SAMPLE_COUNT} samples`)
+console.log(`  scroll run p50=${scrollRunStats.p50.toFixed(2)}ms p95=${scrollRunStats.p95.toFixed(2)}ms p99=${scrollRunStats.p99.toFixed(2)}ms max=${scrollRunStats.max.toFixed(2)}ms`)
+console.log(`  scroll step estimate p50=${scrollStepEstimateStats.p50.toFixed(3)}ms p95=${scrollStepEstimateStats.p95.toFixed(3)}ms p99=${scrollStepEstimateStats.p99.toFixed(3)}ms max=${scrollStepEstimateStats.max.toFixed(3)}ms`)
 console.log(`  rows min=${report.minRenderedRows} max=${maxRenderedRows} blanks=${blankViewportCount} heapDelta=${heapDeltaMb.toFixed(2)}MB`)
 if (OUTPUT_JSON) {
   console.log(`  wrote ${OUTPUT_JSON}`)

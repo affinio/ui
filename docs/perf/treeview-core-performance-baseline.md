@@ -69,7 +69,7 @@ Supported budget environment variables:
 - `PERF_BUDGET_MAX_HEAP_DELTA_MB`
 - `BENCH_TREEVIEW_TOPOLOGY_PATCH_ITERATIONS` controls single-add/reparent topology patch sample size
 - `BENCH_TREEVIEW_SEARCH_ITERATIONS` controls search apply/clear sample size
-- `PERF_BUDGET_MAX_SCROLL_P95_MS` for the Vue virtual harness
+- `PERF_BUDGET_MAX_SCROLL_P95_MS` for the Vue virtual harness scroll-run p95; one sample includes `BENCH_TREEVIEW_SCROLL_STEPS`, so this is not per-frame latency
 - `PERF_BUDGET_MAX_BLANK_VIEWPORTS` for the Vue virtual harness
 
 ## Artifact
@@ -82,3 +82,7 @@ artifacts/performance/bench-treeview-vue-virtual.json
 ```
 
 Override with `BENCH_OUTPUT_JSON=/path/to/report.json` when collecting matrix runs.
+
+## Vue virtual scroll metric note
+
+`bench-treeview-vue-virtual.mjs` reports `scrollRunMs` for the full synthetic scroll sequence in one sample. Each sample performs `BENCH_TREEVIEW_SCROLL_STEPS` `setScrollTop` updates with RAF flushing and Vue `nextTick()`. The report also includes `scrollStepEstimateMs`, computed as run duration divided by step count, as a rough per-step estimate. It is not a browser frame timing trace.
