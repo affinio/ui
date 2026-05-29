@@ -56,11 +56,6 @@ nodes.forEach((node) => {
   childrenByParent.set(node.parent, siblings)
 })
 
-const nodesByValue = new Map<NodeValue, TreeviewNode<NodeValue>>()
-nodes.forEach((node) => {
-  nodesByValue.set(node.value, node)
-})
-
 const levelByValue = new Map<NodeValue, number>()
 const parentByValue = new Map<NodeValue, NodeValue | null>()
 nodes.forEach((node) => {
@@ -98,6 +93,7 @@ const treeview = useVirtualTreeviewController<NodeValue>({
   overscan: 10,
 })
 
+const rowsViewport = ref<HTMLElement | null>(null)
 const searchInput = ref<HTMLInputElement | null>(null)
 const searchQuery = ref("")
 
@@ -112,20 +108,47 @@ const visibleNodeCount = computed(() => {
   snapshot.value
   return treeview.getVisibleCount()
 })
+const visibleRangeLabel = computed(() => {
+  const rows = visibleRows.value
+  const first = rows[0]?.index
+  const last = rows[rows.length - 1]?.index
+  if (first === undefined || last === undefined) {
+    return "0 rendered"
+  }
+  return `${first + 1}-${last + 1} rendered`
+})
 
 const searchMatchCount = computed(() => {
   snapshot.value
   return treeview.getSearchMatchCount()
 })
 
+const syncViewportScroll = (): void => {
+  const viewport = rowsViewport.value
+  if (!viewport) {
+    return
+  }
+  const scrollTop = treeview.scrollTop.value
+  if (Math.abs(viewport.scrollTop - scrollTop) > 0.5) {
+    viewport.scrollTop = scrollTop
+  }
+}
+
+const refreshAndSyncScroll = (): void => {
+  treeview.refreshWindow()
+  syncViewportScroll()
+}
+
 const applySearchQuery = (query: string): void => {
   searchQuery.value = query
   treeview.setSearchQuery(query)
+  syncViewportScroll()
 }
 
 const clearSearchQuery = (): void => {
   searchQuery.value = ""
   treeview.clearSearchQuery()
+  syncViewportScroll()
   searchInput.value?.focus()
 }
 
@@ -199,6 +222,7 @@ watch(
       return
     }
     treeview.scrollToValue(active)
+    refreshAndSyncScroll()
     await nextTick()
     const target = itemElements.get(active)
     if (!target || target.hidden || target === document.activeElement || document.activeElement === searchInput.value) {
@@ -273,6 +297,7 @@ const onNodeKeydown = (event: KeyboardEvent, value: NodeValue) => {
 const onToggleClick = (value: NodeValue): void => {
   treeview.toggle(value)
   treeview.focus(value)
+  refreshAndSyncScroll()
 }
 </script>
 
@@ -302,7 +327,14 @@ const onToggleClick = (value: NodeValue): void => {
       </span>
     </div>
 
+    <div class="treeview-summary" aria-live="polite">
+      <span>{{ visibleNodeCount }} visible / {{ totalNodeCount }} total</span>
+      <span>{{ visibleRangeLabel }}</span>
+      <span>{{ visibleRows.length }} DOM rows</span>
+    </div>
+
     <div
+      ref="rowsViewport"
       class="treeview-rows"
       role="tree"
       aria-label="Project map treeview"
@@ -365,7 +397,6 @@ const onToggleClick = (value: NodeValue): void => {
       <p class="ui-eyebrow">Current selection</p>
       <p v-if="selectedMeta">{{ selectedMeta.title }} | {{ selectedMeta.detail }}</p>
       <p v-else>No node selected</p>
-      <p>{{ visibleNodeCount }} visible / {{ totalNodeCount }} total nodes</p>
     </footer>
   </section>
 </template>
@@ -444,6 +475,17 @@ const onToggleClick = (value: NodeValue): void => {
   white-space: nowrap;
 }
 
+.treeview-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.75rem;
+  align-items: center;
+  border-top: 1px dashed var(--tree-line);
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  padding: 0.45rem 0 0.55rem;
+}
+
 .treeview-rows {
   position: relative;
   overflow: auto;
@@ -476,9 +518,11 @@ const onToggleClick = (value: NodeValue): void => {
   grid-template-columns: calc(var(--tree-offset) + var(--tree-toggle-size) + var(--tree-content-gap)) minmax(0, 1fr);
   align-items: center;
   min-height: 2rem;
+  height: 2rem;
   margin: 0;
   padding: 0.1rem 0.25rem;
   cursor: pointer;
+  will-change: transform;
 }
 
 .treeview-node__rail {
@@ -621,17 +665,28 @@ const onToggleClick = (value: NodeValue): void => {
 
 .treeview-node__label {
   display: inline;
-  font-weight: 400;
+  flex: 0 0 auto;
+  font-weight: 500;
   line-height: 1.2;
+  white-space: nowrap;
 }
 
 .treeview-node__content {
   grid-column: 2;
   min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 0.55rem;
+  overflow: hidden;
 }
 
 .treeview-node__detail {
-  display: none;
+  color: var(--text-muted);
+  display: inline;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .treeview-footer {
@@ -647,6 +702,10 @@ const onToggleClick = (value: NodeValue): void => {
 
   .treeview-search__count {
     grid-column: 1 / -1;
+  }
+
+  .treeview-node__detail {
+    display: none;
   }
 }
 
