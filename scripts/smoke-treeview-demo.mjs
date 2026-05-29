@@ -33,6 +33,15 @@ const getActiveRowValue = async (page) => {
   return page.locator('[role=treeitem][data-active="true"]').first().getAttribute("data-value")
 }
 
+const getVisibleTotal = async (page) => {
+  const summary = await page.locator(".treeview-summary").innerText()
+  const match = summary.match(/(\d+) visible \/ (\d+) total/)
+  if (!match) {
+    throw new Error(`could not parse visible summary: ${summary}`)
+  }
+  return Number.parseInt(match[1], 10)
+}
+
 const isActiveElementInsideViewport = async (page) => {
   return page.evaluate(() => {
     const viewportElement = document.querySelector(".treeview-rows")
@@ -177,6 +186,35 @@ try {
   assertPositive("rowsAfterClear", rowsAfterClear)
   assertPositive("rowsAfterClearInViewport", rowsAfterClearInViewport)
 
+  await viewport.evaluate((element) => {
+    element.scrollTop = 0
+    element.dispatchEvent(new Event("scroll", { bubbles: true }))
+  })
+  await page.waitForTimeout(160)
+  await page.locator('[role=treeitem][data-value="workspace"]').click()
+  const visibleBeforeCollapse = await getVisibleTotal(page)
+  await page.keyboard.press("ArrowLeft")
+  await page.waitForTimeout(160)
+  const visibleAfterCollapse = await getVisibleTotal(page)
+  const rowsAfterCollapseInViewport = await countRowsIntersectingViewport(page)
+  const activeAfterCollapse = await getActiveRowValue(page)
+  if (!(visibleAfterCollapse < visibleBeforeCollapse)) {
+    throw new Error(`ArrowLeft did not collapse root, before=${visibleBeforeCollapse}, after=${visibleAfterCollapse}`)
+  }
+  assertPositive("rowsAfterCollapseInViewport", rowsAfterCollapseInViewport)
+  if (activeAfterCollapse !== "workspace") {
+    throw new Error(`collapse moved active row, active=${activeAfterCollapse}`)
+  }
+
+  await page.keyboard.press("ArrowRight")
+  await page.waitForTimeout(160)
+  const visibleAfterExpand = await getVisibleTotal(page)
+  const rowsAfterExpandInViewport = await countRowsIntersectingViewport(page)
+  if (!(visibleAfterExpand > visibleAfterCollapse)) {
+    throw new Error(`ArrowRight did not expand root, collapsed=${visibleAfterCollapse}, expanded=${visibleAfterExpand}`)
+  }
+  assertPositive("rowsAfterExpandInViewport", rowsAfterExpandInViewport)
+
   console.log(JSON.stringify({
     route,
     serverStarted: Boolean(server),
@@ -193,6 +231,12 @@ try {
     searchInputFocused,
     rowsAfterClear,
     rowsAfterClearInViewport,
+    visibleBeforeCollapse,
+    visibleAfterCollapse,
+    rowsAfterCollapseInViewport,
+    activeAfterCollapse,
+    visibleAfterExpand,
+    rowsAfterExpandInViewport,
     summary,
   }, null, 2))
 } finally {

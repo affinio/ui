@@ -273,6 +273,7 @@ const onNodeKeydown = (event: KeyboardEvent, value: NodeValue) => {
       event.preventDefault()
       if (!treeview.isExpanded(value)) {
         treeview.expand(value)
+        refreshAndSyncScroll()
         return
       }
       const child = childrenByParent.get(value)?.[0]
@@ -285,6 +286,7 @@ const onNodeKeydown = (event: KeyboardEvent, value: NodeValue) => {
       event.preventDefault()
       if (treeview.isExpanded(value)) {
         treeview.collapse(value)
+        refreshAndSyncScroll()
         return
       }
       if (parentByValue.get(value)) {
