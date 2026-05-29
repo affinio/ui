@@ -104,3 +104,4 @@ storybook-static/
 .tmp
 artifacts/
 sbom.cdx.json
+.codex

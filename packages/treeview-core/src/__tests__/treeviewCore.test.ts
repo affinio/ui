@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { TreeviewCore } from "../TreeviewCore"
 import type { TreeviewNode } from "../types"
 
@@ -229,6 +229,46 @@ describe("TreeviewCore", () => {
     expect(() => {
       snapshot.expanded.push("beta")
     }).toThrow(TypeError)
+  })
+
+  it("does not normalize expanded order for active-only focus changes", () => {
+    const nodes: TreeviewNode<string>[] = [
+      { value: "root", parent: null },
+      { value: "alpha", parent: "root" },
+      { value: "beta", parent: "root" },
+    ]
+    const core = new TreeviewCore<string>({
+      nodes,
+      defaultExpanded: ["root"],
+      defaultActive: "root",
+    })
+    const normalizeExpandedValues = vi.spyOn(
+      core as unknown as { normalizeExpandedValues: (values: Iterable<string>) => string[] },
+      "normalizeExpandedValues",
+    )
+
+    core.focus("alpha")
+    core.focus("beta")
+
+    expect(normalizeExpandedValues).not.toHaveBeenCalled()
+    expect(core.getSnapshot().expanded).toEqual(["root"])
+  })
+
+  it("uses expanded membership without scanning arrays", () => {
+    const core = new TreeviewCore<string>({
+      nodes: DEFAULT_NODES,
+      defaultExpanded: ["root", "beta"],
+      defaultActive: "root",
+    })
+    const includes = vi.spyOn(Array.prototype, "includes")
+    includes.mockClear()
+
+    const result = core.isExpanded("beta")
+    const includeCallCount = includes.mock.calls.length
+    includes.mockRestore()
+
+    expect(result).toBe(true)
+    expect(includeCallCount).toBe(0)
   })
 
   it("keeps snapshot reference stable for no-op/failure requests", () => {

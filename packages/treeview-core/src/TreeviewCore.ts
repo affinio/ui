@@ -24,6 +24,8 @@ export class TreeviewCore<Value = string> {
   private state: TreeviewState<Value>
   private snapshot: TreeviewSnapshot<Value>
   private subscribers = new Set<TreeviewSubscriber<Value>>()
+  private expandedSet = new Set<Value>()
+  private traversalOrderCache: Value[] | null = null
   private visibleCache: Value[] | null = null
   private readonly visibleProjection = createProjectionStageEngine<TreeviewProjectionStage>({
     nodes: {
@@ -40,6 +42,7 @@ export class TreeviewCore<Value = string> {
       selected: options.defaultSelected ?? null,
       expanded: toUniqueList(options.defaultExpanded ?? []),
     }
+    this.expandedSet = new Set(this.state.expanded)
     this.snapshot = this.createSnapshot(this.state)
     this.registerNodes(options.nodes ?? [], { emit: false })
     this.state = this.normalizeState(this.state)
@@ -55,6 +58,7 @@ export class TreeviewCore<Value = string> {
     } else {
       this.nodes = this.buildNodeMap(nodes)
     }
+    this.traversalOrderCache = null
     this.visibleCache = null
     this.visibleProjection.requestRefreshPass()
     const next = this.normalizeState(this.state)
@@ -71,11 +75,11 @@ export class TreeviewCore<Value = string> {
       return node ? actionFailure("disabled-node") : actionFailure("missing-node")
     }
     const previous = this.state
-    const expanded = this.withExpandedPath(value)
+    const expanded = this.getExpandedWithAncestorPath(value)
     this.patch({
       active: value,
       selected: value,
-      expanded: toUniqueList(expanded),
+      expanded,
     })
     return actionSuccess(!statesEqual(previous, this.state))
   }
@@ -97,11 +101,11 @@ export class TreeviewCore<Value = string> {
       return node ? actionFailure("disabled-node") : actionFailure("missing-node")
     }
     const previous = this.state
-    const expanded = this.withExpandedPath(value)
+    const expanded = this.getExpandedWithAncestorPath(value)
     this.patch({
       ...this.state,
       active: value,
-      expanded: toUniqueList(expanded),
+      expanded,
     })
     return actionSuccess(!statesEqual(previous, this.state))
   }
@@ -262,7 +266,7 @@ export class TreeviewCore<Value = string> {
   }
 
   expandPath(value: Value): void {
-    const nextExpanded = toUniqueList(this.withExpandedPath(value))
+    const nextExpanded = this.getExpandedWithAncestorPath(value)
     this.patch({
       ...this.state,
       expanded: nextExpanded,
@@ -283,7 +287,7 @@ export class TreeviewCore<Value = string> {
   }
 
   isExpanded(value: Value): boolean {
-    return this.state.expanded.includes(value)
+    return this.expandedSet.has(value)
   }
 
   isSelected(value: Value): boolean {
@@ -362,15 +366,17 @@ export class TreeviewCore<Value = string> {
   }
 
   private patch(next: TreeviewState<Value>, emit = true): void {
+    const expandedChanged = !expandedValuesEqual(this.state.expanded, next.expanded)
     const normalizedNext: TreeviewState<Value> = {
       active: next.active,
       selected: next.selected,
-      expanded: this.normalizeExpandedValues(next.expanded),
+      expanded: expandedChanged ? this.normalizeExpandedValues(next.expanded) : this.state.expanded,
     }
     if (statesEqual(this.state, normalizedNext)) {
       return
     }
     if (!expandedValuesEqual(this.state.expanded, normalizedNext.expanded)) {
+      this.expandedSet = new Set(normalizedNext.expanded)
       this.visibleCache = null
       this.visibleProjection.requestRefreshPass()
     }
@@ -445,23 +451,29 @@ export class TreeviewCore<Value = string> {
     return Boolean(node && !node.disabled)
   }
 
-  private withExpandedPath(value: Value): Value[] {
-    const nextExpanded = new Set(this.state.expanded)
-    this.includeAncestorPath(nextExpanded, value)
+  private getExpandedWithAncestorPath(value: Value): Value[] {
+    const nextExpanded = new Set(this.expandedSet)
+    const changed = this.includeAncestorPath(nextExpanded, value)
+    if (!changed) {
+      return this.state.expanded
+    }
     return this.normalizeExpandedValues(nextExpanded)
   }
 
-  private includeAncestorPath(expanded: Set<Value>, value: Value | null): void {
+  private includeAncestorPath(expanded: Set<Value>, value: Value | null): boolean {
+    let changed = false
     if (value === null) {
-      return
+      return changed
     }
     let current = this.nodes.get(value)?.parent ?? null
     while (current !== null) {
-      if (this.hasChildren(current)) {
+      if (this.hasChildren(current) && !expanded.has(current)) {
         expanded.add(current)
+        changed = true
       }
       current = this.nodes.get(current)?.parent ?? null
     }
+    return changed
   }
 
   private normalizeExpandedValues(values: Iterable<Value>): Value[] {
@@ -478,6 +490,9 @@ export class TreeviewCore<Value = string> {
   }
 
   private getNodeTraversalOrder(): Value[] {
+    if (this.traversalOrderCache) {
+      return this.traversalOrderCache
+    }
     const order: Value[] = []
     const visited = new Set<Value>()
 
@@ -503,6 +518,7 @@ export class TreeviewCore<Value = string> {
         visit(value, new Set<Value>())
       }
     })
+    this.traversalOrderCache = order
     return order
   }
 
@@ -514,11 +530,11 @@ export class TreeviewCore<Value = string> {
       if (stage !== "visible" || !shouldRecompute) {
         return false
       }
-      this.visibleCache = this.getVisibleValuesFor(new Set(this.state.expanded))
+      this.visibleCache = this.getVisibleValuesFor(this.expandedSet)
       return true
     })
     if (!this.visibleCache) {
-      this.visibleCache = this.getVisibleValuesFor(new Set(this.state.expanded))
+      this.visibleCache = this.getVisibleValuesFor(this.expandedSet)
     }
     return this.visibleCache
   }
