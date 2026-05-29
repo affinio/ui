@@ -204,7 +204,8 @@ Progress:
 - Replaced recursive traversal and visible projection walks with iterative DFS, preserving preorder child order while avoiding stack overflow on deep chains.
 - Added a 10k expanded-chain contract test and confirmed `registerReplaceDeep` now records successful benchmark timings instead of `RangeError`.
 - Added source-owned `rootValues` and deterministic missing-parent/parent-cycle normalization so visible reads no longer derive roots by filtering every node.
-- Remaining Slice 2 work: introduce explicit depth/preorder/subtree metadata indexes and reuse them across normalization/projection reads.
+- Added source-owned preorder, preorder-index, and depth indexes during registration; canonical expanded normalization now reads the source preorder directly instead of lazily rebuilding traversal order.
+- Remaining Slice 2 work: add subtree-end metadata and start using depth/preorder indexes in the future windowed row metadata API.
 
 ## Slice 3: Incremental Source Patches
 

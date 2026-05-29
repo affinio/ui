@@ -130,6 +130,27 @@ describe("TreeviewCore", () => {
     expect(core.getSnapshot().selected).toBe(null)
   })
 
+  it("builds source-owned preorder and depth indexes", () => {
+    const core = new TreeviewCore<string>({
+      nodes: [
+        { value: "root", parent: null },
+        { value: "alpha", parent: "root" },
+        { value: "alpha-child", parent: "alpha" },
+        { value: "beta", parent: "root" },
+      ],
+      defaultExpanded: ["root", "alpha"],
+    })
+    const internals = core as unknown as {
+      preorderValues: string[]
+      preorderIndexByValue: Map<string, number>
+      depthByValue: Map<string, number>
+    }
+
+    expect(internals.preorderValues).toEqual(["root", "alpha", "alpha-child", "beta"])
+    expect(internals.preorderIndexByValue.get("beta")).toBe(3)
+    expect(internals.depthByValue.get("alpha-child")).toBe(2)
+  })
+
   it("handles deep expanded chains without recursive stack overflow", () => {
     const nodes: TreeviewNode<string>[] = Array.from({ length: 10000 }, (_entry, index) => ({
       value: `node-${index}`,

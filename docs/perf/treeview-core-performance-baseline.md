@@ -33,7 +33,7 @@ The initial harness measures:
 - full visible-array read;
 - placeholder window read using `getVisibleValues().slice(...)` until the Slice 5 window API exists.
 
-Each workload reports p50, p95, p99, max elapsed time, heap delta, and, where available, emitted snapshot count plus visible/traversal recompute counters.
+Each workload reports p50, p95, p99, max elapsed time, heap delta, and, where available, emitted snapshot count plus visible projection and canonical expanded-order read counters.
 
 ## Budgets
 

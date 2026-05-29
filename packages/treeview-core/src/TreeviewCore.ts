@@ -25,8 +25,10 @@ export class TreeviewCore<Value = string> {
   private snapshot: TreeviewSnapshot<Value>
   private subscribers = new Set<TreeviewSubscriber<Value>>()
   private rootValues: Value[] = []
+  private preorderValues: Value[] = []
+  private preorderIndexByValue = new Map<Value, number>()
+  private depthByValue = new Map<Value, number>()
   private expandedSet = new Set<Value>()
-  private traversalOrderCache: Value[] | null = null
   private visibleCache: Value[] | null = null
   private readonly visibleProjection = createProjectionStageEngine<TreeviewProjectionStage>({
     nodes: {
@@ -59,7 +61,6 @@ export class TreeviewCore<Value = string> {
     } else {
       this.nodes = this.buildNodeMap(nodes)
     }
-    this.traversalOrderCache = null
     this.visibleCache = null
     this.visibleProjection.requestRefreshPass()
     const next = this.normalizeState(this.state)
@@ -375,6 +376,49 @@ export class TreeviewCore<Value = string> {
       map.get(node.parent)?.children.push(node.value)
     })
     this.rootValues = roots
+    this.rebuildSourceIndexes(map)
+  }
+
+  private rebuildSourceIndexes(map: Map<Value, InternalNode<Value>>): void {
+    const preorderValues: Value[] = []
+    const preorderIndexByValue = new Map<Value, number>()
+    const depthByValue = new Map<Value, number>()
+    const visited = new Set<Value>()
+
+    const visit = (start: Value, startDepth: number) => {
+      const stack: Array<{ value: Value; depth: number }> = [{ value: start, depth: startDepth }]
+      while (stack.length) {
+        const entry = stack.pop()
+        if (!entry || visited.has(entry.value)) {
+          continue
+        }
+        const node = map.get(entry.value)
+        if (!node) {
+          continue
+        }
+        visited.add(entry.value)
+        preorderIndexByValue.set(entry.value, preorderValues.length)
+        depthByValue.set(entry.value, entry.depth)
+        preorderValues.push(entry.value)
+        for (let index = node.children.length - 1; index >= 0; index -= 1) {
+          const child = node.children[index]
+          if (child !== undefined && !visited.has(child)) {
+            stack.push({ value: child, depth: entry.depth + 1 })
+          }
+        }
+      }
+    }
+
+    this.rootValues.forEach((root) => visit(root, 0))
+    map.forEach((_node, value) => {
+      if (!visited.has(value)) {
+        visit(value, 0)
+      }
+    })
+
+    this.preorderValues = preorderValues
+    this.preorderIndexByValue = preorderIndexByValue
+    this.depthByValue = depthByValue
   }
 
   private getParentCycleValues(map: Map<Value, InternalNode<Value>>): Set<Value> {
@@ -535,42 +579,7 @@ export class TreeviewCore<Value = string> {
   }
 
   private getNodeTraversalOrder(): Value[] {
-    if (this.traversalOrderCache) {
-      return this.traversalOrderCache
-    }
-    const order: Value[] = []
-    const visited = new Set<Value>()
-
-    const visit = (start: Value) => {
-      const stack: Value[] = [start]
-      while (stack.length) {
-        const value = stack.pop()
-        if (value === undefined || visited.has(value)) {
-          continue
-        }
-        const node = this.nodes.get(value)
-        if (!node) {
-          continue
-        }
-        visited.add(value)
-        order.push(value)
-        for (let index = node.children.length - 1; index >= 0; index -= 1) {
-          const child = node.children[index]
-          if (child !== undefined && !visited.has(child)) {
-            stack.push(child)
-          }
-        }
-      }
-    }
-
-    this.rootValues.forEach((root) => visit(root))
-    this.nodes.forEach((_node, value) => {
-      if (!visited.has(value)) {
-        visit(value)
-      }
-    })
-    this.traversalOrderCache = order
-    return order
+    return this.preorderValues
   }
 
   private getVisibleValuesCached(): Value[] {
