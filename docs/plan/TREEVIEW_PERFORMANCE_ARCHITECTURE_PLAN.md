@@ -159,7 +159,8 @@ Progress:
 - Implemented internal `expandedSet` membership and cached traversal order for canonical expanded snapshots.
 - Active-only focus changes now reuse the existing canonical expanded array when ancestor expansion is unchanged.
 - `isExpanded()` now reads from internal set membership instead of scanning the expanded snapshot array.
-- Remaining Slice 1 work: add baseline benchmark coverage for focus/select bursts and snapshot allocation counts.
+- Added `bench-treeview-core.mjs` with focus/select burst coverage, visible/traversal recompute counters, heap deltas, JSON artifacts, and smoke-budget assertions.
+- Remaining Slice 1 work: collect multi-run 20k/100k baselines and tighten budgets after variance is understood.
 
 ## Slice 2: Build Stable Source Graph Indexes
 

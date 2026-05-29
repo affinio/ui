@@ -70,6 +70,8 @@
     "bench:laravel-morph:assert": "PERF_BUDGET_TOTAL_MS=3400 PERF_BUDGET_MAX_HYDRATE_RATE_PCT=25 PERF_BUDGET_MAX_BOOTSTRAP_MS=12 PERF_BUDGET_MAX_OPEN_CLOSE_MS=2 node ./scripts/bench-livewire-morph.mjs",
     "bench:vue-adapters": "node --expose-gc ./scripts/bench-vue-adapters.mjs",
     "bench:vue-adapters:assert": "PERF_BUDGET_TOTAL_MS=1400 PERF_BUDGET_MAX_BOOTSTRAP_MS=8 PERF_BUDGET_MAX_CONTROLLER_MS=30 PERF_BUDGET_MAX_RELAYOUT_MS=6 node --expose-gc ./scripts/bench-vue-adapters.mjs",
+    "bench:treeview:core": "node --expose-gc --experimental-specifier-resolution=node ./scripts/bench-treeview-core.mjs",
+    "bench:treeview:core:assert": "BENCH_TREEVIEW_NODE_COUNT=10000 BENCH_TREEVIEW_SAMPLE_COUNT=5 BENCH_TREEVIEW_BURST_ITERATIONS=400 PERF_BUDGET_TOTAL_MS=9000 PERF_BUDGET_MAX_REGISTER_REPLACE_P95_MS=120 PERF_BUDGET_MAX_REGISTER_PATCH_P95_MS=140 PERF_BUDGET_MAX_FOCUS_BURST_P95_MS=200 PERF_BUDGET_MAX_SELECT_BURST_P95_MS=90 PERF_BUDGET_MAX_VISIBLE_READ_P95_MS=80 PERF_BUDGET_MAX_HEAP_DELTA_MB=120 node --expose-gc --experimental-specifier-resolution=node ./scripts/bench-treeview-core.mjs",
     "bench:datagrid:interactions": "node ./scripts/bench-datagrid-interactions.mjs",
     "bench:datagrid:interactions:assert": "BENCH_SEEDS=1337,7331,2026 PERF_BUDGET_TOTAL_MS=3500 PERF_BUDGET_MAX_SELECTION_DRAG_P95_MS=5 PERF_BUDGET_MAX_SELECTION_DRAG_P99_MS=8 PERF_BUDGET_MAX_FILL_APPLY_P95_MS=8 PERF_BUDGET_MAX_FILL_APPLY_P99_MS=14 PERF_BUDGET_MAX_VARIANCE_PCT=25 PERF_BUDGET_MAX_HEAP_DELTA_MB=80 node ./scripts/bench-datagrid-interactions.mjs",
     "bench:datagrid:rowmodels": "node --expose-gc --experimental-specifier-resolution=node ./scripts/bench-datagrid-rowmodels.mjs",
