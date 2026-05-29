@@ -23,7 +23,8 @@
   "dependencies": {
     "@affino/aria-utils": "workspace:*",
     "@affino/menu-core": "workspace:*",
-    "@affino/overlay-kernel": "workspace:*"
+    "@affino/overlay-kernel": "workspace:*",
+    "@affino/surface-core": "workspace:*"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^4.0.15",

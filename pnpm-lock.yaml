@@ -482,6 +482,9 @@ importers:
       '@affino/overlay-kernel':
         specifier: workspace:*
         version: link:../overlay-kernel
+      '@affino/surface-core':
+        specifier: workspace:*
+        version: link:../surface-core
     devDependencies:
       '@vitest/coverage-v8':
         specifier: ^4.0.15
