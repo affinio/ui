@@ -256,6 +256,31 @@ describe("TreeviewCore", () => {
     expect(core.getSnapshot().selected).toBe(null)
   })
 
+  it("skips source topology rebuild for disabled-only patch updates", () => {
+    const core = new TreeviewCore<string>({
+      nodes: [
+        { value: "root", parent: null },
+        { value: "alpha", parent: "root" },
+        { value: "beta", parent: "root" },
+      ],
+      defaultExpanded: ["root"],
+      defaultActive: "alpha",
+    })
+    const internals = core as unknown as {
+      finalizeNodeMap: (map: Map<string, unknown>) => void
+      preorderValues: string[]
+    }
+    const finalizeNodeMap = vi.spyOn(internals, "finalizeNodeMap")
+    const beforePreorder = internals.preorderValues
+
+    core.registerNodes([{ value: "beta", parent: "root", disabled: true }], { mode: "patch" })
+
+    expect(finalizeNodeMap).not.toHaveBeenCalled()
+    expect(internals.preorderValues).toBe(beforePreorder)
+    expect(core.getChildren("root")).toEqual(["alpha", "beta"])
+    expect(core.getNodeMeta("beta")).toMatchObject({ disabled: true })
+  })
+
   it("skips source invalidation for no-op register patch updates", () => {
     const core = new TreeviewCore<string>({
       nodes: [

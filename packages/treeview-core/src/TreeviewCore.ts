@@ -20,6 +20,10 @@ type InternalNode<Value> = {
 
 type TreeviewProjectionStage = "visible"
 
+type NodeMapPatchResult = {
+  changed: boolean
+}
+
 type VisibleProjection<Value> = {
   visible: Value[]
   visibleIndexByValue: Map<Value, number>
@@ -83,10 +87,10 @@ export class TreeviewCore<Value = string> {
     nodes: ReadonlyArray<TreeviewNode<Value>>,
     options: TreeviewRegisterOptions = {},
   ): void {
-    const changed = options.mode === "patch"
+    const result = options.mode === "patch"
       ? this.patchNodeMap(nodes)
       : this.replaceNodeMap(nodes)
-    if (!changed) {
+    if (!result.changed) {
       return
     }
     this.invalidateVisibleProjection()
@@ -398,9 +402,9 @@ export class TreeviewCore<Value = string> {
     this.visibleCache = null
   }
 
-  private replaceNodeMap(nodes: ReadonlyArray<TreeviewNode<Value>>): boolean {
+  private replaceNodeMap(nodes: ReadonlyArray<TreeviewNode<Value>>): NodeMapPatchResult {
     this.nodes = this.buildNodeMap(nodes)
-    return true
+    return { changed: true }
   }
 
   private buildNodeMap(nodes: ReadonlyArray<TreeviewNode<Value>>): Map<Value, InternalNode<Value>> {
@@ -417,15 +421,20 @@ export class TreeviewCore<Value = string> {
     return map
   }
 
-  private patchNodeMap(nodes: ReadonlyArray<TreeviewNode<Value>>): boolean {
+  private patchNodeMap(nodes: ReadonlyArray<TreeviewNode<Value>>): NodeMapPatchResult {
     let changed = false
+    let topologyChanged = false
     nodes.forEach((node) => {
       const parent = node.parent ?? null
       const disabled = node.disabled ?? false
       const existing = this.nodes.get(node.value)
       if (existing) {
-        if (existing.parent !== parent || existing.disabled !== disabled) {
+        if (existing.parent !== parent) {
           existing.parent = parent
+          topologyChanged = true
+          changed = true
+        }
+        if (existing.disabled !== disabled) {
           existing.disabled = disabled
           changed = true
         }
@@ -437,12 +446,13 @@ export class TreeviewCore<Value = string> {
         disabled,
         children: [],
       })
+      topologyChanged = true
       changed = true
     })
-    if (changed) {
+    if (topologyChanged) {
       this.finalizeNodeMap(this.nodes)
     }
-    return changed
+    return { changed }
   }
 
   private finalizeNodeMap(map: Map<Value, InternalNode<Value>>): void {
