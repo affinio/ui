@@ -6,6 +6,7 @@ const route = process.env.TREEVIEW_DEMO_URL ?? "http://localhost:5174/treeview"
 const routeUrl = new URL(route)
 const scrollTop = Number.parseInt(process.env.TREEVIEW_SMOKE_SCROLL_TOP ?? "18000", 10)
 const searchQuery = process.env.TREEVIEW_SMOKE_QUERY ?? "depth 6"
+const noMatchQuery = process.env.TREEVIEW_SMOKE_NO_MATCH_QUERY ?? "definitely-no-treeview-match"
 const serverTimeoutMs = Number.parseInt(process.env.TREEVIEW_SMOKE_SERVER_TIMEOUT_MS ?? "15000", 10)
 const autoStartServer = process.env.TREEVIEW_SMOKE_START_SERVER !== "0"
 
@@ -215,6 +216,23 @@ try {
   }
   assertPositive("rowsAfterExpandInViewport", rowsAfterExpandInViewport)
 
+  await page.getByLabel("Search project map").fill(noMatchQuery)
+  await page.waitForTimeout(160)
+  const rowsAfterNoMatch = await page.locator("[role=treeitem]").count()
+  const emptySearchVisible = await page.getByRole("status").filter({ hasText: "No matching nodes" }).isVisible()
+  const visibleAfterNoMatch = await getVisibleTotal(page)
+  const searchInputFocusedAfterNoMatch = await page.getByLabel("Search project map").evaluate((element) => document.activeElement === element)
+  if (rowsAfterNoMatch !== 0 || visibleAfterNoMatch !== 0 || !emptySearchVisible || !searchInputFocusedAfterNoMatch) {
+    throw new Error(JSON.stringify({ rowsAfterNoMatch, visibleAfterNoMatch, emptySearchVisible, searchInputFocusedAfterNoMatch }))
+  }
+
+  await page.getByLabel("Clear treeview search").click()
+  await page.waitForTimeout(160)
+  const rowsAfterNoMatchClear = await page.locator("[role=treeitem]").count()
+  const rowsAfterNoMatchClearInViewport = await countRowsIntersectingViewport(page)
+  assertPositive("rowsAfterNoMatchClear", rowsAfterNoMatchClear)
+  assertPositive("rowsAfterNoMatchClearInViewport", rowsAfterNoMatchClearInViewport)
+
   console.log(JSON.stringify({
     route,
     serverStarted: Boolean(server),
@@ -237,6 +255,12 @@ try {
     activeAfterCollapse,
     visibleAfterExpand,
     rowsAfterExpandInViewport,
+    rowsAfterNoMatch,
+    visibleAfterNoMatch,
+    emptySearchVisible,
+    searchInputFocusedAfterNoMatch,
+    rowsAfterNoMatchClear,
+    rowsAfterNoMatchClearInViewport,
     summary,
   }, null, 2))
 } finally {

@@ -122,6 +122,7 @@ const searchMatchCount = computed(() => {
   snapshot.value
   return treeview.getSearchMatchCount()
 })
+const showEmptySearch = computed(() => searchQuery.value.trim().length > 0 && visibleNodeCount.value === 0)
 
 const syncViewportScroll = (): void => {
   const viewport = rowsViewport.value
@@ -401,6 +402,14 @@ const onToggleClick = (value: NodeValue): void => {
             <span class="treeview-node__detail">{{ getDetail(row.value) }}</span>
           </span>
         </button>
+        <div
+          v-if="showEmptySearch"
+          class="treeview-empty"
+          role="status"
+          aria-live="polite"
+        >
+          No matching nodes
+        </div>
       </div>
     </div>
 
@@ -509,7 +518,20 @@ const onToggleClick = (value: NodeValue): void => {
 
 .treeview-rows__spacer {
   position: relative;
+  min-height: 100%;
   min-width: 100%;
+}
+
+.treeview-empty {
+  align-items: center;
+  color: var(--text-muted);
+  display: flex;
+  font-size: 0.92rem;
+  inset: 0;
+  justify-content: center;
+  padding: 1rem;
+  position: absolute;
+  text-align: center;
 }
 
 .treeview-node {
