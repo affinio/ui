@@ -200,10 +200,10 @@ function createInstrumentedCore(options) {
     counters.emittedSnapshotCount += 1
   })
 
-  const originalVisible = core.getVisibleValuesFor.bind(core)
-  core.getVisibleValuesFor = (...args) => {
+  const originalCommitVisibleProjection = core.commitVisibleProjection.bind(core)
+  core.commitVisibleProjection = (...args) => {
     counters.visibleRecomputeCount += 1
-    return originalVisible(...args)
+    return originalCommitVisibleProjection(...args)
   }
 
   const originalTraversal = core.getNodeTraversalOrder.bind(core)

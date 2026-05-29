@@ -19,6 +19,15 @@ type InternalNode<Value> = {
 
 type TreeviewProjectionStage = "visible"
 
+type VisibleProjection<Value> = {
+  visible: Value[]
+  visibleIndexByValue: Map<Value, number>
+  enabledVisibleValues: Value[]
+  enabledVisibleIndexes: number[]
+  previousEnabledValueByVisibleIndex: Array<Value | null>
+  nextEnabledValueByVisibleIndex: Array<Value | null>
+}
+
 export class TreeviewCore<Value = string> {
   private nodes = new Map<Value, InternalNode<Value>>()
   private state: TreeviewState<Value>
@@ -522,11 +531,13 @@ export class TreeviewCore<Value = string> {
 
     const selected = this.normalizeSelected(state.selected)
     this.includeAncestorPath(expandedSet, selected)
-    const visible = this.getVisibleValuesFor(expandedSet)
-    const active = this.normalizeActive(state.active, visible)
+    const visible = this.computeVisibleProjection(expandedSet).visible
+    const visibleIndex = new Set(visible)
+    const active = this.normalizeActive(state.active, visible, visibleIndex)
     this.includeAncestorPath(expandedSet, active)
-    const nextVisible = this.getVisibleValuesFor(expandedSet)
-    const nextActive = this.normalizeActive(active, nextVisible)
+    const nextVisible = this.computeVisibleProjection(expandedSet).visible
+    const nextVisibleIndex = new Set(nextVisible)
+    const nextActive = this.normalizeActive(active, nextVisible, nextVisibleIndex)
 
     return {
       active: nextActive,
@@ -546,19 +557,19 @@ export class TreeviewCore<Value = string> {
     return candidate
   }
 
-  private normalizeActive(candidate: Value | null, visible: Value[]): Value | null {
+  private normalizeActive(candidate: Value | null, visible: Value[], visibleIndex: ReadonlySet<Value>): Value | null {
     if (!visible.length) {
       return null
     }
 
-    if (candidate !== null && this.isNodeFocusable(candidate) && visible.includes(candidate)) {
+    if (candidate !== null && this.isNodeFocusable(candidate) && visibleIndex.has(candidate)) {
       return candidate
     }
 
     if (candidate !== null) {
       let parent = this.nodes.get(candidate)?.parent ?? null
       while (parent !== null) {
-        if (this.isNodeFocusable(parent) && visible.includes(parent)) {
+        if (this.isNodeFocusable(parent) && visibleIndex.has(parent)) {
           return parent
         }
         parent = this.nodes.get(parent)?.parent ?? null
@@ -627,16 +638,16 @@ export class TreeviewCore<Value = string> {
       if (stage !== "visible" || !shouldRecompute) {
         return false
       }
-      this.visibleCache = this.getVisibleValuesFor(this.expandedSet)
+      this.visibleCache = this.commitVisibleProjection(this.computeVisibleProjection(this.expandedSet))
       return true
     })
     if (!this.visibleCache) {
-      this.visibleCache = this.getVisibleValuesFor(this.expandedSet)
+      this.visibleCache = this.commitVisibleProjection(this.computeVisibleProjection(this.expandedSet))
     }
     return this.visibleCache
   }
 
-  private getVisibleValuesFor(expanded: ReadonlySet<Value>): Value[] {
+  private computeVisibleProjection(expanded: ReadonlySet<Value>): VisibleProjection<Value> {
     const visible: Value[] = []
     const visibleIndexByValue = new Map<Value, number>()
     const enabledVisibleValues: Value[] = []
@@ -692,14 +703,25 @@ export class TreeviewCore<Value = string> {
       }
     }
 
-    this.visibleIndexByValue = visibleIndexByValue
-    this.enabledVisibleValues = enabledVisibleValues
-    this.enabledVisibleIndexes = enabledVisibleIndexes
-    this.previousEnabledValueByVisibleIndex = previousEnabledValueByVisibleIndex
-    this.nextEnabledValueByVisibleIndex = nextEnabledValueByVisibleIndex
+    return {
+      visible,
+      visibleIndexByValue,
+      enabledVisibleValues,
+      enabledVisibleIndexes,
+      previousEnabledValueByVisibleIndex,
+      nextEnabledValueByVisibleIndex,
+    }
+  }
+
+  private commitVisibleProjection(projection: VisibleProjection<Value>): Value[] {
+    this.visibleIndexByValue = projection.visibleIndexByValue
+    this.enabledVisibleValues = projection.enabledVisibleValues
+    this.enabledVisibleIndexes = projection.enabledVisibleIndexes
+    this.previousEnabledValueByVisibleIndex = projection.previousEnabledValueByVisibleIndex
+    this.nextEnabledValueByVisibleIndex = projection.nextEnabledValueByVisibleIndex
     this.visibleProjectionVersion += 1
     this.visibleProjectionRecomputeCount += 1
-    return visible
+    return projection.visible
   }
 
   private findAdjacentEnabledVisible(currentIndex: number, direction: 1 | -1): Value | null {

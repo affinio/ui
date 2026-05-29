@@ -282,6 +282,8 @@ Progress:
 - Removed active/selected-only expanded equality and frozen expanded snapshot churn; focus/select hot paths now reuse the canonical expanded reference and frozen expanded snapshot.
 - Benchmark focus next/previous burst dropped from roughly 130ms to roughly 1.5-2ms in 10k smoke runs.
 - Added direct next/previous enabled-node links by visible index plus visible projection version/recompute/navigation lookup counters for benchmark instrumentation.
+- Split pure visible projection computation from committed visible projection state, so normalization reads no longer mutate projection indexes or counters.
+- Active normalization now uses a visible set instead of repeated `visible.includes` scans.
 - Remaining Slice 4 work: decide whether projection counters should become a public debug/diagnostic API or stay internal until the windowed API lands.
 
 ## Slice 5: Windowed Tree API For Virtualization
