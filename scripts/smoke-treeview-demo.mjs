@@ -13,11 +13,24 @@ const serverTimeoutMs = Number.parseInt(process.env.TREEVIEW_SMOKE_SERVER_TIMEOU
 const autoStartServer = process.env.TREEVIEW_SMOKE_START_SERVER !== "0"
 const screenshotDir = process.env.TREEVIEW_SMOKE_SCREENSHOT_DIR ?? "artifacts/treeview-smoke"
 const captureScreenshots = process.env.TREEVIEW_SMOKE_SCREENSHOTS !== "0"
+const latencyBudgetMs = Number.parseInt(process.env.TREEVIEW_SMOKE_MAX_LATENCY_MS ?? "0", 10)
+const measuredLatencies = {}
 
 const assertPositive = (name, value) => {
   if (!(value > 0)) {
     throw new Error(`${name} expected > 0, received ${value}`)
   }
+}
+
+const measure = async (name, callback) => {
+  const startedAt = performance.now()
+  const result = await callback()
+  const elapsed = Number((performance.now() - startedAt).toFixed(2))
+  measuredLatencies[name] = elapsed
+  if (latencyBudgetMs > 0 && elapsed > latencyBudgetMs) {
+    throw new Error(`${name} exceeded latency budget: ${elapsed}ms > ${latencyBudgetMs}ms`)
+  }
+  return result
 }
 
 const countRowsIntersectingViewport = async (page) => {
@@ -153,10 +166,12 @@ try {
     throw new Error(`click did not set active row, expected ${firstRowValue}, received ${activeAfterClick}`)
   }
 
-  for (let index = 0; index < 30; index += 1) {
-    await page.keyboard.press("ArrowDown")
-  }
-  await page.waitForTimeout(160)
+  await measure("keyboardBurstMs", async () => {
+    for (let index = 0; index < 30; index += 1) {
+      await page.keyboard.press("ArrowDown")
+    }
+    await page.waitForTimeout(160)
+  })
 
   const activeAfterKeyboard = await getActiveRowValue(page)
   const keyboardScrollTop = await viewport.evaluate((element) => element.scrollTop)
@@ -173,11 +188,13 @@ try {
     throw new Error(`keyboard navigation did not move active row, active=${activeAfterKeyboard}`)
   }
 
-  await viewport.evaluate((element, nextScrollTop) => {
-    element.scrollTop = nextScrollTop
-    element.dispatchEvent(new Event("scroll", { bubbles: true }))
-  }, scrollTop)
-  await page.waitForTimeout(160)
+  await measure("scrollMs", async () => {
+    await viewport.evaluate((element, nextScrollTop) => {
+      element.scrollTop = nextScrollTop
+      element.dispatchEvent(new Event("scroll", { bubbles: true }))
+    }, scrollTop)
+    await page.waitForTimeout(160)
+  })
 
   const rowsAfterScroll = await page.locator("[role=treeitem]").count()
   assertPositive("rowsAfterScroll", rowsAfterScroll)
@@ -186,8 +203,10 @@ try {
   assertPositive("rowsIntersectingViewport", rowsIntersectingViewport)
   const scrolledScreenshot = await captureScreenshot(page, "treeview-scrolled")
 
-  await page.getByLabel("Search project map").fill(searchQuery)
-  await page.waitForTimeout(160)
+  await measure("searchMs", async () => {
+    await page.getByLabel("Search project map").fill(searchQuery)
+    await page.waitForTimeout(160)
+  })
 
   const rowsAfterSearch = await page.locator("[role=treeitem]").count()
   const matchedRows = await page.locator('[role=treeitem][data-matched="true"]').count()
@@ -201,8 +220,10 @@ try {
   }
   const searchScreenshot = await captureScreenshot(page, "treeview-search")
 
-  await page.getByLabel("Clear treeview search").click()
-  await page.waitForTimeout(160)
+  await measure("clearSearchMs", async () => {
+    await page.getByLabel("Clear treeview search").click()
+    await page.waitForTimeout(160)
+  })
   const rowsAfterClear = await page.locator("[role=treeitem]").count()
   const rowsAfterClearInViewport = await countRowsIntersectingViewport(page)
   assertPositive("rowsAfterClear", rowsAfterClear)
@@ -215,8 +236,10 @@ try {
   await page.waitForTimeout(160)
   await page.locator('[role=treeitem][data-value="workspace"]').click()
   const visibleBeforeCollapse = await getVisibleTotal(page)
-  await page.keyboard.press("ArrowLeft")
-  await page.waitForTimeout(160)
+  await measure("collapseMs", async () => {
+    await page.keyboard.press("ArrowLeft")
+    await page.waitForTimeout(160)
+  })
   const visibleAfterCollapse = await getVisibleTotal(page)
   const rowsAfterCollapseInViewport = await countRowsIntersectingViewport(page)
   const activeAfterCollapse = await getActiveRowValue(page)
@@ -228,8 +251,10 @@ try {
     throw new Error(`collapse moved active row, active=${activeAfterCollapse}`)
   }
 
-  await page.keyboard.press("ArrowRight")
-  await page.waitForTimeout(160)
+  await measure("expandMs", async () => {
+    await page.keyboard.press("ArrowRight")
+    await page.waitForTimeout(160)
+  })
   const visibleAfterExpand = await getVisibleTotal(page)
   const rowsAfterExpandInViewport = await countRowsIntersectingViewport(page)
   if (!(visibleAfterExpand > visibleAfterCollapse)) {
@@ -237,8 +262,10 @@ try {
   }
   assertPositive("rowsAfterExpandInViewport", rowsAfterExpandInViewport)
 
-  await page.getByLabel("Search project map").fill(noMatchQuery)
-  await page.waitForTimeout(160)
+  await measure("noMatchSearchMs", async () => {
+    await page.getByLabel("Search project map").fill(noMatchQuery)
+    await page.waitForTimeout(160)
+  })
   const rowsAfterNoMatch = await page.locator("[role=treeitem]").count()
   const emptySearchVisible = await page.getByRole("status").filter({ hasText: "No matching nodes" }).isVisible()
   const visibleAfterNoMatch = await getVisibleTotal(page)
@@ -271,18 +298,22 @@ try {
   const mobileInitialScreenshot = await captureScreenshot(mobilePage, "treeview-mobile-initial")
 
   const mobileViewport = mobilePage.locator(".treeview-rows")
-  await mobileViewport.evaluate((element, nextScrollTop) => {
-    element.scrollTop = nextScrollTop
-    element.dispatchEvent(new Event("scroll", { bubbles: true }))
-  }, Math.floor(scrollTop / 2))
-  await mobilePage.waitForTimeout(160)
+  await measure("mobileScrollMs", async () => {
+    await mobileViewport.evaluate((element, nextScrollTop) => {
+      element.scrollTop = nextScrollTop
+      element.dispatchEvent(new Event("scroll", { bubbles: true }))
+    }, Math.floor(scrollTop / 2))
+    await mobilePage.waitForTimeout(160)
+  })
   const mobileRowsAfterScroll = await mobilePage.locator("[role=treeitem]").count()
   const mobileRowsIntersectingViewport = await countRowsIntersectingViewport(mobilePage)
   assertPositive("mobileRowsAfterScroll", mobileRowsAfterScroll)
   assertPositive("mobileRowsIntersectingViewport", mobileRowsIntersectingViewport)
 
-  await mobilePage.getByLabel("Search project map").fill(searchQuery)
-  await mobilePage.waitForTimeout(160)
+  await measure("mobileSearchMs", async () => {
+    await mobilePage.getByLabel("Search project map").fill(searchQuery)
+    await mobilePage.waitForTimeout(160)
+  })
   const mobileRowsAfterSearch = await mobilePage.locator("[role=treeitem]").count()
   const mobileMatchedRows = await mobilePage.locator('[role=treeitem][data-matched="true"]').count()
   const mobileSearchFocused = await mobilePage.getByLabel("Search project map").evaluate((element) => document.activeElement === element)
@@ -298,6 +329,7 @@ try {
     route,
     serverStarted: Boolean(server),
     screenshots: [initialScreenshot, scrolledScreenshot, searchScreenshot, emptyScreenshot, mobileInitialScreenshot, mobileSearchScreenshot].filter(Boolean),
+    latencyMs: measuredLatencies,
     initialRows,
     activeAfterClick,
     activeAfterKeyboard,
