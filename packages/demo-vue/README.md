@@ -23,7 +23,7 @@ The package is wired against workspace source packages, so local changes in `pac
 pnpm --dir packages/demo-vue dev
 pnpm --dir packages/demo-vue type-check
 pnpm --dir packages/demo-vue build
-TREEVIEW_DEMO_URL=http://localhost:5174/treeview pnpm run smoke:treeview:demo
+pnpm run smoke:treeview:demo
 ```
 
 ## Notes
@@ -31,3 +31,4 @@ TREEVIEW_DEMO_URL=http://localhost:5174/treeview pnpm run smoke:treeview:demo
 - This package intentionally does not include datagrid demos.
 - The sandbox is intentionally Vue-only and focuses on compact, copy-paste friendly examples.
 - Overlay diagnostics are visible in the floating stack panel during local development.
+- `pnpm run smoke:treeview:demo` starts the Vite demo server automatically when `TREEVIEW_DEMO_URL` is not already available.
