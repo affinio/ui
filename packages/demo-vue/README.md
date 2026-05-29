@@ -23,6 +23,7 @@ The package is wired against workspace source packages, so local changes in `pac
 pnpm --dir packages/demo-vue dev
 pnpm --dir packages/demo-vue type-check
 pnpm --dir packages/demo-vue build
+TREEVIEW_DEMO_URL=http://localhost:5174/treeview pnpm run smoke:treeview:demo
 ```
 
 ## Notes
