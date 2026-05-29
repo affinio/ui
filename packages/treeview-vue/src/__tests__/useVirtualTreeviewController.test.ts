@@ -1,5 +1,6 @@
+/** @vitest-environment jsdom */
 import { describe, expect, it, vi } from "vitest"
-import { effectScope, nextTick } from "vue"
+import { createApp, defineComponent, effectScope, h, nextTick } from "vue"
 import {
   useVirtualTreeviewController,
   type VirtualTreeviewController,
@@ -105,4 +106,72 @@ describe("useVirtualTreeviewController", () => {
     scope.stop()
     vi.useRealTimers()
   })
+  it("renders positioned virtual rows without blanking the viewport", async () => {
+    vi.useFakeTimers()
+    let controller!: VirtualTreeviewController<string>
+    const host = document.createElement("div")
+    document.body.appendChild(host)
+    const app = createApp(
+      defineComponent({
+        setup() {
+          controller = useVirtualTreeviewController<string>({
+            nodes: NODES,
+            defaultExpanded: ["root", "beta"],
+            rowHeight: 10,
+            viewportHeight: 20,
+            overscan: 0,
+          })
+          return () => h(
+            "div",
+            {
+              "data-testid": "viewport",
+              style: {
+                height: `${controller.viewportHeight.value}px`,
+                overflow: "auto",
+                position: "relative",
+              },
+            },
+            [
+              h("div", {
+                "data-testid": "spacer",
+                style: {
+                  height: `${controller.totalHeight.value}px`,
+                  position: "relative",
+                },
+              }, controller.visibleRows.value.map((row) => h("div", {
+                key: row.value,
+                "data-testid": "row",
+                "data-value": row.value,
+                style: {
+                  position: "absolute",
+                  top: `${row.top}px`,
+                  height: `${row.height}px`,
+                },
+              }, row.value))),
+            ],
+          )
+        },
+      }),
+    )
+
+    app.mount(host)
+    await nextTick()
+
+    expect(Array.from(host.querySelectorAll('[data-testid="row"]')).map((row) => row.getAttribute("data-value"))).toEqual(["root", "alpha"])
+    expect(host.querySelector('[data-testid="spacer"]')?.getAttribute("style")).toContain("height: 60px")
+
+    controller.setScrollTop(30)
+    vi.runOnlyPendingTimers()
+    await nextTick()
+
+    const rows = Array.from(host.querySelectorAll<HTMLElement>('[data-testid="row"]'))
+    expect(rows.map((row) => row.getAttribute("data-value"))).toEqual(["gamma", "delta"])
+    expect(rows.map((row) => row.style.top)).toEqual(["30px", "40px"])
+    expect(rows.length).toBeGreaterThan(0)
+
+    app.unmount()
+    host.remove()
+    vi.useRealTimers()
+  })
+
 })

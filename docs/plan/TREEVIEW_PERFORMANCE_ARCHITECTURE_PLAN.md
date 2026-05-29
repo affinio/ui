@@ -423,7 +423,8 @@ Progress:
 - The virtual controller owns viewport state (`scrollTop`, `rowHeight`, `viewportHeight`, `totalHeight`) and exposes metadata rows via `visibleWindow`.
 - Added `visibleRows` with stable row metadata plus `index`, `top`, and `height` so render layers can position rows without recalculating offsets in templates.
 - Scroll and viewport updates are requestAnimationFrame-batched; tree mutations refresh the current window synchronously.
-- Remaining Slice 7 work: wire this composable into a rendered component/sandbox fixture and add browser frame/blank-viewport validation.
+- Added a jsdom rendered fixture that positions virtual rows and verifies scroll-window updates do not blank the viewport.
+- Remaining Slice 7 work: add browser frame/blank-viewport validation against a real fixture.
 
 ## Slice 8: Worker Projection Mode
 
