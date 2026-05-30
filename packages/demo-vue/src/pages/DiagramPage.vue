@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from "vue"
 import {
-  getDomEntityStyle,
   getSvgEntityProps,
   useDiagramEngine,
   useDiagramPointerController,
@@ -115,12 +114,6 @@ const minimapViewport = computed(() => ({
   width: displayViewport.value.width,
   height: displayViewport.value.height,
 }))
-const labelLayerStyle = computed(() => {
-  const current = displayViewport.value
-  return {
-    transform: `matrix(${current.zoom}, 0, 0, ${current.zoom}, ${-current.x * current.zoom}, ${-current.y * current.zoom})`,
-  }
-})
 const marqueeRect = computed(() => (pointer.state.value.tool === "marquee" ? pointer.state.value.marquee : null))
 const minimapNodes = computed(() => {
   const scene = diagram.scene.value
@@ -129,6 +122,14 @@ const minimapNodes = computed(() => {
     .filter((_, index) => index % stride === 0)
     .map((id) => createEntityGeometry(id, scene.entities))
     .filter((geometry): geometry is DiagramGeometry => geometry !== null)
+})
+const renderEntities = computed(() => {
+  const projection = visible.projection.value
+  const byId = new Map<string, DiagramRenderEntity>()
+  for (const entity of [...projection.edges, ...projection.shapes, ...projection.nodes, ...projection.ports, ...projection.texts]) {
+    byId.set(entity.id, entity)
+  }
+  return projection.ids.map((id) => byId.get(id)).filter((entity): entity is DiagramRenderEntity => entity !== undefined)
 })
 
 function toWorldPoint(event: PointerEvent): DiagramPoint {
@@ -149,18 +150,6 @@ function entityTransform(entity: DiagramRenderEntity): string | undefined {
     return undefined
   }
   return `translate(${delta.x} ${delta.y})`
-}
-
-function textStyle(entity: DiagramRenderEntity): Readonly<Record<string, string>> {
-  const style = getDomEntityStyle(entity)
-  const delta = previewDelta.value
-  if (!delta || !entity.selected || pointer.state.value.tool === "pan") {
-    return style
-  }
-  return {
-    ...style,
-    transform: `translate(${entity.geometry.bounds.x + delta.x}px, ${entity.geometry.bounds.y + delta.y}px)`,
-  }
 }
 
 function focusEntity(id: string): void {
@@ -198,11 +187,11 @@ function pasteClipboard(): void {
 }
 
 function bringSelectedForward(): void {
-  diagram.dispatch({ type: "bringForward", ids: selection.selection.value.ids })
+  diagram.dispatch({ type: "bringToFront", ids: selection.selection.value.ids })
 }
 
 function sendSelectedBackward(): void {
-  diagram.dispatch({ type: "sendBackward", ids: selection.selection.value.ids })
+  diagram.dispatch({ type: "sendToBack", ids: selection.selection.value.ids })
 }
 
 function resizeSelected(): void {
@@ -335,7 +324,8 @@ function handleMinimapPointer(event: PointerEvent): void {
 }
 
 function resetViewport(): void {
-  viewport.setViewport({ x: 0, y: 0, width: 980, height: 420, zoom: 1 })
+  const current = viewport.viewport.value
+  viewport.setViewport({ x: 0, y: 0, width: current.width * current.zoom, height: current.height * current.zoom, zoom: 1 })
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -381,6 +371,9 @@ function clamp(value: number, min: number, max: number): number {
 
       <div class="diagram-list" aria-label="Entities">
         <button type="button" @click="focusEntity('node-0')">Bay 1</button>
+        <button type="button" @click="focusEntity('bus-0')">Bus 1</button>
+        <button type="button" @click="focusEntity('edge-0')">Line 1</button>
+        <button type="button" @click="focusEntity('label-0')">Label 1</button>
         <button type="button" @click="focusEntity('node-199')">Bay 200</button>
         <button type="button" @click="focusEntity('node-399')">Bay 400</button>
         <button type="button" @click="focusEntity('node-699')">Bay 700</button>
@@ -394,8 +387,8 @@ function clamp(value: number, min: number, max: number): number {
         <button type="button" @click="nudgeSelected({ x: 12, y: 0 })">→</button>
         <button class="wide" type="button" @click="snapSelectedToGrid">Snap grid</button>
         <button class="wide" type="button" @click="resizeSelected">Resize</button>
-        <button class="wide" type="button" @click="bringSelectedForward">Forward</button>
-        <button class="wide" type="button" @click="sendSelectedBackward">Backward</button>
+        <button class="wide" type="button" title="Move selected entities to the front of the render order" @click="bringSelectedForward">Bring to front</button>
+        <button class="wide" type="button" title="Move selected entities to the back of the render order" @click="sendSelectedBackward">Send to back</button>
         <button class="wide" type="button" @click="diagram.engine.fitSelection()">Fit selection</button>
         <button class="wide" type="button" @click="diagram.engine.fitScene()">Fit scene</button>
         <button class="wide" type="button" @click="resetViewport">Reset view</button>
@@ -426,20 +419,20 @@ function clamp(value: number, min: number, max: number): number {
             </pattern>
           </defs>
           <rect class="diagram-grid-fill" :x="displayViewport.x" :y="displayViewport.y" :width="displayViewport.width" :height="displayViewport.height" fill="url(#diagram-grid)" />
-          <rect v-for="shape in visible.projection.value.shapes" :key="shape.id" class="diagram-bus" v-bind="getSvgEntityProps(shape)" />
-          <polyline v-for="edge in visible.projection.value.edges" :key="edge.id" class="diagram-edge" :class="{ selected: edge.selected }" v-bind="getSvgEntityProps(edge)" :transform="entityTransform(edge)" />
-          <rect v-for="node in visible.projection.value.nodes" :key="node.id" class="diagram-node" :class="{ selected: node.selected }" v-bind="getSvgEntityProps(node)" :transform="entityTransform(node)" />
-          <circle v-for="port in visible.projection.value.ports" :key="port.id" class="diagram-port" v-bind="getSvgEntityProps(port)" :transform="entityTransform(port)" />
+          <template v-for="entity in renderEntities" :key="entity.id">
+            <rect v-if="entity.kind === 'shape'" class="diagram-bus" v-bind="getSvgEntityProps(entity)" :transform="entityTransform(entity)" />
+            <polyline v-else-if="entity.kind === 'edge'" class="diagram-edge" :class="{ selected: entity.selected }" v-bind="getSvgEntityProps(entity)" :transform="entityTransform(entity)" />
+            <rect v-else-if="entity.kind === 'node'" class="diagram-node" :class="{ selected: entity.selected }" v-bind="getSvgEntityProps(entity)" :transform="entityTransform(entity)" />
+            <circle v-else-if="entity.kind === 'port'" class="diagram-port" v-bind="getSvgEntityProps(entity)" :transform="entityTransform(entity)" />
+            <text v-else-if="entity.kind === 'text'" class="diagram-svg-label" :class="{ selected: entity.selected }" :data-diagram-id="entity.id" data-diagram-kind="text" :data-selected="entity.selected || undefined" :x="entity.geometry.bounds.x" :y="entity.geometry.bounds.y + 14" :transform="entityTransform(entity)">
+              {{ diagram.scene.value.entities.textsById.get(entity.id)?.text }}
+            </text>
+          </template>
           <rect v-for="anchor in visible.projection.value.overlayAnchors" :key="anchor.id" class="diagram-anchor" :x="anchor.rect.x" :y="anchor.rect.y" :width="anchor.rect.width" :height="anchor.rect.height" />
           <circle v-for="handle in visible.projection.value.activeHandles" :key="handle.id" class="diagram-handle" :cx="handle.point.x" :cy="handle.point.y" r="5" />
           <rect v-if="marqueeRect" class="diagram-marquee" :x="marqueeRect.x" :y="marqueeRect.y" :width="marqueeRect.width" :height="marqueeRect.height" />
         </svg>
 
-        <div class="diagram-label-layer" :style="labelLayerStyle" aria-hidden="true">
-          <span v-for="text in visible.projection.value.texts" :key="text.id" class="diagram-label" :style="textStyle(text)">
-            {{ diagram.scene.value.entities.textsById.get(text.id)?.text }}
-          </span>
-        </div>
       </div>
     </div>
   </section>
@@ -619,22 +612,13 @@ button.active {
   background: #f7f3ec;
 }
 
-.diagram-svg,
-.diagram-label-layer {
+.diagram-svg {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
-}
-
-.diagram-svg {
   touch-action: none;
   user-select: none;
-}
-
-.diagram-label-layer {
-  transform-origin: 0 0;
-  will-change: transform;
 }
 
 .diagram-grid-line {
@@ -664,6 +648,19 @@ button.active {
   fill: #c85d3c;
   stroke: #8d321e;
   stroke-width: 1;
+}
+
+
+.diagram-svg-label {
+  fill: #24312f;
+  font-size: 14px;
+  font-weight: 650;
+  pointer-events: none;
+  user-select: none;
+}
+
+.diagram-svg-label.selected {
+  fill: #0d7f68;
 }
 
 .diagram-edge {
@@ -706,19 +703,6 @@ button.active {
   pointer-events: none;
 }
 
-.diagram-label-layer {
-  pointer-events: none;
-}
-
-.diagram-label {
-  display: grid;
-  place-items: center;
-  color: #24312f;
-  font-size: 0.82rem;
-  font-weight: 800;
-  text-align: center;
-  white-space: nowrap;
-}
 
 @media (max-width: 900px) {
   .diagram-page {

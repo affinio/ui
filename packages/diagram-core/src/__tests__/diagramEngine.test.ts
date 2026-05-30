@@ -225,13 +225,43 @@ describe("DiagramEngine", () => {
     expect(engine.getScene().order.shapeIds.at(-1)).toBe("s1")
 
     engine.fitSelection()
-    expect(engine.getScene().viewport.width).toBeGreaterThan(1)
+    const fittedSelection = engine.getScene().viewport
+    expect(fittedSelection.width * fittedSelection.zoom).toBeCloseTo(500)
+    expect(fittedSelection.height * fittedSelection.zoom).toBeCloseTo(300)
     engine.fitScene()
-    expect(engine.getScene().viewport.width).toBeGreaterThan(100)
+    const fittedScene = engine.getScene().viewport
+    expect(fittedScene.width).toBeGreaterThan(100)
+    expect(fittedScene.width * fittedScene.zoom).toBeCloseTo(500)
+    expect(fittedScene.height * fittedScene.zoom).toBeCloseTo(300)
 
     engine.queryVisible({ x: -100, y: -100, width: 800, height: 400 })
     engine.hitTest({ x: 10, y: 10 })
     expect(engine.getDiagnostics()).toMatchObject({ visibleQueryCount: 1, hitTestCount: 1 })
+  })
+
+  it("moves selected ids through z-order in the expected direction", () => {
+    const engine = createDiagramEngine({
+      nodes: [
+        { id: "n1", kind: "node", x: 0, y: 0, width: 20, height: 20 },
+        { id: "n2", kind: "node", x: 0, y: 0, width: 20, height: 20 },
+        { id: "n3", kind: "node", x: 0, y: 0, width: 20, height: 20 },
+      ],
+      shapes: [{ id: "s1", kind: "shape", shape: "rect", x: 0, y: 0, width: 20, height: 20 }],
+      texts: [{ id: "t1", kind: "text", x: 0, y: 0, text: "Label" }],
+    })
+
+    engine.dispatch({ type: "bringForward", ids: ["n1"] })
+    expect(engine.getScene().order.nodeIds).toEqual(["n2", "n1", "n3"])
+    engine.dispatch({ type: "bringForward", ids: ["n1"] })
+    expect(engine.getScene().order.nodeIds).toEqual(["n2", "n3", "n1"])
+    engine.dispatch({ type: "sendBackward", ids: ["n1"] })
+    expect(engine.getScene().order.nodeIds).toEqual(["n2", "n1", "n3"])
+
+    engine.dispatch({ type: "bringToFront", ids: ["s1"] })
+    expect(engine.getScene().entities.shapesById.get("s1")?.metadata).toMatchObject({ zIndex: 1 })
+    expect(engine.queryVisible({ x: -10, y: -10, width: 40, height: 40 }).at(-1)).toBe("s1")
+    engine.dispatch({ type: "sendToBack", ids: ["t1"] })
+    expect(engine.queryVisible({ x: -10, y: -10, width: 40, height: 40 })[0]).toBe("t1")
   })
 
   it("honors constraints for locked and non-deletable entities", () => {

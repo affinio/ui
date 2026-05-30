@@ -97,6 +97,25 @@ describe("diagram-vue", () => {
     expect(getSvgEntityProps(node)).toMatchObject({ x: 0, y: 0, width: 100, height: 60 })
   })
 
+  it("keeps projection ids in core render order after z-order commands", () => {
+    const controller = useDiagramEngine({
+      nodes: [
+        { id: "n1", kind: "node", x: 0, y: 0, width: 80, height: 40 },
+        { id: "n2", kind: "node", x: 0, y: 0, width: 80, height: 40 },
+      ],
+      shapes: [{ id: "s1", kind: "shape", shape: "rect", x: 0, y: 0, width: 80, height: 40 }],
+      texts: [{ id: "t1", kind: "text", x: 0, y: 0, text: "Label" }],
+      viewport: { x: -10, y: -10, width: 120, height: 80, zoom: 1 },
+    })
+    const visible = useDiagramVisibleEntities(controller)
+
+    expect(visible.projection.value.ids).toEqual(["s1", "n1", "n2", "t1"])
+    controller.dispatch({ type: "bringToFront", ids: ["s1"] })
+    expect(visible.projection.value.ids.at(-1)).toBe("s1")
+    controller.dispatch({ type: "sendToBack", ids: ["t1"] })
+    expect(visible.projection.value.ids[0]).toBe("t1")
+  })
+
   it("keeps selection in the projection even when outside the viewport", () => {
     const controller = useDiagramEngine(scene)
     const selection = useDiagramSelection(controller)

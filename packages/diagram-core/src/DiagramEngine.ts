@@ -324,9 +324,21 @@ export class DiagramEngine {
   }
 
   fitBounds(bounds: DiagramRect, padding = 24): DiagramCommandResult {
-    const width = Math.max(1, bounds.width + padding * 2)
-    const height = Math.max(1, bounds.height + padding * 2)
-    return this.dispatch({ type: "setViewport", viewport: { x: bounds.x - padding, y: bounds.y - padding, width, height, zoom: 1 } })
+    const targetWidth = Math.max(1, bounds.width + padding * 2)
+    const targetHeight = Math.max(1, bounds.height + padding * 2)
+    const screenWidth = Math.max(1, this.state.viewport.width * this.state.viewport.zoom)
+    const screenHeight = Math.max(1, this.state.viewport.height * this.state.viewport.zoom)
+    const zoom = Math.min(screenWidth / targetWidth, screenHeight / targetHeight)
+    return this.dispatch({
+      type: "setViewport",
+      viewport: {
+        x: bounds.x - (screenWidth / zoom - bounds.width) / 2,
+        y: bounds.y - (screenHeight / zoom - bounds.height) / 2,
+        width: screenWidth / zoom,
+        height: screenHeight / zoom,
+        zoom,
+      },
+    })
   }
 
   fitSelection(padding = 24): DiagramCommandResult {
@@ -552,13 +564,22 @@ export class DiagramEngine {
   }
 
   private createOrderedIds(): DiagramId[] {
-    return [
+    const ids = [
       ...this.state.order.edgeIds,
       ...this.state.order.shapeIds,
       ...this.state.order.nodeIds,
       ...this.state.order.textIds,
       ...this.state.entities.portsById.keys(),
     ]
+    const baseOrder = new Map(ids.map((id, index) => [id, index]))
+    return ids.sort((a, b) => {
+      const layerDelta = layerRank(this.getEntityMetadata(a)) - layerRank(this.getEntityMetadata(b))
+      if (layerDelta) {
+        return layerDelta
+      }
+      const zDelta = zIndex(this.getEntityMetadata(a)) - zIndex(this.getEntityMetadata(b))
+      return zDelta || ((baseOrder.get(a) ?? 0) - (baseOrder.get(b) ?? 0))
+    })
   }
 
   private createOrderIndex(): Map<DiagramId, number> {
@@ -832,6 +853,11 @@ function definedRectPatch(entry: DiagramResizeEntry): Partial<DiagramResizeEntry
 }
 
 function createOrderPatch(state: InternalState, ids: ReadonlyArray<DiagramId>, mode: "forward" | "backward" | "front" | "back"): Patch | null {
+  const existingIds = ids.filter((id) => hasEntity(state, id))
+  if (!existingIds.length) return null
+  if (mode === "front" || mode === "back") {
+    return createZIndexPatch(state, existingIds, mode)
+  }
   const previous = cloneOrder(state.order)
   const next = cloneOrder(state.order)
   reorderIds(next.nodeIds, ids, mode)
@@ -840,6 +866,36 @@ function createOrderPatch(state: InternalState, ids: ReadonlyArray<DiagramId>, m
   reorderIds(next.shapeIds, ids, mode)
   if (ordersEqual(previous, next)) return null
   return createOrderPatchUnchecked(previous, next)
+}
+
+function createZIndexPatch(state: InternalState, ids: ReadonlyArray<DiagramId>, mode: "front" | "back"): Patch | null {
+  const orderedIds = allEntityIds(state)
+  const values = orderedIds.map((id) => zIndex(getEntityMetadata(state, id)))
+  const base = mode === "front" ? Math.max(0, ...values) : Math.min(0, ...values)
+  const nextMetadata = new Map<DiagramId, Readonly<Record<string, unknown>> | undefined>()
+  const previousMetadata = new Map<DiagramId, Readonly<Record<string, unknown>> | undefined>()
+  ids.forEach((id, index) => {
+    const previous = getEntityMetadata(state, id)
+    previousMetadata.set(id, previous)
+    nextMetadata.set(id, { ...(previous ?? {}), zIndex: mode === "front" ? base + index + 1 : base - ids.length + index })
+  })
+  return createMetadataSnapshotPatch(ids, previousMetadata, nextMetadata)
+}
+
+function createMetadataSnapshotPatch(ids: ReadonlyArray<DiagramId>, previous: ReadonlyMap<DiagramId, Readonly<Record<string, unknown>> | undefined>, nextMetadata: ReadonlyMap<DiagramId, Readonly<Record<string, unknown>> | undefined>): Patch {
+  return {
+    apply: (state) => {
+      for (const id of ids) setEntityMetadata(state, id, nextMetadata.get(id))
+      return new Set(ids)
+    },
+    inverse: {
+      apply: (state) => {
+        for (const id of ids) setEntityMetadata(state, id, previous.get(id))
+        return new Set(ids)
+      },
+      inverse: undefined as unknown as Patch,
+    },
+  }
 }
 
 function createOrderPatchUnchecked(previous: MutableOrder, nextOrder: MutableOrder): Patch {
@@ -1201,6 +1257,9 @@ function ordersEqual(a: MutableOrder, b: MutableOrder): boolean {
 }
 
 function reorderIds(order: DiagramId[], ids: ReadonlyArray<DiagramId>, mode: "forward" | "backward" | "front" | "back"): void {
+  if (order.length < 2 || !ids.length) {
+    return
+  }
   const selected = new Set(ids)
   if (mode === "front") {
     const moved = order.filter((id) => selected.has(id))
@@ -1212,11 +1271,12 @@ function reorderIds(order: DiagramId[], ids: ReadonlyArray<DiagramId>, mode: "fo
     order.splice(0, order.length, ...moved, ...order.filter((id) => !selected.has(id)))
     return
   }
-  const start = mode === "forward" ? order.length - 2 : 1
-  const end = mode === "forward" ? -1 : order.length
-  const step = mode === "forward" ? -1 : 1
+  const movingForward = mode === "forward"
+  const start = movingForward ? order.length - 2 : 1
+  const end = movingForward ? -1 : order.length
+  const step = movingForward ? -1 : 1
   for (let index = start; index !== end; index += step) {
-    const nextIndex = index + step
+    const nextIndex = movingForward ? index + 1 : index - 1
     const current = order[index]
     const next = order[nextIndex]
     if (current !== undefined && next !== undefined && selected.has(current) && !selected.has(next)) {
@@ -1255,6 +1315,20 @@ function getEntityMetadata(state: InternalState, id: DiagramId): Readonly<Record
     ?? state.entities.textsById.get(id)?.metadata
     ?? state.entities.shapesById.get(id)?.metadata
     ?? state.entities.portsById.get(id)?.metadata
+}
+
+function zIndex(metadata: Readonly<Record<string, unknown>> | undefined): number {
+  return typeof metadata?.zIndex === "number" && Number.isFinite(metadata.zIndex) ? metadata.zIndex : 0
+}
+
+function allEntityIds(state: InternalState): DiagramId[] {
+  return [
+    ...state.order.edgeIds,
+    ...state.order.shapeIds,
+    ...state.order.nodeIds,
+    ...state.order.textIds,
+    ...state.entities.portsById.keys(),
+  ]
 }
 
 function hasEntity(state: InternalState, id: DiagramId): boolean {

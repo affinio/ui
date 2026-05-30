@@ -42,7 +42,7 @@ engine.dispatch({ type: "bringForward", ids: ["n1"] })
 engine.dispatch({ type: "setLayer", ids: ["n1"], layer: "equipment", layerRole: "normal" })
 ```
 
-Entities can be marked with metadata constraints. `locked` and `readOnly` entities cannot move, resize, or delete; `nonDeletable` entities can move but cannot be deleted. Background layers are excluded from default render ordering unless explicitly requested.
+Entities can be marked with metadata constraints. `locked` and `readOnly` entities cannot move, resize, or delete; `nonDeletable` entities can move but cannot be deleted. Front/back commands write `metadata.zIndex` so render order can cross entity kinds. Background layers are excluded from default render ordering unless explicitly requested.
 
 ## Keyboard and capability helpers
 
@@ -74,6 +74,8 @@ engine.fitSelection(32)
 engine.fitBounds({ x: 0, y: 0, width: 500, height: 300 }, 24)
 engine.fitScene(48)
 ```
+
+Fit helpers preserve the viewport screen size invariant: `viewport.width * viewport.zoom` and `viewport.height * viewport.zoom` stay stable, while world bounds and zoom change together. DOM label layers should use the same `viewport.zoom` as SVG overlays.
 
 ## Diagnostics
 
