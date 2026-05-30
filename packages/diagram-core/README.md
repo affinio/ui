@@ -2,6 +2,11 @@
 
 Framework-neutral diagram state, geometry, command, history, selection, viewport, and serialization engine. Vue, React, or canvas adapters should call core commands instead of reimplementing movement, hit testing, undo/redo, clipboard, or viewport math.
 
+
+## Internal Architecture
+
+The public package entry stays `createDiagramEngine()`. Internally the facade delegates focused responsibilities to services under `src/internal`: `DiagramHistory` owns undo/redo stacks and history merging, `DiagramGeometryService` owns geometry caching and read diagnostics, `DiagramSpatialIndex` owns visible/hit/port indexes, and `DiagramViewportService` owns fit math. Command patch creation, scene snapshots, and clipboard import/export remain package-internal and should be split behind `DiagramCommandEngine`, `DiagramSceneStore`, and `DiagramClipboardService` in follow-up slices without changing the public API.
+
 ## Basic usage
 
 ```ts

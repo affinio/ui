@@ -1,5 +1,10 @@
 import { createEntityGeometry, distance, rectContainsPoint, rectIntersects } from "./geometry.js"
-import { UniformGridIndex } from "./spatialIndex.js"
+import { DiagramGeometryService } from "./internal/DiagramGeometryService.js"
+import { DiagramHistory } from "./internal/DiagramHistory.js"
+import { DiagramSpatialIndex } from "./internal/DiagramSpatialIndex.js"
+import { DiagramViewportService } from "./internal/DiagramViewportService.js"
+import { DEFAULT_VIEWPORT, EMPTY_SELECTION } from "./internal/model.js"
+import type { InternalState, MutableEntities, MutableOrder, Patch, TransactionResult } from "./internal/model.js"
 import type {
   DiagramChange,
   DiagramClipboard,
@@ -36,71 +41,19 @@ import type {
   SerializedDiagramScene,
 } from "./types.js"
 
-type MutableEntities = {
-  nodesById: Map<DiagramId, DiagramNode>
-  edgesById: Map<DiagramId, DiagramEdge>
-  textsById: Map<DiagramId, DiagramText>
-  shapesById: Map<DiagramId, DiagramShape>
-  portsById: Map<DiagramId, DiagramPort>
-}
-
-type MutableOrder = {
-  nodeIds: DiagramId[]
-  edgeIds: DiagramId[]
-  textIds: DiagramId[]
-  shapeIds: DiagramId[]
-}
-
-type InternalState = {
-  entities: MutableEntities
-  order: MutableOrder
-  selection: DiagramSelection
-  viewport: DiagramViewport
-  revision: number
-  versions: Map<DiagramId, number>
-}
-
-type Patch = {
-  apply: (state: InternalState) => Set<DiagramId>
-  inverse: Patch
-}
-
-type HistoryEntry = {
-  patch: Patch
-  inverse: Patch
-  key: string | null
-}
-
-type GeometryCacheEntry = {
-  version: number
-  geometry: DiagramGeometry
-}
-
-type TransactionResult = {
-  changedIds: Set<DiagramId>
-  invalidatedIds: Set<DiagramId>
-}
-
-const DEFAULT_VIEWPORT: DiagramViewport = Object.freeze({ x: 0, y: 0, width: 0, height: 0, zoom: 1 })
-const EMPTY_SELECTION: DiagramSelection = Object.freeze({ ids: Object.freeze([]), primaryId: null })
-
 export class DiagramEngine {
   private state: InternalState
   private snapshot: DiagramScene
   private subscribers = new Set<DiagramSubscriber>()
-  private geometryCache = new Map<DiagramId, GeometryCacheEntry>()
-  private visualBoundsIndex = new UniformGridIndex()
-  private hitBoundsIndex = new UniformGridIndex()
-  private portIndex = new UniformGridIndex(128)
-  private indexesDirty = true
-  private undoStack: HistoryEntry[] = []
-  private redoStack: HistoryEntry[] = []
+  private geometryService = new DiagramGeometryService()
+  private spatialIndex = new DiagramSpatialIndex()
+  private history = new DiagramHistory()
+  private viewportService = new DiagramViewportService()
   private lastChange: DiagramChange = {
     revision: 0,
     changedIds: Object.freeze(new Set<DiagramId>()),
     invalidatedIds: Object.freeze(new Set<DiagramId>()),
   }
-  private geometryReadCount = 0
   private visibleQueryCount = 0
   private entityQueryCount = 0
   private hitTestCount = 0
@@ -109,7 +62,7 @@ export class DiagramEngine {
   constructor(initialScene: DiagramSceneInput = {}) {
     this.state = createInternalState(initialScene)
     this.snapshot = this.createSnapshot()
-    this.rebuildIndexes()
+    this.ensureIndexes()
   }
 
   getScene(): DiagramScene {
@@ -125,7 +78,7 @@ export class DiagramEngine {
   }
 
   getGeometryReadCount(): number {
-    return this.geometryReadCount
+    return this.geometryService.getReadCount()
   }
 
   getGeometrySnapshot(id: DiagramId): DiagramGeometry | null {
@@ -166,7 +119,7 @@ export class DiagramEngine {
   queryVisible(bounds: DiagramRect): DiagramId[] {
     this.visibleQueryCount += 1
     this.ensureIndexes()
-    const ids = this.visualBoundsIndex.query(bounds)
+    const ids = this.spatialIndex.queryVisible(bounds)
     const order = this.createOrderIndex()
     return ids.sort((a, b) => (order.get(a) ?? 0) - (order.get(b) ?? 0))
   }
@@ -187,7 +140,7 @@ export class DiagramEngine {
     const normalizedText = normalizeSearchText(options.text)
     const metadata = options.metadata ?? null
     const order = this.createOrderIndex()
-    const sourceIds = options.bounds ? this.visualBoundsIndex.query(options.bounds) : this.createOrderedIds()
+    const sourceIds = options.bounds ? this.spatialIndex.queryVisible(options.bounds) : this.createOrderedIds()
     const result: DiagramId[] = []
     const seen = new Set<DiagramId>()
 
@@ -228,7 +181,7 @@ export class DiagramEngine {
     const kinds = options.kinds ? new Set<DiagramEntityKind>(options.kinds) : null
     const rect = { x: point.x - radius, y: point.y - radius, width: radius * 2, height: radius * 2 }
     const renderOrder = this.createOrderIndex()
-    const candidates = this.hitBoundsIndex.query(rect).sort((a, b) => (renderOrder.get(b) ?? 0) - (renderOrder.get(a) ?? 0))
+    const candidates = this.spatialIndex.queryHit(rect).sort((a, b) => (renderOrder.get(b) ?? 0) - (renderOrder.get(a) ?? 0))
     let best: DiagramHit | null = null
     let bestOrder = -1
     for (const id of candidates) {
@@ -253,7 +206,7 @@ export class DiagramEngine {
     this.ensureIndexes()
     const rect = { x: point.x - radius, y: point.y - radius, width: radius * 2, height: radius * 2 }
     let best: DiagramHit | null = null
-    for (const id of this.portIndex.query(rect)) {
+    for (const id of this.spatialIndex.queryPorts(rect)) {
       if (exclude.has(id)) {
         continue
       }
@@ -332,11 +285,11 @@ export class DiagramEngine {
   }
 
   canUndo(): boolean {
-    return this.undoStack.length > 0
+    return this.history.canUndo()
   }
 
   canRedo(): boolean {
-    return this.redoStack.length > 0
+    return this.history.canRedo()
   }
 
   canDelete(ids: ReadonlyArray<DiagramId> = this.state.selection.ids): boolean {
@@ -373,10 +326,10 @@ export class DiagramEngine {
       visibleQueryCount: this.visibleQueryCount,
       entityQueryCount: this.entityQueryCount,
       hitTestCount: this.hitTestCount,
-      geometryRecomputeCount: this.geometryReadCount,
+      geometryRecomputeCount: this.geometryService.getReadCount(),
       lastCommandMs: this.lastCommandMs,
-      undoDepth: this.undoStack.length,
-      redoDepth: this.redoStack.length,
+      undoDepth: this.history.undoDepth(),
+      redoDepth: this.history.redoDepth(),
     }
   }
 
@@ -402,21 +355,7 @@ export class DiagramEngine {
   }
 
   fitBounds(bounds: DiagramRect, padding = 24): DiagramCommandResult {
-    const targetWidth = Math.max(1, bounds.width + padding * 2)
-    const targetHeight = Math.max(1, bounds.height + padding * 2)
-    const screenWidth = Math.max(1, this.state.viewport.width * this.state.viewport.zoom)
-    const screenHeight = Math.max(1, this.state.viewport.height * this.state.viewport.zoom)
-    const zoom = Math.min(screenWidth / targetWidth, screenHeight / targetHeight)
-    return this.dispatch({
-      type: "setViewport",
-      viewport: {
-        x: bounds.x - (screenWidth / zoom - bounds.width) / 2,
-        y: bounds.y - (screenHeight / zoom - bounds.height) / 2,
-        width: screenWidth / zoom,
-        height: screenHeight / zoom,
-        zoom,
-      },
-    })
+    return this.dispatch({ type: "setViewport", viewport: this.viewportService.fitBounds(this.state.viewport, bounds, padding) })
   }
 
   fitSelection(padding = 24): DiagramCommandResult {
@@ -444,22 +383,22 @@ export class DiagramEngine {
   }
 
   private undo(): DiagramCommandResult {
-    const entry = this.undoStack.pop()
+    const entry = this.history.popUndo()
     if (!entry) {
       return { changed: false, revision: this.state.revision }
     }
     const result = this.commitPatch(entry.inverse, false, null)
-    this.redoStack.push(entry)
+    this.history.pushRedo(entry)
     return { changed: result.changedIds.size > 0, revision: this.state.revision }
   }
 
   private redo(): DiagramCommandResult {
-    const entry = this.redoStack.pop()
+    const entry = this.history.popRedo()
     if (!entry) {
       return { changed: false, revision: this.state.revision }
     }
     const result = this.commitPatch(entry.patch, false, null)
-    this.undoStack.push(entry)
+    this.history.pushUndo(entry)
     return { changed: result.changedIds.size > 0, revision: this.state.revision }
   }
 
@@ -470,11 +409,11 @@ export class DiagramEngine {
     }
     const invalidatedIds = this.collectInvalidatedIds(changedIds)
     for (const id of invalidatedIds) {
-      this.geometryCache.delete(id)
       this.state.versions.set(id, (this.state.versions.get(id) ?? 0) + 1)
     }
     this.state.revision += 1
-    this.indexesDirty = true
+    this.geometryService.invalidate(invalidatedIds)
+    this.spatialIndex.markDirty()
     this.snapshot = this.createSnapshot()
     this.lastChange = {
       revision: this.state.revision,
@@ -482,14 +421,7 @@ export class DiagramEngine {
       invalidatedIds: Object.freeze(new Set(invalidatedIds)),
     }
     if (recordHistory) {
-      const previous = historyKey ? this.undoStack[this.undoStack.length - 1] : null
-      if (previous?.key === historyKey) {
-        previous.patch = composePatches(previous.patch, patch)
-        previous.inverse = composePatches(patch.inverse, previous.inverse)
-      } else {
-        this.undoStack.push({ patch, inverse: patch.inverse, key: historyKey })
-      }
-      this.redoStack = []
+      this.history.record(patch, historyKey, composePatches)
     }
     this.emit()
     return { changedIds, invalidatedIds }
@@ -525,34 +457,17 @@ export class DiagramEngine {
   }
 
   private getGeometry(id: DiagramId): DiagramGeometry | null {
-    const version = this.state.versions.get(id) ?? 0
-    const cached = this.geometryCache.get(id)
-    if (cached?.version === version) {
-      return cached.geometry
-    }
-    const geometry = createEntityGeometry(id, this.snapshot.entities)
-    if (!geometry) {
-      return null
-    }
-    this.geometryReadCount += 1
-    this.geometryCache.set(id, { version, geometry })
-    return geometry
+    return this.geometryService.get(id, this.snapshot.entities, this.state.versions.get(id) ?? 0)
   }
 
-  private rebuildIndexes(): void {
-    const geometries = this.createOrderedIds()
+  private rebuildIndexGeometries(): ReadonlyArray<DiagramGeometry> {
+    return this.createOrderedIds()
       .map((id) => this.getGeometry(id))
       .filter((geometry): geometry is DiagramGeometry => geometry !== null)
-    this.visualBoundsIndex.rebuild(geometries)
-    this.hitBoundsIndex.rebuild(geometries, true)
-    this.portIndex.rebuild(geometries.filter((geometry) => geometry.kind === "port"), true)
-    this.indexesDirty = false
   }
 
   private ensureIndexes(): void {
-    if (this.indexesDirty) {
-      this.rebuildIndexes()
-    }
+    this.spatialIndex.ensure(() => this.rebuildIndexGeometries())
   }
 
   private createPatch(command: Exclude<DiagramCommand, { type: "undo" } | { type: "redo" }>): Patch | null {
