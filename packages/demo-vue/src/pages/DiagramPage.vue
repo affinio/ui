@@ -171,7 +171,22 @@ function nudgeSelected(delta: DiagramPoint): void {
   if (!ids.length) {
     return
   }
-  diagram.dispatch({ type: "moveEntities", ids, delta, historyKey: "demo-nudge" })
+  diagram.dispatch({ type: "moveEntities", ids, delta })
+}
+
+function deleteSelected(): void {
+  if (!selection.selection.value.ids.length) {
+    return
+  }
+  diagram.dispatch({ type: "deleteSelection" })
+}
+
+function handleStageKeydown(event: KeyboardEvent): void {
+  if (event.key !== "Delete" && event.key !== "Backspace") {
+    return
+  }
+  event.preventDefault()
+  deleteSelected()
 }
 
 function snapSelectedToGrid(): void {
@@ -274,6 +289,7 @@ function clamp(value: number, min: number, max: number): number {
         <button :class="{ active: tool === 'pan' }" type="button" @click="pointer.setTool('pan')">Pan</button>
         <button type="button" @click="diagram.dispatch({ type: 'undo' })">Undo</button>
         <button type="button" @click="diagram.dispatch({ type: 'redo' })">Redo</button>
+        <button type="button" @click="deleteSelected">Delete</button>
       </div>
 
       <div class="diagram-viewport-controls" aria-label="Canvas navigation">
@@ -328,7 +344,7 @@ function clamp(value: number, min: number, max: number): number {
 
     <div class="diagram-shell">
       <div ref="stageRef" class="diagram-stage">
-        <svg class="diagram-svg" :viewBox="viewBox" v-bind="pointerProps" @wheel="handleWheel">
+        <svg class="diagram-svg" :viewBox="viewBox" tabindex="0" v-bind="pointerProps" @keydown="handleStageKeydown" @wheel="handleWheel">
           <defs>
             <pattern id="diagram-grid" width="24" height="24" patternUnits="userSpaceOnUse">
               <path d="M 24 0 L 0 0 0 24" class="diagram-grid-line" />
@@ -408,6 +424,10 @@ function clamp(value: number, min: number, max: number): number {
 
 .diagram-toolbar {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.diagram-toolbar button:last-child {
+  grid-column: 1 / -1;
 }
 
 .diagram-actions {

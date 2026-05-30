@@ -5,6 +5,7 @@ import type {
   DiagramCommand,
   DiagramCommandResult,
   DiagramEdge,
+  DiagramEdgeEndpoint,
   DiagramEntityKind,
   DiagramGeometry,
   DiagramHit,
@@ -308,7 +309,8 @@ export class DiagramEngine {
     if (recordHistory) {
       const previous = historyKey ? this.undoStack[this.undoStack.length - 1] : null
       if (previous?.key === historyKey) {
-        previous.patch = patch
+        previous.patch = composePatches(previous.patch, patch)
+        previous.inverse = composePatches(patch.inverse, previous.inverse)
       } else {
         this.undoStack.push({ patch, inverse: patch.inverse, key: historyKey })
       }
@@ -620,7 +622,7 @@ function createCreateEdgePatch(state: InternalState, edge: DiagramEdge): Patch |
 }
 
 function createDeleteSelectionPatch(state: InternalState): Patch | null {
-  return createDeleteEntitiesPatch(state.selection.ids)
+  return createDeleteEntitiesPatch(expandDeletedIds(state, state.selection.ids))
 }
 
 function createDeleteEntitiesPatch(ids: ReadonlyArray<DiagramId>): Patch {
@@ -775,6 +777,51 @@ function createReplaceScenePatch(next: DiagramSceneInput, previous: SerializedDi
       },
       inverse: undefined as unknown as Patch,
     },
+  }
+}
+
+function expandDeletedIds(state: InternalState, ids: ReadonlyArray<DiagramId>): DiagramId[] {
+  const deleted = new Set(ids)
+  for (const id of ids) {
+    if (state.entities.nodesById.has(id)) {
+      for (const port of state.entities.portsById.values()) {
+        if (port.nodeId === id) {
+          deleted.add(port.id)
+        }
+      }
+    }
+  }
+  for (const edge of state.entities.edgesById.values()) {
+    if (deleted.has(edge.id)) {
+      continue
+    }
+    if (endpointDeleted(edge.source, deleted) || endpointDeleted(edge.target, deleted)) {
+      deleted.add(edge.id)
+    }
+  }
+  return [...deleted]
+}
+
+function endpointDeleted(endpoint: DiagramEdgeEndpoint, deleted: ReadonlySet<DiagramId>): boolean {
+  if (endpoint.kind === "point") {
+    return false
+  }
+  if (endpoint.kind === "node") {
+    return deleted.has(endpoint.nodeId)
+  }
+  return deleted.has(endpoint.portId)
+}
+
+function composePatches(first: Patch, second: Patch): Patch {
+  return {
+    apply: (state) => {
+      const changed = first.apply(state)
+      for (const id of second.apply(state)) {
+        changed.add(id)
+      }
+      return changed
+    },
+    inverse: undefined as unknown as Patch,
   }
 }
 

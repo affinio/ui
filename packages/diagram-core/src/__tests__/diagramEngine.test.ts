@@ -83,12 +83,37 @@ describe("DiagramEngine", () => {
   it("deletes and restores selected entities", () => {
     const engine = createDiagramEngine(scene)
 
-    engine.dispatch({ type: "setSelection", selection: { ids: ["t1"], primaryId: "t1" } })
+    engine.dispatch({ type: "setSelection", selection: { ids: ["n1"], primaryId: "n1" } })
     engine.dispatch({ type: "deleteSelection" })
-    expect(engine.getScene().entities.textsById.has("t1")).toBe(false)
+    expect(engine.getScene().entities.nodesById.has("n1")).toBe(false)
+    expect(engine.getScene().entities.portsById.has("p1")).toBe(false)
+    expect(engine.getScene().entities.edgesById.has("e1")).toBe(false)
 
     engine.dispatch({ type: "undo" })
-    expect(engine.getScene().entities.textsById.get("t1")?.text).toBe("Label")
+    expect(engine.getScene().entities.nodesById.get("n1")?.x).toBe(0)
+    expect(engine.getScene().entities.portsById.get("p1")?.nodeId).toBe("n1")
+    expect(engine.getScene().entities.edgesById.get("e1")?.id).toBe("e1")
+  })
+
+  it("supports repeated undo and redo for adjacent history groups", () => {
+    const engine = createDiagramEngine(scene)
+
+    engine.dispatch({ type: "moveNode", id: "n1", delta: { x: 10, y: 0 }, historyKey: "drag:n1" })
+    engine.dispatch({ type: "moveNode", id: "n1", delta: { x: 5, y: 0 }, historyKey: "drag:n1" })
+    engine.dispatch({ type: "moveNode", id: "n2", delta: { x: 20, y: 0 } })
+
+    expect(engine.getScene().entities.nodesById.get("n1")?.x).toBe(15)
+    expect(engine.getScene().entities.nodesById.get("n2")?.x).toBe(280)
+
+    engine.dispatch({ type: "undo" })
+    expect(engine.getScene().entities.nodesById.get("n1")?.x).toBe(15)
+    expect(engine.getScene().entities.nodesById.get("n2")?.x).toBe(260)
+
+    engine.dispatch({ type: "undo" })
+    expect(engine.getScene().entities.nodesById.get("n1")?.x).toBe(0)
+
+    engine.dispatch({ type: "redo" })
+    expect(engine.getScene().entities.nodesById.get("n1")?.x).toBe(15)
   })
 
   it("keeps drag previews transient and commits one history entry", () => {
