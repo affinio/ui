@@ -115,7 +115,7 @@ function toWorldPoint(event: PointerEvent): DiagramPoint {
 
 function entityTransform(entity: DiagramRenderEntity): string | undefined {
   const delta = previewDelta.value
-  if (!delta || !entity.selected) {
+  if (!delta || !entity.selected || pointer.state.value.tool === "pan") {
     return undefined
   }
   return `translate(${delta.x} ${delta.y})`
