@@ -58,11 +58,13 @@ Adapters that use the headless interaction controller should start resize handle
 const interaction = createDiagramInteractionController(engine)
 
 interaction.beginResizeHandle("n1", "se", pointerEvent)
+interaction.beginResizeSelectionHandle("se", pointerEvent)
 const preview = interaction.getSnapshot().resizePreview
-// Render preview when present, then pointer up commits one resizeEntities history entry.
+const entries = interaction.getSnapshot().resizePreviewEntries
+// Render previews when present, then pointer up commits one resizeEntities history entry.
 ```
 
-`resizePreview` is intentionally transient: it lets SVG render live dimensions without mutating serialized scene state on every pointer move. Drag deltas are mapped through entity rotation and the opposite rotated corner stays anchored, so handles follow the local resize axes exposed by rotated geometry.
+`resizePreview` is intentionally transient: it lets SVG render live dimensions without mutating serialized scene state on every pointer move. Drag deltas are mapped through entity rotation and the opposite rotated corner stays anchored, so handles follow the local resize axes exposed by rotated geometry. Multi-selection resize uses group bounds and emits one preview entry per resizable selected entity.
 
 ## Keyboard and capability helpers
 

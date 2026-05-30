@@ -243,6 +243,34 @@ describe("DiagramEngine", () => {
     expect(anchorAfter?.y).toBeCloseTo(anchorBefore?.y ?? 0)
   })
 
+  it("previews and commits group resize as one history entry", () => {
+    const callbacks: Array<() => void> = []
+    const engine = createDiagramEngine({
+      nodes: [
+        { id: "n1", kind: "node", x: 0, y: 0, width: 100, height: 50 },
+        { id: "n2", kind: "node", x: 200, y: 50, width: 100, height: 50 },
+      ],
+      selection: { ids: ["n1", "n2"], primaryId: "n1" },
+    })
+    const controller = createDiagramInteractionController(engine, { scheduleFrame: (callback) => callbacks.push(callback) })
+
+    expect(controller.beginResizeSelectionHandle("se", { id: 1, point: { x: 300, y: 100 } })).toBe(true)
+    controller.pointerMove({ id: 1, point: { x: 360, y: 120 } })
+    callbacks[0]()
+
+    expect(controller.getSnapshot().resizePreviewEntries).toEqual([
+      { id: "n1", x: 0, y: 0, width: 120, height: 60 },
+      { id: "n2", x: 240, y: 60, width: 120, height: 60 },
+    ])
+    expect(engine.getScene().entities.nodesById.get("n2")).toMatchObject({ x: 200, y: 50, width: 100, height: 50 })
+
+    controller.pointerUp({ id: 1, point: { x: 360, y: 120 } })
+    expect(engine.getScene().entities.nodesById.get("n2")).toMatchObject({ x: 240, y: 60, width: 120, height: 60 })
+    expect(controller.getCommitCount()).toBe(1)
+    engine.dispatch({ type: "undo" })
+    expect(engine.getScene().entities.nodesById.get("n2")).toMatchObject({ x: 200, y: 50, width: 100, height: 50 })
+  })
+
   it("selects groups with strict containment marquee by default", () => {
     const callbacks: Array<() => void> = []
     const engine = createDiagramEngine(scene)

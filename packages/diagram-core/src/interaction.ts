@@ -17,10 +17,12 @@ export class DiagramInteractionController {
   private previewDelta: DiagramPoint | null = null
   private marquee: DiagramRect | null = null
   private resizeOwnerId: DiagramId | null = null
+  private resizeSelectionIds: ReadonlyArray<DiagramId> = []
   private resizeHandle: DiagramResizeHandle | null = null
   private resizeStartBounds: DiagramRect | null = null
   private resizeStartRotation = 0
   private resizePreview: DiagramResizeEntry | null = null
+  private resizePreviewEntries: ReadonlyArray<DiagramResizeEntry> = Object.freeze([])
   private framePending = false
   private pendingMoveCount = 0
   private commitCount = 0
@@ -77,6 +79,30 @@ export class DiagramInteractionController {
     return true
   }
 
+  beginResizeSelectionHandle(handle: DiagramResizeHandle, event: DiagramPointerEvent): boolean {
+    const ids = this.engine.getScene().selection.ids.filter((id) => {
+      const geometry = this.engine.getGeometrySnapshot(id)
+      return geometry && geometry.kind !== "edge" && geometry.kind !== "port" && this.engine.canResize([id])
+    })
+    if (ids.length < 2) {
+      return false
+    }
+    const bounds = unionRects(ids.map((id) => this.engine.getGeometrySnapshot(id)?.unrotatedBounds ?? this.engine.getGeometrySnapshot(id)?.bounds).filter((rect): rect is DiagramRect => Boolean(rect)))
+    if (!bounds) {
+      return false
+    }
+    this.cancel()
+    this.tool = "resize-selection"
+    this.activePointer = event
+    this.startPoint = event.point
+    this.latestPoint = event.point
+    this.resizeSelectionIds = ids
+    this.resizeHandle = handle
+    this.resizeStartBounds = bounds
+    this.resizeStartRotation = 0
+    return true
+  }
+
   pointerMove(event: DiagramPointerEvent): void {
     if (!this.activePointer || this.activePointer.id !== event.id) {
       return
@@ -105,8 +131,8 @@ export class DiagramInteractionController {
       this.engine.dispatch({ type: "setViewport", viewport: { x: viewport.x - this.previewDelta.x, y: viewport.y - this.previewDelta.y }, historyKey: "pan" })
       this.commitCount += 1
     }
-    if (this.tool === "resize-selection" && this.resizePreview) {
-      this.engine.dispatch({ type: "resizeEntities", entries: [this.resizePreview], historyKey: `resize:${this.resizePreview.id}` })
+    if (this.tool === "resize-selection" && this.resizePreviewEntries.length) {
+      this.engine.dispatch({ type: "resizeEntities", entries: this.resizePreviewEntries, historyKey: `resize:${this.resizePreview?.id ?? "selection"}` })
       this.commitCount += 1
     }
     if (this.tool === "marquee" && this.marquee) {
@@ -130,6 +156,7 @@ export class DiagramInteractionController {
       active: this.activePointer !== null,
       previewDelta: this.previewDelta,
       resizePreview: this.resizePreview,
+      resizePreviewEntries: this.resizePreviewEntries,
       marquee: this.marquee,
     }
   }
@@ -153,12 +180,42 @@ export class DiagramInteractionController {
       return
     }
     if (this.tool === "resize-selection") {
-      this.resizePreview = this.createResizePreview(delta)
+      this.resizePreviewEntries = this.createResizePreviewEntries(delta)
+      this.resizePreview = this.resizePreviewEntries[0] ?? null
       return
     }
     if (this.tool === "marquee") {
       this.marquee = rectFromPoints(this.startPoint, this.latestPoint)
     }
+  }
+
+  private createResizePreviewEntries(delta: DiagramPoint): ReadonlyArray<DiagramResizeEntry> {
+    if (this.resizeSelectionIds.length) {
+      return this.createSelectionResizePreviewEntries(delta)
+    }
+    const entry = this.createResizePreview(delta)
+    return entry ? Object.freeze([entry]) : Object.freeze([])
+  }
+
+  private createSelectionResizePreviewEntries(delta: DiagramPoint): ReadonlyArray<DiagramResizeEntry> {
+    if (!this.resizeHandle || !this.resizeStartBounds) return Object.freeze([])
+    const nextBounds = resizeBoundsByHandle(this.resizeStartBounds, this.resizeHandle, delta, 8)
+    const scaleX = this.resizeStartBounds.width ? nextBounds.width / this.resizeStartBounds.width : 1
+    const scaleY = this.resizeStartBounds.height ? nextBounds.height / this.resizeStartBounds.height : 1
+    const entries: DiagramResizeEntry[] = []
+    for (const id of this.resizeSelectionIds) {
+      const geometry = this.engine.getGeometrySnapshot(id)
+      const bounds = geometry?.unrotatedBounds ?? geometry?.bounds
+      if (!bounds) continue
+      entries.push({
+        id,
+        x: nextBounds.x + (bounds.x - this.resizeStartBounds.x) * scaleX,
+        y: nextBounds.y + (bounds.y - this.resizeStartBounds.y) * scaleY,
+        width: Math.max(8, bounds.width * scaleX),
+        height: Math.max(8, bounds.height * scaleY),
+      })
+    }
+    return Object.freeze(entries)
   }
 
   private createResizePreview(delta: DiagramPoint): DiagramResizeEntry | null {
@@ -217,10 +274,12 @@ export class DiagramInteractionController {
     this.previewDelta = null
     this.marquee = null
     this.resizeOwnerId = null
+    this.resizeSelectionIds = []
     this.resizeHandle = null
     this.resizeStartBounds = null
     this.resizeStartRotation = 0
     this.resizePreview = null
+    this.resizePreviewEntries = Object.freeze([])
     this.framePending = false
     this.pendingMoveCount = 0
   }
@@ -243,6 +302,39 @@ function rotateDelta(delta: DiagramPoint, rotation: number): DiagramPoint {
   const cos = Math.cos(angle)
   const sin = Math.sin(angle)
   return { x: delta.x * cos - delta.y * sin, y: delta.x * sin + delta.y * cos }
+}
+
+function resizeBoundsByHandle(bounds: DiagramRect, handle: DiagramResizeHandle, delta: DiagramPoint, minSize: number): DiagramRect {
+  let x = bounds.x
+  let y = bounds.y
+  let width = bounds.width
+  let height = bounds.height
+  if (handle.includes("e")) width = Math.max(minSize, bounds.width + delta.x)
+  if (handle.includes("s")) height = Math.max(minSize, bounds.height + delta.y)
+  if (handle.includes("w")) {
+    width = Math.max(minSize, bounds.width - delta.x)
+    x = bounds.x + (bounds.width - width)
+  }
+  if (handle.includes("n")) {
+    height = Math.max(minSize, bounds.height - delta.y)
+    y = bounds.y + (bounds.height - height)
+  }
+  return { x, y, width, height }
+}
+
+function unionRects(rects: ReadonlyArray<DiagramRect>): DiagramRect | null {
+  if (!rects.length) return null
+  let minX = Number.POSITIVE_INFINITY
+  let minY = Number.POSITIVE_INFINITY
+  let maxX = Number.NEGATIVE_INFINITY
+  let maxY = Number.NEGATIVE_INFINITY
+  for (const rect of rects) {
+    minX = Math.min(minX, rect.x)
+    minY = Math.min(minY, rect.y)
+    maxX = Math.max(maxX, rect.x + rect.width)
+    maxY = Math.max(maxY, rect.y + rect.height)
+  }
+  return { x: minX, y: minY, width: maxX - minX, height: maxY - minY }
 }
 
 function anchorRotatedResize(bounds: DiagramRect, handle: DiagramResizeHandle, width: number, height: number, rotation: number): DiagramPoint {

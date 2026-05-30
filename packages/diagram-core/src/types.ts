@@ -280,6 +280,7 @@ export type DiagramInteractionSnapshot = Readonly<{
   active: boolean
   previewDelta: DiagramPoint | null
   resizePreview: DiagramResizeEntry | null
+  resizePreviewEntries: ReadonlyArray<DiagramResizeEntry>
   marquee: DiagramRect | null
 }>
 

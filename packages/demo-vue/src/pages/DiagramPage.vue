@@ -148,8 +148,7 @@ function toWorldPoint(event: PointerEvent): DiagramPoint {
 }
 
 function resizePreviewFor(id: string) {
-  const preview = pointer.state.value.resizePreview
-  return preview?.id === id ? preview : null
+  return pointer.state.value.resizePreviewEntries.find((preview) => preview.id === id) ?? null
 }
 
 function rectPreviewProps(entity: DiagramRenderEntity): Readonly<Record<string, string | number | boolean | undefined>> {
@@ -160,7 +159,11 @@ function rectPreviewProps(entity: DiagramRenderEntity): Readonly<Record<string, 
 
 function beginResizeHandle(handleId: string, ownerId: string, event: PointerEvent): void {
   const handle = handleId.slice(handleId.lastIndexOf(":") + 1) as DiagramResizeHandle
-  if (pointer.interaction.beginResizeHandle(ownerId, handle, { id: event.pointerId, point: toWorldPoint(event), shiftKey: event.shiftKey })) {
+  const pointerEvent = { id: event.pointerId, point: toWorldPoint(event), shiftKey: event.shiftKey }
+  const started = ownerId === "__selection__"
+    ? pointer.interaction.beginResizeSelectionHandle(handle, pointerEvent)
+    : pointer.interaction.beginResizeHandle(ownerId, handle, pointerEvent)
+  if (started) {
     ;(event.currentTarget as Element).setPointerCapture?.(event.pointerId)
   }
 }

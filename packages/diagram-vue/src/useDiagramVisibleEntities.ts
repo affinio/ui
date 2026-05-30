@@ -67,6 +67,7 @@ function buildProjection(controller: DiagramEngineController, bounds: DiagramRec
   }
   const activeGeometries = entities.filter((entity) => entity.selected).map((entity) => entity.geometry)
   const anchorGeometries = activeGeometries.filter((geometry) => geometry.kind !== "edge")
+  const activeHandles = anchorGeometries.length > 1 ? createGroupHandles(anchorGeometries) : activeGeometries.flatMap(createHandles)
   return Object.freeze({
     ids: Object.freeze(entities.map((entity) => entity.id)),
     nodes: freezeKind(entities, "node"),
@@ -74,10 +75,12 @@ function buildProjection(controller: DiagramEngineController, bounds: DiagramRec
     texts: freezeKind(entities, "text"),
     shapes: freezeKind(entities, "shape"),
     ports: freezeKind(entities, "port"),
-    activeHandles: Object.freeze(activeGeometries.flatMap(createHandles)),
+    activeHandles: Object.freeze(activeHandles),
     overlayAnchors: Object.freeze(anchorGeometries.map(createOverlayAnchor)),
   })
 }
+
+const SELECTION_OWNER_ID = "__selection__"
 
 function freezeKind(entities: ReadonlyArray<DiagramRenderEntity>, kind: DiagramRenderEntity["kind"]): ReadonlyArray<DiagramRenderEntity> {
   return Object.freeze(entities.filter((entity) => entity.kind === kind))
@@ -103,6 +106,32 @@ function createHandles(geometry: DiagramGeometry): DiagramHandle[] {
     { id: `${geometry.id}:se`, ownerId: geometry.id, kind: "resize", point: corners[2]! },
     { id: `${geometry.id}:sw`, ownerId: geometry.id, kind: "resize", point: corners[3]! },
   ]
+}
+
+function createGroupHandles(geometries: ReadonlyArray<DiagramGeometry>): DiagramHandle[] {
+  const rect = unionRects(geometries.map((geometry) => geometry.bounds))
+  if (!rect) return []
+  return [
+    { id: `${SELECTION_OWNER_ID}:nw`, ownerId: SELECTION_OWNER_ID, kind: "resize", point: { x: rect.x, y: rect.y } },
+    { id: `${SELECTION_OWNER_ID}:ne`, ownerId: SELECTION_OWNER_ID, kind: "resize", point: { x: rect.x + rect.width, y: rect.y } },
+    { id: `${SELECTION_OWNER_ID}:se`, ownerId: SELECTION_OWNER_ID, kind: "resize", point: { x: rect.x + rect.width, y: rect.y + rect.height } },
+    { id: `${SELECTION_OWNER_ID}:sw`, ownerId: SELECTION_OWNER_ID, kind: "resize", point: { x: rect.x, y: rect.y + rect.height } },
+  ]
+}
+
+function unionRects(rects: ReadonlyArray<DiagramRect>): DiagramRect | null {
+  if (!rects.length) return null
+  let minX = Number.POSITIVE_INFINITY
+  let minY = Number.POSITIVE_INFINITY
+  let maxX = Number.NEGATIVE_INFINITY
+  let maxY = Number.NEGATIVE_INFINITY
+  for (const rect of rects) {
+    minX = Math.min(minX, rect.x)
+    minY = Math.min(minY, rect.y)
+    maxX = Math.max(maxX, rect.x + rect.width)
+    maxY = Math.max(maxY, rect.y + rect.height)
+  }
+  return { x: minX, y: minY, width: maxX - minX, height: maxY - minY }
 }
 
 function createOverlayAnchor(geometry: DiagramGeometry): DiagramOverlayAnchor {

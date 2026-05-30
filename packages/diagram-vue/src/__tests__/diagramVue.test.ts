@@ -171,6 +171,21 @@ describe("diagram-vue", () => {
     expect(visible.projection.value.activeHandles.map((handle) => handle.point)).toEqual(visible.projection.value.nodes[0]?.geometry.corners)
   })
 
+  it("exposes one group resize handle set for multi-selection", () => {
+    const controller = useDiagramEngine({
+      nodes: [
+        { id: "n1", kind: "node", x: 0, y: 0, width: 100, height: 40 },
+        { id: "n2", kind: "node", x: 200, y: 80, width: 80, height: 40 },
+      ],
+      selection: { ids: ["n1", "n2"], primaryId: "n1" },
+      viewport: { x: -10, y: -10, width: 340, height: 180, zoom: 1 },
+    })
+    const visible = useDiagramVisibleEntities(controller)
+
+    expect(visible.projection.value.activeHandles.map((handle) => handle.id)).toEqual(["__selection__:nw", "__selection__:ne", "__selection__:se", "__selection__:sw"])
+    expect(visible.projection.value.activeHandles[2]?.point).toEqual({ x: 280, y: 120 })
+  })
+
   it("does not expose edge bounding boxes as selection overlays", () => {
     const controller = useDiagramEngine(scene)
     const selection = useDiagramSelection(controller)
