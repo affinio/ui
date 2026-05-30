@@ -115,6 +115,7 @@ const minimapViewport = computed(() => ({
   height: displayViewport.value.height,
 }))
 const marqueeRect = computed(() => (pointer.state.value.tool === "marquee" ? pointer.state.value.marquee : null))
+const showSelectionOverlays = computed(() => pointer.state.value.tool !== "drag-selection")
 const minimapNodes = computed(() => {
   const scene = diagram.scene.value
   const stride = Math.max(1, Math.ceil(scene.order.nodeIds.length / 250))
@@ -428,8 +429,10 @@ function clamp(value: number, min: number, max: number): number {
               {{ diagram.scene.value.entities.textsById.get(entity.id)?.text }}
             </text>
           </template>
-          <rect v-for="anchor in visible.projection.value.overlayAnchors" :key="anchor.id" class="diagram-anchor" :x="anchor.rect.x" :y="anchor.rect.y" :width="anchor.rect.width" :height="anchor.rect.height" />
-          <circle v-for="handle in visible.projection.value.activeHandles" :key="handle.id" class="diagram-handle" :cx="handle.point.x" :cy="handle.point.y" r="5" />
+          <template v-if="showSelectionOverlays">
+            <rect v-for="anchor in visible.projection.value.overlayAnchors" :key="anchor.id" class="diagram-anchor" :x="anchor.rect.x" :y="anchor.rect.y" :width="anchor.rect.width" :height="anchor.rect.height" />
+            <circle v-for="handle in visible.projection.value.activeHandles" :key="handle.id" class="diagram-handle" :cx="handle.point.x" :cy="handle.point.y" r="5" />
+          </template>
           <rect v-if="marqueeRect" class="diagram-marquee" :x="marqueeRect.x" :y="marqueeRect.y" :width="marqueeRect.width" :height="marqueeRect.height" />
         </svg>
 
