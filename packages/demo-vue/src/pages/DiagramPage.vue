@@ -9,7 +9,7 @@ import {
   useDiagramVisibleEntities,
   type DiagramRenderEntity,
 } from "@affino/diagram-vue"
-import { createEntityGeometry, type DiagramClipboard, type DiagramEdgeEndpoint, type DiagramGeometry, type DiagramPoint, type DiagramSceneInput } from "@affino/diagram-core"
+import { createEntityGeometry, type DiagramClipboard, type DiagramEdgeEndpoint, type DiagramGeometry, type DiagramPoint, type DiagramResizeHandle, type DiagramSceneInput } from "@affino/diagram-core"
 
 const stageRef = ref<HTMLElement | null>(null)
 const clipboard = ref<DiagramClipboard | null>(null)
@@ -144,6 +144,24 @@ function toWorldPoint(event: PointerEvent): DiagramPoint {
   return {
     x: current.x + (event.clientX - rect.left) / current.zoom,
     y: current.y + (event.clientY - rect.top) / current.zoom,
+  }
+}
+
+function resizePreviewFor(id: string) {
+  const preview = pointer.state.value.resizePreview
+  return preview?.id === id ? preview : null
+}
+
+function rectPreviewProps(entity: DiagramRenderEntity): Readonly<Record<string, string | number | boolean | undefined>> {
+  const props = { ...getSvgEntityProps(entity) }
+  const preview = resizePreviewFor(entity.id)
+  return preview ? { ...props, ...preview } : props
+}
+
+function beginResizeHandle(handleId: string, ownerId: string, event: PointerEvent): void {
+  const handle = handleId.slice(handleId.lastIndexOf(":") + 1) as DiagramResizeHandle
+  if (pointer.interaction.beginResizeHandle(ownerId, handle, { id: event.pointerId, point: toWorldPoint(event), shiftKey: event.shiftKey })) {
+    ;(event.currentTarget as Element).setPointerCapture?.(event.pointerId)
   }
 }
 
@@ -529,9 +547,9 @@ function clamp(value: number, min: number, max: number): number {
           </defs>
           <rect class="diagram-grid-fill" :x="displayViewport.x" :y="displayViewport.y" :width="displayViewport.width" :height="displayViewport.height" fill="url(#diagram-grid)" />
           <template v-for="entity in renderEntities" :key="entity.id">
-            <rect v-if="entity.kind === 'shape'" class="diagram-bus" v-bind="getSvgEntityProps(entity)" :transform="entityTransform(entity)" />
+            <rect v-if="entity.kind === 'shape'" class="diagram-bus" v-bind="rectPreviewProps(entity)" :transform="entityTransform(entity)" />
             <polyline v-else-if="entity.kind === 'edge'" class="diagram-edge" :class="{ selected: entity.selected }" v-bind="edgePreviewProps(entity)" />
-            <rect v-else-if="entity.kind === 'node'" class="diagram-node" :class="{ selected: entity.selected }" v-bind="getSvgEntityProps(entity)" :transform="entityTransform(entity)" />
+            <rect v-else-if="entity.kind === 'node'" class="diagram-node" :class="{ selected: entity.selected }" v-bind="rectPreviewProps(entity)" :transform="entityTransform(entity)" />
             <circle v-else-if="entity.kind === 'port'" class="diagram-port" v-bind="portPreviewProps(entity)" />
             <text v-else-if="entity.kind === 'text'" class="diagram-svg-label" :class="{ selected: entity.selected }" :data-diagram-id="entity.id" data-diagram-kind="text" :data-selected="entity.selected || undefined" :x="entity.geometry.bounds.x" :y="entity.geometry.bounds.y + 14" :transform="entityTransform(entity)">
               {{ diagram.scene.value.entities.textsById.get(entity.id)?.text }}
@@ -539,7 +557,7 @@ function clamp(value: number, min: number, max: number): number {
           </template>
           <template v-if="showSelectionOverlays">
             <rect v-for="anchor in visible.projection.value.overlayAnchors" :key="anchor.id" class="diagram-anchor" :x="anchor.rect.x" :y="anchor.rect.y" :width="anchor.rect.width" :height="anchor.rect.height" />
-            <circle v-for="handle in visible.projection.value.activeHandles" :key="handle.id" class="diagram-handle" :cx="handle.point.x" :cy="handle.point.y" r="5" />
+            <circle v-for="handle in visible.projection.value.activeHandles" :key="handle.id" class="diagram-handle" :cx="handle.point.x" :cy="handle.point.y" r="5" @pointerdown.stop.prevent="beginResizeHandle(handle.id, handle.ownerId, $event)" />
           </template>
           <rect v-if="marqueeRect" class="diagram-marquee" :x="marqueeRect.x" :y="marqueeRect.y" :width="marqueeRect.width" :height="marqueeRect.height" />
         </svg>
@@ -803,7 +821,8 @@ button.active {
   fill: #0d7f68;
   stroke: #fffaf3;
   stroke-width: 2;
-  pointer-events: none;
+  cursor: nwse-resize;
+  pointer-events: all;
 }
 
 .diagram-marquee {

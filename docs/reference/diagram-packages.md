@@ -39,6 +39,7 @@ Core now owns the editor-level operations that wrappers need for production diag
 - Clipboard: `exportSelection()`, `importClipboard()`, and `duplicateSelection()` export selected subgraphs, remap ids on import, preserve internal edge endpoints, and offset pasted geometry.
 - Ordering and layers: `bringForward`, `sendBackward`, `bringToFront`, `sendToBack`, `setLayer`, and `getRenderOrder()` provide deterministic render ordering plus background/normal/foreground layer roles; front/back commands use entity `metadata.zIndex` so nodes, edges, shapes, ports, and text can be ordered across kinds.
 - Geometry edits: `resizeEntities` updates nodes, shapes, and texts, and scales node-relative ports with resized nodes; `insertEdgeWaypoint`, `moveEdgeWaypoint`, and `removeEdgeWaypoint` cover baseline polyline/orthogonal edge editing. `rotateEntities` and `alignEntities` are core commands because they share history, locks, diagnostics, geometry invalidation, and serialization rules; rotated nodes/shapes/texts expose rotated bounds/corners for hit testing and adapter handles. Vue should expose toolbar controls that dispatch those commands.
+- Resize gestures: adapters can call `createDiagramInteractionController(...).beginResizeHandle(id, handle, event)` for `nw`, `ne`, `se`, and `sw` handles. Core exposes one transient `resizePreview` in the interaction snapshot, leaves the persisted scene unchanged during drag, then commits one `resizeEntities` history entry on pointer up.
 - Keyboard helpers: `dispatchKeyboardCommand()` covers arrow nudge, shift-nudge, delete, escape, undo, and redo so adapters do not duplicate command semantics.
 - Selection modes: `setSelection` supports `replace`, `add`, and `toggle`; pointer interaction uses strict containment marquee by default and can opt into intersecting marquee.
 - Constraints: entity metadata can mark objects as `locked`, `readOnly`, or `nonDeletable`; capability checks (`canUndo`, `canRedo`, `canDelete`, `canMove`, `canResize`, `canRotate`, `canAlign`, `canEditText`, `canPaste`) expose the same rules to UI.
@@ -49,6 +50,7 @@ Core now owns the editor-level operations that wrappers need for production diag
 const clipboard = engine.exportSelection()
 engine.importClipboard(clipboard, { x: 48, y: 48 })
 engine.dispatch({ type: "resizeEntities", entries: [{ id: "bay-a", width: 180, height: 90 }] })
+interaction.beginResizeHandle("bay-a", "se", pointerEvent)
 engine.dispatch({ type: "insertEdgeWaypoint", edgeId: "line-a", index: 0, point: { x: 320, y: 140 } })
 engine.dispatchKeyboardCommand("nudge-right", { step: 8, largeStep: 32, shiftKey: event.shiftKey })
 engine.fitSelection(32)

@@ -1,6 +1,6 @@
 import { createEntityGeometry } from "./geometry.js"
 import type { DiagramEngine } from "./DiagramEngine.js"
-import type { DiagramId, DiagramInteractionSnapshot, DiagramInteractionTool, DiagramMarqueeMode, DiagramPointerEvent, DiagramPoint, DiagramRect } from "./types.js"
+import type { DiagramId, DiagramInteractionSnapshot, DiagramInteractionTool, DiagramMarqueeMode, DiagramPointerEvent, DiagramPoint, DiagramRect, DiagramResizeEntry, DiagramResizeHandle } from "./types.js"
 
 type ScheduleFrame = (callback: () => void) => void
 
@@ -16,6 +16,10 @@ export class DiagramInteractionController {
   private latestPoint: DiagramPoint | null = null
   private previewDelta: DiagramPoint | null = null
   private marquee: DiagramRect | null = null
+  private resizeOwnerId: DiagramId | null = null
+  private resizeHandle: DiagramResizeHandle | null = null
+  private resizeStartBounds: DiagramRect | null = null
+  private resizePreview: DiagramResizeEntry | null = null
   private framePending = false
   private pendingMoveCount = 0
   private commitCount = 0
@@ -55,6 +59,22 @@ export class DiagramInteractionController {
     }
   }
 
+  beginResizeHandle(ownerId: DiagramId, handle: DiagramResizeHandle, event: DiagramPointerEvent): boolean {
+    const geometry = this.engine.getGeometrySnapshot(ownerId)
+    if (!geometry || geometry.kind === "edge" || geometry.kind === "port" || !this.engine.canResize([ownerId])) {
+      return false
+    }
+    this.cancel()
+    this.tool = "resize-selection"
+    this.activePointer = event
+    this.startPoint = event.point
+    this.latestPoint = event.point
+    this.resizeOwnerId = ownerId
+    this.resizeHandle = handle
+    this.resizeStartBounds = geometry.unrotatedBounds ?? geometry.bounds
+    return true
+  }
+
   pointerMove(event: DiagramPointerEvent): void {
     if (!this.activePointer || this.activePointer.id !== event.id) {
       return
@@ -83,13 +103,17 @@ export class DiagramInteractionController {
       this.engine.dispatch({ type: "setViewport", viewport: { x: viewport.x - this.previewDelta.x, y: viewport.y - this.previewDelta.y }, historyKey: "pan" })
       this.commitCount += 1
     }
+    if (this.tool === "resize-selection" && this.resizePreview) {
+      this.engine.dispatch({ type: "resizeEntities", entries: [this.resizePreview], historyKey: `resize:${this.resizePreview.id}` })
+      this.commitCount += 1
+    }
     if (this.tool === "marquee" && this.marquee) {
       const ids = this.getMarqueeSelectionIds(this.marquee)
       this.engine.dispatch({ type: "setSelection", selection: { ids, primaryId: ids[0] ?? null }, mode: this.activePointer.shiftKey ? "add" : "replace" })
       this.commitCount += 1
     }
     this.clearGesture()
-    if (this.tool === "drag-selection" || this.tool === "marquee") {
+    if (this.tool === "drag-selection" || this.tool === "marquee" || this.tool === "resize-selection") {
       this.tool = "select"
     }
   }
@@ -103,6 +127,7 @@ export class DiagramInteractionController {
       tool: this.tool,
       active: this.activePointer !== null,
       previewDelta: this.previewDelta,
+      resizePreview: this.resizePreview,
       marquee: this.marquee,
     }
   }
@@ -125,9 +150,33 @@ export class DiagramInteractionController {
       this.previewDelta = delta
       return
     }
+    if (this.tool === "resize-selection") {
+      this.resizePreview = this.createResizePreview(delta)
+      return
+    }
     if (this.tool === "marquee") {
       this.marquee = rectFromPoints(this.startPoint, this.latestPoint)
     }
+  }
+
+  private createResizePreview(delta: DiagramPoint): DiagramResizeEntry | null {
+    if (!this.resizeOwnerId || !this.resizeHandle || !this.resizeStartBounds) return null
+    const bounds = this.resizeStartBounds
+    const minSize = 8
+    const entry: { id: DiagramId; x?: number; y?: number; width?: number; height?: number } = { id: this.resizeOwnerId }
+    if (this.resizeHandle.includes("e")) entry.width = Math.max(minSize, bounds.width + delta.x)
+    if (this.resizeHandle.includes("s")) entry.height = Math.max(minSize, bounds.height + delta.y)
+    if (this.resizeHandle.includes("w")) {
+      const width = Math.max(minSize, bounds.width - delta.x)
+      entry.x = bounds.x + (bounds.width - width)
+      entry.width = width
+    }
+    if (this.resizeHandle.includes("n")) {
+      const height = Math.max(minSize, bounds.height - delta.y)
+      entry.y = bounds.y + (bounds.height - height)
+      entry.height = height
+    }
+    return entry
   }
 
   private getMarqueeSelectionIds(rect: DiagramRect): DiagramId[] {
@@ -152,6 +201,10 @@ export class DiagramInteractionController {
     this.latestPoint = null
     this.previewDelta = null
     this.marquee = null
+    this.resizeOwnerId = null
+    this.resizeHandle = null
+    this.resizeStartBounds = null
+    this.resizePreview = null
     this.framePending = false
     this.pendingMoveCount = 0
   }

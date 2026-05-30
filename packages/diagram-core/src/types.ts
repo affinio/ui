@@ -250,7 +250,9 @@ export type DiagramCommandResult = Readonly<{
   revision: number
 }>
 
-export type DiagramInteractionTool = "pan" | "select" | "marquee" | "drag-selection" | "connect-edge" | "edit-text"
+export type DiagramInteractionTool = "pan" | "select" | "marquee" | "drag-selection" | "resize-selection" | "connect-edge" | "edit-text"
+
+export type DiagramResizeHandle = "nw" | "ne" | "se" | "sw"
 
 export type DiagramPointerEvent = Readonly<{
   id: number
@@ -264,6 +266,7 @@ export type DiagramInteractionSnapshot = Readonly<{
   tool: DiagramInteractionTool
   active: boolean
   previewDelta: DiagramPoint | null
+  resizePreview: DiagramResizeEntry | null
   marquee: DiagramRect | null
 }>
 

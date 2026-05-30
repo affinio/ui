@@ -50,6 +50,20 @@ engine.dispatch({ type: "alignEntities", ids: ["n1", "n2"], edge: "left" })
 
 Entities can be marked with metadata constraints. `locked` and `readOnly` entities cannot move, resize, or delete; `nonDeletable` entities can move but cannot be deleted. Front/back commands write `metadata.zIndex` so render order can cross entity kinds. Background layers are excluded from default render ordering unless explicitly requested.
 
+## Pointer resize gestures
+
+Adapters that use the headless interaction controller should start resize handles through core instead of calculating resize deltas in the renderer. Core owns capability checks, transient preview state, and the final history command.
+
+```ts
+const interaction = createDiagramInteractionController(engine)
+
+interaction.beginResizeHandle("n1", "se", pointerEvent)
+const preview = interaction.getSnapshot().resizePreview
+// Render preview when present, then pointer up commits one resizeEntities history entry.
+```
+
+`resizePreview` is intentionally transient: it lets SVG render live dimensions without mutating serialized scene state on every pointer move.
+
 ## Keyboard and capability helpers
 
 Adapters should use command helpers and capability checks so UI buttons do not guess state from selection alone.

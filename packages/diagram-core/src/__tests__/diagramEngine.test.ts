@@ -175,6 +175,27 @@ describe("DiagramEngine", () => {
     expect(engine.getScene().entities.nodesById.get("n1")?.x).toBe(0)
   })
 
+  it("previews and commits resize-handle gestures as one history entry", () => {
+    const callbacks: Array<() => void> = []
+    const engine = createDiagramEngine(scene)
+    const controller = createDiagramInteractionController(engine, { scheduleFrame: (callback) => callbacks.push(callback) })
+
+    expect(controller.beginResizeHandle("n1", "se", { id: 1, point: { x: 100, y: 60 } })).toBe(true)
+    controller.pointerMove({ id: 1, point: { x: 130, y: 80 } })
+    callbacks[0]()
+
+    expect(controller.getSnapshot().resizePreview).toEqual({ id: "n1", width: 130, height: 80 })
+    expect(engine.getScene().entities.nodesById.get("n1")).toMatchObject({ width: 100, height: 60 })
+
+    controller.pointerUp({ id: 1, point: { x: 130, y: 80 } })
+    expect(engine.getScene().entities.nodesById.get("n1")).toMatchObject({ width: 130, height: 80 })
+    expect(engine.getScene().entities.portsById.get("p1")).toMatchObject({ x: 130, y: 40 })
+    expect(controller.getCommitCount()).toBe(1)
+
+    engine.dispatch({ type: "undo" })
+    expect(engine.getScene().entities.nodesById.get("n1")).toMatchObject({ width: 100, height: 60 })
+  })
+
   it("selects groups with strict containment marquee by default", () => {
     const callbacks: Array<() => void> = []
     const engine = createDiagramEngine(scene)
