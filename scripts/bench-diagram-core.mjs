@@ -33,6 +33,8 @@ function runForCount(count) {
   const engine = createDiagramEngine(fixture)
   const viewport = { x: 0, y: 0, width: 1200, height: 800 }
   const visible = measure(() => engine.queryVisible(viewport))
+  const querySearch = measure(() => engine.queryEntities({ kinds: ["node", "text"], text: "Label 10", limit: 25 }))
+  const queryBounds = measure(() => engine.queryEntities({ bounds: viewport, kinds: ["node", "text", "shape"] }))
   const pan = measure(() => {
     for (let step = 0; step < 180; step += 1) {
       engine.queryVisible({ x: step * 8, y: 0, width: 1200, height: 800 })
@@ -72,6 +74,8 @@ function runForCount(count) {
     entityCount: count,
     initialRenderMs: initialRender.ms,
     visibleQueryMs: visible.ms,
+    entitySearchQueryMs: querySearch.ms,
+    entityBoundsQueryMs: queryBounds.ms,
     panFpsEstimate: 180 / (pan.ms / 1000),
     dragLatencyMs: drag.ms,
     selectionLatencyMs: selection.ms,

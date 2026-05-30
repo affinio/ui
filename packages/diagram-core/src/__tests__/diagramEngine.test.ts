@@ -67,6 +67,27 @@ describe("DiagramEngine", () => {
     expect(engine.nearestPort({ x: 102, y: 30 }, 12)).toEqual(engine.nearestPortBruteForce({ x: 102, y: 30 }, 12))
   })
 
+  it("queries entities by kind, bounds, text, metadata, ports, and limit", () => {
+    const engine = createDiagramEngine({
+      nodes: [
+        { id: "n1", kind: "node", x: 0, y: 0, width: 100, height: 60, portIds: ["p1"], metadata: { label: "Bay Alpha", tags: ["primary", "switchgear"], status: "energized" } },
+        { id: "n2", kind: "node", x: 260, y: 0, width: 100, height: 60, metadata: { label: "Bay Beta", status: "offline" } },
+      ],
+      ports: [{ id: "p1", kind: "port", nodeId: "n1", x: 100, y: 30 }],
+      texts: [{ id: "t1", kind: "text", x: 10, y: 84, width: 80, height: 20, text: "Alpha label" }],
+      shapes: [{ id: "s1", kind: "shape", shape: "rect", x: 20, y: 140, width: 40, height: 30, metadata: { status: "energized" } }],
+    })
+
+    expect(engine.queryEntities({ kinds: ["node"], text: "alpha" })).toEqual(["n1"])
+    expect(engine.queryEntities({ text: "alpha" })).toEqual(["n1", "t1"])
+    expect(engine.queryEntities({ metadata: { status: "energized" } })).toEqual(["s1", "n1"])
+    expect(engine.queryEntities({ metadata: { tags: "primary" } })).toEqual(["n1"])
+    expect(engine.queryEntities({ bounds: { x: -1, y: -1, width: 120, height: 90 }, boundsMode: "contains" })).toEqual(["n1"])
+    expect(engine.queryEntities({ kinds: ["port"] })).toEqual(["p1"])
+    expect(engine.queryEntities({ includePorts: true, limit: 2 })).toHaveLength(2)
+    expect(engine.getDiagnostics().entityQueryCount).toBe(7)
+  })
+
   it("hit-tests topmost text and precise edge paths", () => {
     const engine = createDiagramEngine({
       nodes: [{ id: "n1", kind: "node", x: 0, y: 0, width: 100, height: 80 }],

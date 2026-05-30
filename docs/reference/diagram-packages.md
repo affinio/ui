@@ -15,6 +15,7 @@ const engine = createDiagramEngine({
 
 engine.dispatch({ type: "moveNode", id: "bay-a", delta: { x: 24, y: 0 } })
 const visibleIds = engine.queryVisible(engine.getScene().viewport)
+const matches = engine.queryEntities({ kinds: ["node", "text"], text: "bay", limit: 20 })
 const hit = engine.hitTest({ x: 30, y: 20 })
 ```
 
@@ -43,8 +44,9 @@ Core now owns the editor-level operations that wrappers need for production diag
 - Keyboard helpers: `dispatchKeyboardCommand()` covers arrow nudge, shift-nudge, delete, escape, undo, and redo so adapters do not duplicate command semantics.
 - Selection modes: `setSelection` supports `replace`, `add`, and `toggle`; pointer interaction uses strict containment marquee by default and can opt into intersecting marquee.
 - Constraints: entity metadata can mark objects as `locked`, `readOnly`, or `nonDeletable`; capability checks (`canUndo`, `canRedo`, `canDelete`, `canMove`, `canResize`, `canRotate`, `canAlign`, `canEditText`, `canPaste`) expose the same rules to UI.
+- Queries: `queryEntities()` provides renderer-agnostic filtering by kind, world bounds, text/id/simple metadata, port inclusion, and limit while preserving render order; Vue search panels should use it instead of scanning scene maps.
 - Viewport: `fitSelection()`, `fitBounds()`, and `fitScene()` centralize fit math in core and preserve `width * zoom` / `height * zoom` screen-size invariants for SVG and DOM overlay alignment.
-- Diagnostics: `getDiagnostics()` reports visible query count, hit-test count, geometry recompute/read counts, and last command cost for demos and perf gates.
+- Diagnostics: `getDiagnostics()` reports visible query count, entity query count, hit-test count, geometry recompute/read counts, and last command cost for demos and perf gates.
 
 ```ts
 const clipboard = engine.exportSelection()
@@ -53,6 +55,7 @@ engine.dispatch({ type: "resizeEntities", entries: [{ id: "bay-a", width: 180, h
 interaction.beginResizeHandle("bay-a", "se", pointerEvent)
 engine.dispatch({ type: "insertEdgeWaypoint", edgeId: "line-a", index: 0, point: { x: 320, y: 140 } })
 engine.dispatchKeyboardCommand("nudge-right", { step: 8, largeStep: 32, shiftKey: event.shiftKey })
+const found = engine.queryEntities({ kinds: ["node", "text"], text: "bay", metadata: { status: "warning" } })
 engine.fitSelection(32)
 const canDelete = engine.canDelete()
 const diagnostics = engine.getDiagnostics()

@@ -157,6 +157,7 @@ export type DiagramKeyboardOptions = Readonly<{
 export type DiagramDiagnostics = Readonly<{
   revision: number
   visibleQueryCount: number
+  entityQueryCount: number
   hitTestCount: number
   geometryRecomputeCount: number
   lastCommandMs: number
@@ -166,6 +167,18 @@ export type DiagramDiagnostics = Readonly<{
 
 export type DiagramRenderOrderOptions = Readonly<{
   includePorts?: boolean
+}>
+
+export type DiagramQueryBoundsMode = "intersects" | "contains"
+
+export type DiagramQueryOptions = Readonly<{
+  kinds?: ReadonlyArray<DiagramEntityKind>
+  bounds?: DiagramRect
+  boundsMode?: DiagramQueryBoundsMode
+  text?: string
+  metadata?: Readonly<Record<string, unknown>>
+  includePorts?: boolean
+  limit?: number
 }>
 
 export type DiagramSceneInput = Readonly<{

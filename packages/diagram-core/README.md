@@ -86,6 +86,20 @@ engine.dispatchKeyboardCommand("undo")
 engine.dispatchKeyboardCommand("redo")
 ```
 
+
+## Query and search
+
+Use `queryEntities()` for headless search/filter plumbing. It returns ids in render order and can filter by entity kind, world bounds, text/id/simple metadata, port inclusion, and limit. UI state such as input focus, debounce, current match index, and highlighted styling belongs in the adapter or app. Domain predicates such as SLD equipment class or IEC paths should stay in metadata/app code.
+
+```ts
+const matches = engine.queryEntities({
+  kinds: ["node", "text"],
+  text: "bay",
+  metadata: { status: "warning" },
+  limit: 20,
+})
+```
+
 ## Selection and viewport helpers
 
 Pointer adapters can use additive, toggle, and replace selection modes. Marquee selection uses strict containment by default; pass `marqueeMode: "intersect"` only when partially intersecting objects should be selected.
@@ -106,7 +120,7 @@ Fit helpers preserve the viewport screen size invariant: `viewport.width * viewp
 
 ```ts
 const diagnostics = engine.getDiagnostics()
-// { visibleQueryCount, hitTestCount, geometryRecomputeCount, geometryReadCount, lastCommandMs }
+// { visibleQueryCount, entityQueryCount, hitTestCount, geometryRecomputeCount, lastCommandMs }
 ```
 
-Use `pnpm --filter @affino/diagram-core bench` after building to refresh `artifacts/performance/bench-diagram-core.json` and watch visible query, clipboard, routing, resize, fit, and command latency metrics.
+Use `pnpm --filter @affino/diagram-core bench` after building to refresh `artifacts/performance/bench-diagram-core.json` and watch visible query, entity search/query, clipboard, routing, resize, fit, and command latency metrics.

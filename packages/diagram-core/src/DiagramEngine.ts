@@ -16,6 +16,7 @@ import type {
   DiagramNode,
   DiagramPoint,
   DiagramPort,
+  DiagramQueryOptions,
   DiagramRect,
   DiagramRenderOrderOptions,
   DiagramResizeEntry,
@@ -101,6 +102,7 @@ export class DiagramEngine {
   }
   private geometryReadCount = 0
   private visibleQueryCount = 0
+  private entityQueryCount = 0
   private hitTestCount = 0
   private lastCommandMs = 0
 
@@ -175,6 +177,48 @@ export class DiagramEngine {
       const geometry = this.getGeometry(id)
       return geometry ? rectIntersects(geometry.bounds, bounds) : false
     })
+  }
+
+  queryEntities(options: DiagramQueryOptions = {}): DiagramId[] {
+    this.entityQueryCount += 1
+    this.ensureIndexes()
+    const kinds = options.kinds ? new Set<DiagramEntityKind>(options.kinds) : null
+    const includePorts = options.includePorts === true || kinds?.has("port") === true
+    const normalizedText = normalizeSearchText(options.text)
+    const metadata = options.metadata ?? null
+    const order = this.createOrderIndex()
+    const sourceIds = options.bounds ? this.visualBoundsIndex.query(options.bounds) : this.createOrderedIds()
+    const result: DiagramId[] = []
+    const seen = new Set<DiagramId>()
+
+    for (const id of sourceIds.sort((a, b) => (order.get(a) ?? 0) - (order.get(b) ?? 0))) {
+      if (seen.has(id)) {
+        continue
+      }
+      seen.add(id)
+      const kind = this.getEntityKind(id)
+      if (!kind || (!includePorts && kind === "port") || (kinds && !kinds.has(kind))) {
+        continue
+      }
+      const geometry = this.getGeometry(id)
+      if (!geometry) {
+        continue
+      }
+      if (options.bounds && !geometryMatchesBounds(geometry.bounds, options.bounds, options.boundsMode ?? "intersects")) {
+        continue
+      }
+      if (normalizedText && !entityMatchesText(id, this.state, normalizedText)) {
+        continue
+      }
+      if (metadata && !entityMatchesMetadata(this.getEntityMetadata(id), metadata)) {
+        continue
+      }
+      result.push(id)
+      if (options.limit !== undefined && result.length >= options.limit) {
+        break
+      }
+    }
+    return result
   }
 
   hitTest(point: DiagramPoint, options: DiagramHitTestOptions = {}): DiagramHit | null {
@@ -327,6 +371,7 @@ export class DiagramEngine {
     return {
       revision: this.state.revision,
       visibleQueryCount: this.visibleQueryCount,
+      entityQueryCount: this.entityQueryCount,
       hitTestCount: this.hitTestCount,
       geometryRecomputeCount: this.geometryReadCount,
       lastCommandMs: this.lastCommandMs,
@@ -627,6 +672,15 @@ export class DiagramEngine {
     return hasEntity(this.state, id)
   }
 
+  private getEntityKind(id: DiagramId): DiagramEntityKind | null {
+    if (this.state.entities.nodesById.has(id)) return "node"
+    if (this.state.entities.edgesById.has(id)) return "edge"
+    if (this.state.entities.textsById.has(id)) return "text"
+    if (this.state.entities.shapesById.has(id)) return "shape"
+    if (this.state.entities.portsById.has(id)) return "port"
+    return null
+  }
+
   private getEntityMetadata(id: DiagramId): Readonly<Record<string, unknown>> | undefined {
     return this.state.entities.nodesById.get(id)?.metadata
       ?? this.state.entities.edgesById.get(id)?.metadata
@@ -649,6 +703,74 @@ export class DiagramEngine {
       listener(this.snapshot, this.lastChange)
     }
   }
+}
+
+function geometryMatchesBounds(candidate: DiagramRect, bounds: DiagramRect, mode: "intersects" | "contains"): boolean {
+  return mode === "contains" ? rectContainsRect(bounds, candidate) : rectIntersects(candidate, bounds)
+}
+
+function rectContainsRect(container: DiagramRect, candidate: DiagramRect): boolean {
+  return candidate.x >= container.x
+    && candidate.y >= container.y
+    && candidate.x + candidate.width <= container.x + container.width
+    && candidate.y + candidate.height <= container.y + container.height
+}
+
+function normalizeSearchText(value: string | undefined): string {
+  return value?.trim().toLocaleLowerCase() ?? ""
+}
+
+function entityMatchesText(id: DiagramId, state: InternalState, normalizedText: string): boolean {
+  if (id.toLocaleLowerCase().includes(normalizedText)) {
+    return true
+  }
+  const text = state.entities.textsById.get(id)?.text
+  if (text?.toLocaleLowerCase().includes(normalizedText)) {
+    return true
+  }
+  return searchableMetadataValues(getEntityMetadata(state, id)).some((value) => value.toLocaleLowerCase().includes(normalizedText))
+}
+
+function searchableMetadataValues(metadata: Readonly<Record<string, unknown>> | undefined): string[] {
+  if (!metadata) {
+    return []
+  }
+  const values: string[] = []
+  for (const value of Object.values(metadata)) {
+    collectSearchableValue(value, values)
+  }
+  return values
+}
+
+function collectSearchableValue(value: unknown, values: string[]): void {
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    values.push(String(value))
+    return
+  }
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      collectSearchableValue(entry, values)
+    }
+  }
+}
+
+function entityMatchesMetadata(entityMetadata: Readonly<Record<string, unknown>> | undefined, query: Readonly<Record<string, unknown>>): boolean {
+  if (!entityMetadata) {
+    return false
+  }
+  for (const [key, expected] of Object.entries(query)) {
+    if (!metadataValueMatches(entityMetadata[key], expected)) {
+      return false
+    }
+  }
+  return true
+}
+
+function metadataValueMatches(actual: unknown, expected: unknown): boolean {
+  if (Array.isArray(actual)) {
+    return actual.some((value) => Object.is(value, expected))
+  }
+  return Object.is(actual, expected)
 }
 
 export function createDiagramEngine(initialScene: DiagramSceneInput = {}): DiagramEngine {
