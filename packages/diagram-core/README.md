@@ -31,6 +31,10 @@ engine.duplicateSelection({ x: 32, y: 32 })
 engine.importClipboard(clipboard, { x: 64, y: 64 })
 ```
 
+## Text Rendering Contract
+
+Static text is data in core and should be rendered by adapters as SVG `<text>`/`<tspan>` elements in diagram/world coordinates. Core remains renderer-agnostic: it exposes text bounds through geometry, owns `editText` commands/history/serialization, and does not depend on DOM, SVG, Canvas, Vue, or browser globals. DOM is appropriate only for one active editor overlay owned by an adapter.
+
 ## Editor commands
 
 ```ts

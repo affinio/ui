@@ -63,7 +63,7 @@ function buildProjection(controller: DiagramEngineController, bounds: DiagramRec
     if (!geometry) {
       continue
     }
-    entities.push(Object.freeze({ id, kind: geometry.kind, layer: geometry.kind === "text" ? "dom" : "svg", geometry, selected: selected.has(id) }))
+    entities.push(Object.freeze({ id, kind: geometry.kind, layer: "svg", geometry, selected: selected.has(id) }))
   }
   const activeGeometries = entities.filter((entity) => entity.selected).map((entity) => entity.geometry)
   return Object.freeze({

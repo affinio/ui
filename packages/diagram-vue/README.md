@@ -24,17 +24,18 @@ const visible = useDiagramVisibleEntities(diagram)
 selection.setSelection(["bay-a"], "bay-a")
 ```
 
-## SVG/DOM hybrid rendering
+## SVG-first rendering
 
-Use SVG for structural entities and DOM only for overlays or active text editing. The adapter returns render lists from `engine.queryVisible()`, so Vue code does not scan the whole scene on pan.
+Render static diagram text as SVG `<text>`/`<tspan>` elements in world space. Use DOM only for the single active text editor overlay and floating UI such as context menus, toolbars, popovers, and form-like controls. The adapter returns render lists from `engine.queryVisible()`, so Vue code does not scan the whole scene on pan.
 
 ```vue
 <script setup lang="ts">
-import { getDomEntityStyle, getSvgEntityProps, useDiagramEngine, useDiagramPointerController, useDiagramVisibleEntities } from "@affino/diagram-vue"
+import { getSvgEntityProps, useDiagramEngine, useDiagramPointerController, useDiagramTextEditor, useDiagramVisibleEntities } from "@affino/diagram-vue"
 
 const diagram = useDiagramEngine(initialScene)
 const visible = useDiagramVisibleEntities(diagram, { overscan: 200 })
 const pointer = useDiagramPointerController(diagram)
+const textEditor = useDiagramTextEditor(diagram)
 </script>
 
 <template>
@@ -43,10 +44,11 @@ const pointer = useDiagramPointerController(diagram)
       <polyline v-for="edge in visible.projection.value.edges" :key="edge.id" v-bind="getSvgEntityProps(edge)" />
       <rect v-for="node in visible.projection.value.nodes" :key="node.id" v-bind="getSvgEntityProps(node)" />
       <circle v-for="port in visible.projection.value.ports" :key="port.id" v-bind="getSvgEntityProps(port)" />
+      <text v-for="text in visible.projection.value.texts" :key="text.id" v-bind="getSvgEntityProps(text)">
+        {{ diagram.scene.value.entities.textsById.get(text.id)?.text }}
+      </text>
     </svg>
-    <div v-for="text in visible.projection.value.texts" :key="text.id" :style="getDomEntityStyle(text)">
-      {{ text.id }}
-    </div>
+    <textarea v-if="textEditor.activeEditor.value" :style="textEditor.activeEditor.value.style" :value="textEditor.activeEditor.value.text" />
   </div>
 </template>
 ```
@@ -70,12 +72,11 @@ viewport.setViewport({ x: 120, y: 40, zoom: 1.25 })
 
 `useDiagramVisibleEntities()` exposes:
 
-- `nodes`, `edges`, `ports`, and `shapes` for SVG rendering;
-- `texts` for DOM overlays or active editors;
+- `nodes`, `edges`, `ports`, `shapes`, and `texts` for SVG rendering;
 - `activeHandles` for selected resize/port handles;
 - `overlayAnchors` for context menus and toolbars.
 
-Selected entities are included even when outside the viewport, which keeps handles and overlays stable during keyboard or programmatic selection changes.
+Selected entities are included even when outside the viewport, which keeps handles and overlays stable during keyboard or programmatic selection changes. `useDiagramTextEditor()` owns one shared DOM editor overlay for the active text entity; it reads bounds from core, positions through the viewport transform, and commits through the `editText` command.
 
 ## What belongs in core
 

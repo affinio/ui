@@ -33,6 +33,13 @@ export function getSvgEntityProps(entity: DiagramRenderEntity): SvgEntityProps {
       height: geometry.bounds.height,
     }
   }
+  if (entity.kind === "text") {
+    return {
+      ...common,
+      x: geometry.bounds.x,
+      y: geometry.bounds.y,
+    }
+  }
   return common
 }
 

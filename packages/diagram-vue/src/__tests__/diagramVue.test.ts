@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 import { effectScope, shallowRef } from "vue"
 import { createDiagramEngine, type DiagramSceneInput } from "@affino/diagram-core"
-import { getDomEntityStyle, getSvgEntityProps, useDiagramEngine, useDiagramPointerController, useDiagramSelection, useDiagramViewport, useDiagramVisibleEntities } from ".."
+import { getDomEntityStyle, getSvgEntityProps, useDiagramEngine, useDiagramPointerController, useDiagramSelection, useDiagramTextEditor, useDiagramViewport, useDiagramVisibleEntities } from ".."
 
 const scene: DiagramSceneInput = {
   nodes: [
@@ -88,13 +88,56 @@ describe("diagram-vue", () => {
 
     expect(visible.projection.value.nodes.map((entity) => entity.id)).toContain("n1")
     expect(visible.projection.value.nodes.map((entity) => entity.id)).not.toContain("n2")
-    expect(visible.projection.value.texts[0]?.layer).toBe("dom")
+    expect(visible.projection.value.texts[0]?.layer).toBe("svg")
     expect(visible.projection.value.edges[0]?.layer).toBe("svg")
 
     const text = visible.projection.value.texts[0]!
+    expect(getSvgEntityProps(text)).toMatchObject({ x: 10, y: 80, "data-diagram-kind": "text" })
     expect(getDomEntityStyle(text).transform).toBe("translate(10px, 80px)")
     const node = visible.projection.value.nodes[0]!
     expect(getSvgEntityProps(node)).toMatchObject({ x: 0, y: 0, width: 100, height: 60 })
+  })
+
+  it("uses one active text editor overlay and commits edits through core", () => {
+    const controller = useDiagramEngine({
+      ...scene,
+      texts: [
+        { id: "t1", kind: "text", x: 10, y: 80, text: "Label" },
+        { id: "t2", kind: "text", x: 40, y: 90, text: "Second" },
+      ],
+    })
+    const selection = useDiagramSelection(controller)
+    const visible = useDiagramVisibleEntities(controller)
+    const viewport = useDiagramViewport(controller)
+    const editor = useDiagramTextEditor(controller, { viewport: viewport.viewport })
+
+    selection.setSelection(["t1"], "t1")
+    const handlesBefore = visible.projection.value.activeHandles.map((handle) => handle.id)
+    expect(editor.beginTextEdit("t1")).toBe(true)
+    expect(editor.activeEditor.value).toMatchObject({ id: "t1", text: "Label" })
+    expect(editor.beginTextEdit("t2")).toBe(true)
+    expect(editor.activeEditor.value).toMatchObject({ id: "t2", text: "Second" })
+    expect(visible.projection.value.texts.map((entity) => entity.id)).toEqual(["t1", "t2"])
+
+    viewport.setViewport({ x: 20, y: 10, zoom: 2 })
+    expect(editor.activeEditor.value?.style).toMatchObject({ left: "40px", top: "160px" })
+    editor.updateText("Edited label")
+    expect(editor.activeEditor.value?.text).toBe("Edited label")
+    expect(editor.commitTextEdit()).toBe(true)
+    expect(editor.activeEditor.value).toBeNull()
+    expect(controller.engine.serialize().texts.find((text) => text.id === "t2")?.text).toBe("Edited label")
+    expect(visible.projection.value.activeHandles.map((handle) => handle.id)).toEqual(handlesBefore)
+  })
+
+  it("keeps static text projection stable across viewport pan and zoom", () => {
+    const controller = useDiagramEngine(scene)
+    const visible = useDiagramVisibleEntities(controller)
+    const textIdsBefore = visible.projection.value.texts.map((entity) => entity.id)
+
+    controller.dispatch({ type: "setViewport", viewport: { x: 20, y: 10, zoom: 1.5 } })
+
+    expect(visible.projection.value.texts.map((entity) => entity.id)).toEqual(textIdsBefore)
+    expect(controller.engine.serialize().texts[0]?.text).toBe("Label")
   })
 
   it("keeps projection ids in core render order after z-order commands", () => {

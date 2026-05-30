@@ -30,7 +30,7 @@ const visible = useDiagramVisibleEntities(diagram, { overscan: 200 })
 selection.setSelection(["bay-a"], "bay-a")
 ```
 
-Render `visible.projection.value.edges`, `nodes`, `ports`, and `shapes` in SVG. Render `texts` as DOM overlays or active editors. Context menus and floating toolbars should anchor to `overlayAnchors`, with one shared overlay instance rather than one subtree per entity.
+Render `visible.projection.value.edges`, `nodes`, `ports`, `shapes`, and `texts` in SVG. Render static texts as SVG `<text>`/`<tspan>` elements in diagram/world space. Use a single shared DOM overlay only for the active text editor, plus DOM overlays for context menus, floating toolbars, popovers, and form-like UI. Context menus and floating toolbars should anchor to `overlayAnchors`, with one shared overlay instance rather than one subtree per entity.
 
 ## Core Editor APIs
 
@@ -60,7 +60,7 @@ const diagnostics = engine.getDiagnostics()
 
 - Do not put SLD, switchgear, IEC 61850 paths, or persistence state in diagram core. Store domain meaning in metadata and interpret it in an adapter package.
 - Do not rebuild visible lists in Vue with full scene `map`/`filter` on pan. Use `useDiagramVisibleEntities()`, which calls `engine.queryVisible()`.
-- Do not implement snapping, undo/redo, hit testing, or geometry math in Vue components. Dispatch core commands or call core queries.
+- Do not implement text geometry, snapping, undo/redo, hit testing, or command semantics in Vue components. Dispatch core commands or call core queries.
 - Selected entities are included in the Vue projection even when outside the viewport, so overlays and keyboard selection remain stable.
 
 ## Validation

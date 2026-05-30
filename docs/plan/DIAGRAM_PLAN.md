@@ -280,7 +280,7 @@
   Recommended first split:
 
   - SVG for edges, shapes, ports, marquee;
-  - DOM overlay only for active text input, menus, selected controls;
+  - static text renders as SVG `<text>`/`<tspan>`; DOM overlay only for the single active text input, menus, selected controls;
   - one context menu instance, not one per node.
 
   Later option:
