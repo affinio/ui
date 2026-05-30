@@ -1,0 +1,44 @@
+{
+  "name": "@affino/diagram-core",
+  "version": "0.1.0",
+  "author": "Anton Pavlov <a.pavlov@affino.dev>",
+  "type": "module",
+  "description": "Headless diagram core for Affino UI primitives",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "bench": "node --expose-gc --experimental-specifier-resolution=node ../../scripts/bench-diagram-core.mjs",
+    "test": "vitest run"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "vitest": "^4.0.18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/affinio/affinio.git",
+    "directory": "packages/diagram-core"
+  },
+  "homepage": "https://github.com/affinio/affinio/tree/main/packages/diagram-core#readme",
+  "bugs": {
+    "url": "https://github.com/affinio/affinio/issues"
+  },
+  "keywords": [
+    "affino",
+    "core",
+    "headless",
+    "diagram"
+  ],
+  "module": "dist/index.js"
+}
