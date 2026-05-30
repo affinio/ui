@@ -37,7 +37,10 @@ export class DiagramInteractionController {
     if (this.tool === "select") {
       const hit = this.engine.hitTest(event.point, { radius: 2 })
       if (hit) {
-        this.engine.dispatch({ type: "setSelection", selection: { ids: [hit.id], primaryId: hit.id } })
+        const selection = this.engine.getScene().selection
+        if (!selection.ids.includes(hit.id)) {
+          this.engine.dispatch({ type: "setSelection", selection: { ids: [hit.id], primaryId: hit.id } })
+        }
         this.tool = "drag-selection"
       } else {
         this.engine.dispatch({ type: "setSelection", selection: { ids: [], primaryId: null } })

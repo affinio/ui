@@ -131,6 +131,20 @@ describe("DiagramEngine", () => {
     expect(engine.getScene().selection.ids).not.toContain("p1")
   })
 
+  it("drags the existing group selection when pointer starts on a selected entity", () => {
+    const engine = createDiagramEngine(scene)
+    const controller = createDiagramInteractionController(engine)
+
+    engine.dispatch({ type: "setSelection", selection: { ids: ["n1", "n2"], primaryId: "n1" } })
+    controller.pointerDown({ id: 1, point: { x: 20, y: 20 } })
+    controller.pointerMove({ id: 1, point: { x: 40, y: 30 } })
+    controller.pointerUp({ id: 1, point: { x: 40, y: 30 } })
+
+    expect(engine.getScene().selection.ids).toEqual(["n1", "n2"])
+    expect(engine.getScene().entities.nodesById.get("n1")?.x).toBe(20)
+    expect(engine.getScene().entities.nodesById.get("n2")?.x).toBe(280)
+  })
+
   it("snaps to ports, alignment, angles, and grid", () => {
     const engine = createDiagramEngine(scene)
 
