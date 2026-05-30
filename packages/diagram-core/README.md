@@ -5,7 +5,7 @@ Framework-neutral diagram state, geometry, command, history, selection, viewport
 
 ## Internal Architecture
 
-The public package entry stays `createDiagramEngine()`. Internally the facade delegates focused responsibilities to services under `src/internal`: `DiagramHistory` owns undo/redo stacks and history merging, `DiagramGeometryService` owns geometry caching and read diagnostics, `DiagramSpatialIndex` owns visible/hit/port indexes, `DiagramViewportService` owns fit math, and `DiagramClipboardService` owns selected subgraph export/import id remapping. Command patch creation and scene snapshots remain package-internal and should be split behind `DiagramCommandEngine` and `DiagramSceneStore` in follow-up slices without changing the public API.
+The public package entry stays `createDiagramEngine()`. Internally the facade delegates focused responsibilities to services under `src/internal`: `DiagramHistory` owns undo/redo stacks and history merging, `DiagramGeometryService` owns geometry caching and read diagnostics, `DiagramSceneStore` owns mutable scene state, immutable snapshots, subscribers, and last-change publication; `DiagramSpatialIndex` owns visible/hit/port indexes, `DiagramViewportService` owns fit math, and `DiagramClipboardService` owns selected subgraph export/import id remapping. Command patch creation remains package-internal and should be split behind `DiagramCommandEngine` in a follow-up slice without changing the public API.
 
 ## Basic usage
 

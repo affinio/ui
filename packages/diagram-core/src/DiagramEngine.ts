@@ -2,9 +2,10 @@ import { createEntityGeometry, distance, rectContainsPoint, rectIntersects } fro
 import { DiagramClipboardService } from "./internal/DiagramClipboardService.js"
 import { DiagramGeometryService } from "./internal/DiagramGeometryService.js"
 import { DiagramHistory } from "./internal/DiagramHistory.js"
+import { DiagramSceneStore, createInternalState } from "./internal/DiagramSceneStore.js"
 import { DiagramSpatialIndex } from "./internal/DiagramSpatialIndex.js"
 import { DiagramViewportService } from "./internal/DiagramViewportService.js"
-import { DEFAULT_VIEWPORT, EMPTY_SELECTION } from "./internal/model.js"
+import { EMPTY_SELECTION } from "./internal/model.js"
 import type { InternalState, MutableEntities, MutableOrder, Patch, TransactionResult } from "./internal/model.js"
 import type {
   DiagramChange,
@@ -40,36 +41,30 @@ import type {
 } from "./types.js"
 
 export class DiagramEngine {
+  private store: DiagramSceneStore
   private state: InternalState
-  private snapshot: DiagramScene
-  private subscribers = new Set<DiagramSubscriber>()
   private geometryService = new DiagramGeometryService()
   private spatialIndex = new DiagramSpatialIndex()
   private history = new DiagramHistory()
   private viewportService = new DiagramViewportService()
   private clipboardService = new DiagramClipboardService()
-  private lastChange: DiagramChange = {
-    revision: 0,
-    changedIds: Object.freeze(new Set<DiagramId>()),
-    invalidatedIds: Object.freeze(new Set<DiagramId>()),
-  }
   private visibleQueryCount = 0
   private entityQueryCount = 0
   private hitTestCount = 0
   private lastCommandMs = 0
 
   constructor(initialScene: DiagramSceneInput = {}) {
-    this.state = createInternalState(initialScene)
-    this.snapshot = this.createSnapshot()
+    this.store = new DiagramSceneStore(initialScene)
+    this.state = this.store.state
     this.ensureIndexes()
   }
 
   getScene(): DiagramScene {
-    return this.snapshot
+    return this.store.getSnapshot()
   }
 
   getLastChange(): DiagramChange {
-    return this.lastChange
+    return this.store.getLastChange()
   }
 
   getEntityVersion(id: DiagramId): number {
@@ -109,8 +104,8 @@ export class DiagramEngine {
   }
 
   transact(mutator: (draft: DiagramScene) => DiagramSceneInput): DiagramCommandResult {
-    const next = mutator(this.snapshot)
-    const patch = createReplaceScenePatch(next, serializeScene(this.snapshot))
+    const next = mutator(this.store.getSnapshot())
+    const patch = createReplaceScenePatch(next, serializeScene(this.store.getSnapshot()))
     const result = this.commitPatch(patch, false, null)
     return { changed: result.changedIds.size > 0, revision: this.state.revision }
   }
@@ -368,17 +363,11 @@ export class DiagramEngine {
   }
 
   subscribe(listener: DiagramSubscriber): { unsubscribe: () => void } {
-    this.subscribers.add(listener)
-    listener(this.snapshot, this.lastChange)
-    return {
-      unsubscribe: () => {
-        this.subscribers.delete(listener)
-      },
-    }
+    return this.store.subscribe(listener)
   }
 
   serialize(): SerializedDiagramScene {
-    return serializeScene(this.snapshot)
+    return serializeScene(this.store.getSnapshot())
   }
 
   private undo(): DiagramCommandResult {
@@ -413,16 +402,10 @@ export class DiagramEngine {
     this.state.revision += 1
     this.geometryService.invalidate(invalidatedIds)
     this.spatialIndex.markDirty()
-    this.snapshot = this.createSnapshot()
-    this.lastChange = {
-      revision: this.state.revision,
-      changedIds: Object.freeze(new Set(changedIds)),
-      invalidatedIds: Object.freeze(new Set(invalidatedIds)),
-    }
+    this.store.publish(changedIds, invalidatedIds)
     if (recordHistory) {
       this.history.record(patch, historyKey, composePatches)
     }
-    this.emit()
     return { changedIds, invalidatedIds }
   }
 
@@ -456,7 +439,7 @@ export class DiagramEngine {
   }
 
   private getGeometry(id: DiagramId): DiagramGeometry | null {
-    return this.geometryService.get(id, this.snapshot.entities, this.state.versions.get(id) ?? 0)
+    return this.geometryService.get(id, this.store.getSnapshot().entities, this.state.versions.get(id) ?? 0)
   }
 
   private rebuildIndexGeometries(): ReadonlyArray<DiagramGeometry> {
@@ -535,30 +518,6 @@ export class DiagramEngine {
     return null
   }
 
-  private createSnapshot(): DiagramScene {
-    return deepFreeze({
-      entities: {
-        nodesById: createReadonlyMap(this.state.entities.nodesById),
-        edgesById: createReadonlyMap(this.state.entities.edgesById),
-        textsById: createReadonlyMap(this.state.entities.textsById),
-        shapesById: createReadonlyMap(this.state.entities.shapesById),
-        portsById: createReadonlyMap(this.state.entities.portsById),
-      },
-      order: {
-        nodeIds: [...this.state.order.nodeIds],
-        edgeIds: [...this.state.order.edgeIds],
-        textIds: [...this.state.order.textIds],
-        shapeIds: [...this.state.order.shapeIds],
-      },
-      selection: {
-        ids: [...this.state.selection.ids],
-        primaryId: this.state.selection.primaryId,
-      },
-      viewport: { ...this.state.viewport },
-      revision: this.state.revision,
-    })
-  }
-
   private createOrderedIds(): DiagramId[] {
     const ids = [
       ...this.state.order.edgeIds,
@@ -610,12 +569,6 @@ export class DiagramEngine {
 
   private isEntityNonDeletable(id: DiagramId): boolean {
     return this.getEntityMetadata(id)?.nonDeletable === true
-  }
-
-  private emit(): void {
-    for (const listener of this.subscribers) {
-      listener(this.snapshot, this.lastChange)
-    }
   }
 }
 
@@ -705,36 +658,6 @@ export function serializeScene(scene: DiagramScene): SerializedDiagramScene {
 
 export function deserializeScene(scene: SerializedDiagramScene): DiagramSceneInput {
   return scene
-}
-
-function createInternalState(input: DiagramSceneInput): InternalState {
-  const entities: MutableEntities = {
-    nodesById: toMap(input.nodes ?? []),
-    edgesById: toMap(input.edges ?? []),
-    textsById: toMap(input.texts ?? []),
-    shapesById: toMap(input.shapes ?? []),
-    portsById: toMap(input.ports ?? []),
-  }
-  const ids = [
-    ...entities.nodesById.keys(),
-    ...entities.edgesById.keys(),
-    ...entities.textsById.keys(),
-    ...entities.shapesById.keys(),
-    ...entities.portsById.keys(),
-  ]
-  return {
-    entities,
-    order: {
-      nodeIds: [...entities.nodesById.keys()],
-      edgeIds: [...entities.edgesById.keys()],
-      textIds: [...entities.textsById.keys()],
-      shapeIds: [...entities.shapesById.keys()],
-    },
-    selection: normalizeSelection(input.selection),
-    viewport: { ...DEFAULT_VIEWPORT, ...input.viewport },
-    revision: 0,
-    versions: new Map(ids.map((id) => [id, 0])),
-  }
 }
 
 function createMovePatch(state: InternalState, ids: ReadonlyArray<DiagramId>, delta: DiagramPoint): Patch | null {
@@ -1617,41 +1540,6 @@ function normalizeSelection(selection: Partial<DiagramSelection> | undefined): D
   }
 }
 
-function toMap<Entity extends { id: DiagramId }>(entities: ReadonlyArray<Entity>): Map<DiagramId, Entity> {
-  return new Map(entities.map((entity) => [entity.id, { ...entity }]))
-}
-
-function createReadonlyMap<Entity>(source: ReadonlyMap<DiagramId, Entity>): ReadonlyMap<DiagramId, Entity> {
-  const map = new Map<DiagramId, Entity>() as Map<DiagramId, Entity> & {
-    set: never
-    delete: never
-    clear: never
-  }
-  for (const [id, entity] of source) {
-    Map.prototype.set.call(map, id, deepFreeze(cloneValue(entity)))
-  }
-  Object.defineProperties(map, {
-    set: { value: readonlyMapMutation, writable: false },
-    delete: { value: readonlyMapMutation, writable: false },
-    clear: { value: readonlyMapMutation, writable: false },
-  })
-  return Object.freeze(map)
-}
-
-function readonlyMapMutation(): never {
-  throw new TypeError("Diagram snapshots are immutable")
-}
-
-function cloneValue<Value>(value: Value): Value {
-  if (Array.isArray(value)) {
-    return value.map((item) => cloneValue(item)) as Value
-  }
-  if (value && typeof value === "object") {
-    return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, cloneValue(child)])) as Value
-  }
-  return value
-}
-
 function pick<Entity>(map: ReadonlyMap<DiagramId, Entity>, ids: ReadonlyArray<DiagramId>): Map<DiagramId, Entity> {
   const picked = new Map<DiagramId, Entity>()
   for (const id of ids) {
@@ -1681,15 +1569,3 @@ function isDefined<Value>(value: Value | undefined): value is Value {
   return value !== undefined
 }
 
-function deepFreeze<Value>(value: Value): Value {
-  if (value && typeof value === "object") {
-    Object.freeze(value)
-    if (value instanceof Map || value instanceof Set) {
-      return value
-    }
-    for (const child of Object.values(value)) {
-      deepFreeze(child)
-    }
-  }
-  return value
-}
