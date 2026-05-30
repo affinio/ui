@@ -40,7 +40,8 @@
 
   - Slice 0: implemented for core-level baseline in `scripts/bench-diagram-core.mjs`; writes 1k/5k/10k model metrics to `artifacts/performance/bench-diagram-core.json`. Browser profile notes remain for the Vue/editor migration slices.
   - Slices 1-7: implemented in `packages/diagram-core` as a headless package with normalized scene state, geometry cache, uniform-grid spatial indexes, command/history engine, interaction controller, and snapping APIs.
-  - Package naming follows the current monorepo scope: `@affino/diagram-core`.
+  - Slices 8-10: implemented in `packages/diagram-vue` as Vue lifecycle/composable bindings, SVG/DOM render projection helpers, pointer bridge, viewport resize bridge, and visible projection lists driven by core viewport queries.
+  - Package naming follows the current monorepo scope: `@affino/diagram-core` and `@affino/diagram-vue`.
 
   Slice 0: Baseline
   Сначала зафиксировать текущую боль, иначе легко “улучшить” архитектуру без доказательства.

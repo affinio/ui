@@ -252,6 +252,19 @@ importers:
         specifier: ^4.0.18
         version: 4.0.18(@types/node@25.3.1)(jiti@2.6.1)(jsdom@28.1.0)(lightningcss@1.32.0)
 
+  packages/diagram-vue:
+    dependencies:
+      '@affino/diagram-core':
+        specifier: workspace:^
+        version: link:../diagram-core
+    devDependencies:
+      vitest:
+        specifier: ^4.0.18
+        version: 4.0.18(@types/node@25.3.1)(jiti@2.6.1)(jsdom@28.1.0)(lightningcss@1.32.0)
+      vue:
+        specifier: 3.4.38
+        version: 3.4.38(typescript@5.9.3)
+
   packages/dialog-core:
     dependencies:
       '@affino/overlay-kernel':

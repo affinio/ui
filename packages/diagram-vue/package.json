@@ -1,0 +1,52 @@
+{
+  "name": "@affino/diagram-vue",
+  "version": "0.1.0",
+  "author": "Anton Pavlov <a.pavlov@affino.dev>",
+  "type": "module",
+  "description": "Vue adapter for @affino/diagram-core",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "!dist/__tests__"
+  ],
+  "sideEffects": false,
+  "peerDependencies": {
+    "vue": "^3.3.0"
+  },
+  "dependencies": {
+    "@affino/diagram-core": "workspace:^"
+  },
+  "scripts": {
+    "build": "tsc --build tsconfig.json",
+    "test": "vitest run"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "vue": "^3.4.0",
+    "vitest": "^4.0.18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/affinio/affinio.git",
+    "directory": "packages/diagram-vue"
+  },
+  "homepage": "https://github.com/affinio/affinio/tree/main/packages/diagram-vue#readme",
+  "bugs": {
+    "url": "https://github.com/affinio/affinio/issues"
+  },
+  "keywords": [
+    "affino",
+    "vue",
+    "vue3",
+    "diagram",
+    "headless"
+  ],
+  "module": "dist/index.js"
+}

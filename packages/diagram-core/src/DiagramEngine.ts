@@ -674,12 +674,12 @@ function createSelectionPatch(previous: DiagramSelection, selection: DiagramSele
   return {
     apply: (next) => {
       next.selection = normalizeSelection(selection)
-      return new Set(selection.ids)
+      return new Set([...previous.ids, ...selection.ids, "selection"])
     },
     inverse: {
       apply: (next) => {
         next.selection = previous
-        return new Set(previous.ids)
+        return new Set([...previous.ids, ...selection.ids, "selection"])
       },
       inverse: undefined as unknown as Patch,
     },
