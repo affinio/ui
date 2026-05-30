@@ -48,8 +48,7 @@ export function distance(a: DiagramPoint, b: DiagramPoint): number {
 export function createEntityGeometry(id: DiagramId, entities: DiagramEntities): DiagramGeometry | null {
   const node = entities.nodesById.get(id)
   if (node) {
-    const bounds = { x: node.x, y: node.y, width: node.width, height: node.height }
-    return { id, kind: "node", bounds, hitBounds: inflateRect(bounds, 4) }
+    return rectGeometry(id, "node", { x: node.x, y: node.y, width: node.width, height: node.height }, node.rotation ?? 0, 4)
   }
   const port = entities.portsById.get(id)
   if (port) {
@@ -68,13 +67,11 @@ export function createEntityGeometry(id: DiagramId, entities: DiagramEntities): 
   if (text) {
     const width = text.width ?? Math.max(1, text.text.length) * (text.fontSize ?? 12) * 0.6
     const height = text.height ?? (text.fontSize ?? 12) * 1.2
-    const bounds = { x: text.x, y: text.y, width, height }
-    return { id, kind: "text", bounds, hitBounds: inflateRect(bounds, 3) }
+    return rectGeometry(id, "text", { x: text.x, y: text.y, width, height }, text.rotation ?? 0, 3)
   }
   const shape = entities.shapesById.get(id)
   if (shape) {
-    const bounds = { x: shape.x, y: shape.y, width: shape.width, height: shape.height }
-    return { id, kind: "shape", bounds, hitBounds: inflateRect(bounds, 3) }
+    return rectGeometry(id, "shape", { x: shape.x, y: shape.y, width: shape.width, height: shape.height }, shape.rotation ?? 0, 3)
   }
   return null
 }
@@ -104,5 +101,42 @@ export function resolvePortPoint(port: DiagramPort, entities: DiagramEntities): 
   if (!node) {
     return { x: port.x, y: port.y }
   }
-  return { x: node.x + port.x, y: node.y + port.y }
+  const point = { x: node.x + port.x, y: node.y + port.y }
+  return rotatePoint(point, rectCenter({ x: node.x, y: node.y, width: node.width, height: node.height }), node.rotation ?? 0)
+}
+
+function rectGeometry(id: DiagramId, kind: "node" | "shape" | "text", bounds: DiagramRect, rotation: number, hitPadding: number): DiagramGeometry {
+  const normalizedRotation = normalizeRotation(rotation)
+  if (!normalizedRotation) {
+    return { id, kind, bounds, hitBounds: inflateRect(bounds, hitPadding), unrotatedBounds: bounds, rotation: 0 }
+  }
+  const corners = rotatedRectCorners(bounds, normalizedRotation)
+  const rotatedBounds = rectFromPoints(corners)
+  return { id, kind, bounds: rotatedBounds, hitBounds: inflateRect(rotatedBounds, hitPadding), unrotatedBounds: bounds, corners, rotation: normalizedRotation }
+}
+
+export function rotatedRectCorners(rect: DiagramRect, rotation: number): ReadonlyArray<DiagramPoint> {
+  const center = rectCenter(rect)
+  return [
+    { x: rect.x, y: rect.y },
+    { x: rect.x + rect.width, y: rect.y },
+    { x: rect.x + rect.width, y: rect.y + rect.height },
+    { x: rect.x, y: rect.y + rect.height },
+  ].map((point) => rotatePoint(point, center, rotation))
+}
+
+export function rotatePoint(point: DiagramPoint, center: DiagramPoint, rotation: number): DiagramPoint {
+  const normalizedRotation = normalizeRotation(rotation)
+  if (!normalizedRotation) return point
+  const angle = normalizedRotation * (Math.PI / 180)
+  const cos = Math.cos(angle)
+  const sin = Math.sin(angle)
+  const dx = point.x - center.x
+  const dy = point.y - center.y
+  return { x: center.x + dx * cos - dy * sin, y: center.y + dx * sin + dy * cos }
+}
+
+function normalizeRotation(rotation: number): number {
+  const normalized = rotation % 360
+  return normalized < 0 ? normalized + 360 : normalized
 }

@@ -159,6 +159,18 @@ describe("diagram-vue", () => {
     expect(visible.projection.value.ids[0]).toBe("t1")
   })
 
+  it("places resize handles on rotated geometry corners", () => {
+    const controller = useDiagramEngine({
+      nodes: [{ id: "n1", kind: "node", x: 0, y: 0, width: 100, height: 40, rotation: 90 }],
+      selection: { ids: ["n1"], primaryId: "n1" },
+      viewport: { x: -40, y: -40, width: 160, height: 160, zoom: 1 },
+    })
+    const visible = useDiagramVisibleEntities(controller)
+
+    expect(visible.projection.value.nodes[0]?.geometry.corners).toHaveLength(4)
+    expect(visible.projection.value.activeHandles.map((handle) => handle.point)).toEqual(visible.projection.value.nodes[0]?.geometry.corners)
+  })
+
   it("does not expose edge bounding boxes as selection overlays", () => {
     const controller = useDiagramEngine(scene)
     const selection = useDiagramSelection(controller)

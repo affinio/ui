@@ -193,6 +193,9 @@ export type DiagramGeometry = Readonly<{
   kind: DiagramEntityKind
   bounds: DiagramRect
   hitBounds: DiagramRect
+  unrotatedBounds?: DiagramRect
+  corners?: ReadonlyArray<DiagramPoint>
+  rotation?: number
   path?: ReadonlyArray<DiagramPoint>
   point?: DiagramPoint
 }>

@@ -81,6 +81,29 @@ describe("DiagramEngine", () => {
     expect(engine.hitTest({ x: 150, y: 151 }, { radius: 2 })?.id).toBe("e1")
   })
 
+  it("uses rotated geometry for bounds, ports, hit testing, and capabilities", () => {
+    const engine = createDiagramEngine({
+      nodes: [{ id: "n1", kind: "node", x: 0, y: 0, width: 100, height: 40, rotation: 90, portIds: ["p1"] }],
+      ports: [{ id: "p1", kind: "port", nodeId: "n1", x: 100, y: 20 }],
+      texts: [{ id: "t1", kind: "text", x: 10, y: 10, width: 30, height: 12, text: "T", metadata: { readOnly: true } }],
+    })
+
+    const geometry = engine.getGeometrySnapshot("n1")
+    expect(geometry?.rotation).toBe(90)
+    expect(geometry?.bounds.width).toBeCloseTo(40)
+    expect(geometry?.bounds.height).toBeCloseTo(100)
+    expect(engine.getGeometrySnapshot("p1")?.point).toEqual({ x: 50, y: 70 })
+    expect(engine.hitTest({ x: 50, y: 70 }, { radius: 1 })?.id).toBe("p1")
+    expect(engine.hitTest({ x: 0, y: 0 }, { radius: 1 })?.id).not.toBe("n1")
+    expect(engine.queryVisible({ x: 25, y: -30, width: 50, height: 100 })).toContain("n1")
+
+    expect(engine.canRotate(["n1"])).toBe(true)
+    expect(engine.canResize(["t1"])).toBe(false)
+    expect(engine.canAlign(["n1", "t1"])).toBe(false)
+    expect(engine.canEditText("t1")).toBe(false)
+    expect(engine.canPaste({ nodes: [], edges: [], texts: [], shapes: [], ports: [], selection: { ids: [], primaryId: null }, viewport: { x: 0, y: 0, width: 1, height: 1, zoom: 1 } })).toBe(false)
+  })
+
   it("supports command undo and redo without full snapshot replacement", () => {
     const engine = createDiagramEngine(scene)
 
@@ -314,6 +337,7 @@ describe("DiagramEngine", () => {
     expect(engine.getScene().entities.nodesById.get("n1")?.rotation).toBe(0)
     engine.dispatch({ type: "redo" })
     expect(engine.getScene().entities.nodesById.get("n1")?.rotation).toBe(30)
+    engine.dispatch({ type: "undo" })
 
     engine.dispatch({ type: "alignEntities", ids: ["n1", "n2", "t1"], edge: "left" })
     expect(engine.getScene().entities.nodesById.get("n1")?.x).toBe(10)

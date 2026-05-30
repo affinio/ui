@@ -44,7 +44,7 @@ engine.dispatch({ type: "moveEdgeWaypoint", edgeId: "e1", index: 0, point: { x: 
 engine.dispatch({ type: "removeEdgeWaypoint", edgeId: "e1", index: 0 })
 engine.dispatch({ type: "bringForward", ids: ["n1"] })
 engine.dispatch({ type: "setLayer", ids: ["n1"], layer: "equipment", layerRole: "normal" })
-engine.dispatch({ type: "rotateEntities", entries: [{ id: "n1", rotation: 90 }] })
+engine.dispatch({ type: "rotateEntities", entries: [{ id: "n1", rotation: 90 }] }) // geometry exposes rotated bounds/corners
 engine.dispatch({ type: "alignEntities", ids: ["n1", "n2"], edge: "left" })
 ```
 
@@ -59,6 +59,11 @@ engine.canUndo()
 engine.canRedo()
 engine.canDelete()
 engine.canMove()
+engine.canResize()
+engine.canRotate()
+engine.canAlign()
+engine.canEditText("t1")
+engine.canPaste(clipboard)
 
 engine.dispatchKeyboardCommand("nudge-right", { step: 8, largeStep: 32, shiftKey: event.shiftKey })
 engine.dispatchKeyboardCommand("delete")

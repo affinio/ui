@@ -126,6 +126,10 @@ export class DiagramEngine {
     return this.geometryReadCount
   }
 
+  getGeometrySnapshot(id: DiagramId): DiagramGeometry | null {
+    return this.getGeometry(id)
+  }
+
   dispatch(command: DiagramCommand): DiagramCommandResult {
     const startedAt = now()
     let result: DiagramCommandResult
@@ -297,6 +301,26 @@ export class DiagramEngine {
 
   canMove(ids: ReadonlyArray<DiagramId> = this.state.selection.ids): boolean {
     return ids.some((id) => this.hasEntity(id) && !this.isEntityLockedOrReadOnly(id))
+  }
+
+  canResize(ids: ReadonlyArray<DiagramId> = this.state.selection.ids): boolean {
+    return ids.some((id) => !this.isEntityLockedOrReadOnly(id) && (this.state.entities.nodesById.has(id) || this.state.entities.shapesById.has(id) || this.state.entities.textsById.has(id)))
+  }
+
+  canRotate(ids: ReadonlyArray<DiagramId> = this.state.selection.ids): boolean {
+    return this.canResize(ids)
+  }
+
+  canAlign(ids: ReadonlyArray<DiagramId> = this.state.selection.ids): boolean {
+    return ids.filter((id) => !this.isEntityLockedOrReadOnly(id) && (this.state.entities.nodesById.has(id) || this.state.entities.shapesById.has(id) || this.state.entities.textsById.has(id))).length >= 2
+  }
+
+  canEditText(id: DiagramId | null = this.state.selection.primaryId): boolean {
+    return Boolean(id && this.state.entities.textsById.has(id) && !this.isEntityLockedOrReadOnly(id))
+  }
+
+  canPaste(clipboard: DiagramClipboard | null | undefined): boolean {
+    return Boolean(clipboard && (clipboard.nodes.length || clipboard.edges.length || clipboard.texts.length || clipboard.shapes.length || clipboard.ports.length))
   }
 
   getDiagnostics(): DiagramDiagnostics {
@@ -1547,10 +1571,27 @@ function hitDistanceForGeometry(geometry: DiagramGeometry, point: DiagramPoint, 
     const tolerance = Math.max(radius, 6)
     return edgeDistance <= tolerance ? edgeDistance : null
   }
+  if (geometry.corners?.length) {
+    if (pointInPolygon(point, geometry.corners)) return 0
+    const edgeDistance = distanceToPath(point, [...geometry.corners, geometry.corners[0]!])
+    return edgeDistance <= radius ? edgeDistance : null
+  }
   if (!rectContainsPoint(geometry.hitBounds, point, radius)) {
     return null
   }
   return distance(point, rectPoint(geometry.hitBounds, point))
+}
+
+function pointInPolygon(point: DiagramPoint, polygon: ReadonlyArray<DiagramPoint>): boolean {
+  let inside = false
+  for (let index = 0, previous = polygon.length - 1; index < polygon.length; previous = index, index += 1) {
+    const a = polygon[index]!
+    const b = polygon[previous]!
+    if ((a.y > point.y) !== (b.y > point.y) && point.x < ((b.x - a.x) * (point.y - a.y)) / (b.y - a.y) + a.x) {
+      inside = !inside
+    }
+  }
+  return inside
 }
 
 function distanceToPath(point: DiagramPoint, path: ReadonlyArray<DiagramPoint>): number {

@@ -87,15 +87,21 @@ function createHandles(geometry: DiagramGeometry): DiagramHandle[] {
   if (geometry.kind === "edge") {
     return []
   }
-  const rect = geometry.bounds
+  const rect = geometry.unrotatedBounds ?? geometry.bounds
   if (geometry.kind === "port") {
     return [{ id: `${geometry.id}:port`, ownerId: geometry.id, kind: "port", point: geometry.point ?? { x: rect.x, y: rect.y } }]
   }
+  const corners = geometry.corners ?? [
+    { x: rect.x, y: rect.y },
+    { x: rect.x + rect.width, y: rect.y },
+    { x: rect.x + rect.width, y: rect.y + rect.height },
+    { x: rect.x, y: rect.y + rect.height },
+  ]
   return [
-    { id: `${geometry.id}:nw`, ownerId: geometry.id, kind: "resize", point: { x: rect.x, y: rect.y } },
-    { id: `${geometry.id}:ne`, ownerId: geometry.id, kind: "resize", point: { x: rect.x + rect.width, y: rect.y } },
-    { id: `${geometry.id}:se`, ownerId: geometry.id, kind: "resize", point: { x: rect.x + rect.width, y: rect.y + rect.height } },
-    { id: `${geometry.id}:sw`, ownerId: geometry.id, kind: "resize", point: { x: rect.x, y: rect.y + rect.height } },
+    { id: `${geometry.id}:nw`, ownerId: geometry.id, kind: "resize", point: corners[0]! },
+    { id: `${geometry.id}:ne`, ownerId: geometry.id, kind: "resize", point: corners[1]! },
+    { id: `${geometry.id}:se`, ownerId: geometry.id, kind: "resize", point: corners[2]! },
+    { id: `${geometry.id}:sw`, ownerId: geometry.id, kind: "resize", point: corners[3]! },
   ]
 }
 
