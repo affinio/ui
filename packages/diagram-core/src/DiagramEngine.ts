@@ -816,6 +816,20 @@ function createResizePatch(state: InternalState, entries: ReadonlyArray<DiagramR
     if (!entity) continue
     previous.set(entry.id, { id: entry.id, x: entity.x, y: entity.y, width: entity.width, height: entity.height })
     nextEntries.push(entry)
+    if (node) {
+      for (const port of state.entities.portsById.values()) {
+        if (port.nodeId !== node.id || isEntityLockedOrReadOnly(state, port.id)) continue
+        const nextWidth = entry.width ?? node.width
+        const nextHeight = entry.height ?? node.height
+        const nextPort = {
+          id: port.id,
+          x: node.width === 0 ? port.x : port.x * (nextWidth / node.width),
+          y: node.height === 0 ? port.y : port.y * (nextHeight / node.height),
+        }
+        previous.set(port.id, { id: port.id, x: port.x, y: port.y })
+        nextEntries.push(nextPort)
+      }
+    }
   }
   if (!nextEntries.length) return null
   return createResizePatchUnchecked(nextEntries, [...previous.values()])
@@ -849,6 +863,13 @@ function applyResizeEntries(state: InternalState, entries: ReadonlyArray<Diagram
     const text = state.entities.textsById.get(entry.id)
     if (text) {
       state.entities.textsById.set(entry.id, { ...text, ...definedRectPatch(entry) })
+      changed.add(entry.id)
+      continue
+    }
+    const port = state.entities.portsById.get(entry.id)
+    if (port) {
+      const patch = Object.fromEntries(Object.entries(entry).filter(([key, value]) => (key === "x" || key === "y") && value !== undefined)) as Partial<DiagramResizeEntry>
+      state.entities.portsById.set(entry.id, { ...port, ...patch })
       changed.add(entry.id)
     }
   }

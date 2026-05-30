@@ -38,7 +38,7 @@ Core now owns the editor-level operations that wrappers need for production diag
 
 - Clipboard: `exportSelection()`, `importClipboard()`, and `duplicateSelection()` export selected subgraphs, remap ids on import, preserve internal edge endpoints, and offset pasted geometry.
 - Ordering and layers: `bringForward`, `sendBackward`, `bringToFront`, `sendToBack`, `setLayer`, and `getRenderOrder()` provide deterministic render ordering plus background/normal/foreground layer roles; front/back commands use entity `metadata.zIndex` so nodes, edges, shapes, ports, and text can be ordered across kinds.
-- Geometry edits: `resizeEntities` updates nodes, shapes, and texts; `insertEdgeWaypoint`, `moveEdgeWaypoint`, and `removeEdgeWaypoint` cover baseline polyline/orthogonal edge editing.
+- Geometry edits: `resizeEntities` updates nodes, shapes, and texts, and scales node-relative ports with resized nodes; `insertEdgeWaypoint`, `moveEdgeWaypoint`, and `removeEdgeWaypoint` cover baseline polyline/orthogonal edge editing. Alignment and rotation should also be core commands, because they must share history, locks, snapping, diagnostics, and serialization rules; Vue should expose toolbar controls that dispatch those commands.
 - Keyboard helpers: `dispatchKeyboardCommand()` covers arrow nudge, shift-nudge, delete, escape, undo, and redo so adapters do not duplicate command semantics.
 - Selection modes: `setSelection` supports `replace`, `add`, and `toggle`; pointer interaction uses strict containment marquee by default and can opt into intersecting marquee.
 - Constraints: entity metadata can mark objects as `locked`, `readOnly`, or `nonDeletable`; capability checks (`canUndo`, `canRedo`, `canDelete`, `canMove`) expose the same rules to UI.

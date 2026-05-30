@@ -217,6 +217,13 @@ describe("DiagramEngine", () => {
 
     engine.dispatch({ type: "resizeEntities", entries: [{ id: "n1", width: 120, height: 80 }] })
     expect(engine.getScene().entities.nodesById.get("n1")).toMatchObject({ width: 120, height: 80 })
+    expect(engine.getScene().entities.portsById.get("p1")).toMatchObject({ x: 120, y: 40 })
+    expect(engine.getScene().entities.edgesById.get("e1")?.points?.[0]).toEqual({ x: 150, y: 30 })
+    engine.dispatch({ type: "undo" })
+    expect(engine.getScene().entities.nodesById.get("n1")).toMatchObject({ width: 100, height: 60 })
+    expect(engine.getScene().entities.portsById.get("p1")).toMatchObject({ x: 100, y: 30 })
+    engine.dispatch({ type: "redo" })
+    expect(engine.getScene().entities.portsById.get("p1")).toMatchObject({ x: 120, y: 40 })
 
     engine.dispatch({ type: "insertEdgeWaypoint", id: "e1", index: 1, point: { x: 180, y: 60 } })
     expect(engine.getScene().entities.edgesById.get("e1")?.points).toHaveLength(2)
