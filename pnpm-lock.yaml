@@ -136,6 +136,12 @@ importers:
       '@affino/combobox-vue':
         specifier: workspace:*
         version: link:../combobox-vue
+      '@affino/diagram-core':
+        specifier: workspace:*
+        version: link:../diagram-core
+      '@affino/diagram-vue':
+        specifier: workspace:*
+        version: link:../diagram-vue
       '@affino/dialog-vue':
         specifier: workspace:*
         version: link:../dialog-vue

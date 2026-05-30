@@ -44,6 +44,12 @@ const router = createRouter({
       name: "treeview-demo",
       component: () => import("@/pages/TreeviewPage.vue"),
     },
+    {
+      path: "/diagram",
+      name: "diagram-demo",
+      component: () => import("@/pages/DiagramPage.vue"),
+      meta: { layoutWidth: "full", fitViewport: true, lockMainScroll: true },
+    },
     ...menuRoutes,
   ],
 })

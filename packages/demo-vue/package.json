@@ -17,6 +17,8 @@
   },
   "dependencies": {
     "@affino/dialog-vue": "workspace:*",
+    "@affino/diagram-core": "workspace:*",
+    "@affino/diagram-vue": "workspace:*",
     "@affino/disclosure-vue": "workspace:*",
     "@affino/treeview-vue": "workspace:*",
     "@affino/aria-utils": "workspace:*",

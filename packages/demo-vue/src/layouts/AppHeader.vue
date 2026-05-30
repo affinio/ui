@@ -13,6 +13,7 @@ const activeCore = computed(() => {
   if (route.path.startsWith('/tabs')) return 'Tabs'
   if (route.path.startsWith('/disclosure')) return 'Disclosure'
   if (route.path.startsWith('/treeview')) return 'Treeview'
+  if (route.path.startsWith('/diagram')) return 'Diagram'
   return 'Overview'
 })
 
@@ -24,6 +25,7 @@ const coreCapabilities: Record<string, { adapters: boolean }> = {
   combobox: { adapters: true },
   tabs: { adapters: true },
   treeview: { adapters: true },
+  diagram: { adapters: true },
   tooltips: { adapters: true },
   popover: { adapters: true },
 }
@@ -130,6 +132,16 @@ const subtitle = computed(() => {
             :class="{ 'nav-link--active': route.path.startsWith('/treeview') }"
           >
             Treeview
+          </a>
+        </RouterLink>
+
+        <RouterLink to="/diagram" v-slot="{ href }">
+          <a
+            :href="href"
+            class="nav-link"
+            :class="{ 'nav-link--active': route.path.startsWith('/diagram') }"
+          >
+            Diagram
           </a>
         </RouterLink>
 

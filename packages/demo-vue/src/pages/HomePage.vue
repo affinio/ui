@@ -23,6 +23,12 @@ const advancedFlows = [
     label: "Treeview lab",
   },
   {
+    title: "Diagram",
+    description: "Headless scene state, viewport projection, pointer bridge, and SVG/DOM rendering.",
+    to: "/diagram",
+    label: "Diagram workspace",
+  },
+  {
     title: "Menus",
     description: "Context actions, nested flows, and lighter interaction patterns.",
     to: "/menu/simple",
@@ -63,7 +69,7 @@ const principles = [
       <p class="ui-lead">Every page starts with the live interaction first. Extra notes and starter code stay tucked away.</p>
       <div class="adapter-hero__actions ui-actions-row">
         <RouterLink to="/menu/simple" class="ui-button ui-button--primary">Start with menus</RouterLink>
-        <RouterLink to="/dialogs" class="ui-button ui-button--secondary">Open dialogs</RouterLink>
+        <RouterLink to="/diagram" class="ui-button ui-button--secondary">Open diagram</RouterLink>
       </div>
     </header>
 

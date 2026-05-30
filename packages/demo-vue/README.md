@@ -32,3 +32,8 @@ pnpm run smoke:treeview:demo
 - The sandbox is intentionally Vue-only and focuses on compact, copy-paste friendly examples.
 - Overlay diagnostics are visible in the floating stack panel during local development.
 - `pnpm run smoke:treeview:demo` starts the Vite demo server automatically when `TREEVIEW_DEMO_URL` is not already available and writes desktop and mobile screenshots to `artifacts/treeview-smoke` unless `TREEVIEW_SMOKE_SCREENSHOTS=0`; set `TREEVIEW_SMOKE_MAX_LATENCY_MS` to fail on slow smoke operations.
+
+
+## Diagram demo
+
+The `/diagram` route is the public Vue reference scene for `@affino/diagram-vue`. It uses the package composables directly: `useDiagramEngine`, `useDiagramViewport`, `useDiagramSelection`, `useDiagramVisibleEntities`, and `useDiagramPointerController`. Keep domain-specific SLD logic out of this route; it should remain a generic package demo.
