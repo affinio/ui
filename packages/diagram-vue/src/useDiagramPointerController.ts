@@ -23,10 +23,18 @@ export type DiagramPointerControllerOptions = Readonly<{
 }>
 
 export function useDiagramPointerController(controller: DiagramEngineController, options: DiagramPointerControllerOptions = {}): DiagramPointerController {
-  const interaction = createDiagramInteractionController(controller.engine)
+  let refresh = () => {}
+  const interaction = createDiagramInteractionController(controller.engine, {
+    scheduleFrame: (callback) => {
+      requestAnimationFrame(() => {
+        callback()
+        refresh()
+      })
+    },
+  })
   const state = shallowRef(interaction.getSnapshot())
   let disposed = false
-  const refresh = () => {
+  refresh = () => {
     state.value = interaction.getSnapshot()
   }
   const toEvent = (event: PointerEvent) => ({ id: event.pointerId, point: toWorldPoint(event, options.toWorldPoint), shiftKey: event.shiftKey })

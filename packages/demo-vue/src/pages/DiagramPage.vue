@@ -10,9 +10,13 @@ import {
   useDiagramVisibleEntities,
   type DiagramRenderEntity,
 } from "@affino/diagram-vue"
-import type { DiagramPoint, DiagramSceneInput } from "@affino/diagram-core"
+import { createEntityGeometry, type DiagramGeometry, type DiagramPoint, type DiagramSceneInput } from "@affino/diagram-core"
 
 const stageRef = ref<HTMLElement | null>(null)
+
+const WORLD_BOUNDS = Object.freeze({ x: -40, y: -40, width: 980, height: 460 })
+const MIN_ZOOM = 0.45
+const MAX_ZOOM = 2.4
 
 const initialScene: DiagramSceneInput = {
   nodes: [
@@ -63,11 +67,39 @@ const selectedLabel = computed(() => {
 const revision = computed(() => diagram.scene.value.revision)
 const visibleCount = computed(() => visible.projection.value.ids.length)
 const tool = computed(() => pointer.state.value.tool)
-const viewBox = computed(() => {
+const previewDelta = computed(() => pointer.state.value.previewDelta)
+const displayViewport = computed(() => {
   const current = viewport.viewport.value
+  const delta = pointer.state.value.tool === "pan" ? previewDelta.value : null
+  if (!delta) {
+    return current
+  }
+  return { ...current, x: current.x - delta.x, y: current.y - delta.y }
+})
+const viewBox = computed(() => {
+  const current = displayViewport.value
   return `${current.x} ${current.y} ${Math.max(1, current.width)} ${Math.max(1, current.height)}`
 })
-const previewDelta = computed(() => pointer.state.value.previewDelta)
+const zoomPercent = computed(() => `${Math.round(viewport.viewport.value.zoom * 100)}%`)
+const minimapViewBox = computed(() => `${WORLD_BOUNDS.x} ${WORLD_BOUNDS.y} ${WORLD_BOUNDS.width} ${WORLD_BOUNDS.height}`)
+const minimapViewport = computed(() => ({
+  x: displayViewport.value.x,
+  y: displayViewport.value.y,
+  width: displayViewport.value.width,
+  height: displayViewport.value.height,
+}))
+const labelLayerStyle = computed(() => {
+  const current = displayViewport.value
+  return {
+    transform: `matrix(${current.zoom}, 0, 0, ${current.zoom}, ${-current.x * current.zoom}, ${-current.y * current.zoom})`,
+  }
+})
+const minimapNodes = computed(() => {
+  const scene = diagram.scene.value
+  return scene.order.nodeIds
+    .map((id) => createEntityGeometry(id, scene.entities))
+    .filter((geometry): geometry is DiagramGeometry => geometry !== null)
+})
 
 function toWorldPoint(event: PointerEvent): DiagramPoint {
   const rect = stageRef.value?.getBoundingClientRect()
@@ -92,7 +124,7 @@ function entityTransform(entity: DiagramRenderEntity): string | undefined {
 function textStyle(entity: DiagramRenderEntity): Readonly<Record<string, string>> {
   const style = getDomEntityStyle(entity)
   const delta = previewDelta.value
-  if (!delta || !entity.selected) {
+  if (!delta || !entity.selected || pointer.state.value.tool === "pan") {
     return style
   }
   return {
@@ -130,8 +162,73 @@ function snapSelectedToGrid(): void {
   })
 }
 
+function panViewport(delta: DiagramPoint): void {
+  const current = viewport.viewport.value
+  viewport.setViewport({ x: current.x + delta.x, y: current.y + delta.y })
+}
+
+function zoomViewport(multiplier: number, anchor?: DiagramPoint): void {
+  const current = viewport.viewport.value
+  const nextZoom = clamp(current.zoom * multiplier, MIN_ZOOM, MAX_ZOOM)
+  if (nextZoom === current.zoom) {
+    return
+  }
+  const anchorPoint = anchor ?? { x: current.x + current.width / 2, y: current.y + current.height / 2 }
+  const nextWidth = current.width * (current.zoom / nextZoom)
+  const nextHeight = current.height * (current.zoom / nextZoom)
+  const anchorRatioX = (anchorPoint.x - current.x) / current.width
+  const anchorRatioY = (anchorPoint.y - current.y) / current.height
+  viewport.setViewport({
+    x: anchorPoint.x - nextWidth * anchorRatioX,
+    y: anchorPoint.y - nextHeight * anchorRatioY,
+    width: nextWidth,
+    height: nextHeight,
+    zoom: nextZoom,
+  })
+}
+
+let wheelFrame: number | null = null
+let pendingWheelPan: DiagramPoint = { x: 0, y: 0 }
+
+function handleWheel(event: WheelEvent): void {
+  event.preventDefault()
+  if (event.ctrlKey || event.metaKey) {
+    zoomViewport(event.deltaY < 0 ? 1.08 : 0.92, toWorldPoint(event as unknown as PointerEvent))
+    return
+  }
+  pendingWheelPan = {
+    x: pendingWheelPan.x + event.deltaX / viewport.viewport.value.zoom,
+    y: pendingWheelPan.y + event.deltaY / viewport.viewport.value.zoom,
+  }
+  if (wheelFrame !== null) {
+    return
+  }
+  wheelFrame = requestAnimationFrame(() => {
+    wheelFrame = null
+    const delta = pendingWheelPan
+    pendingWheelPan = { x: 0, y: 0 }
+    panViewport(delta)
+  })
+}
+
+function centerViewport(point: DiagramPoint): void {
+  const current = viewport.viewport.value
+  viewport.setViewport({ x: point.x - current.width / 2, y: point.y - current.height / 2 })
+}
+
+function handleMinimapPointer(event: PointerEvent): void {
+  const rect = (event.currentTarget as SVGSVGElement).getBoundingClientRect()
+  const x = WORLD_BOUNDS.x + ((event.clientX - rect.left) / rect.width) * WORLD_BOUNDS.width
+  const y = WORLD_BOUNDS.y + ((event.clientY - rect.top) / rect.height) * WORLD_BOUNDS.height
+  centerViewport({ x, y })
+}
+
 function resetViewport(): void {
   viewport.setViewport({ x: 0, y: 0, width: 980, height: 420, zoom: 1 })
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value))
 }
 </script>
 
@@ -149,6 +246,23 @@ function resetViewport(): void {
         <button type="button" @click="diagram.dispatch({ type: 'undo' })">Undo</button>
         <button type="button" @click="diagram.dispatch({ type: 'redo' })">Redo</button>
       </div>
+
+      <div class="diagram-viewport-controls" aria-label="Canvas navigation">
+        <button type="button" @click="panViewport({ x: -80, y: 0 })">←</button>
+        <button type="button" @click="panViewport({ x: 0, y: -60 })">↑</button>
+        <button type="button" @click="panViewport({ x: 0, y: 60 })">↓</button>
+        <button type="button" @click="panViewport({ x: 80, y: 0 })">→</button>
+        <button type="button" @click="zoomViewport(0.85)">−</button>
+        <output aria-label="Zoom level">{{ zoomPercent }}</output>
+        <button type="button" @click="zoomViewport(1.18)">+</button>
+        <button type="button" @click="resetViewport">Fit</button>
+      </div>
+
+      <svg class="diagram-minimap" :viewBox="minimapViewBox" aria-label="Canvas minimap" style="height: 9rem" @pointerdown="handleMinimapPointer">
+        <rect class="diagram-minimap__bg" :x="WORLD_BOUNDS.x" :y="WORLD_BOUNDS.y" :width="WORLD_BOUNDS.width" :height="WORLD_BOUNDS.height" />
+        <rect v-for="node in minimapNodes" :key="node.id" class="diagram-minimap__node" :x="node.bounds.x" :y="node.bounds.y" :width="node.bounds.width" :height="node.bounds.height" />
+        <rect class="diagram-minimap__viewport" :x="minimapViewport.x" :y="minimapViewport.y" :width="minimapViewport.width" :height="minimapViewport.height" />
+      </svg>
 
       <div class="diagram-list" aria-label="Entities">
         <button type="button" @click="focusEntity('utility')">Utility source</button>
@@ -185,13 +299,13 @@ function resetViewport(): void {
 
     <div class="diagram-shell">
       <div ref="stageRef" class="diagram-stage">
-        <svg class="diagram-svg" :viewBox="viewBox" v-bind="pointerProps">
+        <svg class="diagram-svg" :viewBox="viewBox" v-bind="pointerProps" @wheel="handleWheel">
           <defs>
             <pattern id="diagram-grid" width="24" height="24" patternUnits="userSpaceOnUse">
               <path d="M 24 0 L 0 0 0 24" class="diagram-grid-line" />
             </pattern>
           </defs>
-          <rect class="diagram-grid-fill" :x="viewport.viewport.value.x" :y="viewport.viewport.value.y" :width="viewport.viewport.value.width" :height="viewport.viewport.value.height" fill="url(#diagram-grid)" />
+          <rect class="diagram-grid-fill" :x="displayViewport.x" :y="displayViewport.y" :width="displayViewport.width" :height="displayViewport.height" fill="url(#diagram-grid)" />
           <rect v-for="shape in visible.projection.value.shapes" :key="shape.id" class="diagram-bus" v-bind="getSvgEntityProps(shape)" />
           <polyline v-for="edge in visible.projection.value.edges" :key="edge.id" class="diagram-edge" :class="{ selected: edge.selected }" v-bind="getSvgEntityProps(edge)" :transform="entityTransform(edge)" />
           <rect v-for="node in visible.projection.value.nodes" :key="node.id" class="diagram-node" :class="{ selected: node.selected }" v-bind="getSvgEntityProps(node)" :transform="entityTransform(node)" />
@@ -200,7 +314,7 @@ function resetViewport(): void {
           <circle v-for="handle in visible.projection.value.activeHandles" :key="handle.id" class="diagram-handle" :cx="handle.point.x" :cy="handle.point.y" r="5" />
         </svg>
 
-        <div class="diagram-label-layer" aria-hidden="true">
+        <div class="diagram-label-layer" :style="labelLayerStyle" aria-hidden="true">
           <span v-for="text in visible.projection.value.texts" :key="text.id" class="diagram-label" :style="textStyle(text)">
             {{ diagram.scene.value.entities.textsById.get(text.id)?.text }}
           </span>
@@ -254,6 +368,7 @@ function resetViewport(): void {
 }
 
 .diagram-toolbar,
+.diagram-viewport-controls,
 .diagram-list,
 .diagram-actions,
 .diagram-stats {
@@ -289,6 +404,48 @@ button:hover,
 button.active {
   background: #24433d;
   color: #fffaf3;
+}
+
+.diagram-viewport-controls {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.diagram-viewport-controls output {
+  min-height: 2.35rem;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(35, 49, 46, 0.12);
+  border-radius: 6px;
+  background: rgba(255, 253, 249, 0.68);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.diagram-minimap {
+  display: block;
+  width: 100%;
+  height: 9rem;
+  flex: 0 0 9rem;
+  border: 1px solid rgba(35, 49, 46, 0.16);
+  border-radius: 8px;
+  background: #eef2ed;
+  cursor: crosshair;
+}
+
+.diagram-minimap__bg {
+  fill: #f8f4ed;
+}
+
+.diagram-minimap__node {
+  fill: #41665d;
+  opacity: 0.82;
+}
+
+.diagram-minimap__viewport {
+  fill: rgba(13, 127, 104, 0.14);
+  stroke: #0d7f68;
+  stroke-width: 8;
+  vector-effect: non-scaling-stroke;
 }
 
 .diagram-list button {
@@ -352,6 +509,11 @@ button.active {
 .diagram-svg {
   touch-action: none;
   user-select: none;
+}
+
+.diagram-label-layer {
+  transform-origin: 0 0;
+  will-change: transform;
 }
 
 .diagram-grid-line {
