@@ -1,10 +1,12 @@
+import { createEntityGeometry } from "./geometry.js"
 import type { DiagramEngine } from "./DiagramEngine.js"
-import type { DiagramId, DiagramInteractionSnapshot, DiagramInteractionTool, DiagramPointerEvent, DiagramPoint, DiagramRect } from "./types.js"
+import type { DiagramId, DiagramInteractionSnapshot, DiagramInteractionTool, DiagramMarqueeMode, DiagramPointerEvent, DiagramPoint, DiagramRect } from "./types.js"
 
 type ScheduleFrame = (callback: () => void) => void
 
 export type DiagramInteractionOptions = Readonly<{
   scheduleFrame?: ScheduleFrame
+  marqueeMode?: DiagramMarqueeMode
 }>
 
 export class DiagramInteractionController {
@@ -18,9 +20,11 @@ export class DiagramInteractionController {
   private pendingMoveCount = 0
   private commitCount = 0
   private readonly scheduleFrame: ScheduleFrame
+  private readonly marqueeMode: DiagramMarqueeMode
 
   constructor(private readonly engine: DiagramEngine, options: DiagramInteractionOptions = {}) {
     this.scheduleFrame = options.scheduleFrame ?? defaultScheduleFrame
+    this.marqueeMode = options.marqueeMode ?? "intersect"
   }
 
   setTool(tool: DiagramInteractionTool): void {
@@ -38,7 +42,9 @@ export class DiagramInteractionController {
       const hit = this.engine.hitTest(event.point, { radius: 2 })
       if (hit) {
         const selection = this.engine.getScene().selection
-        if (!selection.ids.includes(hit.id)) {
+        if (event.shiftKey) {
+          this.engine.dispatch({ type: "setSelection", selection: { ids: [hit.id], primaryId: hit.id }, mode: "toggle" })
+        } else if (!selection.ids.includes(hit.id)) {
           this.engine.dispatch({ type: "setSelection", selection: { ids: [hit.id], primaryId: hit.id } })
         }
         this.tool = "drag-selection"
@@ -79,7 +85,7 @@ export class DiagramInteractionController {
     }
     if (this.tool === "marquee" && this.marquee) {
       const ids = this.getMarqueeSelectionIds(this.marquee)
-      this.engine.dispatch({ type: "setSelection", selection: { ids, primaryId: ids[0] ?? null } })
+      this.engine.dispatch({ type: "setSelection", selection: { ids, primaryId: ids[0] ?? null }, mode: this.activePointer.shiftKey ? "add" : "replace" })
       this.commitCount += 1
     }
     this.clearGesture()
@@ -132,7 +138,12 @@ export class DiagramInteractionController {
       ...scene.order.shapeIds,
       ...scene.order.textIds,
       ...scene.order.edgeIds,
-    ].filter((id) => visible.has(id))
+    ].filter((id) => {
+      if (!visible.has(id)) return false
+      if (this.marqueeMode === "intersect") return true
+      const geometry = createEntityGeometry(id, scene.entities)
+      return geometry ? rectContainsRect(rect, geometry.bounds) : false
+    })
   }
 
   private clearGesture(): void {
@@ -165,4 +176,11 @@ function rectFromPoints(a: DiagramPoint, b: DiagramPoint): DiagramRect {
     width: Math.abs(a.x - b.x),
     height: Math.abs(a.y - b.y),
   }
+}
+
+function rectContainsRect(outer: DiagramRect, inner: DiagramRect): boolean {
+  return inner.x >= outer.x
+    && inner.y >= outer.y
+    && inner.x + inner.width <= outer.x + outer.width
+    && inner.y + inner.height <= outer.y + outer.height
 }

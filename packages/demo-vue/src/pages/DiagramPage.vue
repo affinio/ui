@@ -10,9 +10,10 @@ import {
   useDiagramVisibleEntities,
   type DiagramRenderEntity,
 } from "@affino/diagram-vue"
-import { createEntityGeometry, type DiagramGeometry, type DiagramPoint, type DiagramSceneInput } from "@affino/diagram-core"
+import { createEntityGeometry, type DiagramClipboard, type DiagramGeometry, type DiagramPoint, type DiagramSceneInput } from "@affino/diagram-core"
 
 const stageRef = ref<HTMLElement | null>(null)
+const clipboard = ref<DiagramClipboard | null>(null)
 
 const GRID_COLUMNS = 40
 const GENERATED_NODE_COUNT = 1000
@@ -181,12 +182,78 @@ function deleteSelected(): void {
   diagram.dispatch({ type: "deleteSelection" })
 }
 
+function duplicateSelected(): void {
+  diagram.engine.duplicateSelection({ x: 36, y: 36 })
+}
+
+function copySelection(): void {
+  clipboard.value = diagram.engine.exportSelection()
+}
+
+function pasteClipboard(): void {
+  if (!clipboard.value) {
+    return
+  }
+  diagram.engine.importClipboard(clipboard.value, { x: 48, y: 48 })
+}
+
+function bringSelectedForward(): void {
+  diagram.dispatch({ type: "bringForward", ids: selection.selection.value.ids })
+}
+
+function sendSelectedBackward(): void {
+  diagram.dispatch({ type: "sendBackward", ids: selection.selection.value.ids })
+}
+
+function resizeSelected(): void {
+  const entries = selection.selection.value.ids.map((id) => {
+    const node = diagram.scene.value.entities.nodesById.get(id)
+    const shape = diagram.scene.value.entities.shapesById.get(id)
+    const text = diagram.scene.value.entities.textsById.get(id)
+    const entity = node ?? shape ?? text
+    return entity ? { id, width: (entity.width ?? 80) + 12, height: (entity.height ?? 24) + 8 } : null
+  }).filter((entry): entry is { id: string; width: number; height: number } => entry !== null)
+  if (entries.length) {
+    diagram.dispatch({ type: "resizeEntities", entries })
+  }
+}
+
 function handleStageKeydown(event: KeyboardEvent): void {
-  if (event.key !== "Delete" && event.key !== "Backspace") {
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
+    event.preventDefault()
+    diagram.engine.dispatchKeyboardCommand(event.shiftKey ? "redo" : "undo")
+    return
+  }
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "c") {
+    event.preventDefault()
+    copySelection()
+    return
+  }
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "v") {
+    event.preventDefault()
+    pasteClipboard()
+    return
+  }
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "d") {
+    event.preventDefault()
+    duplicateSelected()
+    return
+  }
+  const commandByKey = {
+    ArrowLeft: "nudge-left",
+    ArrowRight: "nudge-right",
+    ArrowUp: "nudge-up",
+    ArrowDown: "nudge-down",
+    Delete: "delete",
+    Backspace: "delete",
+    Escape: "escape",
+  } as const
+  const command = commandByKey[event.key as keyof typeof commandByKey]
+  if (!command) {
     return
   }
   event.preventDefault()
-  deleteSelected()
+  diagram.engine.dispatchKeyboardCommand(command, { shiftKey: event.shiftKey, step: 12, largeStep: 48 })
 }
 
 function snapSelectedToGrid(): void {
@@ -290,6 +357,9 @@ function clamp(value: number, min: number, max: number): number {
         <button type="button" @click="diagram.dispatch({ type: 'undo' })">Undo</button>
         <button type="button" @click="diagram.dispatch({ type: 'redo' })">Redo</button>
         <button type="button" @click="deleteSelected">Delete</button>
+        <button type="button" @click="duplicateSelected">Duplicate</button>
+        <button type="button" @click="copySelection">Copy</button>
+        <button type="button" @click="pasteClipboard">Paste</button>
       </div>
 
       <div class="diagram-viewport-controls" aria-label="Canvas navigation">
@@ -323,6 +393,11 @@ function clamp(value: number, min: number, max: number): number {
         <button type="button" @click="nudgeSelected({ x: 0, y: 12 })">↓</button>
         <button type="button" @click="nudgeSelected({ x: 12, y: 0 })">→</button>
         <button class="wide" type="button" @click="snapSelectedToGrid">Snap grid</button>
+        <button class="wide" type="button" @click="resizeSelected">Resize</button>
+        <button class="wide" type="button" @click="bringSelectedForward">Forward</button>
+        <button class="wide" type="button" @click="sendSelectedBackward">Backward</button>
+        <button class="wide" type="button" @click="diagram.engine.fitSelection()">Fit selection</button>
+        <button class="wide" type="button" @click="diagram.engine.fitScene()">Fit scene</button>
         <button class="wide" type="button" @click="resetViewport">Reset view</button>
       </div>
 
@@ -424,10 +499,6 @@ function clamp(value: number, min: number, max: number): number {
 
 .diagram-toolbar {
   grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.diagram-toolbar button:last-child {
-  grid-column: 1 / -1;
 }
 
 .diagram-actions {

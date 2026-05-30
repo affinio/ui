@@ -32,6 +32,30 @@ selection.setSelection(["bay-a"], "bay-a")
 
 Render `visible.projection.value.edges`, `nodes`, `ports`, and `shapes` in SVG. Render `texts` as DOM overlays or active editors. Context menus and floating toolbars should anchor to `overlayAnchors`, with one shared overlay instance rather than one subtree per entity.
 
+## Core Editor APIs
+
+Core now owns the editor-level operations that wrappers need for production diagram UX:
+
+- Clipboard: `exportSelection()`, `importClipboard()`, and `duplicateSelection()` export selected subgraphs, remap ids on import, preserve internal edge endpoints, and offset pasted geometry.
+- Ordering and layers: `bringForward`, `sendBackward`, `bringToFront`, `sendToBack`, `setLayer`, and `getRenderOrder()` provide deterministic render ordering plus background/normal/foreground layer roles.
+- Geometry edits: `resizeEntities` updates nodes, shapes, and texts; `insertEdgeWaypoint`, `moveEdgeWaypoint`, and `removeEdgeWaypoint` cover baseline polyline/orthogonal edge editing.
+- Keyboard helpers: `dispatchKeyboardCommand()` covers arrow nudge, shift-nudge, delete, escape, undo, and redo so adapters do not duplicate command semantics.
+- Selection modes: `setSelection` supports `replace`, `add`, and `toggle`; pointer interaction supports intersecting marquee and strict containment marquee.
+- Constraints: entity metadata can mark objects as `locked`, `readOnly`, or `nonDeletable`; capability checks (`canUndo`, `canRedo`, `canDelete`, `canMove`) expose the same rules to UI.
+- Viewport: `fitSelection()`, `fitBounds()`, and `fitScene()` centralize fit math in core.
+- Diagnostics: `getDiagnostics()` reports visible query count, hit-test count, geometry recompute/read counts, and last command cost for demos and perf gates.
+
+```ts
+const clipboard = engine.exportSelection()
+engine.importClipboard(clipboard, { x: 48, y: 48 })
+engine.dispatch({ type: "resizeEntities", entries: [{ id: "bay-a", width: 180, height: 90 }] })
+engine.dispatch({ type: "insertEdgeWaypoint", edgeId: "line-a", index: 0, point: { x: 320, y: 140 } })
+engine.dispatchKeyboardCommand("nudge-right", { step: 8, largeStep: 32, shiftKey: event.shiftKey })
+engine.fitSelection(32)
+const canDelete = engine.canDelete()
+const diagnostics = engine.getDiagnostics()
+```
+
 ## Ownership Rules
 
 - Do not put SLD, switchgear, IEC 61850 paths, or persistence state in diagram core. Store domain meaning in metadata and interpret it in an adapter package.

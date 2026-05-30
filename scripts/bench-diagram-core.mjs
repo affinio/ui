@@ -43,6 +43,27 @@ function runForCount(count) {
     engine.dispatch({ type: "undo" })
   })
   const selection = measure(() => engine.dispatch({ type: "setSelection", selection: { ids: ["node-10"], primaryId: "node-10" } }))
+  const clipboard = measure(() => engine.exportSelection())
+  const duplicate = measure(() => {
+    engine.duplicateSelection({ x: 24, y: 24 })
+    engine.dispatch({ type: "undo" })
+  })
+  const paste = measure(() => {
+    engine.importClipboard(clipboard.value, { x: 48, y: 48 })
+    engine.dispatch({ type: "undo" })
+  })
+  const resize = measure(() => {
+    engine.dispatch({ type: "resizeEntities", entries: [{ id: "node-10", width: 112, height: 64 }] })
+    engine.dispatch({ type: "undo" })
+  })
+  const waypoint = measure(() => {
+    engine.dispatch({ type: "insertEdgeWaypoint", edgeId: "edge-0", index: 0, point: { x: 120, y: 120 } })
+    engine.dispatch({ type: "moveEdgeWaypoint", edgeId: "edge-0", index: 0, point: { x: 132, y: 132 } })
+    engine.dispatch({ type: "undo" })
+    engine.dispatch({ type: "undo" })
+  })
+  const fitScene = measure(() => engine.fitScene())
+  const diagnostics = engine.getDiagnostics()
   const nearestPort = measure(() => engine.nearestPort({ x: 120, y: 64 }, 48))
   const serialized = measure(() => engine.serialize())
   globalThis.gc?.()
@@ -54,8 +75,15 @@ function runForCount(count) {
     panFpsEstimate: 180 / (pan.ms / 1000),
     dragLatencyMs: drag.ms,
     selectionLatencyMs: selection.ms,
+    clipboardExportMs: clipboard.ms,
+    duplicateUndoMs: duplicate.ms,
+    pasteUndoMs: paste.ms,
+    resizeUndoMs: resize.ms,
+    waypointEditUndoMs: waypoint.ms,
+    fitSceneMs: fitScene.ms,
     nearestPortMs: nearestPort.ms,
     serializeMs: serialized.ms,
+    diagnostics,
     memoryDeltaMb: (heapAfter - heapBefore) / 1024 / 1024,
     vueComponentCount: 0,
     visibleCount: Array.isArray(visible.value) ? visible.value.length : 0,

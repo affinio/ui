@@ -2,8 +2,10 @@ import { createEntityGeometry, distance, rectContainsPoint, rectIntersects } fro
 import { UniformGridIndex } from "./spatialIndex.js"
 import type {
   DiagramChange,
+  DiagramClipboard,
   DiagramCommand,
   DiagramCommandResult,
+  DiagramDiagnostics,
   DiagramEdge,
   DiagramEdgeEndpoint,
   DiagramEntityKind,
@@ -15,10 +17,14 @@ import type {
   DiagramPoint,
   DiagramPort,
   DiagramRect,
+  DiagramRenderOrderOptions,
+  DiagramResizeEntry,
   DiagramScene,
   DiagramSceneInput,
   DiagramSelection,
   DiagramShape,
+  DiagramKeyboardCommand,
+  DiagramKeyboardOptions,
   DiagramSnapContext,
   DiagramSnapResult,
   DiagramSubscriber,
@@ -92,6 +98,9 @@ export class DiagramEngine {
     invalidatedIds: Object.freeze(new Set<DiagramId>()),
   }
   private geometryReadCount = 0
+  private visibleQueryCount = 0
+  private hitTestCount = 0
+  private lastCommandMs = 0
 
   constructor(initialScene: DiagramSceneInput = {}) {
     this.state = createInternalState(initialScene)
@@ -116,18 +125,27 @@ export class DiagramEngine {
   }
 
   dispatch(command: DiagramCommand): DiagramCommandResult {
+    const startedAt = now()
+    let result: DiagramCommandResult
     if (command.type === "undo") {
-      return this.undo()
+      result = this.undo()
+      this.lastCommandMs = now() - startedAt
+      return result
     }
     if (command.type === "redo") {
-      return this.redo()
+      result = this.redo()
+      this.lastCommandMs = now() - startedAt
+      return result
     }
     const patch = this.createPatch(command)
     if (!patch) {
+      this.lastCommandMs = now() - startedAt
       return { changed: false, revision: this.state.revision }
     }
-    const result = this.commitPatch(patch, true, "historyKey" in command ? command.historyKey ?? null : null)
-    return { changed: result.changedIds.size > 0, revision: this.state.revision }
+    const transaction = this.commitPatch(patch, true, "historyKey" in command ? command.historyKey ?? null : null)
+    result = { changed: transaction.changedIds.size > 0, revision: this.state.revision }
+    this.lastCommandMs = now() - startedAt
+    return result
   }
 
   transact(mutator: (draft: DiagramScene) => DiagramSceneInput): DiagramCommandResult {
@@ -138,6 +156,7 @@ export class DiagramEngine {
   }
 
   queryVisible(bounds: DiagramRect): DiagramId[] {
+    this.visibleQueryCount += 1
     this.ensureIndexes()
     const ids = this.visualBoundsIndex.query(bounds)
     const order = this.createOrderIndex()
@@ -153,6 +172,7 @@ export class DiagramEngine {
   }
 
   hitTest(point: DiagramPoint, options: DiagramHitTestOptions = {}): DiagramHit | null {
+    this.hitTestCount += 1
     this.ensureIndexes()
     const radius = options.radius ?? 0
     const kinds = options.kinds ? new Set<DiagramEntityKind>(options.kinds) : null
@@ -252,6 +272,71 @@ export class DiagramEngine {
       snapped: snapped.snapped,
       source: snapped.source,
     }
+  }
+
+  canUndo(): boolean {
+    return this.undoStack.length > 0
+  }
+
+  canRedo(): boolean {
+    return this.redoStack.length > 0
+  }
+
+  canDelete(ids: ReadonlyArray<DiagramId> = this.state.selection.ids): boolean {
+    return ids.some((id) => this.hasEntity(id) && !this.isEntityNonDeletable(id) && !this.isEntityLockedOrReadOnly(id))
+  }
+
+  canMove(ids: ReadonlyArray<DiagramId> = this.state.selection.ids): boolean {
+    return ids.some((id) => this.hasEntity(id) && !this.isEntityLockedOrReadOnly(id))
+  }
+
+  getDiagnostics(): DiagramDiagnostics {
+    return {
+      revision: this.state.revision,
+      visibleQueryCount: this.visibleQueryCount,
+      hitTestCount: this.hitTestCount,
+      geometryRecomputeCount: this.geometryReadCount,
+      lastCommandMs: this.lastCommandMs,
+      undoDepth: this.undoStack.length,
+      redoDepth: this.redoStack.length,
+    }
+  }
+
+  getRenderOrder(options: DiagramRenderOrderOptions = {}): DiagramId[] {
+    const ids = this.createOrderedIds().filter((id) => options.includePorts || !this.state.entities.portsById.has(id))
+    return ids.sort((a, b) => layerRank(this.getEntityMetadata(a)) - layerRank(this.getEntityMetadata(b)))
+  }
+
+  exportSelection(): DiagramClipboard {
+    return exportSubgraph(this.state, this.state.selection.ids)
+  }
+
+  importClipboard(clipboard: DiagramClipboard, offset: DiagramPoint = { x: 24, y: 24 }): DiagramCommandResult {
+    return this.dispatch({ type: "pasteClipboard", clipboard, offset })
+  }
+
+  duplicateSelection(offset: DiagramPoint = { x: 24, y: 24 }): DiagramCommandResult {
+    return this.dispatch({ type: "duplicateSelection", offset })
+  }
+
+  dispatchKeyboardCommand(command: DiagramKeyboardCommand, options: DiagramKeyboardOptions = {}): DiagramCommandResult {
+    return this.dispatch({ type: "keyboard", command, options })
+  }
+
+  fitBounds(bounds: DiagramRect, padding = 24): DiagramCommandResult {
+    const width = Math.max(1, bounds.width + padding * 2)
+    const height = Math.max(1, bounds.height + padding * 2)
+    return this.dispatch({ type: "setViewport", viewport: { x: bounds.x - padding, y: bounds.y - padding, width, height, zoom: 1 } })
+  }
+
+  fitSelection(padding = 24): DiagramCommandResult {
+    const bounds = boundsForIds(this, this.state.selection.ids)
+    return bounds ? this.fitBounds(bounds, padding) : { changed: false, revision: this.state.revision }
+  }
+
+  fitScene(padding = 24): DiagramCommandResult {
+    const bounds = boundsForIds(this, this.createOrderedIds())
+    return bounds ? this.fitBounds(bounds, padding) : { changed: false, revision: this.state.revision }
   }
 
   subscribe(listener: DiagramSubscriber): { unsubscribe: () => void } {
@@ -388,12 +473,36 @@ export class DiagramEngine {
         return createMovePatch(this.state, [command.id], command.delta)
       case "moveEdgeEndpoint":
         return createMoveEdgeEndpointPatch(this.state, command.id, command.endpoint, command.point)
+      case "insertEdgeWaypoint":
+        return createEdgeWaypointPatch(this.state, command.id, command.index, command.point, "insert")
+      case "moveEdgeWaypoint":
+        return createEdgeWaypointPatch(this.state, command.id, command.index, command.point, "move")
+      case "removeEdgeWaypoint":
+        return createEdgeWaypointPatch(this.state, command.id, command.index, null, "remove")
       case "createEdge":
         return createCreateEdgePatch(this.state, command.edge)
       case "deleteSelection":
         return createDeleteSelectionPatch(this.state)
+      case "duplicateSelection":
+        return createPastePatch(this.state, exportSubgraph(this.state, this.state.selection.ids), command.offset ?? { x: 24, y: 24 })
+      case "pasteClipboard":
+        return createPastePatch(this.state, command.clipboard, command.offset ?? { x: 24, y: 24 })
+      case "resizeEntities":
+        return createResizePatch(this.state, command.entries)
+      case "bringForward":
+        return createOrderPatch(this.state, command.ids, "forward")
+      case "sendBackward":
+        return createOrderPatch(this.state, command.ids, "backward")
+      case "bringToFront":
+        return createOrderPatch(this.state, command.ids, "front")
+      case "sendToBack":
+        return createOrderPatch(this.state, command.ids, "back")
+      case "setLayer":
+        return createLayerPatch(this.state, command.ids, command.layer, command.layerRole)
+      case "keyboard":
+        return createKeyboardPatch(this.state, command.command, command.options ?? {})
       case "setSelection":
-        return createSelectionPatch(this.state.selection, command.selection)
+        return createSelectionPatch(this.state.selection, command.selection, command.mode ?? "replace")
       case "editText":
         return createEditTextPatch(this.state, command.id, command.text)
       case "setViewport":
@@ -454,6 +563,27 @@ export class DiagramEngine {
 
   private createOrderIndex(): Map<DiagramId, number> {
     return new Map(this.createOrderedIds().map((id, index) => [id, index]))
+  }
+
+  private hasEntity(id: DiagramId): boolean {
+    return hasEntity(this.state, id)
+  }
+
+  private getEntityMetadata(id: DiagramId): Readonly<Record<string, unknown>> | undefined {
+    return this.state.entities.nodesById.get(id)?.metadata
+      ?? this.state.entities.edgesById.get(id)?.metadata
+      ?? this.state.entities.textsById.get(id)?.metadata
+      ?? this.state.entities.shapesById.get(id)?.metadata
+      ?? this.state.entities.portsById.get(id)?.metadata
+  }
+
+  private isEntityLockedOrReadOnly(id: DiagramId): boolean {
+    const metadata = this.getEntityMetadata(id)
+    return metadata?.locked === true || metadata?.readOnly === true
+  }
+
+  private isEntityNonDeletable(id: DiagramId): boolean {
+    return this.getEntityMetadata(id)?.nonDeletable === true
   }
 
   private emit(): void {
@@ -517,7 +647,7 @@ function createMovePatch(state: InternalState, ids: ReadonlyArray<DiagramId>, de
   if (delta.x === 0 && delta.y === 0) {
     return null
   }
-  const movableIds = ids.filter((id) => state.entities.nodesById.has(id) || state.entities.textsById.has(id) || state.entities.shapesById.has(id))
+  const movableIds = ids.filter((id) => !isEntityLockedOrReadOnly(state, id) && (state.entities.nodesById.has(id) || state.entities.textsById.has(id) || state.entities.shapesById.has(id)))
   if (!movableIds.length) {
     return null
   }
@@ -606,6 +736,191 @@ function createMoveEdgeEndpointPatch(state: InternalState, id: DiagramId, endpoi
   }
 }
 
+function createEdgeWaypointPatch(state: InternalState, id: DiagramId, index: number, point: DiagramPoint | null, mode: "insert" | "move" | "remove"): Patch | null {
+  const edge = state.entities.edgesById.get(id)
+  if (!edge || isEntityLockedOrReadOnly(state, id)) {
+    return null
+  }
+  const previousPoints = [...(edge.points ?? [])]
+  const nextPoints = [...previousPoints]
+  const safeIndex = Math.max(0, Math.min(index, mode === "insert" ? nextPoints.length : nextPoints.length - 1))
+  if (mode === "insert" && point) {
+    nextPoints.splice(safeIndex, 0, point)
+  } else if (mode === "move" && point && nextPoints[safeIndex]) {
+    nextPoints[safeIndex] = point
+  } else if (mode === "remove" && nextPoints[safeIndex]) {
+    nextPoints.splice(safeIndex, 1)
+  } else {
+    return null
+  }
+  return createEdgePointsPatch(id, previousPoints, nextPoints)
+}
+
+function createEdgePointsPatch(id: DiagramId, previousPoints: ReadonlyArray<DiagramPoint>, nextPoints: ReadonlyArray<DiagramPoint>): Patch {
+  return {
+    apply: (next) => {
+      const edge = next.entities.edgesById.get(id)
+      if (!edge) return new Set()
+      next.entities.edgesById.set(id, { ...edge, points: [...nextPoints] })
+      return new Set([id])
+    },
+    inverse: {
+      apply: (next) => {
+        const edge = next.entities.edgesById.get(id)
+        if (!edge) return new Set()
+        next.entities.edgesById.set(id, { ...edge, points: [...previousPoints] })
+        return new Set([id])
+      },
+      inverse: undefined as unknown as Patch,
+    },
+  }
+}
+
+function createResizePatch(state: InternalState, entries: ReadonlyArray<DiagramResizeEntry>): Patch | null {
+  const previous = new Map<DiagramId, DiagramResizeEntry>()
+  const nextEntries: DiagramResizeEntry[] = []
+  for (const entry of entries) {
+    if (isEntityLockedOrReadOnly(state, entry.id)) continue
+    const node = state.entities.nodesById.get(entry.id)
+    const shape = state.entities.shapesById.get(entry.id)
+    const text = state.entities.textsById.get(entry.id)
+    const entity = node ?? shape ?? text
+    if (!entity) continue
+    previous.set(entry.id, { id: entry.id, x: entity.x, y: entity.y, width: entity.width, height: entity.height })
+    nextEntries.push(entry)
+  }
+  if (!nextEntries.length) return null
+  return createResizePatchUnchecked(nextEntries, [...previous.values()])
+}
+
+function createResizePatchUnchecked(entries: ReadonlyArray<DiagramResizeEntry>, inverseEntries: ReadonlyArray<DiagramResizeEntry>): Patch {
+  return {
+    apply: (next) => applyResizeEntries(next, entries),
+    inverse: {
+      apply: (next) => applyResizeEntries(next, inverseEntries),
+      inverse: undefined as unknown as Patch,
+    },
+  }
+}
+
+function applyResizeEntries(state: InternalState, entries: ReadonlyArray<DiagramResizeEntry>): Set<DiagramId> {
+  const changed = new Set<DiagramId>()
+  for (const entry of entries) {
+    const node = state.entities.nodesById.get(entry.id)
+    if (node) {
+      state.entities.nodesById.set(entry.id, { ...node, ...definedRectPatch(entry) })
+      changed.add(entry.id)
+      continue
+    }
+    const shape = state.entities.shapesById.get(entry.id)
+    if (shape) {
+      state.entities.shapesById.set(entry.id, { ...shape, ...definedRectPatch(entry) })
+      changed.add(entry.id)
+      continue
+    }
+    const text = state.entities.textsById.get(entry.id)
+    if (text) {
+      state.entities.textsById.set(entry.id, { ...text, ...definedRectPatch(entry) })
+      changed.add(entry.id)
+    }
+  }
+  return changed
+}
+
+function definedRectPatch(entry: DiagramResizeEntry): Partial<DiagramResizeEntry> {
+  return Object.fromEntries(Object.entries(entry).filter(([key, value]) => key !== "id" && value !== undefined)) as Partial<DiagramResizeEntry>
+}
+
+function createOrderPatch(state: InternalState, ids: ReadonlyArray<DiagramId>, mode: "forward" | "backward" | "front" | "back"): Patch | null {
+  const previous = cloneOrder(state.order)
+  const next = cloneOrder(state.order)
+  reorderIds(next.nodeIds, ids, mode)
+  reorderIds(next.edgeIds, ids, mode)
+  reorderIds(next.textIds, ids, mode)
+  reorderIds(next.shapeIds, ids, mode)
+  if (ordersEqual(previous, next)) return null
+  return createOrderPatchUnchecked(previous, next)
+}
+
+function createOrderPatchUnchecked(previous: MutableOrder, nextOrder: MutableOrder): Patch {
+  return {
+    apply: (state) => {
+      state.order = cloneOrder(nextOrder)
+      return new Set([...nextOrder.nodeIds, ...nextOrder.edgeIds, ...nextOrder.textIds, ...nextOrder.shapeIds])
+    },
+    inverse: {
+      apply: (state) => {
+        state.order = cloneOrder(previous)
+        return new Set([...previous.nodeIds, ...previous.edgeIds, ...previous.textIds, ...previous.shapeIds])
+      },
+      inverse: undefined as unknown as Patch,
+    },
+  }
+}
+
+function createLayerPatch(state: InternalState, ids: ReadonlyArray<DiagramId>, layer: string | undefined, layerRole: "background" | "normal" | "foreground" | undefined): Patch | null {
+  const entries = ids.filter((id) => !isEntityLockedOrReadOnly(state, id) && hasEntity(state, id))
+  if (!entries.length) return null
+  const previous = new Map(entries.map((id) => [id, getEntityMetadata(state, id)]))
+  return {
+    apply: (next) => applyMetadataPatch(next, entries, { layer, layerRole }),
+    inverse: {
+      apply: (next) => {
+        const changed = new Set<DiagramId>()
+        for (const [id, metadata] of previous) {
+          setEntityMetadata(next, id, metadata)
+          changed.add(id)
+        }
+        return changed
+      },
+      inverse: undefined as unknown as Patch,
+    },
+  }
+}
+
+function createKeyboardPatch(state: InternalState, command: DiagramKeyboardCommand, options: DiagramKeyboardOptions): Patch | null {
+  const step = options.shiftKey ? options.largeStep ?? 10 : options.step ?? 1
+  if (command === "delete") return createDeleteSelectionPatch(state)
+  if (command === "escape") return createSelectionPatch(state.selection, { ids: [], primaryId: null })
+  if (command === "undo" || command === "redo") return null
+  const deltaByCommand: Record<string, DiagramPoint> = {
+    "nudge-left": { x: -step, y: 0 },
+    "nudge-right": { x: step, y: 0 },
+    "nudge-up": { x: 0, y: -step },
+    "nudge-down": { x: 0, y: step },
+  }
+  return createMovePatch(state, state.selection.ids, deltaByCommand[command] ?? { x: 0, y: 0 })
+}
+
+function createPastePatch(state: InternalState, clipboard: DiagramClipboard, offset: DiagramPoint): Patch | null {
+  const remap = new Map<DiagramId, DiagramId>()
+  const reserve = (id: DiagramId) => {
+    const next = uniqueId(state, `${id}-copy`, remap.size + 1)
+    remap.set(id, next)
+    return next
+  }
+  for (const entity of [...clipboard.nodes, ...clipboard.ports, ...clipboard.edges, ...clipboard.texts, ...clipboard.shapes]) reserve(entity.id)
+  const nodes = clipboard.nodes.map((node) => ({ ...node, id: remap.get(node.id)!, x: node.x + offset.x, y: node.y + offset.y, portIds: node.portIds?.map((id) => remap.get(id) ?? id) }))
+  const ports = clipboard.ports.map((port) => ({ ...port, id: remap.get(port.id)!, nodeId: remap.get(port.nodeId) ?? port.nodeId }))
+  const edges = clipboard.edges.map((edge) => ({ ...edge, id: remap.get(edge.id)!, source: remapEndpoint(edge.source, remap), target: remapEndpoint(edge.target, remap), points: edge.points?.map((point) => ({ x: point.x + offset.x, y: point.y + offset.y })) }))
+  const texts = clipboard.texts.map((text) => ({ ...text, id: remap.get(text.id)!, x: text.x + offset.x, y: text.y + offset.y }))
+  const shapes = clipboard.shapes.map((shape) => ({ ...shape, id: remap.get(shape.id)!, x: shape.x + offset.x, y: shape.y + offset.y }))
+  const pastedIds = [...nodes, ...ports, ...edges, ...texts, ...shapes].map((entity) => entity.id)
+  if (!pastedIds.length) return null
+  return {
+    apply: (next) => {
+      for (const node of nodes) { next.entities.nodesById.set(node.id, node); next.order.nodeIds.push(node.id); next.versions.set(node.id, 0) }
+      for (const port of ports) { next.entities.portsById.set(port.id, port); next.versions.set(port.id, 0) }
+      for (const edge of edges) { next.entities.edgesById.set(edge.id, edge); next.order.edgeIds.push(edge.id); next.versions.set(edge.id, 0) }
+      for (const text of texts) { next.entities.textsById.set(text.id, text); next.order.textIds.push(text.id); next.versions.set(text.id, 0) }
+      for (const shape of shapes) { next.entities.shapesById.set(shape.id, shape); next.order.shapeIds.push(shape.id); next.versions.set(shape.id, 0) }
+      next.selection = normalizeSelection({ ids: pastedIds.filter((id) => !next.entities.portsById.has(id)), primaryId: nodes[0]?.id ?? texts[0]?.id ?? shapes[0]?.id ?? edges[0]?.id ?? null })
+      return new Set([...pastedIds, "selection"])
+    },
+    inverse: createDeleteEntitiesPatch(pastedIds),
+  }
+}
+
 function createCreateEdgePatch(state: InternalState, edge: DiagramEdge): Patch | null {
   if (state.entities.edgesById.has(edge.id)) {
     return null
@@ -669,19 +984,20 @@ function createDeleteEntitiesPatch(ids: ReadonlyArray<DiagramId>): Patch {
   return patch
 }
 
-function createSelectionPatch(previous: DiagramSelection, selection: DiagramSelection): Patch | null {
-  if (sameIds(previous.ids, selection.ids) && previous.primaryId === selection.primaryId) {
+function createSelectionPatch(previous: DiagramSelection, selection: DiagramSelection, mode: "replace" | "add" | "toggle" = "replace"): Patch | null {
+  const nextSelection = normalizeSelectionByMode(previous, selection, mode)
+  if (sameIds(previous.ids, nextSelection.ids) && previous.primaryId === nextSelection.primaryId) {
     return null
   }
   return {
     apply: (next) => {
-      next.selection = normalizeSelection(selection)
-      return new Set([...previous.ids, ...selection.ids, "selection"])
+      next.selection = nextSelection
+      return new Set([...previous.ids, ...nextSelection.ids, "selection"])
     },
     inverse: {
       apply: (next) => {
         next.selection = previous
-        return new Set([...previous.ids, ...selection.ids, "selection"])
+        return new Set([...previous.ids, ...nextSelection.ids, "selection"])
       },
       inverse: undefined as unknown as Patch,
     },
@@ -781,8 +1097,8 @@ function createReplaceScenePatch(next: DiagramSceneInput, previous: SerializedDi
 }
 
 function expandDeletedIds(state: InternalState, ids: ReadonlyArray<DiagramId>): DiagramId[] {
-  const deleted = new Set(ids)
-  for (const id of ids) {
+  const deleted = new Set(ids.filter((id) => !isEntityNonDeletable(state, id) && !isEntityLockedOrReadOnly(state, id)))
+  for (const id of [...deleted]) {
     if (state.entities.nodesById.has(id)) {
       for (const port of state.entities.portsById.values()) {
         if (port.nodeId === id) {
@@ -823,6 +1139,156 @@ function composePatches(first: Patch, second: Patch): Patch {
     },
     inverse: undefined as unknown as Patch,
   }
+}
+
+function exportSubgraph(state: InternalState, ids: ReadonlyArray<DiagramId>): DiagramClipboard {
+  const selected = new Set(ids)
+  const nodes = state.order.nodeIds
+    .map((id) => state.entities.nodesById.get(id))
+    .filter((entity): entity is DiagramNode => entity !== undefined)
+    .filter((entity) => selected.has(entity.id))
+  const ports = [...state.entities.portsById.values()].filter((port) => selected.has(port.id) || selected.has(port.nodeId))
+  const included = new Set<DiagramId>([...selected, ...ports.map((port) => port.id)])
+  const edges = state.order.edgeIds
+    .map((id) => state.entities.edgesById.get(id))
+    .filter((edge): edge is DiagramEdge => edge !== undefined)
+    .filter((edge) => selected.has(edge.id) || (endpointIncluded(edge.source, included) && endpointIncluded(edge.target, included)))
+  return {
+    nodes,
+    ports,
+    edges,
+    texts: state.order.textIds
+      .map((id) => state.entities.textsById.get(id))
+      .filter((entity): entity is DiagramText => entity !== undefined)
+      .filter((entity) => selected.has(entity.id)),
+    shapes: state.order.shapeIds
+      .map((id) => state.entities.shapesById.get(id))
+      .filter((entity): entity is DiagramShape => entity !== undefined)
+      .filter((entity) => selected.has(entity.id)),
+    selection: normalizeSelection({ ids: [...selected], primaryId: state.selection.primaryId }),
+    viewport: state.viewport,
+  }
+}
+
+function endpointIncluded(endpoint: DiagramEdgeEndpoint, ids: ReadonlySet<DiagramId>): boolean {
+  if (endpoint.kind === "point") return true
+  if (endpoint.kind === "node") return ids.has(endpoint.nodeId)
+  return ids.has(endpoint.portId)
+}
+
+function remapEndpoint(endpoint: DiagramEdgeEndpoint, remap: ReadonlyMap<DiagramId, DiagramId>): DiagramEdgeEndpoint {
+  if (endpoint.kind === "point") return { kind: "point", point: endpoint.point }
+  if (endpoint.kind === "node") return { kind: "node", nodeId: remap.get(endpoint.nodeId) ?? endpoint.nodeId }
+  return { kind: "port", portId: remap.get(endpoint.portId) ?? endpoint.portId }
+}
+
+function uniqueId(state: InternalState, base: string, seed: number): DiagramId {
+  let id = `${base}-${seed}`
+  let index = seed
+  while (hasEntity(state, id)) {
+    index += 1
+    id = `${base}-${index}`
+  }
+  return id
+}
+
+function cloneOrder(order: MutableOrder): MutableOrder {
+  return { nodeIds: [...order.nodeIds], edgeIds: [...order.edgeIds], textIds: [...order.textIds], shapeIds: [...order.shapeIds] }
+}
+
+function ordersEqual(a: MutableOrder, b: MutableOrder): boolean {
+  return sameIds(a.nodeIds, b.nodeIds) && sameIds(a.edgeIds, b.edgeIds) && sameIds(a.textIds, b.textIds) && sameIds(a.shapeIds, b.shapeIds)
+}
+
+function reorderIds(order: DiagramId[], ids: ReadonlyArray<DiagramId>, mode: "forward" | "backward" | "front" | "back"): void {
+  const selected = new Set(ids)
+  if (mode === "front") {
+    const moved = order.filter((id) => selected.has(id))
+    order.splice(0, order.length, ...order.filter((id) => !selected.has(id)), ...moved)
+    return
+  }
+  if (mode === "back") {
+    const moved = order.filter((id) => selected.has(id))
+    order.splice(0, order.length, ...moved, ...order.filter((id) => !selected.has(id)))
+    return
+  }
+  const start = mode === "forward" ? order.length - 2 : 1
+  const end = mode === "forward" ? -1 : order.length
+  const step = mode === "forward" ? -1 : 1
+  for (let index = start; index !== end; index += step) {
+    const nextIndex = index + step
+    const current = order[index]
+    const next = order[nextIndex]
+    if (current !== undefined && next !== undefined && selected.has(current) && !selected.has(next)) {
+      order[index] = next
+      order[nextIndex] = current
+    }
+  }
+}
+
+function applyMetadataPatch(state: InternalState, ids: ReadonlyArray<DiagramId>, patch: { layer?: string; layerRole?: "background" | "normal" | "foreground" }): Set<DiagramId> {
+  const changed = new Set<DiagramId>()
+  for (const id of ids) {
+    const previous = getEntityMetadata(state, id) ?? {}
+    setEntityMetadata(state, id, { ...previous, ...patch })
+    changed.add(id)
+  }
+  return changed
+}
+
+function setEntityMetadata(state: InternalState, id: DiagramId, metadata: Readonly<Record<string, unknown>> | undefined): void {
+  const node = state.entities.nodesById.get(id)
+  if (node) { state.entities.nodesById.set(id, { ...node, metadata }); return }
+  const edge = state.entities.edgesById.get(id)
+  if (edge) { state.entities.edgesById.set(id, { ...edge, metadata }); return }
+  const text = state.entities.textsById.get(id)
+  if (text) { state.entities.textsById.set(id, { ...text, metadata }); return }
+  const shape = state.entities.shapesById.get(id)
+  if (shape) { state.entities.shapesById.set(id, { ...shape, metadata }); return }
+  const port = state.entities.portsById.get(id)
+  if (port) state.entities.portsById.set(id, { ...port, metadata })
+}
+
+function getEntityMetadata(state: InternalState, id: DiagramId): Readonly<Record<string, unknown>> | undefined {
+  return state.entities.nodesById.get(id)?.metadata
+    ?? state.entities.edgesById.get(id)?.metadata
+    ?? state.entities.textsById.get(id)?.metadata
+    ?? state.entities.shapesById.get(id)?.metadata
+    ?? state.entities.portsById.get(id)?.metadata
+}
+
+function hasEntity(state: InternalState, id: DiagramId): boolean {
+  return state.entities.nodesById.has(id) || state.entities.edgesById.has(id) || state.entities.textsById.has(id) || state.entities.shapesById.has(id) || state.entities.portsById.has(id)
+}
+
+function isEntityLockedOrReadOnly(state: InternalState, id: DiagramId): boolean {
+  const metadata = getEntityMetadata(state, id)
+  return metadata?.locked === true || metadata?.readOnly === true
+}
+
+function isEntityNonDeletable(state: InternalState, id: DiagramId): boolean {
+  return getEntityMetadata(state, id)?.nonDeletable === true
+}
+
+function layerRank(metadata: Readonly<Record<string, unknown>> | undefined): number {
+  if (metadata?.layerRole === "background") return -1
+  if (metadata?.layerRole === "foreground") return 1
+  return 0
+}
+
+function boundsForIds(engine: DiagramEngine, ids: ReadonlyArray<DiagramId>): DiagramRect | null {
+  const scene = engine.getScene()
+  const rects = ids.map((id) => createEntityGeometry(id, scene.entities)?.bounds).filter((rect): rect is DiagramRect => Boolean(rect))
+  if (!rects.length) return null
+  const minX = Math.min(...rects.map((rect) => rect.x))
+  const minY = Math.min(...rects.map((rect) => rect.y))
+  const maxX = Math.max(...rects.map((rect) => rect.x + rect.width))
+  const maxY = Math.max(...rects.map((rect) => rect.y + rect.height))
+  return { x: minX, y: minY, width: maxX - minX, height: maxY - minY }
+}
+
+function now(): number {
+  return typeof performance !== "undefined" ? performance.now() : Date.now()
 }
 
 function restoreSerialized(state: InternalState, scene: SerializedDiagramScene): Set<DiagramId> {
@@ -902,6 +1368,22 @@ function constrainAngle(point: DiagramPoint, angleDegrees: number): DiagramPoint
   const step = angleDegrees * (Math.PI / 180)
   const constrained = Math.round(angle / step) * step
   return { x: Math.cos(constrained) * length, y: Math.sin(constrained) * length }
+}
+
+function normalizeSelectionByMode(previous: DiagramSelection, selection: DiagramSelection, mode: "replace" | "add" | "toggle"): DiagramSelection {
+  if (mode === "replace") {
+    return normalizeSelection(selection)
+  }
+  const ids = new Set(previous.ids)
+  for (const id of selection.ids) {
+    if (mode === "toggle" && ids.has(id)) {
+      ids.delete(id)
+    } else {
+      ids.add(id)
+    }
+  }
+  const nextIds = [...ids]
+  return normalizeSelection({ ids: nextIds, primaryId: selection.primaryId ?? previous.primaryId ?? nextIds[0] ?? null })
 }
 
 function normalizeSelection(selection: Partial<DiagramSelection> | undefined): DiagramSelection {

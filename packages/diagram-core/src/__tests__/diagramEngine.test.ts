@@ -170,6 +170,88 @@ describe("DiagramEngine", () => {
     expect(engine.getScene().entities.nodesById.get("n2")?.x).toBe(280)
   })
 
+  it("covers editor must-have commands and helpers", () => {
+    const engine = createDiagramEngine({
+      ...scene,
+      nodes: [
+        { id: "n1", kind: "node", x: 0, y: 0, width: 100, height: 60, portIds: ["p1"] },
+        { id: "n2", kind: "node", x: 260, y: 0, width: 100, height: 60, portIds: ["p2"], metadata: { locked: true } },
+      ],
+      edges: [
+        { id: "e1", kind: "edge", source: { kind: "port", portId: "p1" }, target: { kind: "port", portId: "p2" }, points: [{ x: 150, y: 30 }] },
+      ],
+      shapes: [
+        { id: "s1", kind: "shape", shape: "rect", x: 120, y: 80, width: 50, height: 40, metadata: { layerRole: "background" } },
+      ],
+    })
+
+    expect(engine.canUndo()).toBe(false)
+    expect(engine.canMove(["n1"])).toBe(true)
+    expect(engine.canMove(["n2"])).toBe(false)
+
+    engine.dispatch({ type: "resizeEntities", entries: [{ id: "n1", width: 120, height: 80 }] })
+    expect(engine.getScene().entities.nodesById.get("n1")).toMatchObject({ width: 120, height: 80 })
+
+    engine.dispatch({ type: "insertEdgeWaypoint", id: "e1", index: 1, point: { x: 180, y: 60 } })
+    expect(engine.getScene().entities.edgesById.get("e1")?.points).toHaveLength(2)
+    engine.dispatch({ type: "moveEdgeWaypoint", id: "e1", index: 0, point: { x: 140, y: 20 } })
+    expect(engine.getScene().entities.edgesById.get("e1")?.points?.[0]).toEqual({ x: 140, y: 20 })
+    engine.dispatch({ type: "removeEdgeWaypoint", id: "e1", index: 1 })
+    expect(engine.getScene().entities.edgesById.get("e1")?.points).toHaveLength(1)
+
+    engine.dispatch({ type: "setSelection", selection: { ids: ["n1"], primaryId: "n1" } })
+    const exported = engine.exportSelection()
+    expect(exported.nodes.map((node) => node.id)).toEqual(["n1"])
+    expect(exported.ports.map((port) => port.id)).toEqual(["p1"])
+
+    engine.duplicateSelection({ x: 30, y: 30 })
+    expect(engine.getScene().selection.ids[0]).toMatch(/^n1-copy-/)
+    expect(engine.canUndo()).toBe(true)
+    engine.dispatch({ type: "undo" })
+    expect(engine.getScene().entities.nodesById.size).toBe(2)
+    engine.importClipboard(exported, { x: 48, y: 0 })
+    expect(engine.getScene().entities.nodesById.size).toBe(3)
+
+    engine.dispatch({ type: "setSelection", selection: { ids: ["n1"], primaryId: "n1" } })
+    engine.dispatch({ type: "keyboard", command: "nudge-right", options: { shiftKey: true, largeStep: 25 } })
+    expect(engine.getScene().entities.nodesById.get("n1")?.x).toBe(25)
+    engine.dispatch({ type: "keyboard", command: "escape" })
+    expect(engine.getScene().selection.ids).toEqual([])
+
+    engine.dispatch({ type: "setLayer", ids: ["n1"], layer: "controls", layerRole: "foreground" })
+    expect(engine.getScene().entities.nodesById.get("n1")?.metadata).toMatchObject({ layer: "controls", layerRole: "foreground" })
+    expect(engine.getRenderOrder()[0]).toBe("s1")
+    engine.dispatch({ type: "bringToFront", ids: ["s1"] })
+    expect(engine.getScene().order.shapeIds.at(-1)).toBe("s1")
+
+    engine.fitSelection()
+    expect(engine.getScene().viewport.width).toBeGreaterThan(1)
+    engine.fitScene()
+    expect(engine.getScene().viewport.width).toBeGreaterThan(100)
+
+    engine.queryVisible({ x: -100, y: -100, width: 800, height: 400 })
+    engine.hitTest({ x: 10, y: 10 })
+    expect(engine.getDiagnostics()).toMatchObject({ visibleQueryCount: 1, hitTestCount: 1 })
+  })
+
+  it("honors constraints for locked and non-deletable entities", () => {
+    const engine = createDiagramEngine({
+      nodes: [
+        { id: "locked", kind: "node", x: 0, y: 0, width: 20, height: 20, metadata: { locked: true } },
+        { id: "fixed", kind: "node", x: 40, y: 0, width: 20, height: 20, metadata: { nonDeletable: true } },
+      ],
+    })
+
+    engine.dispatch({ type: "moveNode", id: "locked", delta: { x: 10, y: 0 } })
+    expect(engine.getScene().entities.nodesById.get("locked")?.x).toBe(0)
+    expect(engine.canDelete(["fixed"])).toBe(false)
+
+    engine.dispatch({ type: "setSelection", selection: { ids: ["locked", "fixed"], primaryId: "locked" } })
+    engine.dispatch({ type: "deleteSelection" })
+    expect(engine.getScene().entities.nodesById.has("locked")).toBe(true)
+    expect(engine.getScene().entities.nodesById.has("fixed")).toBe(true)
+  })
+
   it("snaps to ports, alignment, angles, and grid", () => {
     const engine = createDiagramEngine(scene)
 

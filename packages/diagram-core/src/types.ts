@@ -2,7 +2,15 @@ export type DiagramId = string
 
 export type DiagramEntityKind = "node" | "edge" | "text" | "shape" | "port"
 
-export type DiagramMetadata = Readonly<Record<string, unknown>>
+export type DiagramLayerRole = "background" | "normal" | "foreground"
+
+export type DiagramMetadata = Readonly<Record<string, unknown> & {
+  locked?: boolean
+  readOnly?: boolean
+  nonDeletable?: boolean
+  layer?: string
+  layerRole?: DiagramLayerRole
+}>
 
 export type DiagramPoint = Readonly<{
   x: number
@@ -110,6 +118,46 @@ export type DiagramScene = Readonly<{
   revision: number
 }>
 
+export type DiagramClipboard = SerializedDiagramScene
+
+export type DiagramResizeEntry = Readonly<{
+  id: DiagramId
+  x?: number
+  y?: number
+  width?: number
+  height?: number
+}>
+
+export type DiagramKeyboardCommand =
+  | "nudge-left"
+  | "nudge-right"
+  | "nudge-up"
+  | "nudge-down"
+  | "delete"
+  | "escape"
+  | "undo"
+  | "redo"
+
+export type DiagramKeyboardOptions = Readonly<{
+  shiftKey?: boolean
+  step?: number
+  largeStep?: number
+}>
+
+export type DiagramDiagnostics = Readonly<{
+  revision: number
+  visibleQueryCount: number
+  hitTestCount: number
+  geometryRecomputeCount: number
+  lastCommandMs: number
+  undoDepth: number
+  redoDepth: number
+}>
+
+export type DiagramRenderOrderOptions = Readonly<{
+  includePorts?: boolean
+}>
+
 export type DiagramSceneInput = Readonly<{
   nodes?: ReadonlyArray<DiagramNode>
   edges?: ReadonlyArray<DiagramEdge>
@@ -162,9 +210,21 @@ export type DiagramCommand =
   | Readonly<{ type: "moveEntities"; ids: ReadonlyArray<DiagramId>; delta: DiagramPoint; historyKey?: string }>
   | Readonly<{ type: "moveNode"; id: DiagramId; delta: DiagramPoint; historyKey?: string }>
   | Readonly<{ type: "moveEdgeEndpoint"; id: DiagramId; endpoint: "source" | "target"; point: DiagramPoint; historyKey?: string }>
+  | Readonly<{ type: "insertEdgeWaypoint"; id: DiagramId; index: number; point: DiagramPoint; historyKey?: string }>
+  | Readonly<{ type: "moveEdgeWaypoint"; id: DiagramId; index: number; point: DiagramPoint; historyKey?: string }>
+  | Readonly<{ type: "removeEdgeWaypoint"; id: DiagramId; index: number; historyKey?: string }>
   | Readonly<{ type: "createEdge"; edge: DiagramEdge; historyKey?: string }>
   | Readonly<{ type: "deleteSelection"; historyKey?: string }>
-  | Readonly<{ type: "setSelection"; selection: DiagramSelection; historyKey?: string }>
+  | Readonly<{ type: "duplicateSelection"; offset?: DiagramPoint; historyKey?: string }>
+  | Readonly<{ type: "pasteClipboard"; clipboard: DiagramClipboard; offset?: DiagramPoint; historyKey?: string }>
+  | Readonly<{ type: "resizeEntities"; entries: ReadonlyArray<DiagramResizeEntry>; historyKey?: string }>
+  | Readonly<{ type: "bringForward"; ids: ReadonlyArray<DiagramId>; historyKey?: string }>
+  | Readonly<{ type: "sendBackward"; ids: ReadonlyArray<DiagramId>; historyKey?: string }>
+  | Readonly<{ type: "bringToFront"; ids: ReadonlyArray<DiagramId>; historyKey?: string }>
+  | Readonly<{ type: "sendToBack"; ids: ReadonlyArray<DiagramId>; historyKey?: string }>
+  | Readonly<{ type: "setLayer"; ids: ReadonlyArray<DiagramId>; layer?: string; layerRole?: DiagramLayerRole; historyKey?: string }>
+  | Readonly<{ type: "keyboard"; command: DiagramKeyboardCommand; options?: DiagramKeyboardOptions; historyKey?: string }>
+  | Readonly<{ type: "setSelection"; selection: DiagramSelection; mode?: "replace" | "add" | "toggle"; historyKey?: string }>
   | Readonly<{ type: "editText"; id: DiagramId; text: string; historyKey?: string }>
   | Readonly<{ type: "setViewport"; viewport: Partial<DiagramViewport>; historyKey?: string }>
   | Readonly<{ type: "undo" }>
@@ -182,6 +242,8 @@ export type DiagramPointerEvent = Readonly<{
   point: DiagramPoint
   shiftKey?: boolean
 }>
+
+export type DiagramMarqueeMode = "intersect" | "contain"
 
 export type DiagramInteractionSnapshot = Readonly<{
   tool: DiagramInteractionTool
