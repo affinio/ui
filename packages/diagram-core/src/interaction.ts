@@ -24,7 +24,7 @@ export class DiagramInteractionController {
 
   constructor(private readonly engine: DiagramEngine, options: DiagramInteractionOptions = {}) {
     this.scheduleFrame = options.scheduleFrame ?? defaultScheduleFrame
-    this.marqueeMode = options.marqueeMode ?? "intersect"
+    this.marqueeMode = options.marqueeMode ?? "contain"
   }
 
   setTool(tool: DiagramInteractionTool): void {

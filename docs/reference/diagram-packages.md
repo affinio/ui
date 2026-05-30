@@ -40,7 +40,7 @@ Core now owns the editor-level operations that wrappers need for production diag
 - Ordering and layers: `bringForward`, `sendBackward`, `bringToFront`, `sendToBack`, `setLayer`, and `getRenderOrder()` provide deterministic render ordering plus background/normal/foreground layer roles; front/back commands use entity `metadata.zIndex` so nodes, edges, shapes, ports, and text can be ordered across kinds.
 - Geometry edits: `resizeEntities` updates nodes, shapes, and texts; `insertEdgeWaypoint`, `moveEdgeWaypoint`, and `removeEdgeWaypoint` cover baseline polyline/orthogonal edge editing.
 - Keyboard helpers: `dispatchKeyboardCommand()` covers arrow nudge, shift-nudge, delete, escape, undo, and redo so adapters do not duplicate command semantics.
-- Selection modes: `setSelection` supports `replace`, `add`, and `toggle`; pointer interaction supports intersecting marquee and strict containment marquee.
+- Selection modes: `setSelection` supports `replace`, `add`, and `toggle`; pointer interaction uses strict containment marquee by default and can opt into intersecting marquee.
 - Constraints: entity metadata can mark objects as `locked`, `readOnly`, or `nonDeletable`; capability checks (`canUndo`, `canRedo`, `canDelete`, `canMove`) expose the same rules to UI.
 - Viewport: `fitSelection()`, `fitBounds()`, and `fitScene()` centralize fit math in core and preserve `width * zoom` / `height * zoom` screen-size invariants for SVG and DOM overlay alignment.
 - Diagnostics: `getDiagnostics()` reports visible query count, hit-test count, geometry recompute/read counts, and last command cost for demos and perf gates.

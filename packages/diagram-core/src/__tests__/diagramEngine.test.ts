@@ -152,7 +152,7 @@ describe("DiagramEngine", () => {
     expect(engine.getScene().entities.nodesById.get("n1")?.x).toBe(0)
   })
 
-  it("selects groups with a marquee drag from empty space", () => {
+  it("selects groups with strict containment marquee by default", () => {
     const callbacks: Array<() => void> = []
     const engine = createDiagramEngine(scene)
     const controller = createDiagramInteractionController(engine, { scheduleFrame: (callback) => callbacks.push(callback) })
@@ -165,9 +165,21 @@ describe("DiagramEngine", () => {
 
     controller.pointerUp({ id: 1, point: { x: 190, y: 150 } })
 
-    expect(engine.getScene().selection.ids).toEqual(["n1", "s1", "t1", "e1"])
+    expect(engine.getScene().selection.ids).toEqual(["n1", "s1", "t1"])
     expect(engine.getScene().selection.primaryId).toBe("n1")
+    expect(engine.getScene().selection.ids).not.toContain("e1")
     expect(engine.getScene().selection.ids).not.toContain("p1")
+  })
+
+  it("can opt into intersecting marquee selection", () => {
+    const engine = createDiagramEngine(scene)
+    const controller = createDiagramInteractionController(engine, { marqueeMode: "intersect" })
+
+    controller.pointerDown({ id: 1, point: { x: -20, y: -20 } })
+    controller.pointerMove({ id: 1, point: { x: 190, y: 150 } })
+    controller.pointerUp({ id: 1, point: { x: 190, y: 150 } })
+
+    expect(engine.getScene().selection.ids).toContain("e1")
   })
 
   it("drags the existing group selection when pointer starts on a selected entity", () => {

@@ -67,7 +67,7 @@ engine.dispatchKeyboardCommand("redo")
 
 ## Selection and viewport helpers
 
-Pointer adapters can use additive, toggle, and replace selection modes. Marquee selection supports intersection or strict containment.
+Pointer adapters can use additive, toggle, and replace selection modes. Marquee selection uses strict containment by default; pass `marqueeMode: "intersect"` only when partially intersecting objects should be selected.
 
 ```ts
 engine.dispatch({ type: "setSelection", selection: { ids: ["n1"], primaryId: "n1" }, mode: "replace" })
