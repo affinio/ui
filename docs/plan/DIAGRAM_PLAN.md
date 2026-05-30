@@ -42,7 +42,7 @@
   - Slices 1-7: implemented in `packages/diagram-core` as a headless package with normalized scene state, geometry cache, uniform-grid spatial indexes, command/history engine, interaction controller, and snapping APIs.
   - Slices 8-10: implemented in `packages/diagram-vue` as Vue lifecycle/composable bindings, SVG/DOM render projection helpers, pointer bridge, viewport resize bridge, and visible projection lists driven by core viewport queries.
   - Package naming follows the current monorepo scope: `@affino/diagram-core` and `@affino/diagram-vue`.
-  - Editor must-have slice: implemented in core and the Vue demo with clipboard import/export/duplicate, id remapping, z-order/layer commands, resize commands, resize-handle previews, waypoint edits, keyboard helpers, additive/toggle/containment selection modes, lock constraints, fit helpers, capability checks, query/search primitives, and diagnostics/perf counters.
+  - Editor must-have slice: implemented in core and the Vue demo with clipboard import/export/duplicate, id remapping, z-order/layer commands, resize commands, rotation-aware resize-handle previews, waypoint edits, keyboard helpers, additive/toggle/containment selection modes, lock constraints, fit helpers, capability checks, query/search primitives, and diagnostics/perf counters.
 
   Slice 0: Baseline
   Сначала зафиксировать текущую боль, иначе легко “улучшить” архитектуру без доказательства.

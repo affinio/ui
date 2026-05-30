@@ -19,6 +19,7 @@ export class DiagramInteractionController {
   private resizeOwnerId: DiagramId | null = null
   private resizeHandle: DiagramResizeHandle | null = null
   private resizeStartBounds: DiagramRect | null = null
+  private resizeStartRotation = 0
   private resizePreview: DiagramResizeEntry | null = null
   private framePending = false
   private pendingMoveCount = 0
@@ -72,6 +73,7 @@ export class DiagramInteractionController {
     this.resizeOwnerId = ownerId
     this.resizeHandle = handle
     this.resizeStartBounds = geometry.unrotatedBounds ?? geometry.bounds
+    this.resizeStartRotation = geometry.rotation ?? 0
     return true
   }
 
@@ -162,17 +164,18 @@ export class DiagramInteractionController {
   private createResizePreview(delta: DiagramPoint): DiagramResizeEntry | null {
     if (!this.resizeOwnerId || !this.resizeHandle || !this.resizeStartBounds) return null
     const bounds = this.resizeStartBounds
+    const localDelta = rotateDelta(delta, -this.resizeStartRotation)
     const minSize = 8
     const entry: { id: DiagramId; x?: number; y?: number; width?: number; height?: number } = { id: this.resizeOwnerId }
-    if (this.resizeHandle.includes("e")) entry.width = Math.max(minSize, bounds.width + delta.x)
-    if (this.resizeHandle.includes("s")) entry.height = Math.max(minSize, bounds.height + delta.y)
+    if (this.resizeHandle.includes("e")) entry.width = Math.max(minSize, bounds.width + localDelta.x)
+    if (this.resizeHandle.includes("s")) entry.height = Math.max(minSize, bounds.height + localDelta.y)
     if (this.resizeHandle.includes("w")) {
-      const width = Math.max(minSize, bounds.width - delta.x)
+      const width = Math.max(minSize, bounds.width - localDelta.x)
       entry.x = bounds.x + (bounds.width - width)
       entry.width = width
     }
     if (this.resizeHandle.includes("n")) {
-      const height = Math.max(minSize, bounds.height - delta.y)
+      const height = Math.max(minSize, bounds.height - localDelta.y)
       entry.y = bounds.y + (bounds.height - height)
       entry.height = height
     }
@@ -204,6 +207,7 @@ export class DiagramInteractionController {
     this.resizeOwnerId = null
     this.resizeHandle = null
     this.resizeStartBounds = null
+    this.resizeStartRotation = 0
     this.resizePreview = null
     this.framePending = false
     this.pendingMoveCount = 0
@@ -220,6 +224,13 @@ function defaultScheduleFrame(callback: () => void): void {
     return
   }
   callback()
+}
+
+function rotateDelta(delta: DiagramPoint, rotation: number): DiagramPoint {
+  const angle = rotation * (Math.PI / 180)
+  const cos = Math.cos(angle)
+  const sin = Math.sin(angle)
+  return { x: delta.x * cos - delta.y * sin, y: delta.x * sin + delta.y * cos }
 }
 
 function rectFromPoints(a: DiagramPoint, b: DiagramPoint): DiagramRect {

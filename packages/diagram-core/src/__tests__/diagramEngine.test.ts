@@ -217,6 +217,22 @@ describe("DiagramEngine", () => {
     expect(engine.getScene().entities.nodesById.get("n1")).toMatchObject({ width: 100, height: 60 })
   })
 
+  it("maps resize-handle drag deltas through entity rotation", () => {
+    const callbacks: Array<() => void> = []
+    const engine = createDiagramEngine({
+      nodes: [{ id: "n1", kind: "node", x: 0, y: 0, width: 100, height: 40, rotation: 90 }],
+    })
+    const controller = createDiagramInteractionController(engine, { scheduleFrame: (callback) => callbacks.push(callback) })
+
+    expect(controller.beginResizeHandle("n1", "se", { id: 1, point: { x: 30, y: 70 } })).toBe(true)
+    controller.pointerMove({ id: 1, point: { x: 30, y: 90 } })
+    callbacks[0]()
+
+    expect(controller.getSnapshot().resizePreview).toEqual({ id: "n1", width: 120, height: 40 })
+    controller.pointerUp({ id: 1, point: { x: 30, y: 90 } })
+    expect(engine.getScene().entities.nodesById.get("n1")).toMatchObject({ width: 120, height: 40 })
+  })
+
   it("selects groups with strict containment marquee by default", () => {
     const callbacks: Array<() => void> = []
     const engine = createDiagramEngine(scene)
