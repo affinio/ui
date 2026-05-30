@@ -3,7 +3,7 @@
 `@affino/diagram-core` and `@affino/diagram-vue` provide a framework-separated diagram stack. Core owns state, geometry, hit testing, commands, history, spatial indexes, interaction state, snapping, and serialization. Vue owns refs, lifecycle cleanup, DOM pointer events, viewport resize, and render lists.
 
 
-The public core API is intentionally a single `createDiagramEngine()` facade. Internal ownership is split behind services for history, geometry caching, spatial indexes, and viewport fit math; keep further command, scene-store, and clipboard extraction behind that facade so adapters do not depend on internals.
+The public core API is intentionally a single `createDiagramEngine()` facade. Internal ownership is split behind services for history, geometry caching, spatial indexes, viewport fit math, and clipboard subgraph import/export; keep further command and scene-store extraction behind that facade so adapters do not depend on internals.
 
 ## Core Example
 
