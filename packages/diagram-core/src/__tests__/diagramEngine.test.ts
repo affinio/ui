@@ -297,6 +297,33 @@ describe("DiagramEngine", () => {
     expect(engine.queryVisible({ x: -10, y: -10, width: 40, height: 40 })[0]).toBe("t1")
   })
 
+  it("rotates and aligns entities through core commands", () => {
+    const engine = createDiagramEngine({
+      nodes: [
+        { id: "n1", kind: "node", x: 40, y: 30, width: 40, height: 20 },
+        { id: "n2", kind: "node", x: 100, y: 80, width: 20, height: 20 },
+        { id: "locked", kind: "node", x: 160, y: 120, width: 20, height: 20, metadata: { locked: true } },
+      ],
+      texts: [{ id: "t1", kind: "text", x: 10, y: 10, width: 40, height: 12, text: "Label" }],
+    })
+
+    engine.dispatch({ type: "rotateEntities", entries: [{ id: "n1", rotation: 390 }, { id: "locked", rotation: 45 }] })
+    expect(engine.getScene().entities.nodesById.get("n1")?.rotation).toBe(30)
+    expect(engine.getScene().entities.nodesById.get("locked")?.rotation).toBeUndefined()
+    engine.dispatch({ type: "undo" })
+    expect(engine.getScene().entities.nodesById.get("n1")?.rotation).toBe(0)
+    engine.dispatch({ type: "redo" })
+    expect(engine.getScene().entities.nodesById.get("n1")?.rotation).toBe(30)
+
+    engine.dispatch({ type: "alignEntities", ids: ["n1", "n2", "t1"], edge: "left" })
+    expect(engine.getScene().entities.nodesById.get("n1")?.x).toBe(10)
+    expect(engine.getScene().entities.nodesById.get("n2")?.x).toBe(10)
+    expect(engine.getScene().entities.textsById.get("t1")?.x).toBe(10)
+    engine.dispatch({ type: "alignEntities", ids: ["n1", "n2"], edge: "bottom" })
+    expect(engine.getScene().entities.nodesById.get("n1")?.y).toBe(80)
+    expect(engine.getScene().entities.nodesById.get("n2")?.y).toBe(80)
+  })
+
   it("honors constraints for locked and non-deletable entities", () => {
     const engine = createDiagramEngine({
       nodes: [

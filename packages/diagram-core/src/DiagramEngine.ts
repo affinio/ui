@@ -19,6 +19,8 @@ import type {
   DiagramRect,
   DiagramRenderOrderOptions,
   DiagramResizeEntry,
+  DiagramRotateEntry,
+  DiagramAlignEdge,
   DiagramScene,
   DiagramSceneInput,
   DiagramSelection,
@@ -508,6 +510,10 @@ export class DiagramEngine {
         return createPastePatch(this.state, command.clipboard, command.offset ?? { x: 24, y: 24 })
       case "resizeEntities":
         return createResizePatch(this.state, command.entries)
+      case "rotateEntities":
+        return createRotatePatch(this.state, command.entries)
+      case "alignEntities":
+        return createAlignPatch(this.state, command.ids, command.edge)
       case "bringForward":
         return createOrderPatch(this.state, command.ids, "forward")
       case "sendBackward":
@@ -878,6 +884,87 @@ function applyResizeEntries(state: InternalState, entries: ReadonlyArray<Diagram
 
 function definedRectPatch(entry: DiagramResizeEntry): Partial<DiagramResizeEntry> {
   return Object.fromEntries(Object.entries(entry).filter(([key, value]) => key !== "id" && value !== undefined)) as Partial<DiagramResizeEntry>
+}
+
+
+function createRotatePatch(state: InternalState, entries: ReadonlyArray<DiagramRotateEntry>): Patch | null {
+  const previous: DiagramRotateEntry[] = []
+  const nextEntries: DiagramRotateEntry[] = []
+  for (const entry of entries) {
+    if (isEntityLockedOrReadOnly(state, entry.id)) continue
+    const entity = state.entities.nodesById.get(entry.id) ?? state.entities.shapesById.get(entry.id) ?? state.entities.textsById.get(entry.id)
+    if (!entity) continue
+    previous.push({ id: entry.id, rotation: entity.rotation ?? 0 })
+    nextEntries.push({ id: entry.id, rotation: normalizeRotation(entry.rotation) })
+  }
+  if (!nextEntries.length) return null
+  return createRotatePatchUnchecked(nextEntries, previous)
+}
+
+function createRotatePatchUnchecked(entries: ReadonlyArray<DiagramRotateEntry>, inverseEntries: ReadonlyArray<DiagramRotateEntry>): Patch {
+  return {
+    apply: (state) => applyRotateEntries(state, entries),
+    inverse: {
+      apply: (state) => applyRotateEntries(state, inverseEntries),
+      inverse: undefined as unknown as Patch,
+    },
+  }
+}
+
+function applyRotateEntries(state: InternalState, entries: ReadonlyArray<DiagramRotateEntry>): Set<DiagramId> {
+  const changed = new Set<DiagramId>()
+  for (const entry of entries) {
+    const node = state.entities.nodesById.get(entry.id)
+    if (node) { state.entities.nodesById.set(entry.id, { ...node, rotation: entry.rotation }); changed.add(entry.id); continue }
+    const shape = state.entities.shapesById.get(entry.id)
+    if (shape) { state.entities.shapesById.set(entry.id, { ...shape, rotation: entry.rotation }); changed.add(entry.id); continue }
+    const text = state.entities.textsById.get(entry.id)
+    if (text) { state.entities.textsById.set(entry.id, { ...text, rotation: entry.rotation }); changed.add(entry.id) }
+  }
+  return changed
+}
+
+function createAlignPatch(state: InternalState, ids: ReadonlyArray<DiagramId>, edge: DiagramAlignEdge): Patch | null {
+  const geometries = ids
+    .filter((id) => !isEntityLockedOrReadOnly(state, id))
+    .map((id) => createEntityGeometry(id, snapshotEntities(state)))
+    .filter((geometry): geometry is DiagramGeometry => geometry !== null && geometry.kind !== "edge" && geometry.kind !== "port")
+  if (geometries.length < 2) return null
+  const target = alignTarget(geometries, edge)
+  const entries = geometries.map((geometry) => {
+    const bounds = geometry.bounds
+    if (edge === "left") return { id: geometry.id, x: target }
+    if (edge === "centerX") return { id: geometry.id, x: target - bounds.width / 2 }
+    if (edge === "right") return { id: geometry.id, x: target - bounds.width }
+    if (edge === "top") return { id: geometry.id, y: target }
+    if (edge === "centerY") return { id: geometry.id, y: target - bounds.height / 2 }
+    return { id: geometry.id, y: target - bounds.height }
+  })
+  return createResizePatch(state, entries)
+}
+
+function alignTarget(geometries: ReadonlyArray<DiagramGeometry>, edge: DiagramAlignEdge): number {
+  if (edge === "left") return Math.min(...geometries.map((geometry) => geometry.bounds.x))
+  if (edge === "centerX") return geometries[0]!.bounds.x + geometries[0]!.bounds.width / 2
+  if (edge === "right") return Math.max(...geometries.map((geometry) => geometry.bounds.x + geometry.bounds.width))
+  if (edge === "top") return Math.min(...geometries.map((geometry) => geometry.bounds.y))
+  if (edge === "centerY") return geometries[0]!.bounds.y + geometries[0]!.bounds.height / 2
+  return Math.max(...geometries.map((geometry) => geometry.bounds.y + geometry.bounds.height))
+}
+
+function snapshotEntities(state: InternalState) {
+  return {
+    nodesById: state.entities.nodesById,
+    edgesById: state.entities.edgesById,
+    textsById: state.entities.textsById,
+    shapesById: state.entities.shapesById,
+    portsById: state.entities.portsById,
+  }
+}
+
+function normalizeRotation(rotation: number): number {
+  const normalized = rotation % 360
+  return normalized < 0 ? normalized + 360 : normalized
 }
 
 function createOrderPatch(state: InternalState, ids: ReadonlyArray<DiagramId>, mode: "forward" | "backward" | "front" | "back"): Patch | null {

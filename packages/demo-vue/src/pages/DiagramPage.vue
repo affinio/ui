@@ -148,11 +148,22 @@ function toWorldPoint(event: PointerEvent): DiagramPoint {
 }
 
 function entityTransform(entity: DiagramRenderEntity): string | undefined {
+  const transforms: string[] = []
   const delta = previewDelta.value
-  if (!delta || !entity.selected || pointer.state.value.tool === "pan") {
-    return undefined
+  if (delta && entity.selected && pointer.state.value.tool !== "pan") {
+    transforms.push(`translate(${delta.x} ${delta.y})`)
   }
-  return `translate(${delta.x} ${delta.y})`
+  const rotation = entityRotation(entity.id)
+  if (rotation) {
+    const bounds = entity.geometry.bounds
+    transforms.push(`rotate(${rotation} ${bounds.x + bounds.width / 2} ${bounds.y + bounds.height / 2})`)
+  }
+  return transforms.length ? transforms.join(" ") : undefined
+}
+
+function entityRotation(id: string): number {
+  const scene = diagram.scene.value.entities
+  return scene.nodesById.get(id)?.rotation ?? scene.shapesById.get(id)?.rotation ?? scene.textsById.get(id)?.rotation ?? 0
 }
 
 function portPreviewProps(entity: DiagramRenderEntity): Readonly<Record<string, string | number | boolean | undefined>> {
@@ -272,6 +283,21 @@ function bringSelectedForward(): void {
 
 function sendSelectedBackward(): void {
   diagram.dispatch({ type: "sendToBack", ids: selection.selection.value.ids })
+}
+
+function rotateSelected(delta: number): void {
+  const entries = selection.selection.value.ids.map((id) => {
+    const current = entityRotation(id)
+    const exists = diagram.scene.value.entities.nodesById.has(id) || diagram.scene.value.entities.shapesById.has(id) || diagram.scene.value.entities.textsById.has(id)
+    return exists ? { id, rotation: current + delta } : null
+  }).filter((entry): entry is { id: string; rotation: number } => entry !== null)
+  if (entries.length) {
+    diagram.dispatch({ type: "rotateEntities", entries })
+  }
+}
+
+function alignSelected(edge: "left" | "centerX" | "right" | "top" | "centerY" | "bottom"): void {
+  diagram.dispatch({ type: "alignEntities", ids: selection.selection.value.ids, edge })
 }
 
 function resizeSelected(): void {
@@ -467,6 +493,9 @@ function clamp(value: number, min: number, max: number): number {
         <button type="button" @click="nudgeSelected({ x: 12, y: 0 })">→</button>
         <button class="wide" type="button" @click="snapSelectedToGrid">Snap grid</button>
         <button class="wide" type="button" @click="resizeSelected">Resize</button>
+        <button class="wide" type="button" @click="rotateSelected(15)">Rotate 15</button>
+        <button class="wide" type="button" @click="alignSelected('left')">Align left</button>
+        <button class="wide" type="button" @click="alignSelected('top')">Align top</button>
         <button class="wide" type="button" title="Move selected entities to the front of the render order" @click="bringSelectedForward">Bring to front</button>
         <button class="wide" type="button" title="Move selected entities to the back of the render order" @click="sendSelectedBackward">Send to back</button>
         <button class="wide" type="button" @click="diagram.engine.fitSelection()">Fit selection</button>

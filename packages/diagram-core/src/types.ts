@@ -48,6 +48,7 @@ export type DiagramNode = DiagramEntityBase & Readonly<{
   y: number
   width: number
   height: number
+  rotation?: number
   portIds?: ReadonlyArray<DiagramId>
 }>
 
@@ -79,6 +80,7 @@ export type DiagramText = DiagramEntityBase & Readonly<{
   width?: number
   height?: number
   fontSize?: number
+  rotation?: number
 }>
 
 export type DiagramShape = DiagramEntityBase & Readonly<{
@@ -87,6 +89,7 @@ export type DiagramShape = DiagramEntityBase & Readonly<{
   y: number
   width: number
   height: number
+  rotation?: number
   shape: "rect" | "ellipse" | "line" | string
 }>
 
@@ -127,6 +130,13 @@ export type DiagramResizeEntry = Readonly<{
   width?: number
   height?: number
 }>
+
+export type DiagramRotateEntry = Readonly<{
+  id: DiagramId
+  rotation: number
+}>
+
+export type DiagramAlignEdge = "left" | "centerX" | "right" | "top" | "centerY" | "bottom"
 
 export type DiagramKeyboardCommand =
   | "nudge-left"
@@ -218,6 +228,8 @@ export type DiagramCommand =
   | Readonly<{ type: "duplicateSelection"; offset?: DiagramPoint; historyKey?: string }>
   | Readonly<{ type: "pasteClipboard"; clipboard: DiagramClipboard; offset?: DiagramPoint; historyKey?: string }>
   | Readonly<{ type: "resizeEntities"; entries: ReadonlyArray<DiagramResizeEntry>; historyKey?: string }>
+  | Readonly<{ type: "rotateEntities"; entries: ReadonlyArray<DiagramRotateEntry>; historyKey?: string }>
+  | Readonly<{ type: "alignEntities"; ids: ReadonlyArray<DiagramId>; edge: DiagramAlignEdge; historyKey?: string }>
   | Readonly<{ type: "bringForward"; ids: ReadonlyArray<DiagramId>; historyKey?: string }>
   | Readonly<{ type: "sendBackward"; ids: ReadonlyArray<DiagramId>; historyKey?: string }>
   | Readonly<{ type: "bringToFront"; ids: ReadonlyArray<DiagramId>; historyKey?: string }>

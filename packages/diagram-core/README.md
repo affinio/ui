@@ -44,6 +44,8 @@ engine.dispatch({ type: "moveEdgeWaypoint", edgeId: "e1", index: 0, point: { x: 
 engine.dispatch({ type: "removeEdgeWaypoint", edgeId: "e1", index: 0 })
 engine.dispatch({ type: "bringForward", ids: ["n1"] })
 engine.dispatch({ type: "setLayer", ids: ["n1"], layer: "equipment", layerRole: "normal" })
+engine.dispatch({ type: "rotateEntities", entries: [{ id: "n1", rotation: 90 }] })
+engine.dispatch({ type: "alignEntities", ids: ["n1", "n2"], edge: "left" })
 ```
 
 Entities can be marked with metadata constraints. `locked` and `readOnly` entities cannot move, resize, or delete; `nonDeletable` entities can move but cannot be deleted. Front/back commands write `metadata.zIndex` so render order can cross entity kinds. Background layers are excluded from default render ordering unless explicitly requested.
