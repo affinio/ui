@@ -14,42 +14,68 @@ import { createEntityGeometry, type DiagramGeometry, type DiagramPoint, type Dia
 
 const stageRef = ref<HTMLElement | null>(null)
 
-const WORLD_BOUNDS = Object.freeze({ x: -40, y: -40, width: 980, height: 460 })
-const MIN_ZOOM = 0.45
+const GRID_COLUMNS = 40
+const GENERATED_NODE_COUNT = 1000
+const WORLD_BOUNDS = Object.freeze({ x: -80, y: -80, width: 6200, height: 3400 })
+const MIN_ZOOM = 0.05
 const MAX_ZOOM = 2.4
 
+const generatedNodes = Array.from({ length: GENERATED_NODE_COUNT }, (_, index) => {
+  const column = index % GRID_COLUMNS
+  const row = Math.floor(index / GRID_COLUMNS)
+  return {
+    id: `node-${index}`,
+    kind: "node" as const,
+    x: 60 + column * 150,
+    y: 60 + row * 125,
+    width: 104,
+    height: 58,
+    portIds: [`port-${index}`],
+    metadata: { label: `Bay ${index + 1}` },
+  }
+})
+
+const generatedPorts = generatedNodes.map((node, index) => ({
+  id: `port-${index}`,
+  kind: "port" as const,
+  nodeId: node.id,
+  x: 104,
+  y: 29,
+}))
+
+const generatedEdges = Array.from({ length: GENERATED_NODE_COUNT - 1 }, (_, index) => ({
+  id: `edge-${index}`,
+  kind: "edge" as const,
+  source: { kind: "port" as const, portId: `port-${index}` },
+  target: { kind: "port" as const, portId: `port-${index + 1}` },
+}))
+
+const generatedTexts = generatedNodes.map((node, index) => ({
+  id: `label-${index}`,
+  kind: "text" as const,
+  x: node.x + 16,
+  y: node.y + 20,
+  text: `Bay ${index + 1}`,
+  width: 72,
+  height: 18,
+}))
+
+const generatedShapes = Array.from({ length: Math.ceil(GENERATED_NODE_COUNT / GRID_COLUMNS) }, (_, row) => ({
+  id: `bus-${row}`,
+  kind: "shape" as const,
+  shape: "rect",
+  x: 36,
+  y: 84 + row * 125,
+  width: GRID_COLUMNS * 150,
+  height: 6,
+}))
+
 const initialScene: DiagramSceneInput = {
-  nodes: [
-    { id: "utility", kind: "node", x: 60, y: 70, width: 150, height: 78, portIds: ["utility-out"] },
-    { id: "transformer-a", kind: "node", x: 360, y: 48, width: 170, height: 96, portIds: ["transformer-a-in", "transformer-a-out"] },
-    { id: "feeder-north", kind: "node", x: 710, y: 30, width: 150, height: 78, portIds: ["feeder-north-in"] },
-    { id: "feeder-south", kind: "node", x: 710, y: 190, width: 150, height: 78, portIds: ["feeder-south-in"] },
-    { id: "backup", kind: "node", x: 350, y: 250, width: 160, height: 82, portIds: ["backup-out"] },
-  ],
-  ports: [
-    { id: "utility-out", kind: "port", nodeId: "utility", x: 150, y: 39 },
-    { id: "transformer-a-in", kind: "port", nodeId: "transformer-a", x: 0, y: 48 },
-    { id: "transformer-a-out", kind: "port", nodeId: "transformer-a", x: 170, y: 48 },
-    { id: "feeder-north-in", kind: "port", nodeId: "feeder-north", x: 0, y: 39 },
-    { id: "feeder-south-in", kind: "port", nodeId: "feeder-south", x: 0, y: 39 },
-    { id: "backup-out", kind: "port", nodeId: "backup", x: 160, y: 41 },
-  ],
-  edges: [
-    { id: "edge-utility-transformer", kind: "edge", source: { kind: "port", portId: "utility-out" }, target: { kind: "port", portId: "transformer-a-in" } },
-    { id: "edge-transformer-north", kind: "edge", source: { kind: "port", portId: "transformer-a-out" }, target: { kind: "port", portId: "feeder-north-in" }, points: [{ x: 620, y: 96 }, { x: 620, y: 69 }] },
-    { id: "edge-transformer-south", kind: "edge", source: { kind: "port", portId: "transformer-a-out" }, target: { kind: "port", portId: "feeder-south-in" }, points: [{ x: 620, y: 96 }, { x: 620, y: 229 }] },
-    { id: "edge-backup-south", kind: "edge", source: { kind: "port", portId: "backup-out" }, target: { kind: "port", portId: "feeder-south-in" }, points: [{ x: 600, y: 291 }, { x: 600, y: 229 }] },
-  ],
-  texts: [
-    { id: "label-utility", kind: "text", x: 82, y: 99, text: "Utility source", width: 112, height: 18 },
-    { id: "label-transformer", kind: "text", x: 386, y: 84, text: "Transformer A", width: 118, height: 18 },
-    { id: "label-north", kind: "text", x: 737, y: 59, text: "North feeder", width: 96, height: 18 },
-    { id: "label-south", kind: "text", x: 737, y: 219, text: "South feeder", width: 96, height: 18 },
-    { id: "label-backup", kind: "text", x: 383, y: 282, text: "Backup feed", width: 94, height: 18 },
-  ],
-  shapes: [
-    { id: "bus-a", kind: "shape", shape: "rect", x: 580, y: 54, width: 10, height: 210 },
-  ],
+  nodes: generatedNodes,
+  ports: generatedPorts,
+  edges: generatedEdges,
+  texts: generatedTexts,
+  shapes: generatedShapes,
   viewport: { x: 0, y: 0, width: 980, height: 420, zoom: 1 },
 }
 
@@ -97,7 +123,9 @@ const labelLayerStyle = computed(() => {
 const marqueeRect = computed(() => (pointer.state.value.tool === "marquee" ? pointer.state.value.marquee : null))
 const minimapNodes = computed(() => {
   const scene = diagram.scene.value
+  const stride = Math.max(1, Math.ceil(scene.order.nodeIds.length / 250))
   return scene.order.nodeIds
+    .filter((_, index) => index % stride === 0)
     .map((id) => createEntityGeometry(id, scene.entities))
     .filter((geometry): geometry is DiagramGeometry => geometry !== null)
 })
@@ -266,11 +294,11 @@ function clamp(value: number, min: number, max: number): number {
       </svg>
 
       <div class="diagram-list" aria-label="Entities">
-        <button type="button" @click="focusEntity('utility')">Utility source</button>
-        <button type="button" @click="focusEntity('transformer-a')">Transformer A</button>
-        <button type="button" @click="focusEntity('feeder-north')">North feeder</button>
-        <button type="button" @click="focusEntity('feeder-south')">South feeder</button>
-        <button type="button" @click="focusEntity('backup')">Backup feed</button>
+        <button type="button" @click="focusEntity('node-0')">Bay 1</button>
+        <button type="button" @click="focusEntity('node-199')">Bay 200</button>
+        <button type="button" @click="focusEntity('node-399')">Bay 400</button>
+        <button type="button" @click="focusEntity('node-699')">Bay 700</button>
+        <button type="button" @click="focusEntity('node-999')">Bay 1000</button>
       </div>
 
       <div class="diagram-actions" aria-label="Selected entity actions">
