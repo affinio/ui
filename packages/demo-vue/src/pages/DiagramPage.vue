@@ -9,7 +9,7 @@ import {
   useDiagramVisibleEntities,
   type DiagramRenderEntity,
 } from "@affino/diagram-vue"
-import { createEntityGeometry, type DiagramClipboard, type DiagramGeometry, type DiagramPoint, type DiagramSceneInput } from "@affino/diagram-core"
+import { createEntityGeometry, type DiagramClipboard, type DiagramEdgeEndpoint, type DiagramGeometry, type DiagramPoint, type DiagramSceneInput } from "@affino/diagram-core"
 
 const stageRef = ref<HTMLElement | null>(null)
 const clipboard = ref<DiagramClipboard | null>(null)
@@ -116,6 +116,8 @@ const minimapViewport = computed(() => ({
 }))
 const marqueeRect = computed(() => (pointer.state.value.tool === "marquee" ? pointer.state.value.marquee : null))
 const showSelectionOverlays = computed(() => pointer.state.value.tool !== "drag-selection")
+const selectedIds = computed(() => new Set(selection.selection.value.ids))
+const dragPreviewDelta = computed(() => (pointer.state.value.tool === "drag-selection" ? previewDelta.value : null))
 const minimapNodes = computed(() => {
   const scene = diagram.scene.value
   const stride = Math.max(1, Math.ceil(scene.order.nodeIds.length / 250))
@@ -151,6 +153,83 @@ function entityTransform(entity: DiagramRenderEntity): string | undefined {
     return undefined
   }
   return `translate(${delta.x} ${delta.y})`
+}
+
+function portPreviewProps(entity: DiagramRenderEntity): Readonly<Record<string, string | number | boolean | undefined>> {
+  const props = { ...getSvgEntityProps(entity) }
+  const port = diagram.scene.value.entities.portsById.get(entity.id)
+  const delta = port ? previewDeltaForNode(port.nodeId) : null
+  if (!delta || typeof props.cx !== "number" || typeof props.cy !== "number") {
+    return props
+  }
+  return { ...props, cx: props.cx + delta.x, cy: props.cy + delta.y }
+}
+
+function edgePreviewProps(entity: DiagramRenderEntity): Readonly<Record<string, string | number | boolean | undefined>> {
+  const props = { ...getSvgEntityProps(entity) }
+  const edge = diagram.scene.value.entities.edgesById.get(entity.id)
+  if (!edge || !dragPreviewDelta.value) {
+    return props
+  }
+  const points = [
+    previewEndpointPoint(edge.source),
+    ...(edge.points ?? []).map((point) => previewWaypointPoint(point, edge.source, edge.target)),
+    previewEndpointPoint(edge.target),
+  ]
+  return { ...props, points: points.map((point) => `${point.x},${point.y}`).join(" ") }
+}
+
+function previewEndpointPoint(endpoint: DiagramEdgeEndpoint): DiagramPoint {
+  if (endpoint.kind === "point") {
+    const delta = previewDeltaForEdgePoint()
+    return delta ? { x: endpoint.point.x + delta.x, y: endpoint.point.y + delta.y } : endpoint.point
+  }
+  if (endpoint.kind === "node") {
+    const node = diagram.scene.value.entities.nodesById.get(endpoint.nodeId)
+    const delta = previewDeltaForNode(endpoint.nodeId)
+    const point = node ? { x: node.x + node.width / 2, y: node.y + node.height / 2 } : { x: 0, y: 0 }
+    return delta ? { x: point.x + delta.x, y: point.y + delta.y } : point
+  }
+  const port = diagram.scene.value.entities.portsById.get(endpoint.portId)
+  const node = port ? diagram.scene.value.entities.nodesById.get(port.nodeId) : null
+  const delta = port ? previewDeltaForPort(endpoint.portId, port.nodeId) : null
+  const point = port && node ? { x: node.x + port.x, y: node.y + port.y } : { x: 0, y: 0 }
+  return delta ? { x: point.x + delta.x, y: point.y + delta.y } : point
+}
+
+function previewWaypointPoint(point: DiagramPoint, source: DiagramEdgeEndpoint, target: DiagramEdgeEndpoint): DiagramPoint {
+  const sourceDelta = previewDeltaForEndpoint(source)
+  const targetDelta = previewDeltaForEndpoint(target)
+  if (sourceDelta && targetDelta && sourceDelta.x === targetDelta.x && sourceDelta.y === targetDelta.y) {
+    return { x: point.x + sourceDelta.x, y: point.y + sourceDelta.y }
+  }
+  return point
+}
+
+function previewDeltaForEndpoint(endpoint: DiagramEdgeEndpoint): DiagramPoint | null {
+  if (endpoint.kind === "point") {
+    return previewDeltaForEdgePoint()
+  }
+  if (endpoint.kind === "node") {
+    return previewDeltaForNode(endpoint.nodeId)
+  }
+  const port = diagram.scene.value.entities.portsById.get(endpoint.portId)
+  return port ? previewDeltaForPort(endpoint.portId, port.nodeId) : null
+}
+
+function previewDeltaForNode(id: string): DiagramPoint | null {
+  const delta = dragPreviewDelta.value
+  return delta && selectedIds.value.has(id) ? delta : null
+}
+
+function previewDeltaForPort(portId: string, nodeId: string): DiagramPoint | null {
+  const delta = dragPreviewDelta.value
+  return delta && (selectedIds.value.has(portId) || selectedIds.value.has(nodeId)) ? delta : null
+}
+
+function previewDeltaForEdgePoint(): DiagramPoint | null {
+  const delta = dragPreviewDelta.value
+  return delta && selection.selection.value.ids.some((id) => diagram.scene.value.entities.edgesById.has(id)) ? delta : null
 }
 
 function focusEntity(id: string): void {
@@ -422,9 +501,9 @@ function clamp(value: number, min: number, max: number): number {
           <rect class="diagram-grid-fill" :x="displayViewport.x" :y="displayViewport.y" :width="displayViewport.width" :height="displayViewport.height" fill="url(#diagram-grid)" />
           <template v-for="entity in renderEntities" :key="entity.id">
             <rect v-if="entity.kind === 'shape'" class="diagram-bus" v-bind="getSvgEntityProps(entity)" :transform="entityTransform(entity)" />
-            <polyline v-else-if="entity.kind === 'edge'" class="diagram-edge" :class="{ selected: entity.selected }" v-bind="getSvgEntityProps(entity)" :transform="entityTransform(entity)" />
+            <polyline v-else-if="entity.kind === 'edge'" class="diagram-edge" :class="{ selected: entity.selected }" v-bind="edgePreviewProps(entity)" />
             <rect v-else-if="entity.kind === 'node'" class="diagram-node" :class="{ selected: entity.selected }" v-bind="getSvgEntityProps(entity)" :transform="entityTransform(entity)" />
-            <circle v-else-if="entity.kind === 'port'" class="diagram-port" v-bind="getSvgEntityProps(entity)" :transform="entityTransform(entity)" />
+            <circle v-else-if="entity.kind === 'port'" class="diagram-port" v-bind="portPreviewProps(entity)" />
             <text v-else-if="entity.kind === 'text'" class="diagram-svg-label" :class="{ selected: entity.selected }" :data-diagram-id="entity.id" data-diagram-kind="text" :data-selected="entity.selected || undefined" :x="entity.geometry.bounds.x" :y="entity.geometry.bounds.y + 14" :transform="entityTransform(entity)">
               {{ diagram.scene.value.entities.textsById.get(entity.id)?.text }}
             </text>
