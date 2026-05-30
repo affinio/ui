@@ -36,4 +36,4 @@ pnpm run smoke:treeview:demo
 
 ## Diagram demo
 
-The `/diagram` route is the public Vue reference scene for `@affino/diagram-vue`. It uses the package composables directly: `useDiagramEngine`, `useDiagramViewport`, `useDiagramSelection`, `useDiagramVisibleEntities`, and `useDiagramPointerController`. The scene includes viewport navigation controls, trackpad wheel pan, modifier-wheel zoom, live pan preview, a minimap, selection handles, undo/redo, and nudge actions while keeping domain-specific SLD logic out of the route.
+The `/diagram` route is the public Vue reference scene for `@affino/diagram-vue`. It uses the package composables directly: `useDiagramEngine`, `useDiagramViewport`, `useDiagramSelection`, `useDiagramVisibleEntities`, and `useDiagramPointerController`. The scene includes viewport navigation controls, trackpad wheel pan, modifier-wheel zoom, live pan preview, marquee group selection, a minimap, selection handles, undo/redo, and nudge actions while keeping domain-specific SLD logic out of the route.

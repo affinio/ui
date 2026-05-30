@@ -113,6 +113,24 @@ describe("DiagramEngine", () => {
     expect(engine.getScene().entities.nodesById.get("n1")?.x).toBe(0)
   })
 
+  it("selects groups with a marquee drag from empty space", () => {
+    const callbacks: Array<() => void> = []
+    const engine = createDiagramEngine(scene)
+    const controller = createDiagramInteractionController(engine, { scheduleFrame: (callback) => callbacks.push(callback) })
+
+    controller.pointerDown({ id: 1, point: { x: -20, y: -20 } })
+    controller.pointerMove({ id: 1, point: { x: 190, y: 150 } })
+    callbacks[0]()
+
+    expect(controller.getSnapshot().marquee).toEqual({ x: -20, y: -20, width: 210, height: 170 })
+
+    controller.pointerUp({ id: 1, point: { x: 190, y: 150 } })
+
+    expect(engine.getScene().selection.ids).toEqual(["n1", "s1", "t1", "e1"])
+    expect(engine.getScene().selection.primaryId).toBe("n1")
+    expect(engine.getScene().selection.ids).not.toContain("p1")
+  })
+
   it("snaps to ports, alignment, angles, and grid", () => {
     const engine = createDiagramEngine(scene)
 

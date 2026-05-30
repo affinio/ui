@@ -1,5 +1,5 @@
 import type { DiagramEngine } from "./DiagramEngine.js"
-import type { DiagramInteractionSnapshot, DiagramInteractionTool, DiagramPointerEvent, DiagramPoint, DiagramRect } from "./types.js"
+import type { DiagramId, DiagramInteractionSnapshot, DiagramInteractionTool, DiagramPointerEvent, DiagramPoint, DiagramRect } from "./types.js"
 
 type ScheduleFrame = (callback: () => void) => void
 
@@ -74,6 +74,11 @@ export class DiagramInteractionController {
       this.engine.dispatch({ type: "setViewport", viewport: { x: viewport.x - this.previewDelta.x, y: viewport.y - this.previewDelta.y }, historyKey: "pan" })
       this.commitCount += 1
     }
+    if (this.tool === "marquee" && this.marquee) {
+      const ids = this.getMarqueeSelectionIds(this.marquee)
+      this.engine.dispatch({ type: "setSelection", selection: { ids, primaryId: ids[0] ?? null } })
+      this.commitCount += 1
+    }
     this.clearGesture()
     if (this.tool === "drag-selection" || this.tool === "marquee") {
       this.tool = "select"
@@ -114,6 +119,17 @@ export class DiagramInteractionController {
     if (this.tool === "marquee") {
       this.marquee = rectFromPoints(this.startPoint, this.latestPoint)
     }
+  }
+
+  private getMarqueeSelectionIds(rect: DiagramRect): DiagramId[] {
+    const visible = new Set(this.engine.queryVisible(rect))
+    const scene = this.engine.getScene()
+    return [
+      ...scene.order.nodeIds,
+      ...scene.order.shapeIds,
+      ...scene.order.textIds,
+      ...scene.order.edgeIds,
+    ].filter((id) => visible.has(id))
   }
 
   private clearGesture(): void {

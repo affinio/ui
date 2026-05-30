@@ -94,6 +94,7 @@ const labelLayerStyle = computed(() => {
     transform: `matrix(${current.zoom}, 0, 0, ${current.zoom}, ${-current.x * current.zoom}, ${-current.y * current.zoom})`,
   }
 })
+const marqueeRect = computed(() => (pointer.state.value.tool === "marquee" ? pointer.state.value.marquee : null))
 const minimapNodes = computed(() => {
   const scene = diagram.scene.value
   return scene.order.nodeIds
@@ -312,6 +313,7 @@ function clamp(value: number, min: number, max: number): number {
           <circle v-for="port in visible.projection.value.ports" :key="port.id" class="diagram-port" v-bind="getSvgEntityProps(port)" :transform="entityTransform(port)" />
           <rect v-for="anchor in visible.projection.value.overlayAnchors" :key="anchor.id" class="diagram-anchor" :x="anchor.rect.x" :y="anchor.rect.y" :width="anchor.rect.width" :height="anchor.rect.height" />
           <circle v-for="handle in visible.projection.value.activeHandles" :key="handle.id" class="diagram-handle" :cx="handle.point.x" :cy="handle.point.y" r="5" />
+          <rect v-if="marqueeRect" class="diagram-marquee" :x="marqueeRect.x" :y="marqueeRect.y" :width="marqueeRect.width" :height="marqueeRect.height" />
         </svg>
 
         <div class="diagram-label-layer" :style="labelLayerStyle" aria-hidden="true">
@@ -574,6 +576,14 @@ button.active {
   fill: #0d7f68;
   stroke: #fffaf3;
   stroke-width: 2;
+  pointer-events: none;
+}
+
+.diagram-marquee {
+  fill: rgba(13, 127, 104, 0.12);
+  stroke: #0d7f68;
+  stroke-width: 1.5;
+  stroke-dasharray: 7 5;
   pointer-events: none;
 }
 
