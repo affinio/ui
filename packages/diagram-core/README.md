@@ -62,7 +62,7 @@ const preview = interaction.getSnapshot().resizePreview
 // Render preview when present, then pointer up commits one resizeEntities history entry.
 ```
 
-`resizePreview` is intentionally transient: it lets SVG render live dimensions without mutating serialized scene state on every pointer move. Drag deltas are mapped through entity rotation so handles follow the local resize axes exposed by rotated geometry.
+`resizePreview` is intentionally transient: it lets SVG render live dimensions without mutating serialized scene state on every pointer move. Drag deltas are mapped through entity rotation and the opposite rotated corner stays anchored, so handles follow the local resize axes exposed by rotated geometry.
 
 ## Keyboard and capability helpers
 

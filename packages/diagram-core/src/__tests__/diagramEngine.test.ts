@@ -224,13 +224,23 @@ describe("DiagramEngine", () => {
     })
     const controller = createDiagramInteractionController(engine, { scheduleFrame: (callback) => callbacks.push(callback) })
 
+    const anchorBefore = engine.getGeometrySnapshot("n1")?.corners?.[0]
+
     expect(controller.beginResizeHandle("n1", "se", { id: 1, point: { x: 30, y: 70 } })).toBe(true)
     controller.pointerMove({ id: 1, point: { x: 30, y: 90 } })
     callbacks[0]()
 
-    expect(controller.getSnapshot().resizePreview).toEqual({ id: "n1", width: 120, height: 40 })
+    const preview = controller.getSnapshot().resizePreview
+    expect(preview).toMatchObject({ id: "n1", width: 120, height: 40 })
+    expect(preview?.x).toBeCloseTo(-10)
+    expect(preview?.y).toBeCloseTo(10)
     controller.pointerUp({ id: 1, point: { x: 30, y: 90 } })
     expect(engine.getScene().entities.nodesById.get("n1")).toMatchObject({ width: 120, height: 40 })
+    expect(engine.getScene().entities.nodesById.get("n1")?.x).toBeCloseTo(-10)
+    expect(engine.getScene().entities.nodesById.get("n1")?.y).toBeCloseTo(10)
+    const anchorAfter = engine.getGeometrySnapshot("n1")?.corners?.[0]
+    expect(anchorAfter?.x).toBeCloseTo(anchorBefore?.x ?? 0)
+    expect(anchorAfter?.y).toBeCloseTo(anchorBefore?.y ?? 0)
   })
 
   it("selects groups with strict containment marquee by default", () => {

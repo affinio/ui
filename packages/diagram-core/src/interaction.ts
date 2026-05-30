@@ -166,18 +166,30 @@ export class DiagramInteractionController {
     const bounds = this.resizeStartBounds
     const localDelta = rotateDelta(delta, -this.resizeStartRotation)
     const minSize = 8
-    const entry: { id: DiagramId; x?: number; y?: number; width?: number; height?: number } = { id: this.resizeOwnerId }
-    if (this.resizeHandle.includes("e")) entry.width = Math.max(minSize, bounds.width + localDelta.x)
-    if (this.resizeHandle.includes("s")) entry.height = Math.max(minSize, bounds.height + localDelta.y)
+    let x = bounds.x
+    let y = bounds.y
+    let width = bounds.width
+    let height = bounds.height
+
+    if (this.resizeHandle.includes("e")) width = Math.max(minSize, bounds.width + localDelta.x)
+    if (this.resizeHandle.includes("s")) height = Math.max(minSize, bounds.height + localDelta.y)
     if (this.resizeHandle.includes("w")) {
-      const width = Math.max(minSize, bounds.width - localDelta.x)
-      entry.x = bounds.x + (bounds.width - width)
-      entry.width = width
+      width = Math.max(minSize, bounds.width - localDelta.x)
+      x = bounds.x + (bounds.width - width)
     }
     if (this.resizeHandle.includes("n")) {
-      const height = Math.max(minSize, bounds.height - localDelta.y)
-      entry.y = bounds.y + (bounds.height - height)
-      entry.height = height
+      height = Math.max(minSize, bounds.height - localDelta.y)
+      y = bounds.y + (bounds.height - height)
+    }
+
+    const entry: { id: DiagramId; x?: number; y?: number; width?: number; height?: number } = { id: this.resizeOwnerId, width, height }
+    if (this.resizeStartRotation) {
+      const anchored = anchorRotatedResize(bounds, this.resizeHandle, width, height, this.resizeStartRotation)
+      entry.x = anchored.x
+      entry.y = anchored.y
+    } else {
+      if (x !== bounds.x) entry.x = x
+      if (y !== bounds.y) entry.y = y
     }
     return entry
   }
@@ -231,6 +243,39 @@ function rotateDelta(delta: DiagramPoint, rotation: number): DiagramPoint {
   const cos = Math.cos(angle)
   const sin = Math.sin(angle)
   return { x: delta.x * cos - delta.y * sin, y: delta.x * sin + delta.y * cos }
+}
+
+function anchorRotatedResize(bounds: DiagramRect, handle: DiagramResizeHandle, width: number, height: number, rotation: number): DiagramPoint {
+  const oldAnchor = anchorPointForHandle(bounds, handle)
+  const newAnchorOffset = oppositeCornerOffset(handle, width, height)
+  const oldAnchorWorld = rotatePoint(oldAnchor, rectCenter(bounds), rotation)
+  const newCenterOffset = { x: width / 2, y: height / 2 }
+  const rotatedAnchorOffset = rotateDelta({ x: newAnchorOffset.x - newCenterOffset.x, y: newAnchorOffset.y - newCenterOffset.y }, rotation)
+  return {
+    x: oldAnchorWorld.x - newCenterOffset.x - rotatedAnchorOffset.x,
+    y: oldAnchorWorld.y - newCenterOffset.y - rotatedAnchorOffset.y,
+  }
+}
+
+function anchorPointForHandle(bounds: DiagramRect, handle: DiagramResizeHandle): DiagramPoint {
+  const offset = oppositeCornerOffset(handle, bounds.width, bounds.height)
+  return { x: bounds.x + offset.x, y: bounds.y + offset.y }
+}
+
+function oppositeCornerOffset(handle: DiagramResizeHandle, width: number, height: number): DiagramPoint {
+  return {
+    x: handle.includes("w") ? width : 0,
+    y: handle.includes("n") ? height : 0,
+  }
+}
+
+function rectCenter(rect: DiagramRect): DiagramPoint {
+  return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 }
+}
+
+function rotatePoint(point: DiagramPoint, center: DiagramPoint, rotation: number): DiagramPoint {
+  const delta = rotateDelta({ x: point.x - center.x, y: point.y - center.y }, rotation)
+  return { x: center.x + delta.x, y: center.y + delta.y }
 }
 
 function rectFromPoints(a: DiagramPoint, b: DiagramPoint): DiagramRect {
