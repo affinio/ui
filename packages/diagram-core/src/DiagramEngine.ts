@@ -177,16 +177,23 @@ export class DiagramEngine {
     const radius = options.radius ?? 0
     const kinds = options.kinds ? new Set<DiagramEntityKind>(options.kinds) : null
     const rect = { x: point.x - radius, y: point.y - radius, width: radius * 2, height: radius * 2 }
-    const candidates = this.hitBoundsIndex.query(rect)
+    const renderOrder = this.createOrderIndex()
+    const candidates = this.hitBoundsIndex.query(rect).sort((a, b) => (renderOrder.get(b) ?? 0) - (renderOrder.get(a) ?? 0))
     let best: DiagramHit | null = null
+    let bestOrder = -1
     for (const id of candidates) {
       const geometry = this.getGeometry(id)
-      if (!geometry || (kinds && !kinds.has(geometry.kind)) || !rectContainsPoint(geometry.hitBounds, point, radius)) {
+      if (!geometry || (kinds && !kinds.has(geometry.kind))) {
         continue
       }
-      const hitDistance = distance(point, rectPoint(geometry.hitBounds, point))
-      if (!best || hitDistance < best.distance) {
+      const hitDistance = hitDistanceForGeometry(geometry, point, radius)
+      if (hitDistance === null) {
+        continue
+      }
+      const order = renderOrder.get(id) ?? 0
+      if (!best || hitDistance < best.distance || (hitDistance === best.distance && order > bestOrder)) {
         best = { id, kind: geometry.kind, distance: hitDistance }
+        bestOrder = order
       }
     }
     return best
@@ -1424,6 +1431,43 @@ function edgeReferencesNode(edge: DiagramEdge, id: DiagramId, ports: ReadonlyMap
     }
   }
   return false
+}
+
+function hitDistanceForGeometry(geometry: DiagramGeometry, point: DiagramPoint, radius: number): number | null {
+  if (geometry.kind === "edge") {
+    const edgeDistance = distanceToPath(point, geometry.path ?? [])
+    const tolerance = Math.max(radius, 6)
+    return edgeDistance <= tolerance ? edgeDistance : null
+  }
+  if (!rectContainsPoint(geometry.hitBounds, point, radius)) {
+    return null
+  }
+  return distance(point, rectPoint(geometry.hitBounds, point))
+}
+
+function distanceToPath(point: DiagramPoint, path: ReadonlyArray<DiagramPoint>): number {
+  if (path.length === 0) {
+    return Number.POSITIVE_INFINITY
+  }
+  if (path.length === 1) {
+    return distance(point, path[0]!)
+  }
+  let best = Number.POSITIVE_INFINITY
+  for (let index = 0; index < path.length - 1; index += 1) {
+    best = Math.min(best, distanceToSegment(point, path[index]!, path[index + 1]!))
+  }
+  return best
+}
+
+function distanceToSegment(point: DiagramPoint, start: DiagramPoint, end: DiagramPoint): number {
+  const dx = end.x - start.x
+  const dy = end.y - start.y
+  const lengthSquared = dx * dx + dy * dy
+  if (lengthSquared === 0) {
+    return distance(point, start)
+  }
+  const t = Math.max(0, Math.min(1, ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared))
+  return distance(point, { x: start.x + t * dx, y: start.y + t * dy })
 }
 
 function rectPoint(rect: DiagramRect, point: DiagramPoint): DiagramPoint {

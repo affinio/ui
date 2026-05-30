@@ -159,6 +159,18 @@ describe("diagram-vue", () => {
     expect(visible.projection.value.ids[0]).toBe("t1")
   })
 
+  it("does not expose edge bounding boxes as selection overlays", () => {
+    const controller = useDiagramEngine(scene)
+    const selection = useDiagramSelection(controller)
+    const visible = useDiagramVisibleEntities(controller)
+
+    selection.setSelection(["e1"], "e1")
+
+    expect(visible.projection.value.edges.map((entity) => entity.id)).toContain("e1")
+    expect(visible.projection.value.overlayAnchors.map((anchor) => anchor.id)).not.toContain("e1")
+    expect(visible.projection.value.activeHandles).toEqual([])
+  })
+
   it("keeps selection in the projection even when outside the viewport", () => {
     const controller = useDiagramEngine(scene)
     const selection = useDiagramSelection(controller)

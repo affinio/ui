@@ -66,6 +66,7 @@ function buildProjection(controller: DiagramEngineController, bounds: DiagramRec
     entities.push(Object.freeze({ id, kind: geometry.kind, layer: "svg", geometry, selected: selected.has(id) }))
   }
   const activeGeometries = entities.filter((entity) => entity.selected).map((entity) => entity.geometry)
+  const anchorGeometries = activeGeometries.filter((geometry) => geometry.kind !== "edge")
   return Object.freeze({
     ids: Object.freeze(entities.map((entity) => entity.id)),
     nodes: freezeKind(entities, "node"),
@@ -74,7 +75,7 @@ function buildProjection(controller: DiagramEngineController, bounds: DiagramRec
     shapes: freezeKind(entities, "shape"),
     ports: freezeKind(entities, "port"),
     activeHandles: Object.freeze(activeGeometries.flatMap(createHandles)),
-    overlayAnchors: Object.freeze(activeGeometries.map(createOverlayAnchor)),
+    overlayAnchors: Object.freeze(anchorGeometries.map(createOverlayAnchor)),
   })
 }
 
@@ -83,6 +84,9 @@ function freezeKind(entities: ReadonlyArray<DiagramRenderEntity>, kind: DiagramR
 }
 
 function createHandles(geometry: DiagramGeometry): DiagramHandle[] {
+  if (geometry.kind === "edge") {
+    return []
+  }
   const rect = geometry.bounds
   if (geometry.kind === "port") {
     return [{ id: `${geometry.id}:port`, ownerId: geometry.id, kind: "port", point: geometry.point ?? { x: rect.x, y: rect.y } }]

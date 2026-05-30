@@ -67,6 +67,20 @@ describe("DiagramEngine", () => {
     expect(engine.nearestPort({ x: 102, y: 30 }, 12)).toEqual(engine.nearestPortBruteForce({ x: 102, y: 30 }, 12))
   })
 
+  it("hit-tests topmost text and precise edge paths", () => {
+    const engine = createDiagramEngine({
+      nodes: [{ id: "n1", kind: "node", x: 0, y: 0, width: 100, height: 80 }],
+      texts: [{ id: "t1", kind: "text", x: 10, y: 10, width: 60, height: 20, text: "Top" }],
+      edges: [{ id: "e1", kind: "edge", source: { kind: "point", point: { x: 0, y: 0 } }, target: { kind: "point", point: { x: 300, y: 300 } } }],
+    })
+
+    engine.dispatch({ type: "bringToFront", ids: ["t1"] })
+
+    expect(engine.hitTest({ x: 20, y: 18 }, { radius: 2 })?.id).toBe("t1")
+    expect(engine.hitTest({ x: 20, y: 280 }, { radius: 2 })?.id).not.toBe("e1")
+    expect(engine.hitTest({ x: 150, y: 151 }, { radius: 2 })?.id).toBe("e1")
+  })
+
   it("supports command undo and redo without full snapshot replacement", () => {
     const engine = createDiagramEngine(scene)
 
