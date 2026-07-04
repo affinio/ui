@@ -77,6 +77,8 @@ export class TreeviewCore<Value = string> {
   private normalizedSearchQuery = ""
   private searchMatchedValues = new Set<Value>()
   private searchVisibleValues = new Set<Value>()
+  private searchProjectionExpandedValues = new Set<Value>()
+  private searchSuppressedExpandedValues = new Set<Value>()
   private searchMatchCount = 0
   private readonly textAccessor: (node: TreeviewNode<Value>) => string
   private readonly visibleProjection = createProjectionStageEngine<TreeviewProjectionStage>({
@@ -260,13 +262,24 @@ export class TreeviewCore<Value = string> {
       return actionFailure("leaf-node")
     }
     const previous = this.state
+    let overlayChanged = false
+    if (this.normalizedSearchQuery !== "") {
+      overlayChanged = this.searchSuppressedExpandedValues.delete(value) || overlayChanged
+    }
     if (!this.isExpanded(value)) {
       this.patch({
         ...this.state,
         expanded: [...this.state.expanded, value],
       })
+    } else if (overlayChanged) {
+      this.invalidateVisibleProjection()
+      const previousSnapshot = this.snapshot
+      this.snapshot = this.createSnapshot(this.state)
+      if (this.snapshot === previousSnapshot) {
+        this.subscribers.forEach((subscriber) => subscriber(this.snapshot))
+      }
     }
-    return actionSuccess(!statesEqual(previous, this.state))
+    return actionSuccess(!statesEqual(previous, this.state) || overlayChanged)
   }
 
   collapse(value: Value): void {
@@ -282,6 +295,12 @@ export class TreeviewCore<Value = string> {
       return actionFailure("leaf-node")
     }
     const previous = this.state
+    const visualExpanded = this.isVisuallyExpanded(value)
+    let overlayChanged = false
+    if (this.normalizedSearchQuery !== "" && visualExpanded) {
+      overlayChanged = !this.searchSuppressedExpandedValues.has(value)
+      this.searchSuppressedExpandedValues.add(value)
+    }
     if (this.isExpanded(value)) {
       const expanded = this.state.expanded.filter((entry) => entry !== value)
       const nextActive = this.isDescendantOf(this.state.active, value) ? value : this.state.active
@@ -290,8 +309,15 @@ export class TreeviewCore<Value = string> {
         active: nextActive,
         expanded,
       })
+    } else if (overlayChanged) {
+      this.invalidateVisibleProjection()
+      const previousSnapshot = this.snapshot
+      this.snapshot = this.createSnapshot(this.state)
+      if (this.snapshot === previousSnapshot) {
+        this.subscribers.forEach((subscriber) => subscriber(this.snapshot))
+      }
     }
-    return actionSuccess(!statesEqual(previous, this.state))
+    return actionSuccess(!statesEqual(previous, this.state) || overlayChanged)
   }
 
   toggle(value: Value): void {
@@ -327,6 +353,10 @@ export class TreeviewCore<Value = string> {
     }
     this.searchQuery = query
     this.normalizedSearchQuery = nextQuery
+    if (!this.normalizedSearchQuery) {
+      this.searchProjectionExpandedValues = new Set<Value>()
+      this.searchSuppressedExpandedValues = new Set<Value>()
+    }
     this.rebuildSearchProjection()
     this.invalidateVisibleProjection()
     const previousSnapshot = this.snapshot
@@ -401,7 +431,7 @@ export class TreeviewCore<Value = string> {
       depth: this.depthByValue.get(value) ?? 0,
       childCount: node.children.length,
       disabled: node.disabled,
-      expanded: this.isExpanded(value),
+      expanded: this.isVisuallyExpanded(value),
       selected: this.isSelected(value),
       active: this.isActive(value),
       matched: this.searchMatchedValues.has(value),
@@ -928,6 +958,7 @@ export class TreeviewCore<Value = string> {
   private rebuildSearchProjection(): void {
     this.searchMatchedValues = new Set<Value>()
     this.searchVisibleValues = new Set<Value>()
+    this.searchProjectionExpandedValues = new Set<Value>()
     if (!this.normalizedSearchQuery) {
       this.searchMatchCount = 0
       return
@@ -938,9 +969,11 @@ export class TreeviewCore<Value = string> {
       }
       this.searchMatchedValues.add(value)
       this.searchVisibleValues.add(value)
+      this.searchProjectionExpandedValues.add(value)
       let current = node.parent
       while (current !== null) {
         this.searchVisibleValues.add(current)
+        this.searchProjectionExpandedValues.add(current)
         current = this.nodes.get(current)?.parent ?? null
       }
     })
@@ -954,6 +987,7 @@ export class TreeviewCore<Value = string> {
     const enabledVisibleIndexes: number[] = []
     const visited = new Set<Value>()
     const searchActive = this.normalizedSearchQuery !== ""
+    const effectiveExpanded = searchActive ? this.getSearchEffectiveExpanded(expanded) : expanded
 
     this.rootValues.forEach((root) => {
       const stack: Value[] = [root]
@@ -976,20 +1010,7 @@ export class TreeviewCore<Value = string> {
           }
           visible.push(value)
         }
-        if (searchActive) {
-          const shouldTraverseAllChildren = expanded.has(value)
-          for (let index = node.children.length - 1; index >= 0; index -= 1) {
-            const child = node.children[index]
-            if (child === undefined || visited.has(child)) {
-              continue
-            }
-            if (shouldTraverseAllChildren || this.searchVisibleValues.has(child)) {
-              stack.push(child)
-            }
-          }
-          continue
-        }
-        if (!expanded.has(value)) {
+        if (!effectiveExpanded.has(value)) {
           continue
         }
         for (let index = node.children.length - 1; index >= 0; index -= 1) {
@@ -1040,6 +1061,30 @@ export class TreeviewCore<Value = string> {
     this.visibleProjectionRecomputeCount += 1
     this.visibleWindowCache = null
     return projection.visible
+  }
+
+  private getSearchEffectiveExpanded(expanded: ReadonlySet<Value>): ReadonlySet<Value> {
+    if (!this.normalizedSearchQuery || (!this.searchProjectionExpandedValues.size && !this.searchSuppressedExpandedValues.size)) {
+      return expanded
+    }
+    const effectiveExpanded = new Set(expanded)
+    this.searchProjectionExpandedValues.forEach((value) => {
+      effectiveExpanded.add(value)
+    })
+    this.searchSuppressedExpandedValues.forEach((value) => {
+      effectiveExpanded.delete(value)
+    })
+    return effectiveExpanded
+  }
+
+  private isVisuallyExpanded(value: Value): boolean {
+    if (this.isExpanded(value)) {
+      return true
+    }
+    if (!this.normalizedSearchQuery) {
+      return false
+    }
+    return this.getSearchEffectiveExpanded(this.expandedSet).has(value)
   }
 
   private findAdjacentEnabledVisible(currentIndex: number, direction: 1 | -1): Value | null {

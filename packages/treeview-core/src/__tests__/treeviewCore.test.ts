@@ -186,31 +186,44 @@ describe("TreeviewCore", () => {
 
     core.setSearchQuery("security")
 
-    const expanded = new Set<string>()
-    const expandedHas = vi.spyOn(expanded, "has")
-    const projection = (core as unknown as {
-      computeVisibleProjection: (state: ReadonlySet<string>) => { visible: string[] }
-    }).computeVisibleProjection(expanded)
-
-    expect(expandedHas.mock.calls.length).toBeGreaterThan(0)
-    expect(projection.visible).toEqual(["root", "beta", "gamma"])
     expect(core.getVisibleValues()).toEqual(["root", "beta", "gamma"])
     expect(core.getSearchMatchCount()).toBe(1)
+    expect(core.getNodeMeta("root")).toMatchObject({ expanded: true })
+    expect(core.getNodeMeta("beta")).toMatchObject({ expanded: true, matched: false })
     expect(core.getNodeMeta("gamma")).toMatchObject({ matched: true })
-    expect(core.getNodeMeta("beta")).toMatchObject({ matched: false })
+    expect(core.getSnapshot().expanded).toEqual([])
     expect(core.getSnapshot().active).toBe("root")
 
     core.expand("root")
+    expect(core.getVisibleValues()).toEqual(["root", "beta", "gamma"])
     expect(core.getSnapshot().expanded).toEqual(["root"])
+    expect(core.getNodeMeta("root")).toMatchObject({ expanded: true })
+
+    core.collapse("root")
+    expect(core.getVisibleValues()).toEqual(["root"])
+    expect(core.getSnapshot().expanded).toEqual([])
+    expect(core.getNodeMeta("root")).toMatchObject({ expanded: false })
+
+    core.expand("root")
+    expect(core.getVisibleValues()).toEqual(["root", "beta", "gamma"])
+    expect(core.getSnapshot().expanded).toEqual(["root"])
+
+    core.collapse("beta")
+    expect(core.getVisibleValues()).toEqual(["root", "beta"])
+    expect(core.getSnapshot().expanded).toEqual(["root"])
+    expect(core.getNodeMeta("beta")).toMatchObject({ expanded: false })
+
+    core.expand("beta")
+    expect(core.getVisibleValues()).toEqual(["root", "beta", "gamma"])
+    expect(core.getSnapshot().expanded).toEqual(["root", "beta"])
 
     core.clearSearchQuery()
 
-    expect(core.getVisibleValues()).toEqual(["root", "alpha", "beta"])
+    expect(core.getVisibleValues()).toEqual(["root", "alpha", "beta", "gamma"])
     expect(core.getSearchMatchCount()).toBe(0)
-    expect(core.getSnapshot().expanded).toEqual(["root"])
-    expect(snapshots).toEqual(["alpha", "root", "root", "root", "root"])
+    expect(core.getSnapshot().expanded).toEqual(["root", "beta"])
+    expect(snapshots).toEqual(["alpha", "root", "root", "root", "root", "root", "root", "root"])
 
-    expandedHas.mockRestore()
     subscription.unsubscribe()
   })
 
