@@ -165,7 +165,7 @@ describe("TreeviewCore", () => {
     expect(after).toEqual(["root", "alpha", "beta"])
   })
 
-  it("filters visible projection to search matches and ancestors", () => {
+  it("filters visible projection to search matches and ancestors while preserving expansion state", () => {
     const core = new TreeviewCore<string>({
       nodes: [
         { value: "root", parent: null, text: "Workspace" },
@@ -181,21 +181,36 @@ describe("TreeviewCore", () => {
       snapshots.push(state.active ?? "null")
     })
 
+    core.collapse("root")
+    expect(core.getSnapshot().expanded).toEqual([])
+
     core.setSearchQuery("security")
 
+    const expanded = new Set<string>()
+    const expandedHas = vi.spyOn(expanded, "has")
+    const projection = (core as unknown as {
+      computeVisibleProjection: (state: ReadonlySet<string>) => { visible: string[] }
+    }).computeVisibleProjection(expanded)
+
+    expect(expandedHas.mock.calls.length).toBeGreaterThan(0)
+    expect(projection.visible).toEqual(["root", "beta", "gamma"])
     expect(core.getVisibleValues()).toEqual(["root", "beta", "gamma"])
     expect(core.getSearchMatchCount()).toBe(1)
     expect(core.getNodeMeta("gamma")).toMatchObject({ matched: true })
     expect(core.getNodeMeta("beta")).toMatchObject({ matched: false })
     expect(core.getSnapshot().active).toBe("root")
 
+    core.expand("root")
+    expect(core.getSnapshot().expanded).toEqual(["root"])
+
     core.clearSearchQuery()
 
     expect(core.getVisibleValues()).toEqual(["root", "alpha", "beta"])
     expect(core.getSearchMatchCount()).toBe(0)
     expect(core.getSnapshot().expanded).toEqual(["root"])
-    expect(snapshots).toEqual(["alpha", "root", "root"])
+    expect(snapshots).toEqual(["alpha", "root", "root", "root", "root"])
 
+    expandedHas.mockRestore()
     subscription.unsubscribe()
   })
 

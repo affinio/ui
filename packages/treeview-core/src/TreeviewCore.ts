@@ -953,6 +953,7 @@ export class TreeviewCore<Value = string> {
     const enabledVisibleValues: Value[] = []
     const enabledVisibleIndexes: number[] = []
     const visited = new Set<Value>()
+    const searchActive = this.normalizedSearchQuery !== ""
 
     this.rootValues.forEach((root) => {
       const stack: Value[] = [root]
@@ -966,7 +967,6 @@ export class TreeviewCore<Value = string> {
           continue
         }
         visited.add(value)
-        const searchActive = this.normalizedSearchQuery !== ""
         const searchVisible = !searchActive || this.searchVisibleValues.has(value)
         if (searchVisible) {
           visibleIndexByValue.set(value, visible.length)
@@ -976,7 +976,20 @@ export class TreeviewCore<Value = string> {
           }
           visible.push(value)
         }
-        if (!searchActive && !expanded.has(value)) {
+        if (searchActive) {
+          const shouldTraverseAllChildren = expanded.has(value)
+          for (let index = node.children.length - 1; index >= 0; index -= 1) {
+            const child = node.children[index]
+            if (child === undefined || visited.has(child)) {
+              continue
+            }
+            if (shouldTraverseAllChildren || this.searchVisibleValues.has(child)) {
+              stack.push(child)
+            }
+          }
+          continue
+        }
+        if (!expanded.has(value)) {
           continue
         }
         for (let index = node.children.length - 1; index >= 0; index -= 1) {
