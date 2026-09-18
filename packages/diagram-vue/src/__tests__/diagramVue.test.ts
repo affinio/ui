@@ -186,6 +186,22 @@ describe("diagram-vue", () => {
     expect(visible.projection.value.activeHandles[2]?.point).toEqual({ x: 280, y: 120 })
   })
 
+  it("keeps opaque colon ids in handles and cancels a disposed drag", () => {
+    const controller = useDiagramEngine({
+      nodes: [{ id: "switchgear:123:main", kind: "node", x: 0, y: 0, width: 40, height: 20 }],
+      selection: { ids: ["switchgear:123:main"], primaryId: "switchgear:123:main" },
+      viewport: { x: -10, y: -10, width: 80, height: 60, zoom: 1 },
+    })
+    const visible = useDiagramVisibleEntities(controller)
+    expect(visible.projection.value.activeHandles.every((handle) => handle.ownerId === "switchgear:123:main")).toBe(true)
+    const pointer = useDiagramPointerController(controller)
+    const props = pointer.getSvgPointerProps()
+    props.onPointerdown({ pointerId: 1, clientX: 10, clientY: 10, shiftKey: false } as PointerEvent)
+    props.onPointermove({ pointerId: 1, clientX: 30, clientY: 10, shiftKey: false } as PointerEvent)
+    pointer.dispose()
+    expect(controller.scene.value.entities.nodesById.get("switchgear:123:main")?.x).toBe(0)
+  })
+
   it("does not expose edge bounding boxes as selection overlays", () => {
     const controller = useDiagramEngine(scene)
     const selection = useDiagramSelection(controller)
@@ -231,6 +247,17 @@ describe("diagram-vue", () => {
     expect(released).toHaveBeenCalledOnce()
     expect(pointer.state.value.active).toBe(false)
     expect(controller.scene.value.entities.nodesById.get("n1")?.x).toBe(10)
+  })
+
+  it("ignores hidden zero-size measurements and converts CSS pixels to world extent", () => {
+    const controller = useDiagramEngine({ ...scene, viewport: { x: 20, y: 10, width: 260, height: 160, zoom: 2.5 } })
+    let callback!: (entries: ReadonlyArray<{ contentRect: { width: number; height: number } }>) => void
+    class FakeResizeObserver { constructor(next: typeof callback) { callback = next } observe() {} disconnect() {} }
+    const viewport = useDiagramViewport(controller, { element: document.createElement("div"), resizeObserver: FakeResizeObserver })
+    callback([{ contentRect: { width: 0, height: 0 } }])
+    expect(viewport.viewport.value).toMatchObject({ x: 20, y: 10, width: 260, height: 160, zoom: 2.5 })
+    callback([{ contentRect: { width: 1000, height: 600 } }])
+    expect(viewport.viewport.value).toMatchObject({ x: 20, y: 10, width: 400, height: 240, zoom: 2.5 })
   })
 
   it("accepts a ref-backed viewport element", () => {

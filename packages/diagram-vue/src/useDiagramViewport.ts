@@ -33,6 +33,9 @@ export function useDiagramViewport(controller: DiagramEngineController, options:
   })
 
   const setViewport = (next: Partial<DiagramViewport>) => {
+    if (disposed) {
+      return
+    }
     controller.dispatch({ type: "setViewport", viewport: next })
   }
 
@@ -51,8 +54,9 @@ export function useDiagramViewport(controller: DiagramEngineController, options:
     }
     observer = new ResizeObserverImpl((entries) => {
       const rect = entries[0]?.contentRect
-      if (rect) {
-        setViewport({ width: rect.width, height: rect.height })
+      if (rect && rect.width > 0 && rect.height > 0) {
+        const current = controller.scene.value.viewport
+        setViewport({ width: rect.width / current.zoom, height: rect.height / current.zoom })
       }
     })
     observer.observe(element)

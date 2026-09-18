@@ -81,3 +81,18 @@ Selected entities are included even when outside the viewport, which keeps handl
 ## What belongs in core
 
 Do not put domain rules, snapping decisions, hit testing, undo/redo, or geometry math in Vue components. Route those through `@affino/diagram-core` commands and queries, then render the projection here.
+
+## Viewport and camera migration
+
+`ResizeObserver.contentRect` is CSS pixels. `useDiagramViewport()` converts them to world extent by dividing by the current zoom and ignores `0×0` measurements, so a restored camera is not overwritten by a hidden tab. The SVG viewBox should be `x y width height` from the core viewport—do not divide width or height by zoom again.
+
+For DOM overlays call `getDomEntityStyle(entity, viewport.viewport.value)`; text editor positioning already applies the same transform. Use core `zoomViewportAt()` for cursor focus and `zoomViewportCentered()` for toolbar zoom. Minimap dimensions use the world scene bounds and the same camera transform.
+
+Preview geometry remains transient until pointerup. Render the interaction preview and its handles from core state; entity IDs are opaque strings and may contain `:`. Use `handle.ownerId`, never parse `handle.id`. Escape/pointercancel cancels without history; pointerup commits one undo operation.
+
+### Migration from 0.1.0
+
+- Replace `viewBox.width = viewport.width / viewport.zoom` and the corresponding height formula with raw world `viewport.width` and `viewport.height`.
+- Remove application-side ResizeObserver writes of CSS width/height into core; use `useDiagramViewport()`.
+- Replace custom cursor zoom/focus and resize camera math with the exported core helpers.
+- Run initial Fit only for a new document without a persisted viewport; never Fit on every resize or scene restore.

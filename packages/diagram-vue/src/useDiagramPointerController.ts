@@ -27,6 +27,9 @@ export function useDiagramPointerController(controller: DiagramEngineController,
   const interaction = createDiagramInteractionController(controller.engine, {
     scheduleFrame: (callback) => {
       requestAnimationFrame(() => {
+        if (disposed) {
+          return
+        }
         callback()
         refresh()
       })
@@ -71,7 +74,7 @@ export function useDiagramPointerController(controller: DiagramEngineController,
       }
       disposed = true
       interaction.cancel()
-      refresh()
+      state.value = interaction.getSnapshot()
     },
   }
   if (getCurrentScope()) {

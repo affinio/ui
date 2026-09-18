@@ -1,6 +1,6 @@
 import { createEntityGeometry } from "./geometry.js"
 import type { DiagramEngine } from "./DiagramEngine.js"
-import type { DiagramId, DiagramInteractionSnapshot, DiagramInteractionTool, DiagramMarqueeMode, DiagramPointerEvent, DiagramPoint, DiagramRect, DiagramResizeEntry, DiagramResizeHandle } from "./types.js"
+import type { DiagramId, DiagramGeometry, DiagramInteractionSnapshot, DiagramInteractionTool, DiagramMarqueeMode, DiagramPointerEvent, DiagramPoint, DiagramRect, DiagramResizeEntry, DiagramResizeHandle } from "./types.js"
 
 type ScheduleFrame = (callback: () => void) => void
 
@@ -148,6 +148,24 @@ export class DiagramInteractionController {
 
   cancel(): void {
     this.clearGesture()
+  }
+
+  /** Returns the renderer-ready geometry for the active move preview. */
+  getPreviewGeometry(id: DiagramId): DiagramGeometry | null {
+    const geometry = this.engine.getGeometrySnapshot(id)
+    if (!geometry || this.tool !== "drag-selection" || !this.previewDelta || !this.engine.getScene().selection.ids.includes(id)) {
+      return geometry
+    }
+    const move = (point: DiagramPoint): DiagramPoint => ({ x: point.x + this.previewDelta!.x, y: point.y + this.previewDelta!.y })
+    return Object.freeze({
+      ...geometry,
+      bounds: { ...geometry.bounds, x: geometry.bounds.x + this.previewDelta.x, y: geometry.bounds.y + this.previewDelta.y },
+      hitBounds: { ...geometry.hitBounds, x: geometry.hitBounds.x + this.previewDelta.x, y: geometry.hitBounds.y + this.previewDelta.y },
+      unrotatedBounds: geometry.unrotatedBounds ? { ...geometry.unrotatedBounds, x: geometry.unrotatedBounds.x + this.previewDelta.x, y: geometry.unrotatedBounds.y + this.previewDelta.y } : undefined,
+      corners: geometry.corners?.map(move),
+      path: geometry.path?.map(move),
+      point: geometry.point ? move(geometry.point) : undefined,
+    })
   }
 
   getSnapshot(): DiagramInteractionSnapshot {

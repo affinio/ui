@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { createDiagramEngine, createDiagramInteractionController, deserializeScene, serializeScene } from ".."
+import { createDiagramEngine, createDiagramInteractionController, deserializeScene, screenToWorld, serializeScene, worldToScreen, zoomViewportAt } from ".."
 import type { DiagramSceneInput } from ".."
 
 const scene: DiagramSceneInput = {
@@ -24,6 +24,42 @@ const scene: DiagramSceneInput = {
 }
 
 describe("DiagramEngine", () => {
+  it("keeps fit idempotent when ResizeObserver reports CSS pixels", () => {
+    const engine = createDiagramEngine({ viewport: { x: 0, y: 0, width: 1000, height: 600, zoom: 1 } })
+    engine.fitBounds({ x: 0, y: 0, width: 400, height: 200 }, 0)
+    const fitted = engine.getScene().viewport
+    engine.dispatch({ type: "setViewport", viewport: { width: fitted.width, height: fitted.height } })
+    engine.fitBounds({ x: 0, y: 0, width: 400, height: 200 }, 0)
+    expect(engine.getScene().viewport).toEqual(fitted)
+  })
+
+  it("round-trips screen/world coordinates and preserves the zoom focus", () => {
+    const viewport = { x: -20, y: 30, width: 400, height: 240, zoom: 2.5 }
+    const world = { x: 42, y: 71 }
+    expect(worldToScreen(viewport, screenToWorld(viewport, { x: 155, y: 90 }))).toEqual({ x: 155, y: 90 })
+    const zoomed = zoomViewportAt(viewport, 1, { x: 155, y: 90 })
+    expect(screenToWorld(zoomed, { x: 155, y: 90 })).toEqual(screenToWorld(viewport, { x: 155, y: 90 }))
+    expect(worldToScreen(viewport, world)).toEqual({ x: 155, y: 102.5 })
+  })
+
+  it("preserves CSS size when fitting at common zoom levels", () => {
+    for (const zoom of [0.25, 1, 2.5]) {
+      const engine = createDiagramEngine({ viewport: { x: 0, y: 0, width: 1000, height: 600, zoom } })
+      engine.fitBounds({ x: 0, y: 0, width: 400, height: 200 }, 0)
+      const viewport = engine.getScene().viewport
+      expect(viewport.width * viewport.zoom).toBeCloseTo(1000 * zoom)
+      expect(viewport.height * viewport.zoom).toBeCloseTo(600 * zoom)
+    }
+  })
+
+  it("never produces non-finite fit values for empty or degenerate bounds", () => {
+    const engine = createDiagramEngine({ viewport: { x: 0, y: 0, width: 1000, height: 600, zoom: 1 } })
+    engine.fitBounds({ x: 10, y: 20, width: 0, height: 0 }, 0)
+    expect(Object.values(engine.getScene().viewport).every(Number.isFinite)).toBe(true)
+    engine.fitBounds({ x: 10, y: 20, width: Number.NaN, height: Number.POSITIVE_INFINITY }, 0)
+    expect(Object.values(engine.getScene().viewport).every(Number.isFinite)).toBe(true)
+  })
+
   it("creates immutable snapshots and roundtrips serialization", () => {
     const engine = createDiagramEngine(scene)
     const snapshot = engine.getScene()
@@ -187,6 +223,7 @@ describe("DiagramEngine", () => {
     expect(callbacks).toHaveLength(1)
     callbacks[0]()
     expect(controller.getSnapshot().previewDelta).toEqual({ x: 15, y: 10 })
+    expect(controller.getPreviewGeometry("n1")?.bounds).toMatchObject({ x: 15, y: 10 })
 
     controller.pointerUp({ id: 1, point: { x: 25, y: 20 } })
     expect(engine.getScene().entities.nodesById.get("n1")?.x).toBe(15)

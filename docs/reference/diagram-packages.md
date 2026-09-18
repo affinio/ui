@@ -75,3 +75,11 @@ const diagnostics = engine.getDiagnostics()
 
 - Core: `pnpm --filter @affino/diagram-core test`, `pnpm --filter @affino/diagram-core build`, `pnpm --filter @affino/diagram-core bench`.
 - Vue: `pnpm --filter @affino/diagram-vue test`, `pnpm --filter @affino/diagram-vue build`.
+
+## Viewport contract and UnitLab migration
+
+The canonical contract is world-space `x`, `y`, `width`, and `height`; `zoom` maps world units to CSS pixels. The CSS container size is `viewport.width * viewport.zoom` by `viewport.height * viewport.zoom`. ResizeObserver measurements are converted to world extent in `diagram-vue`; zero-size observations are ignored. `queryVisible()` receives the world viewport directly.
+
+UnitLab must use `viewBox="x y width height"` with raw viewport width/height, calculate minimap extents in world coordinates, and use `zoomViewportAt()` for cursor focus or `zoomViewportCentered()` for toolbar zoom. Saved camera state is restored without an automatic Fit; Fit is appropriate only for a new document or an explicit user action.
+
+The preview is core-owned and transient. Keep committed scene state separate, use the interaction snapshot for preview rendering, and treat `handle.ownerId` as authoritative for opaque IDs containing colons.

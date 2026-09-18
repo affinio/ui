@@ -1,4 +1,5 @@
 import type { DiagramRenderEntity } from "./types.js"
+import type { DiagramViewport } from "@affino/diagram-core"
 
 export type SvgEntityProps = Readonly<Record<string, string | number | boolean | undefined>>
 
@@ -43,12 +44,15 @@ export function getSvgEntityProps(entity: DiagramRenderEntity): SvgEntityProps {
   return common
 }
 
-export function getDomEntityStyle(entity: DiagramRenderEntity): Readonly<Record<string, string>> {
+export function getDomEntityStyle(entity: DiagramRenderEntity, viewport?: DiagramViewport): Readonly<Record<string, string>> {
   const bounds = entity.geometry.bounds
+  const zoom = viewport?.zoom ?? 1
+  const left = viewport ? (bounds.x - viewport.x) * zoom : bounds.x
+  const top = viewport ? (bounds.y - viewport.y) * zoom : bounds.y
   return Object.freeze({
     position: "absolute",
-    transform: `translate(${bounds.x}px, ${bounds.y}px)`,
-    width: `${bounds.width}px`,
-    height: `${bounds.height}px`,
+    transform: "translate(" + left + "px, " + top + "px)",
+    width: bounds.width * zoom + "px",
+    height: bounds.height * zoom + "px",
   })
 }

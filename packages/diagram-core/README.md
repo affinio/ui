@@ -131,3 +131,12 @@ const diagnostics = engine.getDiagnostics()
 ```
 
 Use `pnpm --filter @affino/diagram-core bench` after building to refresh `artifacts/performance/bench-diagram-core.json` and watch visible query, entity search/query, clipboard, routing, resize, fit, and command latency metrics.
+
+## Viewport contract
+
+- `x`/`y` are the world coordinate of the top-left visible point.
+- `width`/`height` are visible world units, not CSS pixels. `zoom` is CSS pixels per world unit; the rendered stage size is `width * zoom` by `height * zoom`.
+- Use `screenToWorld`, `worldToScreen`, `zoomViewportAt`, and `zoomViewportCentered` for camera math. Fit preserves the CSS stage-size invariant.
+- Empty or degenerate bounds are clamped to finite values.
+
+Persist `viewport` with the scene. Restore it before attaching the adapter; a resize only updates world extent and never changes `x`, `y`, or `zoom`.
