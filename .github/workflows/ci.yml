@@ -38,6 +38,8 @@ jobs:
 
       - name: Build packages
         run: pnpm -r --if-present build
+      - name: Run component benchmark evidence
+        run: pnpm run bench:components:ci
 
   test-matrix:
     runs-on: ubuntu-latest
