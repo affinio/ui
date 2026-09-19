@@ -24,10 +24,10 @@
 
 Ограничения существующей архитектуры: flat parent model, single selection, fixed-height virtual rows. Это не баги сами по себе. Новые multi-select, DnD, variable heights и async child loading не включать автоматически в этот план; сначала продуктовый контракт.
 
-## Предлагаемый API — не утверждён
+## API-решения
 
 1. Additive snapshot revisions: readonly modelRevision / projectionRevision, либо отдельная core change subscription. Выбрать **один** observable contract; active-only updates не должны пересоздавать topology projection.
-2. Совместимая Vue сигнатура registerNodes(nodes, options?: TreeviewRegisterOptions), request* parity с core.
+2. Совместимая Vue сигнатура registerNodes(nodes, options?: TreeviewRegisterOptions) и request* parity с core — реализовано additive-изменением; `registerNodes` возвращает `{ changed, topologyChanged }`, legacy imperative methods сохранены.
 3. Для интенсивных updates рассмотреть applyNodeChanges({ upserts, removeValues?, order? }) с атомарностью и documented cascade policy. Сначала доказать необходимость: batch существующего registerNodes может оказаться достаточным. Не делать patch-добавление удалением отсутствующих узлов.
 4. Virtual refs: readonly наружу + setRowHeight(value) вместо невалидируемых writable refs; это compatibility decision. scrollToValue(value, {align?: "nearest"|"start"|"end"}) — только если нужен реальным renderer.
 5. Конфликт cyclic/duplicate inputs: определить policy reject/normalize и диагностику, сохранить существующую normalization для replace, пока breaking contract не одобрен.
@@ -143,3 +143,4 @@
 2026-09-19: T10 CI gate усилен: visual matrix теперь после Playwright install запускает `smoke:treeview:demo` без screenshots, поэтому treeview browser acceptance будет выполняться на поддерживаемом GitHub runner.
 2026-09-19: Component benchmark CI gate добавлен и локально прошёл на Node24: `bench:assert` 10k за 6589ms при бюджете 9000ms; no-op p95 2.066ms, field p95 5.242ms, counters topology/traversal/sourceFinalize = 0.
 2026-09-19: T09 local Vue consumer gate прошёл: локальные treeview-vue/core tarballs с Vue 3.5 и Vite 7.3 собраны/отрендерены через SSR под Node24 без workspace aliases. Registry consumer check выявил release gap: опубликованный @affino/treeview-core@0.2.2 содержит extensionless import `./TreeviewCore` и падает в Node24 ESM; текущий workspace dist уже содержит `.js`. Нужен новый опубликованный patch artifact перед закрытием T09; publish не выполнялся.
+2026-09-19: T07/T09 API parity slice закрыт в workspace: `TreeviewCore.registerNodes` и оба Vue controller-а пробрасывают `TreeviewRegisterOptions` и возвращают `{ changed, topologyChanged }`; Vue adapters также expose-ят core `request*` result contracts, а virtual adapter refreshes window while preserving results. Добавлены core/Vue/virtual contract tests, README guidance и Node24 tests/builds прошли. Registry artifact gap и browser-native evidence остаются открытыми.

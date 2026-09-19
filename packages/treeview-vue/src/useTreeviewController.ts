@@ -2,26 +2,41 @@ import { getCurrentScope, onScopeDispose, shallowRef } from "vue"
 import type { ShallowRef } from "vue"
 import {
   TreeviewCore,
+  type TreeviewActionResult,
   type TreeviewNode,
   type TreeviewNodeMeta,
   type TreeviewOptions,
+  type TreeviewRegisterOptions,
+  type TreeviewRegisterResult,
   type TreeviewSnapshot,
 } from "@affino/treeview-core"
 
 export interface TreeviewController<Value = string> {
   readonly core: TreeviewCore<Value>
   readonly state: ShallowRef<TreeviewSnapshot<Value>>
-  readonly registerNodes: (nodes: ReadonlyArray<TreeviewNode<Value>>) => void
+  readonly registerNodes: (
+    nodes: ReadonlyArray<TreeviewNode<Value>>,
+    options?: TreeviewRegisterOptions,
+  ) => TreeviewRegisterResult
   readonly select: (value: Value) => void
+  readonly requestSelect: (value: Value) => TreeviewActionResult
   readonly clearSelection: () => void
   readonly focus: (value: Value) => void
+  readonly requestFocus: (value: Value) => TreeviewActionResult
   readonly focusFirst: () => void
+  readonly requestFocusFirst: () => TreeviewActionResult
   readonly focusLast: () => void
+  readonly requestFocusLast: () => TreeviewActionResult
   readonly focusNext: () => void
+  readonly requestFocusNext: () => TreeviewActionResult
   readonly focusPrevious: () => void
+  readonly requestFocusPrevious: () => TreeviewActionResult
   readonly expand: (value: Value) => void
+  readonly requestExpand: (value: Value) => TreeviewActionResult
   readonly collapse: (value: Value) => void
+  readonly requestCollapse: (value: Value) => TreeviewActionResult
   readonly toggle: (value: Value) => void
+  readonly requestToggle: (value: Value) => TreeviewActionResult
   readonly expandPath: (value: Value) => void
   readonly isExpanded: (value: Value) => boolean
   readonly isSelected: (value: Value) => boolean
@@ -64,17 +79,26 @@ export function useTreeviewController<Value = string>(
   return {
     core,
     state,
-    registerNodes: (nodes) => core.registerNodes(nodes),
+    registerNodes: (nodes, options) => core.registerNodes(nodes, options),
     select: (value) => core.select(value),
+    requestSelect: (value) => core.requestSelect(value),
     clearSelection: () => core.clearSelection(),
     focus: (value) => core.focus(value),
+    requestFocus: (value) => core.requestFocus(value),
     focusFirst: () => core.focusFirst(),
+    requestFocusFirst: () => core.requestFocusFirst(),
     focusLast: () => core.focusLast(),
+    requestFocusLast: () => core.requestFocusLast(),
     focusNext: () => core.focusNext(),
+    requestFocusNext: () => core.requestFocusNext(),
     focusPrevious: () => core.focusPrevious(),
+    requestFocusPrevious: () => core.requestFocusPrevious(),
     expand: (value) => core.expand(value),
+    requestExpand: (value) => core.requestExpand(value),
     collapse: (value) => core.collapse(value),
+    requestCollapse: (value) => core.requestCollapse(value),
     toggle: (value) => core.toggle(value),
+    requestToggle: (value) => core.requestToggle(value),
     expandPath: (value) => core.expandPath(value),
     isExpanded: (value) => core.isExpanded(value),
     isSelected: (value) => core.isSelected(value),

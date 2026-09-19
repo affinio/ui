@@ -47,6 +47,11 @@ export type TreeviewRegisterOptions = {
   mode?: TreeviewRegisterMode
 }
 
+export type TreeviewRegisterResult = Readonly<{
+  changed: boolean
+  topologyChanged: boolean
+}>
+
 export type TreeviewActionFailureReason =
   | "missing-node"
   | "disabled-node"

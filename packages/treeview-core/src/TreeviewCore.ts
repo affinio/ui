@@ -6,6 +6,7 @@ import type {
   TreeviewNodeMeta,
   TreeviewOptions,
   TreeviewRegisterOptions,
+  TreeviewRegisterResult,
   TreeviewSnapshot,
   TreeviewState,
   TreeviewSubscriber,
@@ -108,12 +109,12 @@ export class TreeviewCore<Value = string> {
   registerNodes(
     nodes: ReadonlyArray<TreeviewNode<Value>>,
     options: TreeviewRegisterOptions = {},
-  ): void {
+  ): TreeviewRegisterResult {
     const result = options.mode === "patch"
       ? this.patchNodeMap(nodes)
       : this.replaceNodeMap(nodes)
     if (!result.changed) {
-      return
+      return result
     }
     if (!result.topologyChanged) {
       this.rebuildSearchProjection()
@@ -124,6 +125,7 @@ export class TreeviewCore<Value = string> {
     if (!stateChanged && options.emit !== false) {
       this.emitSnapshot()
     }
+    return result
   }
 
   select(value: Value): void {

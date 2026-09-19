@@ -132,6 +132,16 @@ describe("useVirtualTreeviewController", () => {
     expect(controller.getVisibleCount()).toBe(21)
     expect(controller.totalHeight.value).toBe(672)
 
+    expect(controller.registerNodes([{ value: "21", parent: null }], { mode: "patch" })).toEqual({
+      changed: true,
+      topologyChanged: true,
+    })
+    expect(controller.requestSelect("missing")).toEqual({
+      ok: false,
+      changed: false,
+      reason: "missing-node",
+    })
+
     scope.stop()
     vi.useRealTimers()
   })

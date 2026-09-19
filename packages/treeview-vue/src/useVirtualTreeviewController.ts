@@ -136,10 +136,11 @@ export function useVirtualTreeviewController<Value = string>(
     }
   }
 
-  const refreshAfter = <Args extends unknown[]>(callback: (...args: Args) => void) => {
-    return (...args: Args) => {
-      callback(...args)
+  const refreshAfter = <Args extends unknown[], Result>(callback: (...args: Args) => Result) => {
+    return (...args: Args): Result => {
+      const result = callback(...args)
       refreshWindow()
+      return result
     }
   }
 
@@ -173,15 +174,24 @@ export function useVirtualTreeviewController<Value = string>(
     visibleRows,
     registerNodes: refreshAfter(controller.registerNodes),
     select: refreshAfter(controller.select),
+    requestSelect: refreshAfter(controller.requestSelect),
     clearSelection: refreshAfter(controller.clearSelection),
     focus: refreshAfter(controller.focus),
+    requestFocus: refreshAfter(controller.requestFocus),
     focusFirst: refreshAfter(controller.focusFirst),
+    requestFocusFirst: refreshAfter(controller.requestFocusFirst),
     focusLast: refreshAfter(controller.focusLast),
+    requestFocusLast: refreshAfter(controller.requestFocusLast),
     focusNext: refreshAfter(controller.focusNext),
+    requestFocusNext: refreshAfter(controller.requestFocusNext),
     focusPrevious: refreshAfter(controller.focusPrevious),
+    requestFocusPrevious: refreshAfter(controller.requestFocusPrevious),
     expand: refreshAfter(controller.expand),
+    requestExpand: refreshAfter(controller.requestExpand),
     collapse: refreshAfter(controller.collapse),
+    requestCollapse: refreshAfter(controller.requestCollapse),
     toggle: refreshAfter(controller.toggle),
+    requestToggle: refreshAfter(controller.requestToggle),
     expandPath: refreshAfter(controller.expandPath),
     setSearchQuery: refreshAfter(controller.setSearchQuery),
     clearSearchQuery: refreshAfter(controller.clearSearchQuery),

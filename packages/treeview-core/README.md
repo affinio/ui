@@ -59,7 +59,7 @@ Legacy imperative methods remain and delegate internally:
 
 ## Other API
 
-- `registerNodes(nodes, options?)` — default mode replaces the source; use `{ mode: "patch" }` for upserts without removing omitted nodes.
+- `registerNodes(nodes, options?)` — default mode replaces the source; use `{ mode: "patch" }` for upserts without removing omitted nodes. Returns `{ changed, topologyChanged }`, so adapters can skip downstream work for no-op updates.
 - `expandPath(value)`
 - `clearSelection()`
 - `getVisibleValues()`
@@ -85,6 +85,7 @@ Nodes can provide `text`, or consumers can pass `textAccessor` in options. `setS
 
 - Keep stable node ids (`value`) across re-renders.
 - Use `request*` results to handle invalid user intents explicitly.
+- Use `registerNodes` result flags to distinguish content changes from topology changes when coordinating virtualization or derived indexes.
 - Treat snapshots as immutable outputs.
 - Keep one canonical tree state source in adapter state.
 - `value` must be unique and stable; `null` is reserved for root parents.

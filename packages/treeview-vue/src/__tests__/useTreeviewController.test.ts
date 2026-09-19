@@ -126,4 +126,27 @@ describe("useTreeviewController", () => {
 
     scope.stop()
   })
+
+  it("preserves core patch and request result contracts", () => {
+    const scope = effectScope()
+    let controller!: TreeviewController<string>
+    scope.run(() => {
+      controller = useTreeviewController<string>({
+        nodes: [{ value: "root", parent: null }],
+      })
+    })
+
+    expect(controller.registerNodes([{ value: "child", parent: "root" }], { mode: "patch" })).toEqual({
+      changed: true,
+      topologyChanged: true,
+    })
+    expect(controller.requestSelect("missing")).toEqual({
+      ok: false,
+      changed: false,
+      reason: "missing-node",
+    })
+    expect(controller.requestSelect("child")).toEqual({ ok: true, changed: true })
+
+    scope.stop()
+  })
 })
