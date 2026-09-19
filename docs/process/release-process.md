@@ -15,6 +15,17 @@ Date: `2026-02-07`
 4. Publish packages from release commit.
 5. Verify package install and smoke tests on demos.
 
+Before publishing, verify the runtime explicitly:
+
+```sh
+node --version # must be v24.x
+pnpm --version # must be 11.5.x
+```
+
+The repository engine contract is Node 24. If a development container reports Node 22,
+rebuild/reopen the dev container before running `pnpm publish`; do not weaken the engine
+constraint to hide the warning.
+
 ## Rules
 
 - No publish from non-`main` branches.
