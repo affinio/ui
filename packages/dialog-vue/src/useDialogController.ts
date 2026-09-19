@@ -1,4 +1,4 @@
-import { getCurrentInstance, onBeforeUnmount, shallowRef } from "vue"
+import { getCurrentInstance, getCurrentScope, onBeforeUnmount, onMounted, onScopeDispose, shallowRef } from "vue"
 import type { ShallowRef } from "vue"
 import {
   DialogController,
@@ -50,6 +50,15 @@ export function useDialogController(options: UseDialogControllerOptions = {}): D
 
   if (getCurrentInstance()) {
     onBeforeUnmount(dispose)
+    if (options.defaultOpen && options.focusOrchestrator) {
+      onMounted(() => {
+        if (controller.snapshot.isOpen && !disposed) {
+          options.focusOrchestrator?.activate({ reason: "programmatic" })
+        }
+      })
+    }
+  } else if (getCurrentScope()) {
+    onScopeDispose(dispose)
   }
 
   return {
