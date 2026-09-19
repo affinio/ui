@@ -25,4 +25,14 @@ describe("DefaultOverlayManager", () => {
 
     expect(manager.getStack().map((entry) => entry.id)).toEqual(["dialog"])
   })
+
+  it("rejects owner cycles during registration and updates", () => {
+    const manager = new DefaultOverlayManager()
+    manager.register({ id: "parent", kind: "dialog", state: "open" })
+    manager.register({ id: "child", kind: "dialog", ownerId: "parent", state: "open" })
+
+    expect(() => manager.update("parent", { ownerId: "child" })).toThrow(/Owner cycle detected/)
+    expect(() => manager.register({ id: "self", kind: "dialog", ownerId: "self", state: "open" })).toThrow(/Owner cycle detected/)
+    expect(manager.getEntry("parent")?.ownerId).toBeNull()
+  })
 })

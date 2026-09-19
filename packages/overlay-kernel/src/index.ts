@@ -268,6 +268,7 @@ export class DefaultOverlayManager implements OverlayManager {
       throw new Error(`[OverlayManager] Duplicate overlay id: ${init.id}`)
     }
     const entry = this.createEntry(init)
+    this.assertOwnerChangeAllowed(entry.id, entry.ownerId)
     this.entries.set(entry.id, entry)
     const stackChanged = this.isActiveEntry(entry) ? this.activateEntry(entry) : false
     if (stackChanged) {
@@ -305,6 +306,10 @@ export class DefaultOverlayManager implements OverlayManager {
     const previousState = entry.state
     const previousPriority = entry.priority
     const previousOwner = entry.ownerId
+
+    if (patch.ownerId !== undefined) {
+      this.assertOwnerChangeAllowed(id, patch.ownerId)
+    }
 
     const nextPriority =
       patch.priority !== undefined ? resolvePriority(entry.kind, patch.priority) : entry.priority
@@ -549,14 +554,34 @@ export class DefaultOverlayManager implements OverlayManager {
     if (potentialAncestor.id === candidate.id) {
       return false
     }
+    const visited = new Set<string>()
     let cursor = candidate.ownerId ? this.entries.get(candidate.ownerId) ?? null : null
     while (cursor) {
+      if (visited.has(cursor.id)) {
+        return false
+      }
+      visited.add(cursor.id)
       if (cursor.id === potentialAncestor.id) {
         return true
       }
       cursor = cursor.ownerId ? this.entries.get(cursor.ownerId) ?? null : null
     }
     return false
+  }
+
+  private assertOwnerChangeAllowed(id: string, ownerId: string | null): void {
+    const visited = new Set<string>([id])
+    if (ownerId === id) {
+      throw new Error("[OverlayManager] Owner cycle detected for overlay: " + id)
+    }
+    let cursor = ownerId ? this.entries.get(ownerId) ?? null : null
+    while (cursor) {
+      if (visited.has(cursor.id)) {
+        throw new Error("[OverlayManager] Owner cycle detected for overlay: " + id)
+      }
+      visited.add(cursor.id)
+      cursor = cursor.ownerId ? this.entries.get(cursor.ownerId) ?? null : null
+    }
   }
 
   private getDescendants(entry: OverlayEntry): OverlayEntry[] {
@@ -1034,8 +1059,13 @@ function collectActiveDependents(
 }
 
 function isDescendantOf(manager: OverlayManager, ownerId: string, candidate: OverlayEntry): boolean {
+  const visited = new Set<string>()
   let cursor: OverlayEntry | null = candidate
   while (cursor?.ownerId) {
+    if (visited.has(cursor.id)) {
+      return false
+    }
+    visited.add(cursor.id)
     if (cursor.ownerId === ownerId) {
       return true
     }
