@@ -1,6 +1,6 @@
 # Treeview — reliability / performance implementation plan для Luna
 
-Статус: **in_progress; 7/10 slices closed**. Дата аудита: 2026-09-19.
+Статус: **in_progress; 9/10 slices closed**. Дата аудита: 2026-09-19.
 Область: @affino/treeview-core, @affino/treeview-vue, JS bridge @affino/treeview-laravel.
 Обязательно прочитать [общий аудит и протокол](COMPONENT_ENGINEERING_AUDIT_2026-09-19.md) целиком перед исполнением.
 Цель: предсказуемая модель дерева и virtual adapter с проверенной стоимостью операций, а не обещание отсутствия bottlenecks при любой нагрузке.
@@ -42,7 +42,7 @@
 | T04 | Полное покрытие virtual viewport | — | done |
 | T05 | Единый owner virtual updates / lifecycle | T02,T04 | done |
 | T06 | Линейная search projection | T03 | done |
-| T07 | Стоимость patch / batching / registration API | T01,T02,T06 | in_progress |
+| T07 | Стоимость patch / batching / registration API | T01,T02,T06 | done |
 | T08 | Laravel dynamic DOM и event ownership | T02,T03 | done |
 | T09 | Packed consumers / docs / accessibility contract | T05,T07,T08 | done |
 | T10 | Нагрузочные и browser gates | T01–T09 | pending |
@@ -137,3 +137,4 @@
 2026-09-19: аудит и baseline treeview 47 tests (core 32, Vue 11, Laravel 4), builds passed на Node 24. Закрыты T01–T06, T08 и T09: prospective cycle normalization, structural notifications/no-op replace, search active invariants, fractional virtual range, core-owned virtual invalidation, bottom-up search projection, attribute-aware Laravel rehydrate с сохранением selection/expansion и explicit consumer/accessibility envelope в README + ESM consumer verification. T07 начат: topology patch больше не перестраивает search projection второй раз; benchmark получил deterministic no-op gates для source finalization, visible recompute и snapshot emission, отдельный field-patch workload подтвердил нулевые topology/traversal rebuilds, Node24 smoke на 1k nodes прошёл. T10 остаётся открытым; T07 требует полного calibrated patch cost model.
 2026-09-19: T10 продвинут: Node24 core benchmark на 10k прошёл с no-op/field-patch counter gates, Vue virtual benchmark на 10k прошёл с blanks=0 и heap delta 7.97MB; все 52 treeview tests, builds и pack dry-run прошли. Browser-native interaction gate остаётся validation gap из-за отсутствия component E2E fixtures.
 2026-09-19: T07 code slice: patchNodeMap теперь пропускает полный proposedParents проход для no-op/disabled/text-only updates и оставляет cycle validation для add/reparent. На 50k stress no-op burst снизился примерно с 535ms до 2.4ms при сохранённых zero topology/traversal/source-finalize counters; field patch burst — около 14.5ms. Core 35 tests и build прошли.
+2026-09-19: T07 acceptance закрыт: calibrated Node24 bench:assert на 10k прошёл за 6516ms при бюджете 9000ms; no-op p95 2.111ms и field patch p95 5.046ms с нулевыми topology/traversal/source-finalize counters, topology add/reparent и search/focus/visible workloads также прошли бюджетные gates. T10 остаётся открытым только из-за browser-native fixture gate и isolated registry consumer install.
