@@ -43,7 +43,7 @@
 | D04 | Reentrancy, ошибки hooks и atomic transitions | D01,D02 | done |
 | D05 | Честный modal/focus contract + DOM behavior | D03; API decision | done |
 | D06 | defaultOpen, scope lifetime, SSR IDs | D02,D03,D05 | done |
-| D07 | Nested overlay ownership / dynamic roots | D01,D04,D05 | pending |
+| D07 | Nested overlay ownership / dynamic roots | D01,D04,D05 | in_progress |
 | D08 | Laravel alignment / lifecycle / retention | D02,D03,D07 | done |
 | D09 | Package consumers / examples / perf harness | D04–D08 | in_progress |
 | D10 | Full regression / browser / CI gates | D01–D09 | pending |
@@ -144,4 +144,5 @@
 2026-09-19: D09 продвинут: добавлен scripts/bench-dialog-core.mjs и package bench command; smoke на 1/10/100 controllers и burst 1000 pending close requests прошёл на Node24, p95 для 100 controllers около 3.5ms. Dynamic-root/browser lifecycle остаются открытыми.
 2026-09-19: D09 consumer gate продвинут: @affino/dialog-core tarball установлен в изолированный Node24 consumer вместе с registry @affino/overlay-kernel@0.2.0 и @affino/surface-core@1.1.0; public factory импортируется без workspace aliases. Vite SSR/Vue peer и browser lifecycle gates остаются открытыми.
 2026-09-19: D10 browser gate подготовлен: добавлен `scripts/smoke-components-demo.mjs`, который проверяет dialog open/ARIA/Escape и diagram selection/rotation/revision/zoom на demo-vue; CI visual job запускает smoke после установки Chromium. Локальный arm64 Ubuntu runner не может выполнить Chromium, поэтому runtime evidence ожидается от GitHub runner.
+2026-09-19: D07 уточнён: mixed dialog/sheet owner-cascade, top-most rejection, duplicate-ID stale disposer и owner-cycle rejection покрыты core/kernel/Vue tests. Остался отдельный dynamic-root/teleport update contract; публичный API не расширяется без согласования.
 2026-09-19: D07 продвинут: overlay-kernel теперь отвергает self-owner и циклические ownerId при register/update, traversal дополнительно защищён visited guard; добавлены owner graph regression tests, overlay 5 tests и dialog core 34 tests прошли.
