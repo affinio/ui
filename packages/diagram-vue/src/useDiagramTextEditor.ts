@@ -1,4 +1,4 @@
-import { getCurrentScope, onScopeDispose, shallowRef } from "vue"
+import { getCurrentScope, onScopeDispose, shallowRef, watch } from "vue"
 import type { ShallowRef } from "vue"
 import { createEntityGeometry, type DiagramId, type DiagramRect, type DiagramViewport } from "@affino/diagram-core"
 import type { DiagramEngineController } from "./useDiagramEngine.js"
@@ -54,6 +54,7 @@ export function useDiagramTextEditor(controller: DiagramEngineController, option
   }
 
   const subscription = controller.engine.subscribe(() => refreshActive())
+  const stopViewportWatch = options.viewport ? watch(() => options.viewport?.value, refreshActive) : null
 
   const beginTextEdit = (id: DiagramId): boolean => {
     const overlay = buildOverlay(id)
@@ -94,6 +95,7 @@ export function useDiagramTextEditor(controller: DiagramEngineController, option
     disposed = true
     activeEditor.value = null
     subscription.unsubscribe()
+    stopViewportWatch?.()
   }
 
   if (getCurrentScope()) {

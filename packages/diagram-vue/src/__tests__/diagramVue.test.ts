@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
-import { effectScope, shallowRef } from "vue"
+import { effectScope, nextTick, shallowRef } from "vue"
 import { createDiagramEngine, type DiagramSceneInput } from "@affino/diagram-core"
 import { getDomEntityStyle, getSvgEntityProps, useDiagramEngine, useDiagramPointerController, useDiagramSelection, useDiagramTextEditor, useDiagramViewport, useDiagramVisibleEntities } from ".."
 
@@ -98,7 +98,7 @@ describe("diagram-vue", () => {
     expect(getSvgEntityProps(node)).toMatchObject({ x: 0, y: 0, width: 100, height: 60 })
   })
 
-  it("uses one active text editor overlay and commits edits through core", () => {
+  it("uses one active text editor overlay and commits edits through core", async () => {
     const controller = useDiagramEngine({
       ...scene,
       texts: [
@@ -121,6 +121,9 @@ describe("diagram-vue", () => {
 
     viewport.setViewport({ x: 20, y: 10, zoom: 2 })
     expect(editor.activeEditor.value?.style).toMatchObject({ left: "40px", top: "160px" })
+    viewport.viewport.value = { ...viewport.viewport.value, x: 30 }
+    await nextTick()
+    expect(editor.activeEditor.value?.style.left).toBe("20px")
     editor.updateText("Edited label")
     expect(editor.activeEditor.value?.text).toBe("Edited label")
     expect(editor.commitTextEdit()).toBe(true)
