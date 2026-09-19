@@ -568,6 +568,7 @@ describe("DiagramEngine", () => {
 
     expect(engine.snapPoint({ x: 101, y: 31 }, { radius: 8 }).source).toBe("port")
     expect(engine.snapPoint({ x: 50, y: 200 }, { radius: 3 }).source).toBe("alignment")
+    expect(engine.snapPoint({ x: 50, y: 100 }, { radius: 3, excludeIds: new Set(["n1"]) }).snapped).toBe(false)
     expect(engine.snapPoint({ x: 10, y: 7 }, { angleConstraint: 45 }).source).toBe("angle")
     expect(engine.snapPoint({ x: 13, y: 17 }, { gridSize: 10 })).toEqual({ point: { x: 10, y: 20 }, snapped: true, source: "grid" })
   })

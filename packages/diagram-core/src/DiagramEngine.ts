@@ -261,7 +261,7 @@ export class DiagramEngine {
         return { point: geometry.point, snapped: true, source: "port" }
       }
     }
-    const aligned = this.snapToAlignment(point, context.radius ?? 6)
+    const aligned = this.snapToAlignment(point, context.radius ?? 6, context.excludeIds)
     if (aligned) {
       return { point: aligned, snapped: true, source: "alignment" }
     }
@@ -545,8 +545,11 @@ export class DiagramEngine {
     }
   }
 
-  private snapToAlignment(point: DiagramPoint, radius: number): DiagramPoint | null {
+  private snapToAlignment(point: DiagramPoint, radius: number, excludeIds?: ReadonlySet<DiagramId>): DiagramPoint | null {
     for (const id of this.state.order.nodeIds) {
+      if (excludeIds?.has(id)) {
+        continue
+      }
       const geometry = this.getGeometry(id)
       if (!geometry) {
         continue
