@@ -1,6 +1,6 @@
 # Diagram — reliability / scalability implementation plan для Luna
 
-Статус: **in_progress; 3/12 slices closed**. Дата: 2026-09-19.
+Статус: **in_progress; 4/12 slices closed**. Дата: 2026-09-19.
 Область: @affino/diagram-core + @affino/diagram-vue, существующие benches/examples.
 Перед работой прочитать [общий аудит и протокол](COMPONENT_ENGINEERING_AUDIT_2026-09-19.md), docs/reference/diagram-packages.md и локальные инструкции.
 Сохранить единый публичный facade createDiagramEngine; внутренние SceneStore/History/Geometry/SpatialIndex уже существуют.
@@ -49,7 +49,7 @@
 | G02 | Consistent transaction publication / history state | G01 | done |
 | G03 | Gesture-scoped bounded history | G02; API decision | in_progress |
 | G04 | Command capability и validation | G01,G02 | done |
-| G05 | Immutable snapshots с structural sharing | G01,G02 | pending |
+| G05 | Immutable snapshots с structural sharing | G01,G02 | done |
 | G06 | Domain invalidation / adjacency / incremental indexes | G04,G05 | pending |
 | G07 | Cached order / bounded spatial queries / snapping | G04,G06 | in_progress |
 | G08 | Incremental Vue projection / subscriptions | G05–G07 | in_progress |
@@ -181,3 +181,4 @@
 2026-09-19: G11 продвинут: diagram benchmark теперь отдельно публикует cold и warm visible/entity-query latency, чтобы lazy index/order setup не смешивался со steady-state interaction signal. Node24 build и benchmark 1k/5k/10k прошли; на 10k warm visible около 0.20ms, warm entity search около 2.01ms.
 2026-09-19: G12 продвинут: добавлен retention regression для caller-held snapshots через delete, undo и replacement; старые entity/dependency values остаются корректными и не получают новые IDs. Diagram-core test 31/31 прошёл.
 2026-09-19: Cross-package consumer follow-up: diagram-core tarball import остаётся green; treeview-core isolated tarball import корректно выявил обязательную внешнюю dependency @affino/projection-engine, отсутствующую в текущем workspace node_modules. Это environment/install gate, не runtime regression пакета; полноценный isolated install должен быть выполнен в CI/registry-backed consumer job.
+2026-09-19: G11 consumer gate уточнён: treeview-core и dialog-core registry-backed consumer checks теперь прошли отдельно; diagram-core tarball уже проходил isolated Node24 import. Для самого diagram package consumer evidence остаётся green, а browser/renderer pipeline gate — открытым.
