@@ -18,13 +18,13 @@ Date: `2026-02-07`
 Before publishing, verify the runtime explicitly:
 
 ```sh
-node --version # must be v24.x
-pnpm --version # must be 11.5.x
+node --version # must satisfy the repository engine contract
+pnpm --version # must match the repository packageManager field
 ```
 
-The repository engine contract is Node 24. If a development container reports Node 22,
-rebuild/reopen the dev container before running `pnpm publish`; do not weaken the engine
-constraint to hide the warning.
+The repository currently targets Node 24 and declares its pnpm toolchain in the root
+`package.json`. Follow those declarations when publishing; update them deliberately when
+the supported runtime moves forward.
 
 ## Rules
 

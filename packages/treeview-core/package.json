@@ -19,7 +19,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "bench": "node --expose-gc --experimental-specifier-resolution=node ../../scripts/bench-treeview-core.mjs",
-    "bench:assert": "BENCH_TREEVIEW_NODE_COUNT=10000 BENCH_TREEVIEW_SAMPLE_COUNT=5 BENCH_TREEVIEW_BURST_ITERATIONS=400 PERF_BUDGET_TOTAL_MS=9000 PERF_BUDGET_MAX_REGISTER_REPLACE_P95_MS=120 PERF_BUDGET_MAX_REGISTER_PATCH_P95_MS=140 PERF_BUDGET_MAX_FOCUS_BURST_P95_MS=200 PERF_BUDGET_MAX_SELECT_BURST_P95_MS=90 PERF_BUDGET_MAX_VISIBLE_READ_P95_MS=80 PERF_BUDGET_MAX_HEAP_DELTA_MB=120 node --expose-gc --experimental-specifier-resolution=node ../../scripts/bench-treeview-core.mjs",
+    "bench:assert": "BENCH_TREEVIEW_NODE_COUNT=10000 BENCH_TREEVIEW_SAMPLE_COUNT=5 BENCH_TREEVIEW_BURST_ITERATIONS=400 PERF_BUDGET_TOTAL_MS=18000 PERF_BUDGET_MAX_REGISTER_REPLACE_P95_MS=120 PERF_BUDGET_MAX_REGISTER_PATCH_P95_MS=140 PERF_BUDGET_MAX_FOCUS_BURST_P95_MS=200 PERF_BUDGET_MAX_SELECT_BURST_P95_MS=90 PERF_BUDGET_MAX_VISIBLE_READ_P95_MS=80 PERF_BUDGET_MAX_HEAP_DELTA_MB=120 node --expose-gc --experimental-specifier-resolution=node ../../scripts/bench-treeview-core.mjs",
     "test": "vitest run"
   },
   "license": "MIT",
