@@ -53,6 +53,8 @@ export class DiagramEngine {
   private lastCommandMs = 0
   private orderIndexRevision = -1
   private orderIndexCache = new Map<DiagramId, number>()
+  private orderedIdsRevision = -1
+  private orderedIdsCache: DiagramId[] = []
   private dependencyIndexReady = false
   private dependencyEntityIds = new Set<DiagramId>()
   private portIdsByNode = new Map<DiagramId, Set<DiagramId>>()
@@ -145,10 +147,13 @@ export class DiagramEngine {
     const metadata = options.metadata ?? null
     const order = this.createOrderIndex()
     const sourceIds = options.bounds ? this.spatialIndex.queryVisible(options.bounds) : this.createOrderedIds()
+    const orderedSourceIds = options.bounds
+      ? sourceIds.sort((a, b) => (order.get(a) ?? 0) - (order.get(b) ?? 0))
+      : sourceIds
     const result: DiagramId[] = []
     const seen = new Set<DiagramId>()
 
-    for (const id of sourceIds.sort((a, b) => (order.get(a) ?? 0) - (order.get(b) ?? 0))) {
+    for (const id of orderedSourceIds) {
       if (seen.has(id)) {
         continue
       }
@@ -558,6 +563,9 @@ export class DiagramEngine {
   }
 
   private createOrderedIds(): DiagramId[] {
+    if (this.orderedIdsRevision === this.state.revision) {
+      return this.orderedIdsCache
+    }
     const ids = [
       ...this.state.order.edgeIds,
       ...this.state.order.shapeIds,
@@ -566,7 +574,7 @@ export class DiagramEngine {
       ...this.state.entities.portsById.keys(),
     ]
     const baseOrder = new Map(ids.map((id, index) => [id, index]))
-    return ids.sort((a, b) => {
+    this.orderedIdsCache = ids.sort((a, b) => {
       const layerDelta = layerRank(this.getEntityMetadata(a)) - layerRank(this.getEntityMetadata(b))
       if (layerDelta) {
         return layerDelta
@@ -574,6 +582,8 @@ export class DiagramEngine {
       const zDelta = zIndex(this.getEntityMetadata(a)) - zIndex(this.getEntityMetadata(b))
       return zDelta || ((baseOrder.get(a) ?? 0) - (baseOrder.get(b) ?? 0))
     })
+    this.orderedIdsRevision = this.state.revision
+    return this.orderedIdsCache
   }
 
   private createOrderIndex(): Map<DiagramId, number> {

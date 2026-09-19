@@ -17,7 +17,7 @@ export class DiagramSceneStore {
 
   constructor(initialScene: DiagramSceneInput = {}) {
     this.state = createInternalState(initialScene)
-    this.snapshot = this.createSnapshot()
+    this.snapshot = this.createSnapshot(null)
   }
 
   getSnapshot(): DiagramScene {
@@ -29,7 +29,7 @@ export class DiagramSceneStore {
   }
 
   publish(changedIds: ReadonlySet<DiagramId>, invalidatedIds: ReadonlySet<DiagramId>): void {
-    this.snapshot = this.createSnapshot()
+    this.snapshot = this.createSnapshot(changedIds)
     this.lastChange = {
       revision: this.state.revision,
       changedIds: Object.freeze(new Set(changedIds)),
@@ -50,14 +50,14 @@ export class DiagramSceneStore {
     }
   }
 
-  private createSnapshot(): DiagramScene {
+  private createSnapshot(changedIds: ReadonlySet<DiagramId> | null): DiagramScene {
     return deepFreeze({
       entities: {
-        nodesById: this.createReadonlyMap(this.state.entities.nodesById),
-        edgesById: this.createReadonlyMap(this.state.entities.edgesById),
-        textsById: this.createReadonlyMap(this.state.entities.textsById),
-        shapesById: this.createReadonlyMap(this.state.entities.shapesById),
-        portsById: this.createReadonlyMap(this.state.entities.portsById),
+        nodesById: this.createReadonlyMap(this.state.entities.nodesById, this.snapshot?.entities.nodesById, changedIds),
+        edgesById: this.createReadonlyMap(this.state.entities.edgesById, this.snapshot?.entities.edgesById, changedIds),
+        textsById: this.createReadonlyMap(this.state.entities.textsById, this.snapshot?.entities.textsById, changedIds),
+        shapesById: this.createReadonlyMap(this.state.entities.shapesById, this.snapshot?.entities.shapesById, changedIds),
+        portsById: this.createReadonlyMap(this.state.entities.portsById, this.snapshot?.entities.portsById, changedIds),
       },
       order: {
         nodeIds: [...this.state.order.nodeIds],
@@ -74,8 +74,12 @@ export class DiagramSceneStore {
     })
   }
 
-  private createReadonlyMap<Entity>(source: ReadonlyMap<DiagramId, Entity>): ReadonlyMap<DiagramId, Entity> {
-    return createReadonlyMap(source, this.frozenEntityCache)
+  private createReadonlyMap<Entity>(
+    source: ReadonlyMap<DiagramId, Entity>,
+    previous: ReadonlyMap<DiagramId, Entity> | undefined,
+    changedIds: ReadonlySet<DiagramId> | null,
+  ): ReadonlyMap<DiagramId, Entity> {
+    return createReadonlyMap(source, this.frozenEntityCache, previous, changedIds)
   }
 }
 
@@ -119,9 +123,30 @@ function toMap<Entity extends { id: DiagramId }>(entities: ReadonlyArray<Entity>
   return new Map(entities.map((entity) => [entity.id, cloneValue(entity)]))
 }
 
-function createReadonlyMap<Entity>(source: ReadonlyMap<DiagramId, Entity>, cache: WeakMap<object, unknown>): ReadonlyMap<DiagramId, Entity> {
+function createReadonlyMap<Entity>(
+  source: ReadonlyMap<DiagramId, Entity>,
+  cache: WeakMap<object, unknown>,
+  previous: ReadonlyMap<DiagramId, Entity> | undefined,
+  changedIds: ReadonlySet<DiagramId> | null,
+): ReadonlyMap<DiagramId, Entity> {
+  if (previous && changedIds && !Array.from(changedIds).some((id) => source.has(id) || previous.has(id))) {
+    return previous
+  }
   const target = new Map<DiagramId, Entity>() as Map<DiagramId, Entity> & { set: never; delete: never; clear: never }
+  if (previous && changedIds) {
+    for (const [id, entity] of previous) {
+      Map.prototype.set.call(target, id, entity)
+    }
+    for (const id of changedIds) {
+      if (!source.has(id)) {
+        Map.prototype.delete.call(target, id)
+      }
+    }
+  }
   for (const [id, entity] of source) {
+    if (previous && changedIds && !changedIds.has(id) && previous.has(id)) {
+      continue
+    }
     const cached = entity && typeof entity === "object" ? cache.get(entity) : undefined
     if (cached !== undefined) {
       Map.prototype.set.call(target, id, cached)

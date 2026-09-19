@@ -88,6 +88,7 @@ describe("DiagramEngine", () => {
     const after = engine.getScene()
     expect(after.entities.nodesById.get("n1")).not.toBe(before.entities.nodesById.get("n1"))
     expect(after.entities.nodesById.get("n2")).toBe(before.entities.nodesById.get("n2"))
+    expect(after.entities.edgesById).toBe(before.entities.edgesById)
     expect(after.entities.edgesById.get("e1")).toBe(before.entities.edgesById.get("e1"))
   })
 
