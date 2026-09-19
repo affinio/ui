@@ -179,6 +179,9 @@ describe("diagram-vue", () => {
 
     expect(visible.projection.value.nodes[0]?.geometry.corners).toHaveLength(4)
     expect(visible.projection.value.activeHandles.map((handle) => handle.point)).toEqual(visible.projection.value.nodes[0]?.geometry.corners)
+    const rotated = visible.projection.value.nodes[0]!
+    expect(getSvgEntityProps(rotated)).toMatchObject({ x: 0, y: 0, width: 100, height: 40, transform: "rotate(90 50 20)" })
+    expect(getDomEntityStyle(rotated).transform).toBe("translate(0px, 0px) rotate(90deg)")
   })
 
   it("exposes one group resize handle set for multi-selection", () => {
