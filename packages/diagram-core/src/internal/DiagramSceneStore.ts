@@ -7,6 +7,7 @@ const EMPTY_SELECTION: DiagramSelection = Object.freeze({ ids: Object.freeze([])
 export class DiagramSceneStore {
   readonly state: InternalState
   private snapshot: DiagramScene
+  private readonly frozenEntityCache = new WeakMap<object, unknown>()
   private subscribers = new Set<DiagramSubscriber>()
   private lastChange: DiagramChange = {
     revision: 0,
@@ -52,11 +53,11 @@ export class DiagramSceneStore {
   private createSnapshot(): DiagramScene {
     return deepFreeze({
       entities: {
-        nodesById: createReadonlyMap(this.state.entities.nodesById),
-        edgesById: createReadonlyMap(this.state.entities.edgesById),
-        textsById: createReadonlyMap(this.state.entities.textsById),
-        shapesById: createReadonlyMap(this.state.entities.shapesById),
-        portsById: createReadonlyMap(this.state.entities.portsById),
+        nodesById: this.createReadonlyMap(this.state.entities.nodesById),
+        edgesById: this.createReadonlyMap(this.state.entities.edgesById),
+        textsById: this.createReadonlyMap(this.state.entities.textsById),
+        shapesById: this.createReadonlyMap(this.state.entities.shapesById),
+        portsById: this.createReadonlyMap(this.state.entities.portsById),
       },
       order: {
         nodeIds: [...this.state.order.nodeIds],
@@ -71,6 +72,10 @@ export class DiagramSceneStore {
       viewport: { ...this.state.viewport },
       revision: this.state.revision,
     })
+  }
+
+  private createReadonlyMap<Entity>(source: ReadonlyMap<DiagramId, Entity>): ReadonlyMap<DiagramId, Entity> {
+    return createReadonlyMap(source, this.frozenEntityCache)
   }
 }
 
@@ -114,10 +119,19 @@ function toMap<Entity extends { id: DiagramId }>(entities: ReadonlyArray<Entity>
   return new Map(entities.map((entity) => [entity.id, cloneValue(entity)]))
 }
 
-function createReadonlyMap<Entity>(source: ReadonlyMap<DiagramId, Entity>): ReadonlyMap<DiagramId, Entity> {
+function createReadonlyMap<Entity>(source: ReadonlyMap<DiagramId, Entity>, cache: WeakMap<object, unknown>): ReadonlyMap<DiagramId, Entity> {
   const target = new Map<DiagramId, Entity>() as Map<DiagramId, Entity> & { set: never; delete: never; clear: never }
   for (const [id, entity] of source) {
-    Map.prototype.set.call(target, id, deepFreeze(cloneValue(entity)))
+    const cached = entity && typeof entity === "object" ? cache.get(entity) : undefined
+    if (cached !== undefined) {
+      Map.prototype.set.call(target, id, cached)
+      continue
+    }
+    const frozen = deepFreeze(cloneValue(entity))
+    if (entity && typeof entity === "object") {
+      cache.set(entity, frozen)
+    }
+    Map.prototype.set.call(target, id, frozen)
   }
   Object.defineProperties(target, {
     set: { value: readonlyMapMutation, writable: false },

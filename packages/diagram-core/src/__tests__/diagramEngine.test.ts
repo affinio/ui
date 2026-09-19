@@ -79,6 +79,18 @@ describe("DiagramEngine", () => {
     expect(roundtrip.edges.map((edge) => edge.id)).toEqual(["e1"])
   })
 
+  it("shares unchanged entity snapshots across publications", () => {
+    const engine = createDiagramEngine(scene)
+    const before = engine.getScene()
+
+    engine.dispatch({ type: "moveNode", id: "n1", delta: { x: 10, y: 5 } })
+
+    const after = engine.getScene()
+    expect(after.entities.nodesById.get("n1")).not.toBe(before.entities.nodesById.get("n1"))
+    expect(after.entities.nodesById.get("n2")).toBe(before.entities.nodesById.get("n2"))
+    expect(after.entities.edgesById.get("e1")).toBe(before.entities.edgesById.get("e1"))
+  })
+
   it("owns input entities and invalidates an empty replacement", () => {
     const input = { id: "n1", kind: "node" as const, x: 0, y: 0, width: 20, height: 20 }
     const engine = createDiagramEngine({ nodes: [input] })
