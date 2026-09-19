@@ -34,10 +34,10 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Lint / type-check
-        run: pnpm run lint && pnpm -r --if-present --filter '!affino-monorepo' --filter '!@affino/datagrid-core' --filter '!...@affino/datagrid-core' --filter '!@affino/datagrid-vue' --filter '!...@affino/datagrid-vue' type-check
+        run: pnpm run lint && pnpm -r --if-present type-check
 
       - name: Build packages
-        run: pnpm -r --if-present --filter '!affino-monorepo' --filter '!@affino/datagrid-core' --filter '!...@affino/datagrid-core' --filter '!@affino/datagrid-vue' --filter '!...@affino/datagrid-vue' build
+        run: pnpm -r --if-present build
 
   test-matrix:
     runs-on: ubuntu-latest
@@ -49,7 +49,6 @@ jobs:
         suite:
           - unit
           - integration
-          - interaction
           - visual
     steps:
       - name: Checkout
@@ -67,190 +66,17 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Setup PHP
-        if: matrix.suite == 'interaction' || matrix.suite == 'visual'
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: "8.2"
-          tools: composer
-
-      - name: Install Laravel demo PHP dependencies
-        if: matrix.suite == 'interaction' || matrix.suite == 'visual'
-        run: composer install --no-interaction --prefer-dist --no-progress
-        working-directory: demo-laravel
-
-      - name: Prepare Laravel demo environment
-        if: matrix.suite == 'interaction' || matrix.suite == 'visual'
-        run: |
-          test -f .env || cp .env.example .env
-          php -r "file_exists('database/database.sqlite') || touch('database/database.sqlite');"
-          php artisan key:generate --force
-          php artisan migrate --force
-        working-directory: demo-laravel
-
-      - name: Build interaction web assets
-        if: matrix.suite == 'interaction' || matrix.suite == 'visual'
-        run: |
-          pnpm --filter demo-vue build-only
-          pnpm --dir demo-laravel build
-
       - name: Install Playwright browsers
-        if: matrix.suite == 'interaction' || matrix.suite == 'visual'
+        if: matrix.suite == 'visual'
         run: pnpm exec playwright install --with-deps chromium
 
       - name: Run unit matrix suite
         if: matrix.suite == 'unit'
-        run: pnpm -r --if-present --filter '!@affino/datagrid-core' --filter '!...@affino/datagrid-core' --filter '!@affino/datagrid-vue' --filter '!...@affino/datagrid-vue' test:unit
+        run: pnpm -r --if-present test:unit
 
       - name: Run integration matrix suite
         if: matrix.suite == 'integration'
-        run: pnpm -r --if-present --filter '!@affino/datagrid-core' --filter '!...@affino/datagrid-core' --filter '!@affino/datagrid-vue' --filter '!...@affino/datagrid-vue' test:integration
-
-      - name: Run interaction matrix suite (e2e + flake gate)
-        if: matrix.suite == 'interaction'
-        env:
-          PLAYWRIGHT_SKIP_WEB_BUILDS: "1"
-          DEBUG: "pw:webserver"
-        run: |
-          pkill -f "vite preview --host 127.0.0.1 --port 4173" || true
-          pkill -f "artisan serve --host=127.0.0.1 --port=4180" || true
-          pnpm run test:matrix:interaction
-
+        run: pnpm -r --if-present test:integration
       - name: Run visual matrix suite
         if: matrix.suite == 'visual'
         run: pnpm run test:matrix:visual
-
-      - name: Upload Playwright interaction artifacts
-        if: always() && matrix.suite == 'interaction'
-        uses: actions/upload-artifact@v6
-        with:
-          name: playwright-interaction-report
-          path: |
-            playwright-report
-            artifacts/playwright-flake-summary.json
-          if-no-files-found: ignore
-
-  quality-gates:
-    runs-on: ubuntu-latest
-    needs: verify
-    timeout-minutes: 75
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Use Node.js 24
-        uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Setup PHP
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: "8.2"
-          tools: composer
-
-      - name: Install Laravel demo PHP dependencies
-        run: composer install --no-interaction --prefer-dist --no-progress
-        working-directory: demo-laravel
-
-      - name: Prepare Laravel demo environment
-        run: |
-          test -f .env || cp .env.example .env
-          php -r "file_exists('database/database.sqlite') || touch('database/database.sqlite');"
-          php artisan key:generate --force
-          php artisan migrate --force
-        working-directory: demo-laravel
-
-      - name: Build interaction web assets
-        run: |
-          pnpm --filter demo-vue build-only
-          pnpm --dir demo-laravel build
-
-      - name: Install Playwright browsers
-        run: pnpm exec playwright install --with-deps chromium
-
-      - name: Build datagrid benchmark artifacts
-        run: |
-          pnpm --filter @affino/projection-engine build
-          pnpm --filter @affino/datagrid-plugins build
-          pnpm --filter @affino/datagrid-core build
-
-      - name: Ensure no stale web servers before datagrid parity quality lock
-        run: |
-          pkill -f "vite preview --host 127.0.0.1 --port 4173" || true
-          pkill -f "artisan serve --host=127.0.0.1 --port=4180" || true
-
-      - name: Run datagrid parity quality lock (architecture + perf contracts + strict contracts + critical e2e + benchmark + parity e2e)
-        env:
-          PLAYWRIGHT_SKIP_WEB_BUILDS: "1"
-          DEBUG: "pw:webserver"
-        run: pnpm run quality:lock:datagrid:parity
-
-      - name: Upload quality gate artifacts
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: datagrid-quality-gates
-          path: |
-            artifacts/quality
-            artifacts/performance
-            artifacts/playwright-flake-summary.json
-            playwright-report
-            packages/datagrid-core/coverage
-            packages/datagrid-vue/coverage
-          if-no-files-found: ignore
-
-  commercial-publish-gates:
-    runs-on: ubuntu-latest
-    needs: verify
-    timeout-minutes: 30
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Use Node.js 24
-        uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Run commercial release policy checks
-        env:
-          DATAGRID_RELEASE_POLICY_MODE: commercial
-        run: |
-          VERSION="$(node -p "require('./packages/datagrid/package.json').version")"
-          if [[ "$VERSION" == *-* ]]; then
-            export NPM_DIST_TAG=next
-          else
-            export NPM_DIST_TAG=latest
-          fi
-          pnpm run release:commercial:verify
-
-      - name: Pack and verify commercial tarball boundaries
-        run: pnpm run release:commercial:pack:gate
-
-      - name: Upload commercial publish gate artifacts
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: datagrid-commercial-publish-gates
-          path: |
-            artifacts/quality/datagrid-commercial-boundaries-report.json
-            artifacts/quality/datagrid-commercial-release-channel-report.json
-            artifacts/quality/datagrid-commercial-release-readiness-report.json
-            artifacts/quality/datagrid-commercial-tarball-boundaries-report.json
-            artifacts/release
-          if-no-files-found: ignore
