@@ -132,31 +132,22 @@ function createReadonlyMap<Entity>(
   if (previous && changedIds && !Array.from(changedIds).some((id) => source.has(id) || previous.has(id))) {
     return previous
   }
-  const target = new Map<DiagramId, Entity>() as Map<DiagramId, Entity> & { set: never; delete: never; clear: never }
   if (previous && changedIds) {
-    for (const [id, entity] of previous) {
-      Map.prototype.set.call(target, id, entity)
-    }
+    const updates = new Map<DiagramId, Entity>()
+    const deleted = new Set<DiagramId>()
     for (const id of changedIds) {
-      if (!source.has(id)) {
-        Map.prototype.delete.call(target, id)
+      if (source.has(id)) {
+        const entity = source.get(id) as Entity
+        updates.set(id, freezeEntity(entity, cache))
+      } else if (previous.has(id)) {
+        deleted.add(id)
       }
     }
+    return Object.freeze(new PersistentReadonlyMap(previous, updates, deleted))
   }
+  const target = new Map<DiagramId, Entity>() as Map<DiagramId, Entity> & { set: never; delete: never; clear: never }
   for (const [id, entity] of source) {
-    if (previous && changedIds && !changedIds.has(id) && previous.has(id)) {
-      continue
-    }
-    const cached = entity && typeof entity === "object" ? cache.get(entity) : undefined
-    if (cached !== undefined) {
-      Map.prototype.set.call(target, id, cached)
-      continue
-    }
-    const frozen = deepFreeze(cloneValue(entity))
-    if (entity && typeof entity === "object") {
-      cache.set(entity, frozen)
-    }
-    Map.prototype.set.call(target, id, frozen)
+    Map.prototype.set.call(target, id, freezeEntity(entity, cache))
   }
   Object.defineProperties(target, {
     set: { value: readonlyMapMutation, writable: false },
@@ -164,6 +155,72 @@ function createReadonlyMap<Entity>(
     clear: { value: readonlyMapMutation, writable: false },
   })
   return Object.freeze(target)
+}
+
+function freezeEntity<Entity>(entity: Entity, cache: WeakMap<object, unknown>): Entity {
+  const cached = entity && typeof entity === "object" ? cache.get(entity) : undefined
+  if (cached !== undefined) {
+    return cached as Entity
+  }
+  const frozen = deepFreeze(cloneValue(entity))
+  if (entity && typeof entity === "object") {
+    cache.set(entity, frozen)
+  }
+  return frozen
+}
+
+class PersistentReadonlyMap<Entity> implements ReadonlyMap<DiagramId, Entity> {
+  readonly size: number
+
+  constructor(
+    private readonly base: ReadonlyMap<DiagramId, Entity>,
+    private readonly updates: ReadonlyMap<DiagramId, Entity>,
+    private readonly deleted: ReadonlySet<DiagramId>,
+  ) {
+    let size = base.size
+    for (const id of deleted) {
+      if (base.has(id)) size -= 1
+    }
+    for (const id of updates.keys()) {
+      if (!base.has(id) || deleted.has(id)) size += 1
+    }
+    this.size = size
+  }
+
+  get(id: DiagramId): Entity | undefined {
+    if (this.deleted.has(id)) return undefined
+    return this.updates.has(id) ? this.updates.get(id) : this.base.get(id)
+  }
+
+  has(id: DiagramId): boolean {
+    return !this.deleted.has(id) && (this.updates.has(id) || this.base.has(id))
+  }
+
+  *entries(): IterableIterator<[DiagramId, Entity]> {
+    for (const [id, entity] of this.base) {
+      if (this.deleted.has(id)) continue
+      yield [id, this.updates.get(id) ?? entity]
+    }
+    for (const [id, entity] of this.updates) {
+      if (!this.base.has(id)) yield [id, entity]
+    }
+  }
+
+  *keys(): IterableIterator<DiagramId> {
+    for (const [id] of this.entries()) yield id
+  }
+
+  *values(): IterableIterator<Entity> {
+    for (const [, entity] of this.entries()) yield entity
+  }
+
+  forEach(callback: (value: Entity, key: DiagramId, map: ReadonlyMap<DiagramId, Entity>) => void): void {
+    for (const [id, entity] of this.entries()) callback(entity, id, this)
+  }
+
+  [Symbol.iterator](): IterableIterator<[DiagramId, Entity]> {
+    return this.entries()
+  }
 }
 
 function readonlyMapMutation(): never {
