@@ -179,3 +179,4 @@
 2026-09-19: G07 продвинут: snap alignment теперь уважает context.excludeIds для node targets; добавлен regression вместе с существующими port/grid/angle snap checks.
 2026-09-19: G11 продвинут: реальный @affino/diagram-core tarball распакован во временный consumer и импортирован под Node24 без workspace aliases; treeview/dialog/diagram pack dry-runs также прошли.
 2026-09-19: G11 продвинут: diagram benchmark теперь отдельно публикует cold и warm visible/entity-query latency, чтобы lazy index/order setup не смешивался со steady-state interaction signal. Node24 build и benchmark 1k/5k/10k прошли; на 10k warm visible около 0.20ms, warm entity search около 2.01ms.
+2026-09-19: G12 продвинут: добавлен retention regression для caller-held snapshots через delete, undo и replacement; старые entity/dependency values остаются корректными и не получают новые IDs. Diagram-core test 31/31 прошёл.
