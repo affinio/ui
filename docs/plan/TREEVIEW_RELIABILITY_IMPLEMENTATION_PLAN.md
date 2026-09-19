@@ -44,7 +44,7 @@
 | T06 | Линейная search projection | T03 | done |
 | T07 | Стоимость patch / batching / registration API | T01,T02,T06 | in_progress |
 | T08 | Laravel dynamic DOM и event ownership | T02,T03 | done |
-| T09 | Packed consumers / docs / accessibility contract | T05,T07,T08 | pending |
+| T09 | Packed consumers / docs / accessibility contract | T05,T07,T08 | done |
 | T10 | Нагрузочные и browser gates | T01–T09 | pending |
 
 ## T01 — Cycle-safe topology (TV-01)
@@ -134,4 +134,4 @@
 
 ## Журнал
 
-2026-09-19: аудит и baseline treeview 47 tests (core 32, Vue 11, Laravel 4), builds passed на Node 24. Закрыты T01–T06 и T08: prospective cycle normalization, structural notifications/no-op replace, search active invariants, fractional virtual range, core-owned virtual invalidation, bottom-up search projection и attribute-aware Laravel rehydrate с сохранением selection/expansion. T07 начат: topology patch больше не перестраивает search projection второй раз. T07/T09/T10 остаются открыты: полный patch cost model, consumer/accessibility docs и browser/performance gates.
+2026-09-19: аудит и baseline treeview 47 tests (core 32, Vue 11, Laravel 4), builds passed на Node 24. Закрыты T01–T06, T08 и T09: prospective cycle normalization, structural notifications/no-op replace, search active invariants, fractional virtual range, core-owned virtual invalidation, bottom-up search projection, attribute-aware Laravel rehydrate с сохранением selection/expansion и explicit consumer/accessibility envelope в README + ESM consumer verification. T07 начат: topology patch больше не перестраивает search projection второй раз. T10 остаётся открытым; T07 требует полного calibrated patch cost model.
