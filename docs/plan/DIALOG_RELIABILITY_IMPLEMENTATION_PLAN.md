@@ -44,7 +44,7 @@
 | D05 | Честный modal/focus contract + DOM behavior | D03; API decision | done |
 | D06 | defaultOpen, scope lifetime, SSR IDs | D02,D03,D05 | done |
 | D07 | Nested overlay ownership / dynamic roots | D01,D04,D05 | pending |
-| D08 | Laravel alignment / lifecycle / retention | D02,D03,D07 | pending |
+| D08 | Laravel alignment / lifecycle / retention | D02,D03,D07 | done |
 | D09 | Package consumers / examples / perf harness | D04–D08 | pending |
 | D10 | Full regression / browser / CI gates | D01–D09 | pending |
 
@@ -139,4 +139,4 @@
 
 ## Журнал
 
-2026-09-19: аудит, baseline dialog 66 tests (core 31, Vue 13, Laravel 22), builds passed. Закрыты D01–D06: kernel close requests сохраняют request context и не завершаются преждевременно, stale guard completions invalidated by lifecycle generation, focus retries cancelled on deactivate, README явно отделяет headless focus orchestration от DOM modal trap/inert/scroll-lock обязанностей host, defaultOpen focus activation выполняется только после client mount, effectScope получает cleanup, а throwing lifecycle/subscriber/focus callbacks теперь диагностируются без разрыва transition/promise. D07–D10 остаются открыты.
+2026-09-19: аудит, baseline dialog 66 tests (core 31, Vue 13, Laravel 22), builds passed. Закрыты D01–D06 и D08: kernel close requests сохраняют request context и не завершаются преждевременно, stale guard completions invalidated by lifecycle generation, focus retries cancelled on deactivate, README явно отделяет headless focus orchestration от DOM modal trap/inert/scroll-lock обязанностей host, defaultOpen focus activation выполняется только после client mount, effectScope получает cleanup, throwing lifecycle/subscriber/focus callbacks диагностируются без разрыва transition/promise, Laravel permanent root removal освобождает persisted registries, а focus RAF invalidates stale activation/deactivation. D07/D09–D10 остаются открыты.

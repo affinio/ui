@@ -252,7 +252,7 @@ function hydrateDialog(root: RootEl): void {
 
   root.affinoDialog = handle
 
-  registry.set(root, () => {
+  registry.set(root, (permanent = false) => {
     if (root.affinoDialog === handle) {
       delete root.affinoDialog
     }
@@ -263,8 +263,10 @@ function hydrateDialog(root: RootEl): void {
       binding.lockHeld = false
     }
     releaseDialogOwner(ownerDocument, rootId, root)
-    if (options.stateSync && rootId) {
+    if (permanent && rootId) {
       openStateRegistry.delete(rootId)
+      pinnedOpenRegistry.delete(rootId)
+      focusSnapshotRegistry.delete(rootId)
     }
     binding.teleportRestore?.()
     unregisterBinding(binding)
@@ -567,10 +569,15 @@ function createFocusOrchestrator(
   rootId: string,
 ): DialogFocusOrchestrator {
   let previousFocus: HTMLElement | null = null
+  let focusGeneration = 0
   return {
     activate: (_context: DialogOpenContext) => {
+      const generation = ++focusGeneration
       previousFocus = options.returnFocus ? (root.ownerDocument?.activeElement as HTMLElement | null) : null
       requestAnimationFrame(() => {
+        if (generation !== focusGeneration || !root.isConnected || root.dataset.affinoDialogState !== "open") {
+          return
+        }
         if (rootId && restoreFocusSnapshot(rootId, surface)) {
           return
         }
@@ -590,13 +597,18 @@ function createFocusOrchestrator(
       })
     },
     deactivate: (_context: DialogCloseContext) => {
+      const generation = ++focusGeneration
       if (!options.returnFocus || !previousFocus) {
         return
       }
       const target = previousFocus
       previousFocus = null
       if (target.isConnected) {
-        requestAnimationFrame(() => target.focus({ preventScroll: true }))
+        requestAnimationFrame(() => {
+          if (generation === focusGeneration && target.isConnected) {
+            target.focus({ preventScroll: true })
+          }
+        })
       }
     },
   }
@@ -805,7 +817,7 @@ function flushRemovedRoots(): void {
     if (candidate.isConnected) {
       return
     }
-    registry.get(candidate)?.()
+    registry.get(candidate)?.(true)
   })
 }
 

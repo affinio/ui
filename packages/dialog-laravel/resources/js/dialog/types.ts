@@ -79,7 +79,7 @@ type DialogBinding = {
   overlayId: string
 }
 
-type Cleanup = () => void
+export type Cleanup = (permanent?: boolean) => void
 
 type FocusSentinel = HTMLElement & {
   dataset: DOMStringMap & { affinoDialogSentinel?: string }
@@ -99,7 +99,6 @@ export type {
   DialogHandle,
   BindingOptions,
   DialogBinding,
-  Cleanup,
   FocusSentinel,
   ManualDetail,
 }
