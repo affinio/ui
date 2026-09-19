@@ -349,43 +349,94 @@ export class DialogController {
 
   private emit(): void {
     const snapshot = this.snapshot
-    this.subscribers.forEach((listener) => listener(snapshot))
+    this.subscribers.forEach((listener) => {
+      try {
+        listener(snapshot)
+      } catch (error) {
+        this.reportCallbackError(error, "snapshot subscriber failed")
+      }
+    })
   }
 
   private runOpenLifecycle(hook: "beforeOpen" | "afterOpen", context: DialogOpenContext): void {
     const fn = this.lifecycle[hook]
-    fn?.(context)
+    if (!fn) return
+    try {
+      fn(context)
+    } catch (error) {
+      this.reportCallbackError(error, `${hook} hook failed`)
+    }
   }
 
   private runCloseLifecycle(hook: "beforeClose" | "afterClose", context: DialogCloseContext): void {
     const fn = this.lifecycle[hook]
-    fn?.(context)
+    if (!fn) return
+    try {
+      fn(context)
+    } catch (error) {
+      this.reportCallbackError(error, `${hook} hook failed`)
+    }
   }
 
   private activateFocus(context: DialogOpenContext): void {
     if (this.focusActive) return
     if (!this.focusOrchestrator) return
     this.focusActive = true
-    this.focusOrchestrator.activate(context)
+    try {
+      this.focusOrchestrator.activate(context)
+    } catch (error) {
+      this.reportCallbackError(error, "focus activation failed")
+    }
   }
 
   private deactivateFocus(context: DialogCloseContext): void {
     if (!this.focusActive) return
     this.focusActive = false
-    this.focusOrchestrator?.deactivate(context)
+    try {
+      this.focusOrchestrator?.deactivate(context)
+    } catch (error) {
+      this.reportCallbackError(error, "focus deactivation failed")
+    }
   }
 
   private emitEvent<Event extends DialogEventName>(event: Event, payload: DialogEventMap[Event]): void {
     const listeners = this.eventListeners.get(event)
     if (!listeners) return
     listeners.forEach((listener) => {
-      ;(listener as (value: typeof payload) => void)(payload)
+      try {
+        ;(listener as (value: typeof payload) => void)(payload)
+      } catch (error) {
+        if (event !== "error") {
+          this.reportCallbackError(error, `${event} event listener failed`)
+        }
+      }
     })
   }
 
   private emitError(event: DialogControllerErrorEvent): void {
-    this.options.onError?.(event)
-    this.emitEvent("error", event)
+    try {
+      this.options.onError?.(event)
+    } catch {
+      // Error reporting must not break the controller transition.
+    }
+    const listeners = this.eventListeners.get("error")
+    listeners?.forEach((listener) => {
+      try {
+        ;(listener as (value: DialogControllerErrorEvent) => void)(event)
+      } catch {
+        // Error listeners are terminal observers and cannot be allowed to recurse.
+      }
+    })
+  }
+
+  private reportCallbackError(error: unknown, message: string): void {
+    this.emitError({
+      code: "lifecycle-error",
+      phase: this.phase,
+      reason: this.lastReason ?? "programmatic",
+      error,
+      message,
+    })
   }
 
   private maybeNotifyPendingLimit(reason: DialogCloseReason): void {

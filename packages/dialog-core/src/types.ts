@@ -142,7 +142,7 @@ export interface DialogSnapshot {
   pendingNavigationMessage?: string
 }
 
-export type DialogControllerErrorCode = "close-guard-error"
+export type DialogControllerErrorCode = "close-guard-error" | "lifecycle-error"
 
 export interface DialogControllerErrorEvent {
   code: DialogControllerErrorCode

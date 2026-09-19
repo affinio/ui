@@ -133,6 +133,20 @@ describe("DialogController", () => {
     expect(afterClose).not.toHaveBeenCalled()
   })
 
+  it("keeps transitions settled when lifecycle observers throw", async () => {
+    const onError = vi.fn()
+    const controller = new DialogController({
+      defaultOpen: true,
+      onError,
+      lifecycle: { afterClose: () => { throw new Error("after-close") } },
+    })
+    controller.on("phase-change", () => { throw new Error("subscriber") })
+
+    await expect(controller.requestClose("programmatic")).resolves.toBe(true)
+    expect(controller.snapshot.phase).toBe("closed")
+    expect(onError).toHaveBeenCalledWith(expect.objectContaining({ code: "lifecycle-error" }))
+  })
+
   it("surfaces guard denial message", async () => {
     const controller = new DialogController({ defaultOpen: true })
     controller.setCloseGuard(async () => ({ outcome: "deny", message: "Unsaved edits" }))

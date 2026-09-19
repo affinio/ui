@@ -1,6 +1,6 @@
 # Dialog — reliability / lifecycle implementation plan для Luna
 
-Статус: **in_progress; 5/10 slices closed**. Дата: 2026-09-19.
+Статус: **in_progress; 6/10 slices closed**. Дата: 2026-09-19.
 Область: @affino/dialog-core, @affino/dialog-vue, JS bridge @affino/dialog-laravel; overlay-kernel/focus-utils — только необходимые shared contracts.
 Обязательно прочитать [общий аудит и протокол](COMPONENT_ENGINEERING_AUDIT_2026-09-19.md).
 Главный риск сейчас — корректность async/lifecycle, затем focus/modal guarantees и стоимость mixed overlay stacks.
@@ -40,7 +40,7 @@
 | D01 | Kernel close result / metadata / strategy | — | done |
 | D02 | Async guard generation / destroy / reopen | D01 | done |
 | D03 | Focus cancellation и корректный return target | — | done |
-| D04 | Reentrancy, ошибки hooks и atomic transitions | D01,D02 | pending |
+| D04 | Reentrancy, ошибки hooks и atomic transitions | D01,D02 | done |
 | D05 | Честный modal/focus contract + DOM behavior | D03; API decision | done |
 | D06 | defaultOpen, scope lifetime, SSR IDs | D02,D03,D05 | done |
 | D07 | Nested overlay ownership / dynamic roots | D01,D04,D05 | pending |
@@ -139,4 +139,4 @@
 
 ## Журнал
 
-2026-09-19: аудит, baseline dialog 66 tests (core 31, Vue 13, Laravel 22), builds passed на Node 22. Закрыты D01–D03, D05 и D06: kernel close requests сохраняют request context и не завершаются преждевременно, stale guard completions invalidated by lifecycle generation, focus retries cancelled on deactivate, README явно отделяет headless focus orchestration от DOM modal trap/inert/scroll-lock обязанностей host, defaultOpen focus activation выполняется только после client mount, а effectScope получает cleanup. D04/D07–D10 остаются открыты.
+2026-09-19: аудит, baseline dialog 66 tests (core 31, Vue 13, Laravel 22), builds passed. Закрыты D01–D06: kernel close requests сохраняют request context и не завершаются преждевременно, stale guard completions invalidated by lifecycle generation, focus retries cancelled on deactivate, README явно отделяет headless focus orchestration от DOM modal trap/inert/scroll-lock обязанностей host, defaultOpen focus activation выполняется только после client mount, effectScope получает cleanup, а throwing lifecycle/subscriber/focus callbacks теперь диагностируются без разрыва transition/promise. D07–D10 остаются открыты.
