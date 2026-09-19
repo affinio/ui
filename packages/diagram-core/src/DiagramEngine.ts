@@ -52,6 +52,8 @@ export class DiagramEngine {
   private entityQueryCount = 0
   private hitTestCount = 0
   private lastCommandMs = 0
+  private orderIndexRevision = -1
+  private orderIndexCache = new Map<DiagramId, number>()
 
   constructor(initialScene: DiagramSceneInput = {}) {
     this.store = new DiagramSceneStore(initialScene)
@@ -542,7 +544,11 @@ export class DiagramEngine {
   }
 
   private createOrderIndex(): Map<DiagramId, number> {
-    return new Map(this.createOrderedIds().map((id, index) => [id, index]))
+    if (this.orderIndexRevision !== this.state.revision) {
+      this.orderIndexCache = new Map(this.createOrderedIds().map((id, index) => [id, index]))
+      this.orderIndexRevision = this.state.revision
+    }
+    return this.orderIndexCache
   }
 
   private hasEntity(id: DiagramId): boolean {
