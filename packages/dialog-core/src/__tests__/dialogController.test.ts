@@ -104,6 +104,35 @@ describe("DialogController", () => {
     expect(controller.snapshot.phase).toBe("closed")
   })
 
+  it("keeps kernel-mediated request metadata until the guard runs", async () => {
+    const manager = createOverlayManager()
+    const guard = vi.fn(async () => ({ outcome: "allow" as const }))
+    const controller = new DialogController({
+      defaultOpen: true,
+      overlayManager: manager,
+      id: "metadata-dialog",
+    })
+    controller.setCloseGuard(guard)
+
+    await controller.requestClose("backdrop", { metadata: { source: "test" } })
+
+    expect(guard).toHaveBeenCalledWith({ reason: "backdrop", metadata: { source: "test" } })
+  })
+
+  it("does not complete a stale close after destroy", async () => {
+    const afterClose = vi.fn()
+    const closeGate = deferred<CloseGuardDecision>()
+    const controller = new DialogController({ defaultOpen: true, lifecycle: { afterClose } })
+    controller.setCloseGuard(() => closeGate.promise)
+
+    const closePromise = controller.requestClose("programmatic")
+    controller.destroy()
+    closeGate.resolve({ outcome: "allow" })
+
+    await expect(closePromise).resolves.toBe(false)
+    expect(afterClose).not.toHaveBeenCalled()
+  })
+
   it("surfaces guard denial message", async () => {
     const controller = new DialogController({ defaultOpen: true })
     controller.setCloseGuard(async () => ({ outcome: "deny", message: "Unsaved edits" }))

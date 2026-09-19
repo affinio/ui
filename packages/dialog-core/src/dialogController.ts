@@ -20,9 +20,9 @@ import type {
   OverlayRegistration,
   OverlayRegistrar,
   DialogOverlayTraits,
-} from "./types"
-import { createOverlayInteractionMatrix } from "./overlay/interactionMatrix"
-import type { OverlayInteractionMatrix } from "./overlay/interactionMatrix"
+} from "./types.js"
+import { createOverlayInteractionMatrix } from "./overlay/interactionMatrix.js"
+import type { OverlayInteractionMatrix } from "./overlay/interactionMatrix.js"
 import {
   createOverlayIntegration,
   type OverlayIntegration,
@@ -116,9 +116,13 @@ export class DialogController {
   private readonly overlayId: string
   private readonly overlayIntegration: OverlayIntegration
   private legacyOverlayDisposer: (() => void) | null = null
-  private readonly pendingKernelCloseResolvers = new Set<(result: boolean) => void>()
+  private readonly pendingKernelCloseRequests: Array<{
+    resolve: (result: boolean) => void
+    request: CloseRequestOptions
+  }> = []
   private focusActive = false
   private destroyed = false
+  private lifecycleGeneration = 0
 
   constructor(private readonly options: DialogControllerOptions = {}) {
     this.phase = options.defaultOpen ? "open" : "idle"
@@ -175,6 +179,7 @@ export class DialogController {
   destroy(reason: DialogCloseReason = "programmatic"): void {
     if (this.destroyed) return
     this.destroyed = true
+    this.lifecycleGeneration += 1
     this.unregisterSelfOverlay()
     this.resolveKernelCloseRequests(false)
     this.subscribers.clear()
@@ -215,6 +220,7 @@ export class DialogController {
   open(reason: DialogOpenReason = "programmatic"): void {
     if (this.destroyed) return
     if (this.phase === "open" || this.phase === "opening") return
+    this.lifecycleGeneration += 1
     const context: DialogOpenContext = { reason }
     this.guardMessage = undefined
     this.runOpenLifecycle("beforeOpen", context)
@@ -422,13 +428,14 @@ export class DialogController {
   }
 
   private handleKernelCloseRequest(reason: KernelOverlayCloseReason): void {
+    const pending = this.pendingKernelCloseRequests.shift()
     const dialogReason = mapOverlayCloseReason(reason)
     if (!dialogReason) {
-      this.resolveKernelCloseRequests(false)
+      pending?.resolve(false)
       return
     }
-    void this.performClose(dialogReason, {}).then((result) => {
-      this.resolveKernelCloseRequests(result)
+    void this.performClose(dialogReason, pending?.request ?? {}).then((result) => {
+      pending?.resolve(result)
     })
   }
 
@@ -439,41 +446,28 @@ export class DialogController {
   private requestKernelMediatedClose(
     manager: OverlayManager,
     reason: DialogCloseReason,
-    _request: CloseRequestOptions,
+    request: CloseRequestOptions,
   ): Promise<boolean> {
     const overlayReason = mapDialogReasonToOverlayCloseReason(reason)
     if (!overlayReason) {
       return this.performClose(reason)
     }
+    const entry = manager.getEntry(this.overlayId)
+    if (!entry || entry.state !== "open") {
+      return Promise.resolve(false)
+    }
     return new Promise<boolean>((resolve) => {
-      let settled = false
-      const resolver = (result: boolean) => {
-        if (settled) {
-          return
-        }
-        settled = true
-        resolve(result)
-      }
-      this.pendingKernelCloseResolvers.add(resolver)
+      this.pendingKernelCloseRequests.push({ resolve, request })
       manager.requestClose(this.overlayId, overlayReason)
-      queueMicrotask(() => {
-        if (settled) {
-          return
-        }
-        if (this.pendingKernelCloseResolvers.delete(resolver)) {
-          resolver(false)
-        }
-      })
     })
   }
 
   private resolveKernelCloseRequests(result: boolean): void {
-    if (!this.pendingKernelCloseResolvers.size) {
+    if (!this.pendingKernelCloseRequests.length) {
       return
     }
-    const resolvers = Array.from(this.pendingKernelCloseResolvers)
-    this.pendingKernelCloseResolvers.clear()
-    resolvers.forEach((resolve) => resolve(result))
+    const requests = this.pendingKernelCloseRequests.splice(0)
+    requests.forEach(({ resolve }) => resolve(result))
   }
 
   private async performClose(
@@ -506,13 +500,15 @@ export class DialogController {
     this.pendingAttempts = 0
     this.guardMessage = undefined
     const strategy = request.strategy ?? this.defaultStrategy
+    const generation = this.lifecycleGeneration
+    const guard = this.closeGuard
 
     const pendingDecision = Promise.resolve().then(() =>
-      this.closeGuard!({ reason, metadata: request.metadata })
+      guard!({ reason, metadata: request.metadata })
     )
     this.guardPromise = pendingDecision
     this.guardOutcomePromise = pendingDecision
-      .then((decision) => decision.outcome === "allow")
+      .then((decision) => !this.destroyed && generation === this.lifecycleGeneration && decision.outcome === "allow")
       .catch(() => false)
 
     if (strategy === "optimistic") {
@@ -525,6 +521,9 @@ export class DialogController {
 
     try {
       const decision = await pendingDecision
+      if (this.destroyed || generation !== this.lifecycleGeneration) {
+        return false
+      }
       if (decision.outcome === "allow") {
         if (strategy === "blocking") {
           this.enterClosing(reason)
@@ -557,11 +556,13 @@ export class DialogController {
       })
       return false
     } finally {
-      this.guardPromise = null
-      this.guardOutcomePromise = null
-      this.optimisticClose = false
-      this.optimisticReason = undefined
-      this.emit()
+      if (generation === this.lifecycleGeneration) {
+        this.guardPromise = null
+        this.guardOutcomePromise = null
+        this.optimisticClose = false
+        this.optimisticReason = undefined
+        this.emit()
+      }
     }
   }
 

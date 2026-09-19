@@ -19,15 +19,18 @@ export function createDialogFocusOrchestrator(
   options: DialogFocusOrchestratorOptions
 ): DialogFocusOrchestrator {
   let previousActive: HTMLElement | null = null
+  let focusGeneration = 0
 
   return {
     activate: () => {
       if (!isBrowser()) return
+      const generation = ++focusGeneration
       previousActive = getActiveElement()
-      focusWithRetry(() => resolveElement(options.initialFocus) ?? resolveElement(options.dialog))
+      focusWithRetry(() => resolveElement(options.initialFocus) ?? resolveElement(options.dialog), 3, () => generation === focusGeneration)
     },
     deactivate: () => {
       if (!isBrowser()) return
+      focusGeneration += 1
       const fallback = resolveElement(options.dialog)
       const preferred = resolveElement(options.returnFocus)
       const target = preferred ?? previousActive ?? fallback
@@ -50,14 +53,15 @@ function resolveElement(source?: MaybeElementAccessor): HTMLElement | null {
   return source ?? null
 }
 
-function focusWithRetry(resolveTarget: () => HTMLElement | null, attempts = 3): void {
+function focusWithRetry(resolveTarget: () => HTMLElement | null, attempts = 3, isCurrent = () => true): void {
   if (!attempts) return
+  if (!isCurrent()) return
   const target = resolveTarget()
   if (focusElement(target)) {
     return
   }
   if (!isBrowser()) return
-  queueMicrotask(() => focusWithRetry(resolveTarget, attempts - 1))
+  queueMicrotask(() => focusWithRetry(resolveTarget, attempts - 1, isCurrent))
 }
 
 function focusElement(element: HTMLElement | null | undefined): boolean {

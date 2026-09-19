@@ -71,4 +71,21 @@ describe("createDialogFocusOrchestrator", () => {
     trigger.remove()
     dialog.remove()
   })
+
+  it("cancels a pending activation retry after deactivate", async () => {
+    const trigger = appendFocusable("button")
+    trigger.focus()
+    let dialog: HTMLElement | null = null
+    const orchestrator = createDialogFocusOrchestrator({ dialog: () => dialog })
+
+    orchestrator.activate({ reason: "programmatic" })
+    orchestrator.deactivate({ reason: "programmatic" })
+    dialog = appendFocusable("div")
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(document.activeElement).toBe(trigger)
+    trigger.remove()
+    dialog.remove()
+  })
 })

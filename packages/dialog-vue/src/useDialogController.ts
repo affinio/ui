@@ -9,7 +9,7 @@ import {
   type CloseRequestOptions,
 } from "@affino/dialog-core"
 import { getDocumentOverlayManager, type OverlayManager } from "@affino/overlay-kernel"
-import { useDialogOverlayRegistrar } from "./overlayRegistrar"
+import { useDialogOverlayRegistrar } from "./overlayRegistrar.js"
 
 export type UseDialogControllerOptions = DialogControllerOptions
 
