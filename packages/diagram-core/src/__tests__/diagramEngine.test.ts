@@ -167,6 +167,43 @@ describe("DiagramEngine", () => {
     expect(engine.nearestPort({ x: 102, y: 30 }, 12)).toEqual(engine.nearestPortBruteForce({ x: 102, y: 30 }, 12))
   })
 
+  it("keeps indexed geometry equivalent to the brute-force oracle across mutations", () => {
+    const engine = createDiagramEngine(scene)
+    const bounds = [
+      { x: -20, y: -20, width: 220, height: 180 },
+      { x: 120, y: -20, width: 240, height: 180 },
+      { x: -1_000, y: -1_000, width: 2_000, height: 2_000 },
+    ]
+    const points = [
+      { point: { x: 50, y: 70 }, radius: 16 },
+      { point: { x: 290, y: 30 }, radius: 24 },
+      { point: { x: 1_000, y: 1_000 }, radius: 8 },
+    ]
+    const assertOracle = () => {
+      for (const queryBounds of bounds) {
+        expect(engine.queryVisible(queryBounds)).toEqual(engine.queryVisibleBruteForce(queryBounds))
+      }
+      for (const query of points) {
+        expect(engine.nearestPort(query.point, query.radius)).toEqual(
+          engine.nearestPortBruteForce(query.point, query.radius),
+        )
+      }
+    }
+
+    assertOracle()
+    engine.dispatch({ type: "moveNode", id: "n1", delta: { x: 34, y: 18 } })
+    assertOracle()
+    engine.dispatch({ type: "resizeEntities", entries: [{ id: "n2", width: 140, height: 84 }] })
+    assertOracle()
+    engine.dispatch({ type: "insertEdgeWaypoint", id: "e1", index: 0, point: { x: 160, y: 120 } })
+    assertOracle()
+    engine.dispatch({ type: "setSelection", selection: { ids: ["n1"], primaryId: "n1" } })
+    engine.dispatch({ type: "deleteSelection" })
+    assertOracle()
+    engine.dispatch({ type: "undo" })
+    assertOracle()
+  })
+
   it("falls back to bounded scanning for huge visibility bounds", () => {
     const engine = createDiagramEngine(scene)
     expect(engine.queryVisible({ x: -1e12, y: -1e12, width: 2e12, height: 2e12 })).toEqual(
