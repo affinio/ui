@@ -75,3 +75,8 @@ jobs:
       - name: Run visual matrix suite
         if: matrix.suite == 'visual'
         run: pnpm run test:matrix:visual
+      - name: Run component browser smoke
+        if: matrix.suite == 'visual'
+        env:
+          TREEVIEW_SMOKE_SCREENSHOTS: "0"
+        run: pnpm run smoke:treeview:demo
