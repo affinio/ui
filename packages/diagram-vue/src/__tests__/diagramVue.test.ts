@@ -140,6 +140,16 @@ describe("diagram-vue", () => {
     expect(controller.engine.serialize().texts[0]?.text).toBe("Label")
   })
 
+  it("reuses unchanged render entities across viewport-only publications", () => {
+    const controller = useDiagramEngine(scene)
+    const visible = useDiagramVisibleEntities(controller)
+    const nodeBefore = visible.projection.value.nodes[0]
+
+    controller.dispatch({ type: "setViewport", viewport: { x: 20, y: 10, zoom: 1.5 } })
+
+    expect(visible.projection.value.nodes[0]).toBe(nodeBefore)
+  })
+
   it("keeps projection ids in core render order after z-order commands", () => {
     const controller = useDiagramEngine({
       nodes: [

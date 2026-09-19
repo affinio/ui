@@ -28,9 +28,15 @@ const EMPTY_PROJECTION: DiagramVisibleProjection = Object.freeze({
 
 export function useDiagramVisibleEntities(controller: DiagramEngineController, options: DiagramVisibleEntitiesOptions = {}): DiagramVisibleEntitiesController {
   const projection = shallowRef<DiagramVisibleProjection>(EMPTY_PROJECTION)
+  const entityCache = new Map<DiagramId, { geometry: DiagramGeometry; selected: boolean; entity: DiagramRenderEntity }>()
   const refreshVisible = (bounds?: DiagramRect) => {
     const viewportBounds: DiagramRect = bounds ?? controller.scene.value.viewport
-    projection.value = buildProjection(controller, inflate(viewportBounds, options.overscan ?? 0), options.includeSelection ?? true)
+    projection.value = buildProjection(
+      controller,
+      inflate(viewportBounds, options.overscan ?? 0),
+      options.includeSelection ?? true,
+      entityCache,
+    )
   }
   const subscription = controller.engine.subscribe(() => refreshVisible())
   let disposed = false
@@ -47,7 +53,12 @@ export function useDiagramVisibleEntities(controller: DiagramEngineController, o
   return { projection, refreshVisible, dispose }
 }
 
-function buildProjection(controller: DiagramEngineController, bounds: DiagramRect, includeSelection: boolean): DiagramVisibleProjection {
+function buildProjection(
+  controller: DiagramEngineController,
+  bounds: DiagramRect,
+  includeSelection: boolean,
+  entityCache: Map<DiagramId, { geometry: DiagramGeometry; selected: boolean; entity: DiagramRenderEntity }>,
+): DiagramVisibleProjection {
   const scene = controller.scene.value
   const ids = new Set(controller.engine.queryVisible(bounds))
   if (includeSelection) {
@@ -62,7 +73,18 @@ function buildProjection(controller: DiagramEngineController, bounds: DiagramRec
     if (!geometry) {
       continue
     }
-    entities.push(Object.freeze({ id, kind: geometry.kind, layer: "svg", geometry, selected: selected.has(id) }))
+    const isSelected = selected.has(id)
+    const cached = entityCache.get(id)
+    if (cached?.geometry === geometry && cached.selected === isSelected) {
+      entities.push(cached.entity)
+      continue
+    }
+    const entity = Object.freeze({ id, kind: geometry.kind, layer: "svg" as const, geometry, selected: isSelected })
+    entityCache.set(id, { geometry, selected: isSelected, entity })
+    entities.push(entity)
+  }
+  for (const id of entityCache.keys()) {
+    if (!ids.has(id)) entityCache.delete(id)
   }
   const activeGeometries = entities.filter((entity) => entity.selected).map((entity) => entity.geometry)
   const anchorGeometries = activeGeometries.filter((geometry) => geometry.kind !== "edge")
