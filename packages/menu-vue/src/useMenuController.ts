@@ -4,6 +4,7 @@ import type { MenuCallbacks, MenuOptions, MenuState, Rect } from "@affino/menu-c
 import { MenuCore, SubmenuCore, createMenuTree } from "@affino/menu-core"
 import type { MenuTreeBranch, MenuTreeController } from "@affino/menu-core"
 import { getDocumentOverlayManager, type OverlayManager } from "@affino/overlay-kernel"
+import { uid } from "./id"
 
 export type MenuControllerKind = "root" | "submenu"
 
@@ -177,15 +178,18 @@ function createGeometryAdapter(core: SubmenuCore) {
 }
 
 function normalizeControllerConfig(config: MenuControllerConfig): MenuControllerConfig {
+  const options = config.options?.id
+    ? config.options
+    : { ...config.options, id: uid(config.kind === "root" ? "ui-menu" : "ui-submenu") }
   if (config.kind === "root") {
     return {
       ...config,
-      options: withDefaultOverlayManager(config.options),
+      options: withDefaultOverlayManager(options),
     }
   }
   return {
     ...config,
-    options: withDefaultOverlayManager(config.options),
+    options: withDefaultOverlayManager(options),
   }
 }
 

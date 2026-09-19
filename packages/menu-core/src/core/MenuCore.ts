@@ -133,9 +133,8 @@ export class MenuCore extends SurfaceCore<MenuState, MenuCallbacks> {
     const registration = this.registry.register(id, disabled, allowUpdate)
     if (registration.changed) {
       const change = this.selectionMachine.handleItemsChanged(this.getEnabledItemIds(), this.surfaceState.open)
-      if (this.handleHighlightChange(change)) {
-        this.emitState()
-      }
+      this.handleHighlightChange(change)
+      this.emitState()
     }
     return () => {
       const removed = this.registry.unregister(id)
@@ -143,14 +142,19 @@ export class MenuCore extends SurfaceCore<MenuState, MenuCallbacks> {
         return
       }
       const invalidation = this.selectionMachine.handleItemsChanged(this.getEnabledItemIds(), this.surfaceState.open)
-      if (this.handleHighlightChange(invalidation)) {
-        this.emitState()
-      }
+      this.handleHighlightChange(invalidation)
+      this.emitState()
     }
   }
 
   hasRegisteredItem(id: string): boolean {
     return this.registry.has(id)
+  }
+
+  syncItemOrder(ids: readonly string[]) {
+    if (this.registry.syncOrder(ids)) {
+      this.emitState()
+    }
   }
 
   highlight(id: string | null) {
@@ -231,6 +235,9 @@ export class MenuCore extends SurfaceCore<MenuState, MenuCallbacks> {
   }
 
   select(id: string) {
+    if (!this.isSelectable(id)) {
+      return
+    }
     const { accepted, shouldClose } = this.selectionMachine.handleSelection(this.surfaceState.open)
     if (!accepted) return
     this.menuEvents.emitSelect(id)
@@ -304,6 +311,10 @@ export class MenuCore extends SurfaceCore<MenuState, MenuCallbacks> {
 
   isCloseOnSelectEnabled() {
     return this.menuOptions.closeOnSelect
+  }
+
+  protected isSelectable(id: string): boolean {
+    return this.registry.has(id) && !this.registry.isDisabled(id)
   }
 
   protected ensureInitialHighlight() {
@@ -421,18 +432,11 @@ export class MenuCore extends SurfaceCore<MenuState, MenuCallbacks> {
       return
     }
 
-    if (event.key === "ArrowUp") {
-      event.preventDefault()
-      this.moveFocus(-1)
-      return
-    }
-
     if (event.key === "Home") {
       event.preventDefault()
       const enabled = this.getEnabledItemIds()
       if (enabled.length) {
-        const first = enabled[0] ?? null
-        this.highlight(first)
+        this.highlight(enabled[0] ?? null)
       }
       return
     }
@@ -441,9 +445,14 @@ export class MenuCore extends SurfaceCore<MenuState, MenuCallbacks> {
       event.preventDefault()
       const enabled = this.getEnabledItemIds()
       if (enabled.length) {
-        const last = enabled[enabled.length - 1] ?? null
-        this.highlight(last)
+        this.highlight(enabled[enabled.length - 1] ?? null)
       }
+      return
+    }
+
+    if (event.key === "ArrowUp") {
+      event.preventDefault()
+      this.moveFocus(-1)
       return
     }
 
@@ -467,6 +476,24 @@ export class MenuCore extends SurfaceCore<MenuState, MenuCallbacks> {
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault()
       this.select(id)
+      return
+    }
+
+    if (event.key === "Home") {
+      event.preventDefault()
+      const enabled = this.getEnabledItemIds()
+      if (enabled.length) {
+        this.highlight(enabled[0] ?? null)
+      }
+      return
+    }
+
+    if (event.key === "End") {
+      event.preventDefault()
+      const enabled = this.getEnabledItemIds()
+      if (enabled.length) {
+        this.highlight(enabled[enabled.length - 1] ?? null)
+      }
       return
     }
 

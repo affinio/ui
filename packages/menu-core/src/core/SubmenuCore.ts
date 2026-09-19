@@ -95,6 +95,9 @@ export class SubmenuCore extends MenuCore {
   }
 
   override select(id: string) {
+    if (!this.isSelectable(id)) {
+      return
+    }
     const shouldCascade = this.menuOptions.closeOnSelect
     super.select(id)
     if (!shouldCascade) {

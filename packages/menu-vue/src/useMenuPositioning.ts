@@ -1,4 +1,4 @@
-import { nextTick, onBeforeUnmount, watch } from "vue"
+import { nextTick, onBeforeUnmount, toValue, watch, type MaybeRefOrGetter } from "vue"
 import type { Alignment, Placement, PositionResult, Rect } from "@affino/menu-core"
 import type { MenuController } from "./useMenuController"
 import { toRect, assignPanelPosition } from "./dom"
@@ -7,10 +7,10 @@ const isBrowser = typeof window !== "undefined"
 
 interface PositioningOptions {
   afterUpdate?: (position: PositionResult) => void
-  placement?: Placement
-  align?: Alignment
-  gutter?: number
-  viewportPadding?: number
+  placement?: MaybeRefOrGetter<Placement | undefined>
+  align?: MaybeRefOrGetter<Alignment | undefined>
+  gutter?: MaybeRefOrGetter<number | undefined>
+  viewportPadding?: MaybeRefOrGetter<number | undefined>
 }
 
 export function useMenuPositioning(controller: MenuController, options?: PositioningOptions) {
@@ -37,10 +37,10 @@ export function useMenuPositioning(controller: MenuController, options?: Positio
     const anchorRect = controller.anchorRef.value ?? toRect(controller.triggerRef.value)
     const panelRect = toRect(panelEl)
     if (!anchorRect || !panelRect) return
-    const gutter = options?.gutter ?? 6
-    const viewportPadding = options?.viewportPadding ?? 8
+    const gutter = toValue(options?.gutter) ?? 6
+    const viewportPadding = toValue(options?.viewportPadding) ?? 8
     const placement = resolvePreferredPlacement(
-      options?.placement,
+      toValue(options?.placement),
       anchorRect,
       panelRect,
       window.innerWidth,
@@ -52,7 +52,7 @@ export function useMenuPositioning(controller: MenuController, options?: Positio
       viewportWidth: window.innerWidth,
       viewportHeight: window.innerHeight,
       placement,
-      align: options?.align,
+      align: toValue(options?.align),
       gutter,
       viewportPadding,
     })

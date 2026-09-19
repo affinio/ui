@@ -36,7 +36,10 @@ const targetController = submenuBridge ? submenuBridge.child.controller : props.
 const parentController = submenuBridge?.parent.controller ?? props.provider.parentController
 const submenuItemId = submenuBridge?.child.submenuItemId ?? props.provider.submenuItemId ?? null
 
-const triggerBindings = computed(() => targetController.core.getTriggerProps())
+const triggerBindings = computed(() => {
+  void targetController.state.value
+  return targetController.core.getTriggerProps()
+})
 const parentBindings = computed(() => {
   if (props.variant !== "submenu" || !parentController || !submenuItemId) {
     return null
@@ -199,6 +202,7 @@ function createTriggerEventHandlers(options: {
   const ancestorBridge = options.submenuBridge?.parentSubmenu ?? null
   let longPressTimer: ReturnType<typeof setTimeout> | null = null
   let longPressOrigin: { x: number; y: number } | null = null
+  let contextMenuFrame: number | null = null
 
   const resetAnchor = () => options.provider.controller.setAnchor(null)
   const setAnchorFromEvent = (event: MouseEvent) => {
@@ -214,6 +218,13 @@ function createTriggerEventHandlers(options: {
       longPressTimer = null
     }
     longPressOrigin = null
+  }
+
+  const clearDeferredContextOpen = () => {
+    if (contextMenuFrame !== null && typeof window !== "undefined") {
+      window.cancelAnimationFrame(contextMenuFrame)
+      contextMenuFrame = null
+    }
   }
 
   const scheduleLongPress = (event: PointerEvent) => {
@@ -254,7 +265,9 @@ function createTriggerEventHandlers(options: {
     event.preventDefault()
     if (options.provider.controller.state.value.open) {
       options.provider.controller.close("pointer")
-      requestAnimationFrame(() => {
+      clearDeferredContextOpen()
+      contextMenuFrame = requestAnimationFrame(() => {
+        contextMenuFrame = null
         setAnchorFromEvent(event)
         options.provider.controller.open("pointer")
       })
@@ -286,7 +299,10 @@ function createTriggerEventHandlers(options: {
       event.stopPropagation()
     }
 
-    if (options.variant === "submenu" && options.parentBindings.value) {
+    const opensSubmenu = options.variant === "submenu" &&
+      (event.key === "ArrowRight" || event.key === "Enter" || event.key === " ")
+
+    if (!opensSubmenu && options.variant === "submenu" && options.parentBindings.value) {
       options.parentBindings.value.onKeyDown?.(event)
     }
 
@@ -328,6 +344,11 @@ function createTriggerEventHandlers(options: {
   const handlePointerCancel = () => {
     clearLongPress()
   }
+
+  onBeforeUnmount(() => {
+    clearLongPress()
+    clearDeferredContextOpen()
+  })
 
   return {
     handleClick,

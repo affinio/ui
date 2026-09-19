@@ -61,10 +61,10 @@ const resolvedViewportPadding = computed<number | undefined>(
 )
 
 const updatePosition = useMenuPositioning(props.provider.controller, {
-  placement: resolvedPlacement.value,
-  align: resolvedAlign.value,
-  gutter: resolvedGutter.value,
-  viewportPadding: resolvedViewportPadding.value,
+  placement: resolvedPlacement,
+  align: resolvedAlign,
+  gutter: resolvedGutter,
+  viewportPadding: resolvedViewportPadding,
   afterUpdate: (position) => {
     lastPlacement.value = position.placement
     syncSubmenuGeometry()
@@ -113,7 +113,8 @@ watch(
       panelState.value = "closed"
       shouldRender.value = false
     }
-  }
+  },
+  { immediate: true },
 )
 
 watch(
@@ -150,14 +151,13 @@ function handlePointerLeave(event: PointerEvent) {
 
 function handleKeydown(event: KeyboardEvent) {
   if (event.key === "Tab") {
-    event.preventDefault()
-    if (props.variant === "submenu") {
-      event.shiftKey ? focus.focusLast() : focus.focusFirst()
-      return
-    }
     props.provider.controller.close("keyboard")
     props.provider.controller.setAnchor(null)
-    props.provider.controller.triggerRef.value?.focus()
+    return
+  }
+  if (event.key === "Escape") {
+    bindings.value.onKeyDown?.(event)
+    props.provider.controller.triggerRef.value?.focus({ preventScroll: true })
     return
   }
   bindings.value.onKeyDown?.(event)

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 import { fireEvent, render, screen, waitFor } from "@testing-library/vue"
+import { ref } from "vue"
 import UiMenu from "../components/UiMenu.vue"
 import UiMenuTrigger from "../components/UiMenuTrigger.vue"
 import UiMenuContent from "../components/UiMenuContent.vue"
@@ -58,6 +59,114 @@ describe("UiMenu", () => {
     })
   })
 
+  it("keeps trigger ARIA state reactive when the menu opens and closes", async () => {
+    renderMenu(`
+      <UiMenu>
+        <UiMenuTrigger>Reactive Menu</UiMenuTrigger>
+        <UiMenuContent>
+          <UiMenuItem id="reactive-item">Item</UiMenuItem>
+        </UiMenuContent>
+      </UiMenu>
+    `)
+
+    const trigger = screen.getByRole("button", { name: /reactive menu/i })
+    expect(trigger.getAttribute("aria-expanded")).toBe("false")
+
+    await fireEvent.click(trigger)
+    await waitFor(() => {
+      expect(trigger.getAttribute("aria-expanded")).toBe("true")
+    })
+
+    await fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" })
+    await waitFor(() => {
+      expect(trigger.getAttribute("aria-expanded")).toBe("false")
+    })
+    expect(document.activeElement).toBe(trigger)
+  })
+
+  it("closes on Tab and lets focus leave the menu", async () => {
+    renderMenu(`
+      <UiMenu>
+        <UiMenuTrigger>Tab Menu</UiMenuTrigger>
+        <UiMenuContent>
+          <UiMenuItem id="tab-item">Item</UiMenuItem>
+        </UiMenuContent>
+      </UiMenu>
+    `)
+
+    await fireEvent.click(screen.getByRole("button", { name: /tab menu/i }))
+    const panel = await screen.findByRole("menu")
+    await fireEvent.keyDown(panel, { key: "Tab" })
+
+    await waitFor(() => {
+      expect(screen.queryByRole("menu")).toBeNull()
+    })
+  })
+
+  it("mounts a default-open menu", async () => {
+    renderMenu(`
+      <UiMenu :options="{ defaultOpen: true }">
+        <UiMenuTrigger>Default Menu</UiMenuTrigger>
+        <UiMenuContent>
+          <UiMenuItem id="default-item">Item</UiMenuItem>
+        </UiMenuContent>
+      </UiMenu>
+    `)
+
+    const trigger = screen.getByRole("button", { name: /default menu/i })
+    expect(await screen.findByRole("menu")).toBeTruthy()
+    expect(trigger.getAttribute("aria-expanded")).toBe("true")
+  })
+
+  it("cancels touch long press when the pointer moves or trigger unmounts", async () => {
+    vi.useFakeTimers()
+    try {
+      const rendered = renderMenu(`
+        <UiMenu>
+          <UiMenuTrigger trigger="both">Touch Menu</UiMenuTrigger>
+          <UiMenuContent>
+            <UiMenuItem id="touch-item">Item</UiMenuItem>
+          </UiMenuContent>
+        </UiMenu>
+      `)
+
+      const trigger = screen.getByRole("button", { name: /touch menu/i })
+      await fireEvent.pointerDown(trigger, { pointerType: "touch", clientX: 10, clientY: 10 })
+      await fireEvent.pointerMove(trigger, { pointerType: "touch", clientX: 30, clientY: 10 })
+      vi.advanceTimersByTime(500)
+      expect(screen.queryByRole("menu")).toBeNull()
+
+      await fireEvent.pointerDown(trigger, { pointerType: "touch", clientX: 10, clientY: 10 })
+      rendered.unmount()
+      vi.advanceTimersByTime(500)
+      expect(document.querySelector("[data-ui-menu-panel='true']")).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("reacts when a registered item becomes disabled", async () => {
+    const disabled = ref(false)
+    renderMenu(`
+      <UiMenu>
+        <UiMenuTrigger>Disabled Menu</UiMenuTrigger>
+        <UiMenuContent>
+          <UiMenuItem id="dynamic-item" :disabled="disabled">Dynamic</UiMenuItem>
+        </UiMenuContent>
+      </UiMenu>
+    `, { disabled })
+
+    const trigger = screen.getByRole("button", { name: /disabled menu/i })
+    await fireEvent.click(trigger)
+    const item = await screen.findByRole("menuitem", { name: /dynamic/i })
+    expect(item.hasAttribute("aria-disabled")).toBe(false)
+
+    disabled.value = true
+    await waitFor(() => {
+      expect(item.getAttribute("aria-disabled")).toBe("true")
+    })
+  })
+
   it("opens nested submenus with keyboard navigation", async () => {
     renderMenu(`
       <UiMenu>
@@ -88,6 +197,32 @@ describe("UiMenu", () => {
     })
 
     expect(await screen.findByRole("menuitem", { name: /child/i })).toBeTruthy()
+  })
+
+  it("opens a submenu with Enter without selecting or closing its parent", async () => {
+    const handleSelect = vi.fn()
+    renderMenu(`
+      <UiMenu>
+        <UiMenuTrigger>Parent Menu</UiMenuTrigger>
+        <UiMenuContent>
+          <UiSubMenu>
+            <UiSubMenuTrigger>More Actions</UiSubMenuTrigger>
+            <UiSubMenuContent>
+              <UiMenuItem id="nested-action" @select="(payload) => onSelect(payload)">Nested</UiMenuItem>
+            </UiSubMenuContent>
+          </UiSubMenu>
+        </UiMenuContent>
+      </UiMenu>
+    `, { onSelect: handleSelect })
+
+    await fireEvent.click(screen.getByRole("button", { name: /parent menu/i }))
+    const submenuTrigger = await screen.findByRole("menuitem", { name: /more actions/i })
+    await fireEvent.keyDown(submenuTrigger, { key: "Enter" })
+
+    await waitFor(() => {
+      expect(screen.getAllByRole("menu")).toHaveLength(2)
+    })
+    expect(handleSelect).not.toHaveBeenCalled()
   })
 
   it("switches between adjacent submenu triggers on hover", async () => {

@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, ref, watch } from "vue"
 import type { ComponentPublicInstance } from "vue"
 import type { MenuController } from "../useMenuController"
+import type { MenuCore } from "@affino/menu-core"
 import { useMenuProvider, useOptionalSubmenuProvider } from "../context"
 import { uid } from "../id"
 import AsChildRenderer from "../useAsChild"
@@ -78,6 +79,7 @@ function handlePointerEnter(event: PointerEvent) {
 }
 
 function handleKeydown(event: KeyboardEvent) {
+  syncRegisteredItemOrder()
   if (!isDisabled.value && (event.key === "Enter" || event.key === " " || event.key === "Space")) {
     emitSelect()
     bindings.value.onKeyDown?.(event)
@@ -96,6 +98,17 @@ function handleKeydown(event: KeyboardEvent) {
     event.stopPropagation()
   }
   bindings.value.onKeyDown?.(event)
+}
+
+function syncRegisteredItemOrder() {
+  const panel = el.value?.closest<HTMLElement>("[role='menu']")
+  if (!panel) {
+    return
+  }
+  const ids = Array.from(panel.querySelectorAll<HTMLElement>("[role='menuitem']"))
+    .map((item) => item.id)
+    .filter(Boolean)
+  ;(provider.controller.core as MenuCore).syncItemOrder(ids)
 }
 
 onBeforeUnmount(() => {

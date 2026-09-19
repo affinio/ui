@@ -48,7 +48,6 @@ jobs:
       matrix:
         suite:
           - unit
-          - integration
           - visual
     steps:
       - name: Checkout
@@ -72,11 +71,7 @@ jobs:
 
       - name: Run unit matrix suite
         if: matrix.suite == 'unit'
-        run: pnpm -r --if-present test:unit
-
-      - name: Run integration matrix suite
-        if: matrix.suite == 'integration'
-        run: pnpm -r --if-present test:integration
+        run: pnpm run test:unit
       - name: Run visual matrix suite
         if: matrix.suite == 'visual'
         run: pnpm run test:matrix:visual

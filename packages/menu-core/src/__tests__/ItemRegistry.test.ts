@@ -70,4 +70,15 @@ describe("ItemRegistry", () => {
     expect(afterUpdate).not.toBe(first)
     expect(afterUpdate).toEqual(["alpha", "bravo"])
   })
+
+  it("synchronizes a reordered DOM sequence while preserving omitted items", () => {
+    const registry = new ItemRegistry()
+    registry.register("first", false)
+    registry.register("second", false)
+    registry.register("third", false)
+
+    expect(registry.syncOrder(["third", "first"])).toBe(true)
+    expect(registry.getOrderedItems().map((item) => item.id)).toEqual(["third", "first", "second"])
+    expect(registry.syncOrder(["third", "first"])).toBe(false)
+  })
 })

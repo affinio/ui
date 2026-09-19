@@ -81,6 +81,37 @@ describe("MenuCore", () => {
     expect(internals.shouldBlockPointerHighlight("bravo")).toBe(false)
   })
 
+  it("does not select unknown or disabled items", () => {
+    const onSelect = vi.fn()
+    const menu = new MenuCore({}, { onSelect })
+    menu.registerItem("enabled")
+    menu.registerItem("disabled", { disabled: true })
+    menu.open("programmatic")
+
+    menu.select("unknown")
+    menu.select("disabled")
+    menu.select("enabled")
+
+    expect(onSelect).toHaveBeenCalledTimes(1)
+    expect(onSelect.mock.calls[0]?.[0]).toBe("enabled")
+  })
+
+  it("moves item focus to the first and last enabled items with Home and End", () => {
+    const menu = new MenuCore()
+    menu.registerItem("first")
+    menu.registerItem("disabled", { disabled: true })
+    menu.registerItem("last")
+    menu.open("programmatic")
+
+    const preventDefault = vi.fn()
+    menu.getItemProps("last").onKeyDown?.({ key: "Home", preventDefault } as KeyboardEvent)
+    expect(menu.getSnapshot().activeItemId).toBe("first")
+
+    menu.getItemProps("first").onKeyDown?.({ key: "End", preventDefault } as KeyboardEvent)
+    expect(menu.getSnapshot().activeItemId).toBe("last")
+    expect(preventDefault).toHaveBeenCalledTimes(2)
+  })
+
   it("registers with the overlay manager and mirrors lifecycle state", () => {
     const manager = createOverlayManager()
     const menu = new MenuCore({ id: "menu-overlay", overlayManager: manager })

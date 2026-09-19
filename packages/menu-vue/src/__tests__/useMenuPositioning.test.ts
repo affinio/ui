@@ -1,4 +1,4 @@
-import { createApp, defineComponent, h, nextTick, onMounted } from "vue"
+import { computed, createApp, defineComponent, h, nextTick, onMounted, ref } from "vue"
 import { describe, expect, it, vi } from "vitest"
 import { useMenuController } from "../useMenuController"
 import { useMenuPositioning } from "../useMenuPositioning"
@@ -97,6 +97,48 @@ describe("useMenuPositioning", () => {
         gutter: 14,
         viewportPadding: 20,
       })
+    } finally {
+      app.unmount()
+      host.remove()
+      computePositionSpy?.mockRestore()
+    }
+  })
+
+  it("reads reactive positioning options on every update", async () => {
+    const host = document.createElement("div")
+    document.body.appendChild(host)
+    let update!: () => void
+    let placement!: ReturnType<typeof ref<"left" | "right">>
+    let computePositionSpy: ReturnType<typeof vi.spyOn> | null = null
+
+    const app = createApp(
+      defineComponent({
+        setup() {
+          const controller = useMenuController({ kind: "root" })
+          placement = ref("left")
+          computePositionSpy = vi.spyOn(controller.core, "computePosition")
+          update = useMenuPositioning(controller, { placement: computed(() => placement.value) })
+          onMounted(() => {
+            const trigger = document.createElement("button")
+            const panel = document.createElement("div")
+            trigger.getBoundingClientRect = () => ({ x: 300, y: 100, width: 80, height: 32, top: 100, left: 300, right: 380, bottom: 132 } as DOMRect)
+            panel.getBoundingClientRect = () => ({ x: 0, y: 0, width: 120, height: 80, top: 0, left: 0, right: 120, bottom: 80 } as DOMRect)
+            controller.triggerRef.value = trigger
+            controller.panelRef.value = panel
+            controller.open("programmatic")
+          })
+          return () => h("div")
+        },
+      }),
+    )
+
+    try {
+      app.mount(host)
+      await nextTick()
+      update()
+      placement.value = "right"
+      update()
+      expect(computePositionSpy?.mock.calls.at(-1)?.[2]).toMatchObject({ placement: "right" })
     } finally {
       app.unmount()
       host.remove()

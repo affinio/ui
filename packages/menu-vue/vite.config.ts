@@ -19,7 +19,7 @@ export default defineConfig({
 
     rollupOptions: {
       // Do NOT bundle Vue or shared workspace packages
-      external: ["vue", "@affino/menu-core", "@affino/overlay-host", "@affino/focus-utils"],
+      external: ["vue", "@affino/menu-core", "@affino/overlay-host", "@affino/overlay-kernel", "@affino/focus-utils"],
 
       output: {
         exports: "named"

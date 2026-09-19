@@ -62,6 +62,37 @@ export class ItemRegistry {
     this.enabledItemIdsCache = null
   }
 
+  syncOrder(ids: readonly string[]): boolean {
+    const nextIds: string[] = []
+    const seen = new Set<string>()
+
+    for (const id of ids) {
+      if (this.items.has(id) && !seen.has(id)) {
+        nextIds.push(id)
+        seen.add(id)
+      }
+    }
+    for (const id of this.items.keys()) {
+      if (!seen.has(id)) {
+        nextIds.push(id)
+      }
+    }
+
+    const currentIds = [...this.items.keys()]
+    if (currentIds.length === nextIds.length && currentIds.every((id, index) => id === nextIds[index])) {
+      return false
+    }
+
+    const entries = nextIds.map((id) => this.items.get(id)).filter((entry): entry is ItemEntry => Boolean(entry))
+    this.items.clear()
+    for (const entry of entries) {
+      this.items.set(entry.id, entry)
+    }
+    this.orderedItemsCache = null
+    this.enabledItemIdsCache = null
+    return true
+  }
+
   getOrderedItems(): ItemEntry[] {
     if (!this.orderedItemsCache) {
       this.orderedItemsCache = [...this.items.values()]

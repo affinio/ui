@@ -35,11 +35,11 @@ npm install @affino/menu-vue
 - `asChild` pattern lets you keep native elements and design systems
 - Built-in context menu + click menu support with unified API
 - Auto positioning and viewport collision handling without extra deps
-- Snapshot-driven state subscriptions for zero wasted renders
+- Snapshot-driven state subscriptions with focused Vue updates
 - Programmatic controller for imperative open/close/highlight flows
 - CSS variable theme surface for light/dark/brand combos
 - First-class TypeScript types for every prop, event, and controller method
-- Works with virtualization strategies for 1000+ items
+- Can be composed with virtualization strategies; benchmark your target item count
 
 Docs → [./docs/index.md](./docs/index.md)
 
@@ -71,7 +71,7 @@ Docs → [./docs/index.md](./docs/index.md)
 | Framework-agnostic core | ✅ |
 | Context + click menus | ✅ |
 | Programmatic controller | ✅ |
-| Bundle size (min+gzip) | ~8 KB |
+| Bundle size (unminified + gzip, current build) | 38.04 kB / 10.02 kB |
 | Virtualization ready | ✅ |
 | TypeScript coverage | 100% |
 
@@ -114,6 +114,10 @@ Behavior and compatibility:
 - Defaults are preserved (`bottom` for root content, `right` for submenu content).
 - `UiMenuContent` / `UiSubMenuContent` can override values passed from `UiMenu` / `UiSubMenu`.
 - Props are forwarded to `useMenuPositioning` and then to `@affino/menu-core` positioning.
+
+Options may be static values or Vue refs/getters when passed through the positioning composables. Item `disabled` state is reactive; when rendering keyed item lists, the adapter synchronizes DOM order before keyboard navigation.
+
+Keyboard behavior follows the menu contract: `Home`/`End` move to the first/last enabled item, `Escape` closes and returns focus to the trigger, and `Tab` closes without trapping focus. `closeOnSelect` controls whether accepted item activation closes the current menu.
 
 
 ## Controller Surface
@@ -188,10 +192,10 @@ This flow works in design systems, custom runtimes, or tests where you want the 
 
 ## FAQ
 
-- **Does it work with Nuxt / SSR?** Yes. Components render on the server and hydrate with zero config.
+- **Does it work with Nuxt / SSR?** Components avoid DOM registration during server rendering and generate deterministic default IDs for equivalent component trees. Verify your teleport/overlay host setup in the target SSR framework.
 - **Can I disable mouse prediction?** Pass `:options="{ mousePrediction: null }"` on `UiMenu`.
 - **How do I run context menus?** Use `trigger="contextmenu"` or open the controller at pointer coordinates (see `guide/context-menu.md`).
-- **What about huge data sets?** Pair `<UiMenuContent>` with `vue-virtual-scroller` (recipe in `guide/virtualization.md`).
+- **What about huge data sets?** Pair `<UiMenuContent>` with `vue-virtual-scroller` (recipe in `guide/virtualization.md`) and validate keyboard order, focus, and positioning for the chosen virtualization strategy.
 
 ## Browser Support
 
