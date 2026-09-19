@@ -250,7 +250,9 @@ describe("diagram-vue", () => {
     const props = pointer.getSvgPointerProps()
 
     props.onPointerdown({ pointerId: 1, clientX: 10, clientY: 10, shiftKey: false } as PointerEvent)
+    const activeSnapshot = pointer.state.value
     props.onPointermove({ pointerId: 1, clientX: 20, clientY: 20, shiftKey: false } as PointerEvent)
+    expect(pointer.state.value).toBe(activeSnapshot)
     props.onPointerup({ pointerId: 1, clientX: 20, clientY: 20, shiftKey: false } as PointerEvent)
 
     expect(captured).toHaveBeenCalledOnce()

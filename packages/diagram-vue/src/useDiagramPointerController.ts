@@ -26,7 +26,10 @@ export function useDiagramPointerController(controller: DiagramEngineController,
   let refresh = () => {}
   const interaction = createDiagramInteractionController(controller.engine, {
     scheduleFrame: (callback) => {
-      requestAnimationFrame(() => {
+      const schedule = typeof globalThis.requestAnimationFrame === "function"
+        ? globalThis.requestAnimationFrame.bind(globalThis)
+        : (next: FrameRequestCallback) => globalThis.setTimeout(next, 0)
+      schedule(() => {
         if (disposed) {
           return
         }
@@ -35,10 +38,16 @@ export function useDiagramPointerController(controller: DiagramEngineController,
       })
     },
   })
-  const state = shallowRef(interaction.getSnapshot())
+  let lastSnapshot = interaction.getSnapshot()
+  const state = shallowRef(lastSnapshot)
   let disposed = false
   refresh = () => {
-    state.value = interaction.getSnapshot()
+    const next = interaction.getSnapshot()
+    if (sameSnapshot(lastSnapshot, next)) {
+      return
+    }
+    lastSnapshot = next
+    state.value = next
   }
   const toEvent = (event: PointerEvent) => ({ id: event.pointerId, point: toWorldPoint(event, options.toWorldPoint), shiftKey: event.shiftKey })
   const api: DiagramPointerController = {
@@ -74,13 +83,22 @@ export function useDiagramPointerController(controller: DiagramEngineController,
       }
       disposed = true
       interaction.cancel()
-      state.value = interaction.getSnapshot()
+      refresh()
     },
   }
   if (getCurrentScope()) {
     onScopeDispose(api.dispose)
   }
   return api
+}
+
+function sameSnapshot(previous: DiagramInteractionSnapshot, next: DiagramInteractionSnapshot): boolean {
+  return previous.tool === next.tool
+    && previous.active === next.active
+    && previous.previewDelta === next.previewDelta
+    && previous.resizePreview === next.resizePreview
+    && previous.resizePreviewEntries === next.resizePreviewEntries
+    && previous.marquee === next.marquee
 }
 
 function toWorldPoint(event: PointerEvent, mapper?: (event: PointerEvent) => DiagramPoint): DiagramPoint {
