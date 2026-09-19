@@ -23,6 +23,7 @@ type TreeviewProjectionStage = "visible"
 
 type NodeMapPatchResult = {
   changed: boolean
+  topologyChanged: boolean
 }
 
 type ParentPatch<Value> = {
@@ -114,7 +115,9 @@ export class TreeviewCore<Value = string> {
     if (!result.changed) {
       return
     }
-    this.rebuildSearchProjection()
+    if (!result.topologyChanged) {
+      this.rebuildSearchProjection()
+    }
     this.invalidateVisibleProjection()
     const next = this.normalizeState(this.state)
     const stateChanged = this.patch(next, options.emit ?? true)
@@ -481,10 +484,10 @@ export class TreeviewCore<Value = string> {
   private replaceNodeMap(nodes: ReadonlyArray<TreeviewNode<Value>>): NodeMapPatchResult {
     const next = this.buildNodeMap(nodes)
     if (this.nodeMapsEqual(this.nodes, next)) {
-      return { changed: false }
+      return { changed: false, topologyChanged: false }
     }
     this.nodes = next
-    return { changed: true }
+    return { changed: true, topologyChanged: true }
   }
 
   private nodeMapsEqual(
@@ -576,7 +579,7 @@ export class TreeviewCore<Value = string> {
         this.finalizeNodeMap(this.nodes)
       }
     }
-    return { changed }
+    return { changed, topologyChanged }
   }
 
   private canApplyIncrementalAddPatch(
