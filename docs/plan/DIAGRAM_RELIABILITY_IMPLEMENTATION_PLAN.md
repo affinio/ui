@@ -50,13 +50,13 @@
 | G03 | Gesture-scoped bounded history | G02; API decision | in_progress |
 | G04 | Command capability и validation | G01,G02 | done |
 | G05 | Immutable snapshots с structural sharing | G01,G02 | done |
-| G06 | Domain invalidation / adjacency / incremental indexes | G04,G05 | pending |
+| G06 | Domain invalidation / adjacency / incremental indexes | G04,G05 | in_progress |
 | G07 | Cached order / bounded spatial queries / snapping | G04,G06 | in_progress |
 | G08 | Incremental Vue projection / subscriptions | G05–G07 | in_progress |
-| G09 | Pointer ownership / frame budget / cancellation | G03,G04 | pending |
-| G10 | Rendering geometry / ordering / editor / viewport | G08,G09 | pending |
-| G11 | Correct benchmarks / consumers / docs | G01–G10 | pending |
-| G12 | Stress, browser, retention, CI regression gates | G11 | pending |
+| G09 | Pointer ownership / frame budget / cancellation | G03,G04 | in_progress |
+| G10 | Rendering geometry / ordering / editor / viewport | G08,G09 | in_progress |
+| G11 | Correct benchmarks / consumers / docs | G01–G10 | in_progress |
+| G12 | Stress, browser, retention, CI regression gates | G11 | in_progress |
 
 ## G01 — Atomic state replacement и ownership (DG-01,DG-02,DG-14)
 
