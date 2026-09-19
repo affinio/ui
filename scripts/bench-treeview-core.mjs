@@ -415,8 +415,17 @@ function assertBudgets(report) {
   checkBudget(failures, "selectActiveOnlyBurst.p95", report.results.selectActiveOnlyBurst.p95, budgets.selectBurstP95Ms)
   checkBudget(failures, "visibleReadFullArray.p95", report.results.visibleReadFullArray.p95, budgets.visibleReadP95Ms)
   checkBudget(failures, "heapDeltaMb", report.heapDeltaMb, budgets.heapDeltaMb)
+  checkCounter(failures, "registerPatchNoop.sourceFinalizeCount", report.results.registerPatchNoop.sourceFinalizeCount, 0)
+  checkCounter(failures, "registerPatchNoop.visibleRecomputeCount", report.results.registerPatchNoop.visibleRecomputeCount, 0)
+  checkCounter(failures, "registerPatchNoop.emittedSnapshotCount", report.results.registerPatchNoop.emittedSnapshotCount, 0)
   if (failures.length) {
     throw new Error(`TreeView core benchmark budgets failed:\n${failures.join("\n")}`)
+  }
+}
+
+function checkCounter(failures, label, actual, expected) {
+  if (actual !== expected) {
+    failures.push("- " + label + ": " + actual + " !== " + expected)
   }
 }
 
