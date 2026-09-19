@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.0
+
+### Minor Changes
+
+- `registerNodes(nodes, options?)` now returns `{ changed, topologyChanged }` for deterministic adapter invalidation.
+- Preserved replace semantics while exposing patch-mode results to consumers.
+- Continued the Node 24 ESM, topology, search, virtual-window, and performance reliability hardening.
+
 ## 0.2.0
 
 - Added first-class search projection with `setSearchQuery`, `clearSearchQuery`, and `getSearchMatchCount`.

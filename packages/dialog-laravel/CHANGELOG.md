@@ -1,5 +1,12 @@
 # @affino/dialog-laravel
 
+## 0.2.0
+
+### Minor Changes
+
+- Hardened Laravel dialog lifecycle ownership and cleanup during root removal and Livewire updates.
+- Preserved existing dialog and overlay integration contracts.
+
 ## 0.1.0
 
 ### Minor Changes

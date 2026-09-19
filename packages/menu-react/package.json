@@ -1,6 +1,6 @@
 {
   "name": "@affino/menu-react",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "author": "Anton Pavlov <a.pavlov@affino.dev>",
   "type": "module",
   "description": "React adapter and headless UI components for @affino/menu-core",
@@ -15,7 +15,7 @@
     "./styles.css": "./dist/styles.css"
   },
   "peerDependencies": {
-    "@affino/menu-core": "^1.1.0",
+    "@affino/menu-core": "^1.2.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },
@@ -37,7 +37,7 @@
     "vitest": "^4.0.15"
   },
   "scripts": {
-    "clean": "rm -rf dist",
+    "clean": "rm -rf dist tsconfig.build.tsbuildinfo",
     "build": "pnpm run clean && vite build && pnpm run build:types",
     "build:types": "tsc -p tsconfig.build.json",
     "test": "vitest run"

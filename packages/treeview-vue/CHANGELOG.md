@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.0
+
+### Minor Changes
+
+- Forwarded `registerNodes` options and result flags through the Vue and virtual controllers.
+- Exposed the core `request*` result contracts while preserving legacy imperative methods.
+- Virtual updates now refresh the visible window while returning the original core result.
+
 ## 0.2.0
 
 - Exposed search helpers from `useTreeviewController` and `useVirtualTreeviewController`.

@@ -1,5 +1,14 @@
 # @affino/menu-vue
 
+## 2.2.0
+
+### Minor Changes
+
+- Hardened SSR-safe IDs, pointer intent recording, dynamic item ordering, and keyboard interaction behavior.
+- Exposed reliable positioning controls and kept root/content overrides consistent across menu and submenu components.
+- Improved Vue integration tests for dynamic registration, disabled items, focus movement, and overlay lifecycle behavior.
+- Fixed release builds so declaration files are regenerated after a clean package build.
+
 ## 2.1.0
 
 ### Minor Changes

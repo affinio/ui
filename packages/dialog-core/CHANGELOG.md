@@ -1,5 +1,13 @@
 # @affino/dialog-core
 
+## 1.3.0
+
+### Minor Changes
+
+- Added `setOverlayRoot(root)` so a live dialog can follow Teleport or portal root changes without re-registering.
+- Hardened async close guards, callback isolation, default-open focus activation, and lifecycle cleanup.
+- Added lifecycle benchmark and regression coverage for stacked overlays and pending operations.
+
 ## 1.2.0
 
 ### Minor Changes

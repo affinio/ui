@@ -1,5 +1,13 @@
 # @affino/menu-react
 
+## 2.1.0
+
+### Minor Changes
+
+- Updated the adapter release line to support `@affino/menu-core@^1.2.0`.
+- Kept the existing React public API compatible while consuming the hardened core interaction contracts.
+- Fixed release builds so declaration files are regenerated after a clean package build.
+
 ## 2.0.0
 
 ### Minor Changes

@@ -1,5 +1,14 @@
 # @affino/menu-core
 
+## 1.2.0
+
+### Minor Changes
+
+- Hardened item registration and synchronization for dynamic DOM order changes.
+- Ignored selection requests for unknown or disabled items.
+- Added reliable Home/End keyboard navigation over enabled items.
+- Preserved state publication when registry changes affect consumers without changing the active item.
+
 ## 1.1.0
 
 ### Minor Changes

@@ -1,5 +1,14 @@
 # @affino/dialog-vue
 
+## 1.3.0
+
+### Minor Changes
+
+- Exposed `setOverlayRoot(root)` through `useDialogController` for dynamic Teleport/portal roots.
+- Preserved overlay stack identity while updating the root used by an open dialog.
+- Added Vue contract coverage for dynamic roots and lifecycle-safe overlay integration.
+- Excluded compiled test modules from the published package tarball.
+
 ## 1.2.0
 
 ### Minor Changes

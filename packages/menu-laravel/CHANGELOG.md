@@ -1,5 +1,12 @@
 # @affino/menu-laravel
 
+## 0.2.0
+
+### Minor Changes
+
+- Updated the Laravel adapter release line for the hardened `@affino/menu-core@1.2.0` ecosystem.
+- Preserved the existing Livewire integration and public adapter contract.
+
 ## 0.1.0
 
 ### Minor Changes
