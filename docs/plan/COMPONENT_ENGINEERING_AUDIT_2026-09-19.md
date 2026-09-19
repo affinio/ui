@@ -137,3 +137,13 @@ Tree: цепочка N узлов, каждый текст match, чередов
 - Tree bench: registerPatchOnePercent включает создание дерева, поэтому разделить setup/operation; счётчики private methods не заменяют нагрузочный контракт.
 - Diagram bench: single-shot measure, panFpsEstimate основан на query loops без DOM; waypoint commands передают edgeId, но actual API требует id. Эти timings могут измерять no-op. Проверять changed/revision/state в каждой измеряемой операции.
 - CI сейчас запускает unit/visual, но отдельного treeview/diagram perf gate нет; отсутствие регрессий производительности не контролируется автоматически.
+
+## Implementation evidence addendum — 2026-09-19
+
+The implementation plans are now the authoritative progress record; the baseline above remains historical evidence. Current acceptance status is:
+
+- Treeview: 9/10 slices closed. Node24 calibrated benchmark, Vue virtual benchmark, registry-backed tarball consumer, demo build, and CI Playwright smoke are covered. T10 remains open until the GitHub browser job produces runtime evidence.
+- Dialog: 7/10 slices closed; D07 and D09 are in progress. Mixed owner-cascade, stale disposer, owner-cycle, Node24 lifecycle benchmark, isolated tarball consumer, and CI dialog smoke are covered. Dynamic-root/teleport update API, Vite SSR/Vue peer validation, and actual browser execution remain open.
+- Diagram: G01/G02/G04/G05 are closed; G03/G06–G12 remain in progress. Structural sharing/retention, dependency indexing, query benchmarks with cold/warm separation, isolated tarball import, demo build, and CI dialog/diagram smoke are covered. Browser execution, bounded history policy, and remaining renderer/index retention evidence remain open.
+
+The CI visual matrix now builds `demo-vue`, runs the existing treeview smoke, and runs `scripts/smoke-components-demo.mjs` for dialog and diagram after installing Chromium. Local browser execution is unavailable on the current Ubuntu 26.04 arm64 environment because Playwright does not ship a compatible Chromium binary there; this is a validation limitation, not a passing browser result.
