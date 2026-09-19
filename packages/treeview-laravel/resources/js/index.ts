@@ -49,6 +49,7 @@ type Cleanup = () => void
 
 type TreeviewStructure = {
   items: ItemEl[]
+  signatures: string[]
 }
 
 type TreeviewItemModel = {
@@ -96,6 +97,7 @@ export function hydrateTreeview(root: RootEl): void {
 }
 
 function hydrateResolvedTreeview(root: RootEl, structure: TreeviewStructure): void {
+  const previousSnapshot = root.affinoTreeview?.getSnapshot()
   registry.get(root)?.()
 
   const uid = ensureTreeviewUid(root)
@@ -112,7 +114,7 @@ function hydrateResolvedTreeview(root: RootEl, structure: TreeviewStructure): vo
     parent: model.parent,
     disabled: model.disabled,
   }))
-  const defaultSelected = root.dataset.affinoTreeviewDefaultSelected ?? null
+  const defaultSelected = root.dataset.affinoTreeviewDefaultSelected ?? previousSnapshot?.selected ?? null
   const defaultActive = resolveDefaultActive(
     root.dataset.affinoTreeviewDefaultActive ?? null,
     defaultSelected,
@@ -120,7 +122,9 @@ function hydrateResolvedTreeview(root: RootEl, structure: TreeviewStructure): vo
   )
   const core = new TreeviewCore<string>({
     nodes,
-    defaultExpanded: parseCsv(root.dataset.affinoTreeviewDefaultExpanded),
+    defaultExpanded: root.dataset.affinoTreeviewDefaultExpanded !== undefined
+      ? parseCsv(root.dataset.affinoTreeviewDefaultExpanded)
+      : previousSnapshot?.expanded ?? [],
     defaultSelected,
     defaultActive,
     loop: readBoolean(root.dataset.affinoTreeviewLoop, false),
@@ -390,7 +394,14 @@ function collectTreeviewStructure(root: RootEl): TreeviewStructure | null {
   if (!items.length) {
     return null
   }
-  return { items }
+  return {
+    items,
+    signatures: items.map((item) => [
+      item.dataset.affinoTreeviewValue ?? "",
+      item.dataset.affinoTreeviewParent ?? "",
+      item.dataset.affinoTreeviewDisabled ?? "",
+    ].join("\u0000")),
+  }
 }
 
 function resolveModels(items: ItemEl[]): {
@@ -533,7 +544,7 @@ function isSameStructure(previous: TreeviewStructure, next: TreeviewStructure): 
     return false
   }
   for (let index = 0; index < previous.items.length; index += 1) {
-    if (previous.items[index] !== next.items[index]) {
+    if (previous.items[index] !== next.items[index] || previous.signatures[index] !== next.signatures[index]) {
       return false
     }
   }
@@ -561,9 +572,30 @@ function setupMutationObserver(): void {
       mutation.removedNodes.forEach((node) => {
         scheduleRemovedCleanup(node)
       })
+      if (mutation.type === "attributes") {
+        const target = mutation.target
+        if (target instanceof Element) {
+          const root = target.closest<RootEl>(TREEVIEW_ROOT_SELECTOR)
+          if (root) scheduleScan(root)
+        }
+      }
     })
   })
-  observer.observe(document.documentElement, { childList: true, subtree: true })
+  observer.observe(document.documentElement, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: [
+      "data-affino-treeview-root",
+      "data-affino-treeview-item",
+      "data-affino-treeview-value",
+      "data-affino-treeview-parent",
+      "data-affino-treeview-disabled",
+      "data-affino-treeview-default-expanded",
+      "data-affino-treeview-default-selected",
+      "data-affino-treeview-default-active",
+    ],
+  })
   scope[key] = observer
 }
 

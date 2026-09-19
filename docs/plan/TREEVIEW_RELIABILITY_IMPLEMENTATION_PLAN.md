@@ -1,6 +1,6 @@
 # Treeview — reliability / performance implementation plan для Luna
 
-Статус: **in_progress; 6/10 core slices closed**. Дата аудита: 2026-09-19.
+Статус: **in_progress; 7/10 slices closed**. Дата аудита: 2026-09-19.
 Область: @affino/treeview-core, @affino/treeview-vue, JS bridge @affino/treeview-laravel.
 Обязательно прочитать [общий аудит и протокол](COMPONENT_ENGINEERING_AUDIT_2026-09-19.md) целиком перед исполнением.
 Цель: предсказуемая модель дерева и virtual adapter с проверенной стоимостью операций, а не обещание отсутствия bottlenecks при любой нагрузке.
@@ -43,7 +43,7 @@
 | T05 | Единый owner virtual updates / lifecycle | T02,T04 | done |
 | T06 | Линейная search projection | T03 | done |
 | T07 | Стоимость patch / batching / registration API | T01,T02,T06 | pending |
-| T08 | Laravel dynamic DOM и event ownership | T02,T03 | pending |
+| T08 | Laravel dynamic DOM и event ownership | T02,T03 | done |
 | T09 | Packed consumers / docs / accessibility contract | T05,T07,T08 | pending |
 | T10 | Нагрузочные и browser gates | T01–T09 | pending |
 
@@ -134,4 +134,4 @@
 
 ## Журнал
 
-2026-09-19: аудит и baseline treeview 47 tests (core 32, Vue 11, Laravel 4), builds passed на Node 22. Закрыты T01–T06: prospective cycle normalization, structural notifications/no-op replace, search active invariants, fractional virtual range, core-owned virtual invalidation и bottom-up search projection. T07–T10 остаются открыты: Laravel DOM morph/state preservation, full patch cost model, consumer/browser gates и Node 24 CI execution.
+2026-09-19: аудит и baseline treeview 47 tests (core 32, Vue 11, Laravel 4), builds passed на Node 22. Закрыты T01–T06 и T08: prospective cycle normalization, structural notifications/no-op replace, search active invariants, fractional virtual range, core-owned virtual invalidation, bottom-up search projection и attribute-aware Laravel rehydrate с сохранением selection/expansion. T07/T09/T10 остаются открыты: full patch cost model, consumer/accessibility docs и Node 24 browser/performance gates.

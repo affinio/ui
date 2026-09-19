@@ -118,6 +118,33 @@ describe("treeview-laravel", () => {
     hydrateTreeview(root as HTMLElement & { dataset: DOMStringMap })
     expect((root as any).affinoTreeview).toBeUndefined()
   })
+
+  it("rehydrates attribute morphs without losing expansion and selection", async () => {
+    const root = document.createElement("div")
+    root.setAttribute("data-affino-treeview-root", "morph-treeview")
+    const parent = document.createElement("button")
+    parent.dataset.affinoTreeviewItem = ""
+    parent.dataset.affinoTreeviewValue = "parent"
+    const child = document.createElement("button")
+    child.dataset.affinoTreeviewItem = ""
+    child.dataset.affinoTreeviewValue = "child"
+    child.dataset.affinoTreeviewParent = "parent"
+    root.append(parent, child)
+    document.body.append(root)
+
+    hydrateTreeview(root as any)
+    ;(root as any).affinoTreeview.expand("parent")
+    ;(root as any).affinoTreeview.select("child")
+    bootstrapAffinoTreeviews()
+
+    parent.dataset.affinoTreeviewDisabled = "true"
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(root.dataset.affinoTreeviewSelected).toBe("child")
+    expect(parent.getAttribute("aria-expanded")).toBe("true")
+    expect(parent.getAttribute("aria-disabled")).toBe("true")
+  })
 })
 
 describe("treeview-laravel public API", () => {
