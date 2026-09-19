@@ -39,6 +39,9 @@ controller.subscribe((snapshot) => {
 
 controller.open("keyboard")
 await controller.requestClose("programmatic")
+
+// Keep the existing overlay registration when a portal root changes.
+controller.setOverlayRoot(nextPortalRoot)
 ```
 
 ## Standard modal profile helpers

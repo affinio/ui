@@ -217,6 +217,12 @@ export class DialogController {
     this.closeGuard = guard
   }
 
+  /** Update the DOM root used by the shared overlay manager after teleport/mount. */
+  setOverlayRoot(root: HTMLElement | null): void {
+    if (this.destroyed) return
+    this.overlayIntegration.updateTraits({ root })
+  }
+
   open(reason: DialogOpenReason = "programmatic"): void {
     if (this.destroyed) return
     if (this.phase === "open" || this.phase === "opening") return

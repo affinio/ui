@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
-import { getDocumentOverlayManager } from "@affino/overlay-kernel"
+import { createOverlayManager, getDocumentOverlayManager } from "@affino/overlay-kernel"
 import { createApp, defineComponent, h, nextTick as vueNextTick, onMounted } from "vue"
 import { useDialogController } from "../useDialogController.js"
 
@@ -55,6 +55,17 @@ describe("useDialogController", () => {
     await binding.close("backdrop")
     expect(isTopMost).toHaveBeenCalledWith(overlay.id)
     expect(unregister).toHaveBeenCalledTimes(1)
+  })
+
+  it("exposes dynamic teleported root updates", () => {
+    const root = {} as HTMLElement
+    const manager = createOverlayManager()
+    const binding = useDialogController({ overlayManager: manager })
+
+    binding.open()
+    binding.setOverlayRoot(root)
+    expect(manager.getStack()[0]?.root).toBe(root)
+    binding.dispose()
   })
 
   it("registers overlays with the document manager by default", async () => {

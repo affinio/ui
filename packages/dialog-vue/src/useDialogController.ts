@@ -21,6 +21,7 @@ export interface DialogControllerBinding {
     reason?: DialogCloseReason,
     request?: CloseRequestOptions
   ) => Promise<boolean>
+  readonly setOverlayRoot: (root: HTMLElement | null) => void
   readonly dispose: () => void
 }
 
@@ -67,6 +68,7 @@ export function useDialogController(options: UseDialogControllerOptions = {}): D
     open: (reason?: DialogOpenReason) => controller.open(reason),
     close: (reason?: DialogCloseReason, request?: CloseRequestOptions) =>
       controller.close(reason, request),
+    setOverlayRoot: (root: HTMLElement | null) => controller.setOverlayRoot(root),
     dispose,
   }
 }

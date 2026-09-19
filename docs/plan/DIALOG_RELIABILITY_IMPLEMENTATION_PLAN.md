@@ -1,6 +1,6 @@
 # Dialog — reliability / lifecycle implementation plan для Luna
 
-Статус: **in_progress; 7/10 slices closed**. Дата: 2026-09-19.
+Статус: **in_progress; 8/10 slices closed**. Дата: 2026-09-19.
 Область: @affino/dialog-core, @affino/dialog-vue, JS bridge @affino/dialog-laravel; overlay-kernel/focus-utils — только необходимые shared contracts.
 Обязательно прочитать [общий аудит и протокол](COMPONENT_ENGINEERING_AUDIT_2026-09-19.md).
 Главный риск сейчас — корректность async/lifecycle, затем focus/modal guarantees и стоимость mixed overlay stacks.
@@ -43,7 +43,7 @@
 | D04 | Reentrancy, ошибки hooks и atomic transitions | D01,D02 | done |
 | D05 | Честный modal/focus contract + DOM behavior | D03; API decision | done |
 | D06 | defaultOpen, scope lifetime, SSR IDs | D02,D03,D05 | done |
-| D07 | Nested overlay ownership / dynamic roots | D01,D04,D05 | in_progress |
+| D07 | Nested overlay ownership / dynamic roots | D01,D04,D05 | done |
 | D08 | Laravel alignment / lifecycle / retention | D02,D03,D07 | done |
 | D09 | Package consumers / examples / perf harness | D04–D08 | in_progress |
 | D10 | Full regression / browser / CI gates | D01–D09 | pending |
@@ -145,6 +145,7 @@
 2026-09-19: D09 consumer gate продвинут: @affino/dialog-core tarball установлен в изолированный Node24 consumer вместе с registry @affino/overlay-kernel@0.2.0 и @affino/surface-core@1.1.0; public factory импортируется без workspace aliases. Vite SSR/Vue peer и browser lifecycle gates остаются открытыми.
 2026-09-19: D10 browser gate подготовлен: добавлен `scripts/smoke-components-demo.mjs`, который проверяет dialog open/ARIA/Escape и diagram selection/rotation/revision/zoom на demo-vue; CI visual job запускает smoke после установки Chromium. Локальный arm64 Ubuntu runner не может выполнить Chromium, поэтому runtime evidence ожидается от GitHub runner.
 2026-09-19: D07 уточнён: mixed dialog/sheet owner-cascade, top-most rejection, duplicate-ID stale disposer и owner-cycle rejection покрыты core/kernel/Vue tests. Остался отдельный dynamic-root/teleport update contract; публичный API не расширяется без согласования.
+2026-09-19: D07 закрыт: добавлен additive `DialogController.setOverlayRoot(root)` и Vue binding `setOverlayRoot`, которые обновляют существующую overlay registration после Teleport/mount без повторной регистрации; `null` очищает root, destroyed controller остаётся no-op. Core/Vue tests и README migration example добавлены.
 2026-09-19: D09 benchmark повторён на Node24: 5 samples × 100 iterations дали p95 1.31ms для 1 controller, 1.51ms для 10 и 8.16ms для 100; burst 1000 pending close requests — 5.61ms. Это engine lifecycle signal без DOM paint, browser smoke покрывает DOM-facing path отдельно.
 2026-09-19: Component benchmark CI gate добавлен: dialog bench запускается вместе с treeview calibrated gate и diagram benchmark в Node24 verify job. Последний локальный прогон: 100 controllers p95 9.70ms, burst 1000 — 3.44ms.
 2026-09-19: D09 Vite SSR consumer gate прошёл: локальные @affino/dialog-core@1.2.0 и @affino/dialog-vue@1.2.0 tarballs установлены изолированно с registry Vue 3.5/Vite 7.3, SSR bundle собран и `renderToString` smoke успешно выполнен под Node24. Browser lifecycle остаётся D10 evidence.

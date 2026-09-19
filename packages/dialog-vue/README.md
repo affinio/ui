@@ -105,6 +105,18 @@ function loopFocus(edge: "start" | "end") {
 
 `useDialogController` automatically registers dialogs with the shared `@affino/overlay-kernel` manager whenever `document` is available. Customize stacking behavior by passing `overlayKind`, `overlayEntryTraits`, `overlayManager`, or `getOverlayManager` through the hook options. During SSR the hook simply defers registration until hydration so servers stay overlay-agnostic.
 
+When a Teleport target is mounted or changes after the controller opens, update the manager entry without destroying/re-registering the dialog:
+
+```ts
+const dialog = useDialogController({ overlayManager })
+
+onMounted(() => {
+  dialog.setOverlayRoot(teleportedSurface.value)
+})
+```
+
+Pass `null` when the root is removed. The method is idempotent and safe after disposal; it updates the existing overlay entry so stack order and pending close requests remain intact.
+
 ## Adding async guards (optional)
 
 ```ts
@@ -168,9 +180,9 @@ Because each controller understands `phase`, `isOpen`, and `optimisticCloseInFli
 
 | Hook / helper | Description |
 | --- | --- |
-| `useDialogController(options)` | Returns `{ controller, snapshot, open, close, dispose }`. `snapshot` is a shallow ref with `isOpen`, `phase`, `lastCloseReason`, `optimisticCloseInFlight`, etc. |
+| `useDialogController(options)` | Returns `{ controller, snapshot, open, close, setOverlayRoot, dispose }`. `snapshot` is a shallow ref with `isOpen`, `phase`, `lastCloseReason`, `optimisticCloseInFlight`, etc. |
 | `createDialogFocusOrchestrator(config)` | Configures dialog/return focus getters plus optional `initialFocus` selector. Returns an object consumed by the controller. |
-| `DialogController` | The core instance; call `controller.on(event, listener)` to subscribe to lifecycle events, `controller.setCloseGuard()` to register async guards, and `controller.dispose()` when the component unmounts. |
+| `DialogController` | The core instance; call `controller.on(event, listener)` to subscribe to lifecycle events, `controller.setCloseGuard()` to register async guards, `controller.setOverlayRoot(root)` after Teleport mount, and `controller.dispose()` when the component unmounts. |
 
 See [`packages/dialog-core`](../dialog-core) for the exhaustive controller documentation.
 

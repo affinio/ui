@@ -358,6 +358,23 @@ describe("DialogController", () => {
     expect(manager.getEntry("dialog-under-test")).toBeNull()
   })
 
+  it("updates a teleported overlay root without re-registering the dialog", () => {
+    const manager = createOverlayManager()
+    const firstRoot = {} as HTMLElement
+    const secondRoot = {} as HTMLElement
+    const controller = new DialogController({
+      defaultOpen: true,
+      overlayManager: manager,
+      id: "teleported-dialog",
+      overlayEntryTraits: { root: firstRoot },
+    })
+
+    controller.setOverlayRoot(secondRoot)
+
+    expect(manager.getEntry("teleported-dialog")?.root).toBe(secondRoot)
+    expect(manager.getStack().map((entry) => entry.id)).toEqual(["teleported-dialog"])
+  })
+
   it("keeps overlay registered until after close lifecycle completes", async () => {
     const manager = createOverlayManager()
     const afterCloseStates: Array<{ stillRegistered: boolean }> = []
