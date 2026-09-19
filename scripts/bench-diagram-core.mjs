@@ -34,6 +34,9 @@ function runForCount(count) {
   const viewport = { x: 0, y: 0, width: 1200, height: 800 }
   const visible = measure(() => engine.queryVisible(viewport))
   const querySearch = measure(() => engine.queryEntities({ kinds: ["node", "text"], text: "Label 10", limit: 25 }))
+  // Keep lazy index/order construction separate from steady-state queries.
+  const warmVisible = measure(() => engine.queryVisible(viewport))
+  const warmQuerySearch = measure(() => engine.queryEntities({ kinds: ["node", "text"], text: "Label 10", limit: 25 }))
   const queryBounds = measure(() => engine.queryEntities({ bounds: viewport, kinds: ["node", "text", "shape"] }))
   const pan = measure(() => {
     for (let step = 0; step < 180; step += 1) {
@@ -74,7 +77,9 @@ function runForCount(count) {
     entityCount: count,
     initialRenderMs: initialRender.ms,
     visibleQueryMs: visible.ms,
+    warmVisibleQueryMs: warmVisible.ms,
     entitySearchQueryMs: querySearch.ms,
+    warmEntitySearchQueryMs: warmQuerySearch.ms,
     entityBoundsQueryMs: queryBounds.ms,
     panFpsEstimate: 180 / (pan.ms / 1000),
     dragLatencyMs: drag.ms,

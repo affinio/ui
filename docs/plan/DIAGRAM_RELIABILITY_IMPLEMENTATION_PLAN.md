@@ -178,3 +178,4 @@
 2026-09-19: G10 продвинут: text editor теперь watch-ит external reactive viewport ref и корректно обновляет overlay style при direct pan/zoom mutation; cleanup и regression добавлены.
 2026-09-19: G07 продвинут: snap alignment теперь уважает context.excludeIds для node targets; добавлен regression вместе с существующими port/grid/angle snap checks.
 2026-09-19: G11 продвинут: реальный @affino/diagram-core tarball распакован во временный consumer и импортирован под Node24 без workspace aliases; treeview/dialog/diagram pack dry-runs также прошли.
+2026-09-19: G11 продвинут: diagram benchmark теперь отдельно публикует cold и warm visible/entity-query latency, чтобы lazy index/order setup не смешивался со steady-state interaction signal. Node24 build и benchmark 1k/5k/10k прошли; на 10k warm visible около 0.20ms, warm entity search около 2.01ms.
