@@ -92,6 +92,26 @@ describe("DiagramEngine", () => {
     expect(after.entities.edgesById.get("e1")).toBe(before.entities.edgesById.get("e1"))
   })
 
+  it("keeps caller-held snapshots valid across delete, undo, and replacement", () => {
+    const engine = createDiagramEngine(scene)
+    const before = engine.getScene()
+
+    engine.dispatch({ type: "setSelection", selection: { ids: ["n1"], primaryId: "n1" } })
+    engine.dispatch({ type: "deleteSelection" })
+    expect(engine.getScene().entities.nodesById.has("n1")).toBe(false)
+    expect(before.entities.nodesById.get("n1")?.x).toBe(0)
+    expect(before.entities.edgesById.get("e1")?.source).toEqual({ kind: "port", portId: "p1" })
+
+    engine.dispatch({ type: "undo" })
+    expect(engine.getScene().entities.nodesById.get("n1")?.x).toBe(0)
+    expect(before.entities.nodesById.get("n1")?.x).toBe(0)
+
+    engine.transact(() => ({ nodes: [{ id: "replacement", kind: "node", x: 90, y: 10, width: 20, height: 20 }] }))
+    expect(engine.getScene().entities.nodesById.has("replacement")).toBe(true)
+    expect(before.entities.nodesById.has("replacement")).toBe(false)
+    expect(before.entities.nodesById.get("n1")?.x).toBe(0)
+  })
+
   it("owns input entities and invalidates an empty replacement", () => {
     const input = { id: "n1", kind: "node" as const, x: 0, y: 0, width: 20, height: 20 }
     const engine = createDiagramEngine({ nodes: [input] })
