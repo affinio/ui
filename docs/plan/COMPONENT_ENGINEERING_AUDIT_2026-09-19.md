@@ -147,3 +147,5 @@ The implementation plans are now the authoritative progress record; the baseline
 - Diagram: G01/G02/G04/G05 are closed; G03/G06–G12 remain in progress. Structural sharing/retention, dependency indexing, query benchmarks with cold/warm separation, isolated tarball import, demo build, and CI dialog/diagram smoke are covered. Browser execution, bounded history policy, and remaining renderer/index retention evidence remain open.
 
 The CI visual matrix now builds `demo-vue`, runs the existing treeview smoke, and runs `scripts/smoke-components-demo.mjs` for dialog and diagram after installing Chromium. Local browser execution is unavailable on the current Ubuntu 26.04 arm64 environment because Playwright does not ship a compatible Chromium binary there; this is a validation limitation, not a passing browser result.
+
+The Node24 verify job also runs `bench:components:ci`: calibrated treeview assertions, the dialog lifecycle harness, and cold/warm diagram workloads. This provides CI regression evidence; diagram/dialog budgets remain observational until runner baselines are calibrated.
