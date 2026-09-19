@@ -59,10 +59,10 @@ function runForCount(count) {
     engine.dispatch({ type: "undo" })
   })
   const waypoint = measure(() => {
-    engine.dispatch({ type: "insertEdgeWaypoint", edgeId: "edge-0", index: 0, point: { x: 120, y: 120 } })
-    engine.dispatch({ type: "moveEdgeWaypoint", edgeId: "edge-0", index: 0, point: { x: 132, y: 132 } })
-    engine.dispatch({ type: "undo" })
-    engine.dispatch({ type: "undo" })
+    assertChanged(engine.dispatch({ type: "insertEdgeWaypoint", id: "edge-0", index: 0, point: { x: 120, y: 120 } }), "insertEdgeWaypoint")
+    assertChanged(engine.dispatch({ type: "moveEdgeWaypoint", id: "edge-0", index: 0, point: { x: 132, y: 132 } }), "moveEdgeWaypoint")
+    assertChanged(engine.dispatch({ type: "undo" }), "undo moveEdgeWaypoint")
+    assertChanged(engine.dispatch({ type: "undo" }), "undo insertEdgeWaypoint")
   })
   const fitScene = measure(() => engine.fitScene())
   const diagnostics = engine.getDiagnostics()
@@ -135,6 +135,13 @@ function measure(run) {
   const start = performance.now()
   const value = run()
   return { value, ms: performance.now() - start }
+}
+
+function assertChanged(result, label) {
+  if (!result.changed) {
+    throw new Error("" + label + " benchmark command did not change the scene")
+  }
+  return result
 }
 
 function readCounts(value) {

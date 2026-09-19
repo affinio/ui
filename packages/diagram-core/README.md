@@ -44,9 +44,9 @@ Static text is data in core and should be rendered by adapters as SVG `<text>`/`
 
 ```ts
 engine.dispatch({ type: "resizeEntities", entries: [{ id: "n1", width: 160, height: 80 }] }) // node-relative ports scale with the node
-engine.dispatch({ type: "insertEdgeWaypoint", edgeId: "e1", index: 0, point: { x: 240, y: 120 } })
-engine.dispatch({ type: "moveEdgeWaypoint", edgeId: "e1", index: 0, point: { x: 260, y: 140 } })
-engine.dispatch({ type: "removeEdgeWaypoint", edgeId: "e1", index: 0 })
+engine.dispatch({ type: "insertEdgeWaypoint", id: "e1", index: 0, point: { x: 240, y: 120 } })
+engine.dispatch({ type: "moveEdgeWaypoint", id: "e1", index: 0, point: { x: 260, y: 140 } })
+engine.dispatch({ type: "removeEdgeWaypoint", id: "e1", index: 0 })
 engine.dispatch({ type: "bringForward", ids: ["n1"] })
 engine.dispatch({ type: "setLayer", ids: ["n1"], layer: "equipment", layerRole: "normal" })
 engine.dispatch({ type: "rotateEntities", entries: [{ id: "n1", rotation: 90 }] }) // geometry exposes rotated bounds/corners
