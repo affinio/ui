@@ -22,7 +22,8 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "bench": "node --expose-gc ../../scripts/bench-dialog-core.mjs"
   },
   "repository": {
     "type": "git",
