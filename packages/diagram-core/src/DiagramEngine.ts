@@ -419,7 +419,13 @@ export class DiagramEngine {
     }
     this.state.revision += 1
     this.geometryService.invalidate(invalidatedIds)
-    this.spatialIndex.markDirty()
+    const invalidatedGeometryIds = [...invalidatedIds]
+    this.spatialIndex.update(
+      invalidatedGeometryIds
+        .map((id) => this.geometryService.get(id, this.state.entities, this.state.versions.get(id) ?? 0))
+        .filter((geometry): geometry is DiagramGeometry => geometry !== null),
+      invalidatedGeometryIds.filter((id) => !this.hasEntity(id)),
+    )
     if (recordHistory) {
       this.history.record(patch, historyKey, composePatches)
     }

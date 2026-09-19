@@ -26,6 +26,16 @@ export class UniformGridIndex {
     }
   }
 
+  update(geometries: Iterable<DiagramGeometry>, useHitBounds = false, removedIds: Iterable<DiagramId> = []): void {
+    for (const id of removedIds) {
+      this.remove(id)
+    }
+    for (const geometry of geometries) {
+      this.remove(geometry.id)
+      this.insert(geometry.id, useHitBounds ? geometry.hitBounds : geometry.bounds)
+    }
+  }
+
   query(rect: DiagramRect): DiagramId[] {
     const keys = this.keysForRect(rect)
     if (keys === null) {
@@ -66,6 +76,29 @@ export class UniformGridIndex {
         this.cells.set(key, bucket)
       }
       bucket.add(id)
+    }
+  }
+
+  remove(id: DiagramId): void {
+    const entry = this.entries.get(id)
+    if (!entry) {
+      return
+    }
+    this.entries.delete(id)
+    this.largeEntries.delete(id)
+    const keys = this.keysForRect(entry.bounds)
+    if (keys === null) {
+      return
+    }
+    for (const key of keys) {
+      const bucket = this.cells.get(key)
+      if (!bucket) {
+        continue
+      }
+      bucket.delete(id)
+      if (!bucket.size) {
+        this.cells.delete(key)
+      }
     }
   }
 

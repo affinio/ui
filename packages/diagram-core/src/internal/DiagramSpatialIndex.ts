@@ -22,6 +22,19 @@ export class DiagramSpatialIndex {
     this.dirty = false
   }
 
+  update(geometries: ReadonlyArray<DiagramGeometry>, removedIds: ReadonlyArray<DiagramId> = []): void {
+    if (this.dirty) {
+      this.visualBoundsIndex.rebuild(geometries)
+      this.hitBoundsIndex.rebuild(geometries, true)
+      this.portIndex.rebuild(geometries.filter((geometry) => geometry.kind === "port"), true)
+      this.dirty = false
+      return
+    }
+    this.visualBoundsIndex.update(geometries, false, removedIds)
+    this.hitBoundsIndex.update(geometries, true, removedIds)
+    this.portIndex.update(geometries.filter((geometry) => geometry.kind === "port"), true, removedIds)
+  }
+
   queryVisible(bounds: DiagramRect): DiagramId[] {
     return this.visualBoundsIndex.query(bounds)
   }
