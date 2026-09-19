@@ -76,6 +76,7 @@
     "bench:treeview:vue:virtual": "node --expose-gc ./scripts/bench-treeview-vue-virtual.mjs",
     "bench:treeview:vue:virtual:assert": "BENCH_TREEVIEW_NODE_COUNT=10000 BENCH_TREEVIEW_SCROLL_STEPS=160 BENCH_TREEVIEW_SAMPLE_COUNT=3 PERF_BUDGET_TOTAL_MS=8000 PERF_BUDGET_MAX_SCROLL_P95_MS=600 PERF_BUDGET_MAX_BLANK_VIEWPORTS=0 PERF_BUDGET_MAX_HEAP_DELTA_MB=160 node --expose-gc ./scripts/bench-treeview-vue-virtual.mjs",
     "smoke:treeview:demo": "node ./scripts/smoke-treeview-demo.mjs",
+    "smoke:components:demo": "node ./scripts/smoke-components-demo.mjs",
     "bench:datagrid:interactions": "node ./scripts/bench-datagrid-interactions.mjs",
     "bench:datagrid:interactions:assert": "BENCH_SEEDS=1337,7331,2026 PERF_BUDGET_TOTAL_MS=3500 PERF_BUDGET_MAX_SELECTION_DRAG_P95_MS=5 PERF_BUDGET_MAX_SELECTION_DRAG_P99_MS=8 PERF_BUDGET_MAX_FILL_APPLY_P95_MS=8 PERF_BUDGET_MAX_FILL_APPLY_P99_MS=14 PERF_BUDGET_MAX_VARIANCE_PCT=25 PERF_BUDGET_MAX_HEAP_DELTA_MB=80 node ./scripts/bench-datagrid-interactions.mjs",
     "bench:datagrid:rowmodels": "node --expose-gc --experimental-specifier-resolution=node ./scripts/bench-datagrid-rowmodels.mjs",

@@ -80,3 +80,6 @@ jobs:
         env:
           TREEVIEW_SMOKE_SCREENSHOTS: "0"
         run: pnpm run smoke:treeview:demo
+      - name: Run dialog and diagram browser smoke
+        if: matrix.suite == 'visual'
+        run: pnpm run smoke:components:demo
