@@ -21,7 +21,6 @@ import type {
   DiagramHitTestOptions,
   DiagramId,
   DiagramPoint,
-  DiagramPort,
   DiagramQueryOptions,
   DiagramRect,
   DiagramRenderOrderOptions,
@@ -54,6 +53,11 @@ export class DiagramEngine {
   private lastCommandMs = 0
   private orderIndexRevision = -1
   private orderIndexCache = new Map<DiagramId, number>()
+  private dependencyIndexReady = false
+  private dependencyEntityIds = new Set<DiagramId>()
+  private portIdsByNode = new Map<DiagramId, Set<DiagramId>>()
+  private edgeIdsByNode = new Map<DiagramId, Set<DiagramId>>()
+  private edgeIdsByPort = new Map<DiagramId, Set<DiagramId>>()
 
   constructor(initialScene: DiagramSceneInput = {}) {
     this.store = new DiagramSceneStore(initialScene)
@@ -401,6 +405,7 @@ export class DiagramEngine {
     if (!changedIds.size) {
       return { changedIds, invalidatedIds: new Set() }
     }
+    this.ensureDependencyIndex(changedIds)
     const invalidatedIds = this.collectInvalidatedIds(changedIds)
     for (const id of invalidatedIds) {
       this.state.versions.set(id, (this.state.versions.get(id) ?? 0) + 1)
@@ -418,30 +423,58 @@ export class DiagramEngine {
   private collectInvalidatedIds(changedIds: ReadonlySet<DiagramId>): Set<DiagramId> {
     const invalidated = new Set(changedIds)
     for (const id of changedIds) {
-      if (this.state.entities.nodesById.has(id)) {
-        for (const port of this.state.entities.portsById.values()) {
-          if (port.nodeId === id) {
-            invalidated.add(port.id)
-          }
-        }
-        for (const edge of this.state.entities.edgesById.values()) {
-          if (edgeReferencesNode(edge, id, this.state.entities.portsById)) {
-            invalidated.add(edge.id)
-          }
-        }
+      for (const portId of this.portIdsByNode.get(id) ?? []) {
+        invalidated.add(portId)
       }
-      if (this.state.entities.portsById.has(id)) {
-        for (const edge of this.state.entities.edgesById.values()) {
-          if (edge.source.kind === "port" && edge.source.portId === id) {
-            invalidated.add(edge.id)
-          }
-          if (edge.target.kind === "port" && edge.target.portId === id) {
-            invalidated.add(edge.id)
+      for (const edgeId of this.edgeIdsByNode.get(id) ?? []) {
+        invalidated.add(edgeId)
+      }
+      for (const edgeId of this.edgeIdsByPort.get(id) ?? []) {
+        invalidated.add(edgeId)
+      }
+    }
+    return invalidated
+  }
+
+  private ensureDependencyIndex(changedIds: ReadonlySet<DiagramId>): void {
+    let rebuild = !this.dependencyIndexReady
+    for (const id of changedIds) {
+      const exists = this.hasEntity(id)
+      if (this.dependencyEntityIds.has(id) !== exists || this.state.entities.edgesById.has(id) || this.state.entities.portsById.has(id)) {
+        rebuild = true
+        break
+      }
+    }
+    if (!rebuild) {
+      return
+    }
+    this.dependencyEntityIds = new Set([
+      ...this.state.entities.nodesById.keys(),
+      ...this.state.entities.edgesById.keys(),
+      ...this.state.entities.textsById.keys(),
+      ...this.state.entities.shapesById.keys(),
+      ...this.state.entities.portsById.keys(),
+    ])
+    this.portIdsByNode = new Map()
+    this.edgeIdsByNode = new Map()
+    this.edgeIdsByPort = new Map()
+    for (const port of this.state.entities.portsById.values()) {
+      addDependency(this.portIdsByNode, port.nodeId, port.id)
+    }
+    for (const edge of this.state.entities.edgesById.values()) {
+      for (const endpoint of [edge.source, edge.target]) {
+        if (endpoint.kind === "node") {
+          addDependency(this.edgeIdsByNode, endpoint.nodeId, edge.id)
+        } else if (endpoint.kind === "port") {
+          addDependency(this.edgeIdsByPort, endpoint.portId, edge.id)
+          const port = this.state.entities.portsById.get(endpoint.portId)
+          if (port) {
+            addDependency(this.edgeIdsByNode, port.nodeId, edge.id)
           }
         }
       }
     }
-    return invalidated
+    this.dependencyIndexReady = true
   }
 
   private getGeometry(id: DiagramId): DiagramGeometry | null {
@@ -1453,16 +1486,13 @@ function deleteEntity(state: InternalState, id: DiagramId): boolean {
   return deleted
 }
 
-function edgeReferencesNode(edge: DiagramEdge, id: DiagramId, ports: ReadonlyMap<DiagramId, DiagramPort>): boolean {
-  for (const endpoint of [edge.source, edge.target]) {
-    if (endpoint.kind === "node" && endpoint.nodeId === id) {
-      return true
-    }
-    if (endpoint.kind === "port" && ports.get(endpoint.portId)?.nodeId === id) {
-      return true
-    }
+function addDependency(index: Map<DiagramId, Set<DiagramId>>, ownerId: DiagramId, dependentId: DiagramId): void {
+  let dependents = index.get(ownerId)
+  if (!dependents) {
+    dependents = new Set<DiagramId>()
+    index.set(ownerId, dependents)
   }
-  return false
+  dependents.add(dependentId)
 }
 
 function hitDistanceForGeometry(geometry: DiagramGeometry, point: DiagramPoint, radius: number): number | null {
