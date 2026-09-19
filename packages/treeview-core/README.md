@@ -2,6 +2,8 @@
 
 Headless treeview engine for focus, selection, and expansion logic.
 
+The core is headless: it does not render DOM or provide ARIA attributes. The Vue/Laravel adapters own keyboard event wiring and accessibility markup.
+
 ## Installation
 
 ```bash
@@ -57,7 +59,7 @@ Legacy imperative methods remain and delegate internally:
 
 ## Other API
 
-- `registerNodes(nodes, options?)`
+- `registerNodes(nodes, options?)` — default mode replaces the source; use `{ mode: "patch" }` for upserts without removing omitted nodes.
 - `expandPath(value)`
 - `clearSelection()`
 - `getVisibleValues()`
@@ -85,3 +87,5 @@ Nodes can provide `text`, or consumers can pass `textAccessor` in options. `setS
 - Use `request*` results to handle invalid user intents explicitly.
 - Treat snapshots as immutable outputs.
 - Keep one canonical tree state source in adapter state.
+- `value` must be unique and stable; `null` is reserved for root parents.
+- The model supports one active node and one selected node. Multi-select, async loading, drag-and-drop, and variable row heights are not provided by this package.
