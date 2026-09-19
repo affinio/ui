@@ -177,3 +177,4 @@
 2026-09-19: G10 продвинут: SVG/DOM renderer теперь использует исходный unrotated rect и явный rotation transform вместо rotated AABB как render rect; добавлены geometry assertions для 90° node.
 2026-09-19: G10 продвинут: text editor теперь watch-ит external reactive viewport ref и корректно обновляет overlay style при direct pan/zoom mutation; cleanup и regression добавлены.
 2026-09-19: G07 продвинут: snap alignment теперь уважает context.excludeIds для node targets; добавлен regression вместе с существующими port/grid/angle snap checks.
+2026-09-19: G11 продвинут: реальный @affino/diagram-core tarball распакован во временный consumer и импортирован под Node24 без workspace aliases; treeview/dialog/diagram pack dry-runs также прошли.
