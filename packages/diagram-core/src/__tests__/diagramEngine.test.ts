@@ -129,6 +129,10 @@ describe("DiagramEngine", () => {
 
     expect(engine.getLastChange().changedIds).toEqual(new Set(["n1"]))
     expect(engine.getLastChange().invalidatedIds).toEqual(new Set(["n1", "p1", "e1"]))
+    expect(() => {
+      ;(engine.getLastChange().changedIds as Set<string>).add("mutated")
+    }).toThrow(TypeError)
+    expect(engine.getLastChange().changedIds).toEqual(new Set(["n1"]))
     expect(engine.getEntityVersion("n2")).toBe(n2Version)
 
     engine.queryVisible({ x: -10, y: -10, width: 500, height: 200 })

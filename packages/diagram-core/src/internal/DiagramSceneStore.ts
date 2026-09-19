@@ -11,8 +11,8 @@ export class DiagramSceneStore {
   private subscribers = new Set<DiagramSubscriber>()
   private lastChange: DiagramChange = {
     revision: 0,
-    changedIds: Object.freeze(new Set<DiagramId>()),
-    invalidatedIds: Object.freeze(new Set<DiagramId>()),
+    changedIds: createReadonlySet([]),
+    invalidatedIds: createReadonlySet([]),
   }
 
   constructor(initialScene: DiagramSceneInput = {}) {
@@ -32,8 +32,8 @@ export class DiagramSceneStore {
     this.snapshot = this.createSnapshot(changedIds)
     this.lastChange = {
       revision: this.state.revision,
-      changedIds: Object.freeze(new Set(changedIds)),
-      invalidatedIds: Object.freeze(new Set(invalidatedIds)),
+      changedIds: createReadonlySet(changedIds),
+      invalidatedIds: createReadonlySet(invalidatedIds),
     }
     for (const listener of this.subscribers) {
       listener(this.snapshot, this.lastChange)
@@ -225,6 +225,20 @@ class PersistentReadonlyMap<Entity> implements ReadonlyMap<DiagramId, Entity> {
 
 function readonlyMapMutation(): never {
   throw new TypeError("Diagram snapshots are readonly")
+}
+
+function createReadonlySet<Value>(values: Iterable<Value>): ReadonlySet<Value> {
+  const set = new Set(values)
+  Object.defineProperties(set, {
+    add: { value: readonlySetMutation, writable: false },
+    delete: { value: readonlySetMutation, writable: false },
+    clear: { value: readonlySetMutation, writable: false },
+  })
+  return Object.freeze(set)
+}
+
+function readonlySetMutation(): never {
+  throw new TypeError("Diagram change sets are readonly")
 }
 
 function cloneValue<Value>(value: Value): Value {
