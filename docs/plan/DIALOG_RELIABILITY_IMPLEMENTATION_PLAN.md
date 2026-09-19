@@ -1,6 +1,6 @@
 # Dialog — reliability / lifecycle implementation plan для Luna
 
-Статус: **in_progress; 6/10 slices closed**. Дата: 2026-09-19.
+Статус: **in_progress; 7/10 slices closed**. Дата: 2026-09-19.
 Область: @affino/dialog-core, @affino/dialog-vue, JS bridge @affino/dialog-laravel; overlay-kernel/focus-utils — только необходимые shared contracts.
 Обязательно прочитать [общий аудит и протокол](COMPONENT_ENGINEERING_AUDIT_2026-09-19.md).
 Главный риск сейчас — корректность async/lifecycle, затем focus/modal guarantees и стоимость mixed overlay stacks.
@@ -45,7 +45,7 @@
 | D06 | defaultOpen, scope lifetime, SSR IDs | D02,D03,D05 | done |
 | D07 | Nested overlay ownership / dynamic roots | D01,D04,D05 | pending |
 | D08 | Laravel alignment / lifecycle / retention | D02,D03,D07 | done |
-| D09 | Package consumers / examples / perf harness | D04–D08 | pending |
+| D09 | Package consumers / examples / perf harness | D04–D08 | in_progress |
 | D10 | Full regression / browser / CI gates | D01–D09 | pending |
 
 ## D01 — Close arbitration (DL-01, DL-02, DL-04)
@@ -142,4 +142,5 @@
 2026-09-19: аудит, baseline dialog 66 tests (core 31, Vue 13, Laravel 22), builds passed. Закрыты D01–D06 и D08: kernel close requests сохраняют request context и не завершаются преждевременно, stale guard completions invalidated by lifecycle generation, focus retries cancelled on deactivate, README явно отделяет headless focus orchestration от DOM modal trap/inert/scroll-lock обязанностей host, defaultOpen focus activation выполняется только после client mount, effectScope получает cleanup, throwing lifecycle/subscriber/focus callbacks диагностируются без разрыва transition/promise, Laravel permanent root removal освобождает persisted registries, а focus RAF invalidates stale activation/deactivation. D07/D09–D10 остаются открыты.
 2026-09-19: D09 продвинут: Node24 ESM import smoke, builds и pack dry-run dialog-core/vue/laravel прошли; D07 nested owner cascade покрыт существующими core tests. Dynamic-root/browser lifecycle и perf harness остаются открытыми.
 2026-09-19: D09 продвинут: добавлен scripts/bench-dialog-core.mjs и package bench command; smoke на 1/10/100 controllers и burst 1000 pending close requests прошёл на Node24, p95 для 100 controllers около 3.5ms. Dynamic-root/browser lifecycle остаются открытыми.
+2026-09-19: D09 consumer gate продвинут: @affino/dialog-core tarball установлен в изолированный Node24 consumer вместе с registry @affino/overlay-kernel@0.2.0 и @affino/surface-core@1.1.0; public factory импортируется без workspace aliases. Vite SSR/Vue peer и browser lifecycle gates остаются открытыми.
 2026-09-19: D07 продвинут: overlay-kernel теперь отвергает self-owner и циклические ownerId при register/update, traversal дополнительно защищён visited guard; добавлены owner graph regression tests, overlay 5 tests и dialog core 34 tests прошли.
