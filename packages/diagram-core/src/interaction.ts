@@ -26,6 +26,8 @@ export class DiagramInteractionController {
   private framePending = false
   private pendingMoveCount = 0
   private commitCount = 0
+  private gestureGeneration = 0
+  private gestureHistoryId = 0
   private readonly scheduleFrame: ScheduleFrame
   private readonly marqueeMode: DiagramMarqueeMode
 
@@ -40,6 +42,7 @@ export class DiagramInteractionController {
   }
 
   pointerDown(event: DiagramPointerEvent): void {
+    this.gestureGeneration += 1
     this.activePointer = event
     this.startPoint = event.point
     this.latestPoint = event.point
@@ -111,7 +114,11 @@ export class DiagramInteractionController {
     this.pendingMoveCount += 1
     if (!this.framePending) {
       this.framePending = true
-      this.scheduleFrame(() => this.flushPointerMove())
+      const generation = this.gestureGeneration
+      this.scheduleFrame(() => {
+        if (generation !== this.gestureGeneration) return
+        this.flushPointerMove()
+      })
     }
   }
 
@@ -123,16 +130,16 @@ export class DiagramInteractionController {
     this.flushPointerMove()
     if (this.tool === "drag-selection" && this.previewDelta) {
       const selection = this.engine.getScene().selection
-      this.engine.dispatch({ type: "moveEntities", ids: selection.ids, delta: this.previewDelta, historyKey: `drag:${selection.primaryId ?? "selection"}` })
+      this.engine.dispatch({ type: "moveEntities", ids: selection.ids, delta: this.previewDelta, historyKey: `drag:${selection.primaryId ?? "selection"}:${++this.gestureHistoryId}` })
       this.commitCount += 1
     }
     if (this.tool === "pan" && this.previewDelta) {
       const viewport = this.engine.getScene().viewport
-      this.engine.dispatch({ type: "setViewport", viewport: { x: viewport.x - this.previewDelta.x, y: viewport.y - this.previewDelta.y }, historyKey: "pan" })
+      this.engine.dispatch({ type: "setViewport", viewport: { x: viewport.x - this.previewDelta.x, y: viewport.y - this.previewDelta.y }, historyKey: `pan:${++this.gestureHistoryId}` })
       this.commitCount += 1
     }
     if (this.tool === "resize-selection" && this.resizePreviewEntries.length) {
-      this.engine.dispatch({ type: "resizeEntities", entries: this.resizePreviewEntries, historyKey: `resize:${this.resizePreview?.id ?? "selection"}` })
+      this.engine.dispatch({ type: "resizeEntities", entries: this.resizePreviewEntries, historyKey: `resize:${this.resizePreview?.id ?? "selection"}:${++this.gestureHistoryId}` })
       this.commitCount += 1
     }
     if (this.tool === "marquee" && this.marquee) {
@@ -148,6 +155,7 @@ export class DiagramInteractionController {
 
   cancel(): void {
     this.clearGesture()
+    this.tool = "select"
   }
 
   /** Returns the renderer-ready geometry for the active move preview. */
@@ -286,6 +294,7 @@ export class DiagramInteractionController {
   }
 
   private clearGesture(): void {
+    this.gestureGeneration += 1
     this.activePointer = null
     this.startPoint = null
     this.latestPoint = null

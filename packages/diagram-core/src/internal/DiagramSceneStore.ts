@@ -111,7 +111,7 @@ function normalizeSelection(selection: Partial<DiagramSelection> | undefined): D
 }
 
 function toMap<Entity extends { id: DiagramId }>(entities: ReadonlyArray<Entity>): Map<DiagramId, Entity> {
-  return new Map(entities.map((entity) => [entity.id, entity]))
+  return new Map(entities.map((entity) => [entity.id, cloneValue(entity)]))
 }
 
 function createReadonlyMap<Entity>(source: ReadonlyMap<DiagramId, Entity>): ReadonlyMap<DiagramId, Entity> {

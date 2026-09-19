@@ -79,6 +79,33 @@ describe("DiagramEngine", () => {
     expect(roundtrip.edges.map((edge) => edge.id)).toEqual(["e1"])
   })
 
+  it("owns input entities and invalidates an empty replacement", () => {
+    const input = { id: "n1", kind: "node" as const, x: 0, y: 0, width: 20, height: 20 }
+    const engine = createDiagramEngine({ nodes: [input] })
+    input.x = 500
+    engine.dispatch({ type: "setViewport", viewport: { x: 10 } })
+    expect(engine.getScene().entities.nodesById.get("n1")?.x).toBe(0)
+
+    const revision = engine.getScene().revision
+    const result = engine.transact(() => ({ nodes: [] }))
+    expect(result.changed).toBe(true)
+    expect(engine.getScene().revision).toBe(revision + 1)
+    expect(engine.queryEntities()).toEqual([])
+  })
+
+  it("publishes committed history state and rejects locked text edits", () => {
+    const engine = createDiagramEngine({
+      texts: [{ id: "locked-text", kind: "text", x: 0, y: 0, text: "before", metadata: { locked: true } }],
+    })
+    const states: boolean[] = []
+    engine.subscribe(() => states.push(engine.canUndo()))
+    engine.dispatch({ type: "editText", id: "locked-text", text: "after" })
+    expect(engine.getScene().entities.textsById.get("locked-text")?.text).toBe("before")
+
+    engine.dispatch({ type: "setViewport", viewport: { x: 1 } })
+    expect(states.at(-1)).toBe(true)
+  })
+
   it("tracks changed ids and invalidates only dependent geometry", () => {
     const engine = createDiagramEngine(scene)
     engine.queryVisible({ x: -10, y: -10, width: 500, height: 200 })
@@ -120,8 +147,9 @@ describe("DiagramEngine", () => {
     expect(engine.queryEntities({ metadata: { tags: "primary" } })).toEqual(["n1"])
     expect(engine.queryEntities({ bounds: { x: -1, y: -1, width: 120, height: 90 }, boundsMode: "contains" })).toEqual(["n1"])
     expect(engine.queryEntities({ kinds: ["port"] })).toEqual(["p1"])
+    expect(engine.queryEntities({ limit: 0 })).toEqual([])
     expect(engine.queryEntities({ includePorts: true, limit: 2 })).toHaveLength(2)
-    expect(engine.getDiagnostics().entityQueryCount).toBe(7)
+    expect(engine.getDiagnostics().entityQueryCount).toBe(8)
   })
 
   it("hit-tests topmost text and precise edge paths", () => {

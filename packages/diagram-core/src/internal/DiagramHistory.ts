@@ -20,6 +20,11 @@ export class DiagramHistory {
     return this.redoStack.length
   }
 
+  clear(): void {
+    this.undoStack = []
+    this.redoStack = []
+  }
+
   popUndo(): HistoryEntry | null {
     return this.undoStack.pop() ?? null
   }

@@ -106,6 +106,7 @@ export class DiagramEngine {
   transact(mutator: (draft: DiagramScene) => DiagramSceneInput): DiagramCommandResult {
     const next = mutator(this.store.getSnapshot())
     const patch = createReplaceScenePatch(next, serializeScene(this.store.getSnapshot()))
+    this.history.clear()
     const result = this.commitPatch(patch, false, null)
     return { changed: result.changedIds.size > 0, revision: this.state.revision }
   }
@@ -128,6 +129,9 @@ export class DiagramEngine {
 
   queryEntities(options: DiagramQueryOptions = {}): DiagramId[] {
     this.entityQueryCount += 1
+    if (options.limit !== undefined && options.limit <= 0) {
+      return []
+    }
     this.ensureIndexes()
     const kinds = options.kinds ? new Set<DiagramEntityKind>(options.kinds) : null
     const includePorts = options.includePorts === true || kinds?.has("port") === true
@@ -375,8 +379,8 @@ export class DiagramEngine {
     if (!entry) {
       return { changed: false, revision: this.state.revision }
     }
-    const result = this.commitPatch(entry.inverse, false, null)
     this.history.pushRedo(entry)
+    const result = this.commitPatch(entry.inverse, false, null)
     return { changed: result.changedIds.size > 0, revision: this.state.revision }
   }
 
@@ -385,8 +389,8 @@ export class DiagramEngine {
     if (!entry) {
       return { changed: false, revision: this.state.revision }
     }
-    const result = this.commitPatch(entry.patch, false, null)
     this.history.pushUndo(entry)
+    const result = this.commitPatch(entry.patch, false, null)
     return { changed: result.changedIds.size > 0, revision: this.state.revision }
   }
 
@@ -402,10 +406,10 @@ export class DiagramEngine {
     this.state.revision += 1
     this.geometryService.invalidate(invalidatedIds)
     this.spatialIndex.markDirty()
-    this.store.publish(changedIds, invalidatedIds)
     if (recordHistory) {
       this.history.record(patch, historyKey, composePatches)
     }
+    this.store.publish(changedIds, invalidatedIds)
     return { changedIds, invalidatedIds }
   }
 
@@ -495,7 +499,7 @@ export class DiagramEngine {
       case "setSelection":
         return createSelectionPatch(this.state.selection, command.selection, command.mode ?? "replace")
       case "editText":
-        return createEditTextPatch(this.state, command.id, command.text)
+        return this.canEditText(command.id) ? createEditTextPatch(this.state, command.id, command.text) : null
       case "setViewport":
         return createViewportPatch(this.state.viewport, command.viewport)
     }
@@ -1186,6 +1190,7 @@ function createViewportPatch(previous: DiagramViewport, viewport: Partial<Diagra
 function createReplaceScenePatch(next: DiagramSceneInput, previous: SerializedDiagramScene): Patch {
   return {
     apply: (state) => {
+      const previousIds = allEntityIds(state)
       const replacement = createInternalState(next)
       state.entities = replacement.entities
       state.order = replacement.order
@@ -1193,6 +1198,7 @@ function createReplaceScenePatch(next: DiagramSceneInput, previous: SerializedDi
       state.viewport = replacement.viewport
       state.versions = replacement.versions
       return new Set([
+        ...previousIds,
         ...replacement.order.nodeIds,
         ...replacement.order.edgeIds,
         ...replacement.order.textIds,
@@ -1202,6 +1208,7 @@ function createReplaceScenePatch(next: DiagramSceneInput, previous: SerializedDi
     },
     inverse: {
       apply: (state) => {
+        const previousIds = allEntityIds(state)
         const replacement = createInternalState(previous)
         state.entities = replacement.entities
         state.order = replacement.order
@@ -1209,6 +1216,7 @@ function createReplaceScenePatch(next: DiagramSceneInput, previous: SerializedDi
         state.viewport = replacement.viewport
         state.versions = replacement.versions
         return new Set([
+          ...previousIds,
           ...replacement.order.nodeIds,
           ...replacement.order.edgeIds,
           ...replacement.order.textIds,
@@ -1568,4 +1576,3 @@ function sameViewport(a: DiagramViewport, b: DiagramViewport): boolean {
 function isDefined<Value>(value: Value | undefined): value is Value {
   return value !== undefined
 }
-

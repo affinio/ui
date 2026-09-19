@@ -1,6 +1,6 @@
 # Diagram — reliability / scalability implementation plan для Luna
 
-Статус: **planned; 0/12 done**. Дата: 2026-09-19.
+Статус: **in_progress; 3/12 slices closed**. Дата: 2026-09-19.
 Область: @affino/diagram-core + @affino/diagram-vue, существующие benches/examples.
 Перед работой прочитать [общий аудит и протокол](COMPONENT_ENGINEERING_AUDIT_2026-09-19.md), docs/reference/diagram-packages.md и локальные инструкции.
 Сохранить единый публичный facade createDiagramEngine; внутренние SceneStore/History/Geometry/SpatialIndex уже существуют.
@@ -45,10 +45,10 @@
 
 | Слайс | Задача | Зависит | Статус |
 | --- | --- | --- | --- |
-| G01 | Atomic replacement / input ownership | — | pending |
-| G02 | Consistent transaction publication / history state | G01 | pending |
-| G03 | Gesture-scoped bounded history | G02; API decision | pending |
-| G04 | Command capability и validation | G01,G02 | pending |
+| G01 | Atomic replacement / input ownership | — | done |
+| G02 | Consistent transaction publication / history state | G01 | done |
+| G03 | Gesture-scoped bounded history | G02; API decision | in_progress |
+| G04 | Command capability и validation | G01,G02 | done |
 | G05 | Immutable snapshots с structural sharing | G01,G02 | pending |
 | G06 | Domain invalidation / adjacency / incremental indexes | G04,G05 | pending |
 | G07 | Cached order / bounded spatial queries / snapping | G04,G06 | pending |
@@ -172,5 +172,4 @@
 
 ## Журнал
 
-2026-09-19: аудит, исходники пакетов не исправлялись. 40 baseline tests (core 25, Vue 15), builds passed, direct Node ESM import обоих dist успешен на Node 22. Ошибки replacement/history/lock/cancel/input ownership подтверждены отдельными probes, поэтому green baseline не означает production readiness.
-
+2026-09-19: аудит, baseline diagram core 25 tests и Vue 15 tests, builds passed, direct Node ESM import обоих dist успешен на Node 22. Закрыты G01/G02/G04: replacement publishes old+new IDs включая empty scene, input entities owned at boundary, history state committed before publication, locked text и limit=0 guards. G03/G09 частично harden: unique gesture history keys, cancel resets tool, stale frame callbacks ignored. Остальные acceptance gates остаются открыты: bounded history budget, incremental indexes, Vue projection, rendering order, browser/perf/CI.
