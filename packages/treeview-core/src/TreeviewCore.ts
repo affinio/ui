@@ -527,17 +527,41 @@ export class TreeviewCore<Value = string> {
     let topologyChanged = false
     const addedNodePatches: Array<AddedNodePatch<Value>> = []
     const parentPatches: Array<ParentPatch<Value>> = []
+    const normalizedInputs = nodes.map((node) => ({ node, parent: node.parent ?? null }))
+    const hasTopologyCandidate = normalizedInputs.some(({ node, parent }) => {
+      const existing = this.nodes.get(node.value)
+      return !existing || existing.parent !== parent
+    })
+
+    if (!hasTopologyCandidate) {
+      for (const { node } of normalizedInputs) {
+        const existing = this.nodes.get(node.value)
+        if (!existing) continue
+        const disabled = node.disabled ?? false
+        const text = this.normalizeNodeText(node)
+        if (existing.disabled !== disabled) {
+          existing.disabled = disabled
+          changed = true
+        }
+        if (existing.text !== text) {
+          existing.text = text
+          changed = true
+        }
+      }
+      return { changed, topologyChanged: false }
+    }
+
     const proposedParents = new Map<Value, Value | null>()
     this.nodes.forEach((node, value) => proposedParents.set(value, node.parent))
-    nodes.forEach((node) => proposedParents.set(node.value, node.parent ?? null))
+    normalizedInputs.forEach(({ node, parent }) => proposedParents.set(node.value, parent))
     const normalizedParents = new Map<Value, Value | null>()
-    nodes.forEach((node) => {
-      const parent = proposedParents.get(node.value) ?? null
-      const normalizedParent = this.wouldCreateParentCycle(node.value, parent, proposedParents) ? null : parent
+    normalizedInputs.forEach(({ node, parent }) => {
+      const proposedParent = proposedParents.get(node.value) ?? parent
+      const normalizedParent = this.wouldCreateParentCycle(node.value, proposedParent, proposedParents) ? null : proposedParent
       proposedParents.set(node.value, normalizedParent)
       normalizedParents.set(node.value, normalizedParent)
     })
-    nodes.forEach((node) => {
+    normalizedInputs.forEach(({ node }) => {
       const parent = normalizedParents.get(node.value) ?? null
       const disabled = node.disabled ?? false
       const text = this.normalizeNodeText(node)
