@@ -117,7 +117,10 @@ export class TreeviewCore<Value = string> {
     this.rebuildSearchProjection()
     this.invalidateVisibleProjection()
     const next = this.normalizeState(this.state)
-    this.patch(next, options.emit ?? true)
+    const stateChanged = this.patch(next, options.emit ?? true)
+    if (!stateChanged && options.emit !== false) {
+      this.emitSnapshot()
+    }
   }
 
   select(value: Value): void {
@@ -301,9 +304,9 @@ export class TreeviewCore<Value = string> {
       overlayChanged = !this.searchSuppressedExpandedValues.has(value)
       this.searchSuppressedExpandedValues.add(value)
     }
+    const nextActive = this.isDescendantOf(this.state.active, value) ? value : this.state.active
     if (this.isExpanded(value)) {
       const expanded = this.state.expanded.filter((entry) => entry !== value)
-      const nextActive = this.isDescendantOf(this.state.active, value) ? value : this.state.active
       this.patch({
         ...this.state,
         active: nextActive,
@@ -311,11 +314,8 @@ export class TreeviewCore<Value = string> {
       })
     } else if (overlayChanged) {
       this.invalidateVisibleProjection()
-      const previousSnapshot = this.snapshot
-      this.snapshot = this.createSnapshot(this.state)
-      if (this.snapshot === previousSnapshot) {
-        this.subscribers.forEach((subscriber) => subscriber(this.snapshot))
-      }
+      const changed = this.patch({ ...this.state, active: nextActive })
+      if (!changed) this.emitSnapshot()
     }
     return actionSuccess(!statesEqual(previous, this.state) || overlayChanged)
   }
@@ -332,7 +332,7 @@ export class TreeviewCore<Value = string> {
     if (node.children.length === 0) {
       return actionFailure("leaf-node")
     }
-    if (this.isExpanded(value)) {
+    if (this.isVisuallyExpanded(value)) {
       return this.requestCollapse(value)
     }
     return this.requestExpand(value)
@@ -479,8 +479,29 @@ export class TreeviewCore<Value = string> {
   }
 
   private replaceNodeMap(nodes: ReadonlyArray<TreeviewNode<Value>>): NodeMapPatchResult {
-    this.nodes = this.buildNodeMap(nodes)
+    const next = this.buildNodeMap(nodes)
+    if (this.nodeMapsEqual(this.nodes, next)) {
+      return { changed: false }
+    }
+    this.nodes = next
     return { changed: true }
+  }
+
+  private nodeMapsEqual(
+    current: ReadonlyMap<Value, InternalNode<Value>>,
+    next: ReadonlyMap<Value, InternalNode<Value>>,
+  ): boolean {
+    if (current.size !== next.size) return false
+    for (const [value, node] of current) {
+      const candidate = next.get(value)
+      if (!candidate || candidate.parent !== node.parent || candidate.disabled !== node.disabled || candidate.text !== node.text) {
+        return false
+      }
+      if (candidate.children.length !== node.children.length || candidate.children.some((child, index) => child !== node.children[index])) {
+        return false
+      }
+    }
+    return true
   }
 
   private buildNodeMap(nodes: ReadonlyArray<TreeviewNode<Value>>): Map<Value, InternalNode<Value>> {
@@ -503,8 +524,18 @@ export class TreeviewCore<Value = string> {
     let topologyChanged = false
     const addedNodePatches: Array<AddedNodePatch<Value>> = []
     const parentPatches: Array<ParentPatch<Value>> = []
+    const proposedParents = new Map<Value, Value | null>()
+    this.nodes.forEach((node, value) => proposedParents.set(value, node.parent))
+    nodes.forEach((node) => proposedParents.set(node.value, node.parent ?? null))
+    const normalizedParents = new Map<Value, Value | null>()
     nodes.forEach((node) => {
-      const parent = node.parent ?? null
+      const parent = proposedParents.get(node.value) ?? null
+      const normalizedParent = this.wouldCreateParentCycle(node.value, parent, proposedParents) ? null : parent
+      proposedParents.set(node.value, normalizedParent)
+      normalizedParents.set(node.value, normalizedParent)
+    })
+    nodes.forEach((node) => {
+      const parent = normalizedParents.get(node.value) ?? null
       const disabled = node.disabled ?? false
       const text = this.normalizeNodeText(node)
       const existing = this.nodes.get(node.value)
@@ -661,11 +692,30 @@ export class TreeviewCore<Value = string> {
 
   private isAncestorOf(ancestor: Value, value: Value): boolean {
     let current: Value | null = value
+    const visited = new Set<Value>()
     while (current !== null) {
+      if (visited.has(current)) {
+        return false
+      }
+      visited.add(current)
       if (current === ancestor) {
         return true
       }
       current = this.nodes.get(current)?.parent ?? null
+    }
+    return false
+  }
+
+  private wouldCreateParentCycle(value: Value, parent: Value | null, parents: ReadonlyMap<Value, Value | null>): boolean {
+    let current = parent
+    const visited = new Set<Value>()
+    while (current !== null) {
+      if (current === value) {
+        return true
+      }
+      if (visited.has(current)) return false
+      visited.add(current)
+      current = parents.get(current) ?? null
     }
     return false
   }
@@ -795,7 +845,7 @@ export class TreeviewCore<Value = string> {
     return cycleValues
   }
 
-  private patch(next: TreeviewState<Value>, emit = true): void {
+  private patch(next: TreeviewState<Value>, emit = true): boolean {
     const expandedChanged = !expandedValuesEqual(this.state.expanded, next.expanded)
     const normalizedNext: TreeviewState<Value> = {
       active: next.active,
@@ -803,7 +853,7 @@ export class TreeviewCore<Value = string> {
       expanded: expandedChanged ? this.normalizeExpandedValues(next.expanded) : this.state.expanded,
     }
     if (statesEqual(this.state, normalizedNext)) {
-      return
+      return false
     }
     if (!expandedValuesEqual(this.state.expanded, normalizedNext.expanded)) {
       this.expandedSet = new Set(normalizedNext.expanded)
@@ -812,8 +862,13 @@ export class TreeviewCore<Value = string> {
     this.state = normalizedNext
     this.snapshot = this.createSnapshot(normalizedNext)
     if (emit) {
-      this.subscribers.forEach((subscriber) => subscriber(this.snapshot))
+      this.emitSnapshot()
     }
+    return true
+  }
+
+  private emitSnapshot(): void {
+    this.subscribers.forEach((subscriber) => subscriber(this.snapshot))
   }
 
   private createSnapshot(state: TreeviewState<Value>): TreeviewSnapshot<Value> {
@@ -968,15 +1023,17 @@ export class TreeviewCore<Value = string> {
         return
       }
       this.searchMatchedValues.add(value)
+    })
+    for (let index = this.preorderValues.length - 1; index >= 0; index -= 1) {
+      const value = this.preorderValues[index]
+      if (value === undefined) continue
+      const node = this.nodes.get(value)
+      if (!node) continue
+      const visible = this.searchMatchedValues.has(value) || node.children.some((child) => this.searchVisibleValues.has(child))
+      if (!visible) continue
       this.searchVisibleValues.add(value)
       this.searchProjectionExpandedValues.add(value)
-      let current = node.parent
-      while (current !== null) {
-        this.searchVisibleValues.add(current)
-        this.searchProjectionExpandedValues.add(current)
-        current = this.nodes.get(current)?.parent ?? null
-      }
-    })
+    }
     this.searchMatchCount = this.searchMatchedValues.size
   }
 

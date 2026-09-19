@@ -8,7 +8,7 @@ import type {
 import {
   useTreeviewController,
   type TreeviewController,
-} from "./useTreeviewController"
+} from "./useTreeviewController.js"
 
 export type VirtualTreeviewOptions<Value = string> = TreeviewOptions<Value> & {
   rowHeight?: number
@@ -68,7 +68,8 @@ export function useVirtualTreeviewController<Value = string>(
     const firstVisibleIndex = Math.floor(safeScrollTop / rowHeight.value)
     const visibleRowCount = viewportHeight.value === 0 ? 0 : Math.ceil(viewportHeight.value / rowHeight.value)
     const start = Math.max(0, firstVisibleIndex - overscan)
-    const end = Math.min(count, firstVisibleIndex + visibleRowCount + overscan)
+    const lastVisibleIndex = Math.ceil((safeScrollTop + viewportHeight.value) / rowHeight.value)
+    const end = Math.min(count, Math.max(firstVisibleIndex + visibleRowCount, lastVisibleIndex) + overscan)
     const metas: TreeviewNodeMeta<Value>[] = []
     const rows: VirtualTreeviewRow<Value>[] = []
     controller.getVisibleWindow(start, end).forEach((value, offset) => {
@@ -151,6 +152,7 @@ export function useVirtualTreeviewController<Value = string>(
       cancelFrame(frame)
       frame = null
     }
+    coreSubscription.unsubscribe()
     controller.dispose()
   }
 
@@ -159,6 +161,7 @@ export function useVirtualTreeviewController<Value = string>(
   }
 
   refreshWindow()
+  const coreSubscription = controller.core.subscribe(() => scheduleRefresh())
 
   return {
     ...controller,

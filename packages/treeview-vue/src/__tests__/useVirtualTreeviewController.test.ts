@@ -107,6 +107,35 @@ describe("useVirtualTreeviewController", () => {
     vi.useRealTimers()
   })
 
+  it("covers fractional viewport edges and direct core mutations", async () => {
+    vi.useFakeTimers()
+    const scope = effectScope()
+    let controller!: VirtualTreeviewController<string>
+    scope.run(() => {
+      controller = useVirtualTreeviewController<string>({
+        nodes: Array.from({ length: 20 }, (_, index) => ({ value: String(index), parent: null })),
+        rowHeight: 32,
+        viewportHeight: 320,
+        overscan: 0,
+      })
+    })
+
+    controller.setScrollTop(1)
+    vi.runOnlyPendingTimers()
+    await nextTick()
+    const last = controller.visibleRows.value.at(-1)!
+    expect(last.top + last.height).toBeGreaterThanOrEqual(321)
+
+    controller.core.registerNodes([{ value: "20", parent: null }], { mode: "patch" })
+    vi.runOnlyPendingTimers()
+    await nextTick()
+    expect(controller.getVisibleCount()).toBe(21)
+    expect(controller.totalHeight.value).toBe(672)
+
+    scope.stop()
+    vi.useRealTimers()
+  })
+
   it("keeps virtual row refs stable when the window signature does not change", async () => {
     vi.useFakeTimers()
     const scope = effectScope()

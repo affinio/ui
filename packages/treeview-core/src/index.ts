@@ -1,2 +1,2 @@
 export type * from "./types"
-export { TreeviewCore } from "./TreeviewCore"
+export { TreeviewCore } from "./TreeviewCore.js"

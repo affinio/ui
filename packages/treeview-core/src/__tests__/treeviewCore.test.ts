@@ -222,7 +222,7 @@ describe("TreeviewCore", () => {
     expect(core.getVisibleValues()).toEqual(["root", "alpha", "beta", "gamma"])
     expect(core.getSearchMatchCount()).toBe(0)
     expect(core.getSnapshot().expanded).toEqual(["root", "beta"])
-    expect(snapshots).toEqual(["alpha", "root", "root", "root", "root", "root", "root", "root"])
+    expect(snapshots).toEqual(["alpha", "root", "root", "root", "root", "root", "root", "root", "root"])
 
     subscription.unsubscribe()
   })
@@ -339,6 +339,64 @@ describe("TreeviewCore", () => {
     core.registerNodes([{ value: "alpha", parent: "root", disabled: true }], { mode: "patch" })
     expect(core.getSnapshot().active).toBe("root")
     expect(core.getSnapshot().selected).toBe(null)
+  })
+
+  it("publishes structural patches when selection state is unchanged", () => {
+    const core = new TreeviewCore<string>({
+      nodes: [{ value: "root", parent: null }],
+      defaultActive: "root",
+    })
+    const listener = vi.fn()
+    core.subscribe(listener)
+    listener.mockClear()
+
+    core.registerNodes([{ value: "child", parent: null }], { mode: "patch" })
+
+    expect(listener).toHaveBeenCalledTimes(1)
+    expect(core.getVisibleValues()).toEqual(["root", "child"])
+  })
+
+  it("normalizes cyclic patch parents without hanging or partially mutating", () => {
+    const core = new TreeviewCore<string>({
+      nodes: [
+        { value: "a", parent: null },
+        { value: "b", parent: null },
+        { value: "c", parent: null },
+      ],
+    })
+
+    core.registerNodes([
+      { value: "a", parent: "b" },
+      { value: "b", parent: "c" },
+      { value: "c", parent: "b" },
+    ], { mode: "patch" })
+
+    expect(core.getParent("a")).toBe("b")
+    expect(core.getParent("b")).toBe(null)
+    expect(core.getParent("c")).toBe("b")
+    expect(core.getChildren("b")).toEqual(["a", "c"])
+    core.expand("b")
+    expect(core.getVisibleValues()).toEqual(["b", "a", "c"])
+  })
+
+  it("collapses search-only expansion and keeps active focus visible", () => {
+    const core = new TreeviewCore<string>({
+      nodes: [
+        { value: "root", parent: null, text: "Root" },
+        { value: "match", parent: "root", text: "Needle" },
+      ],
+    })
+    core.setSearchQuery("needle")
+    core.focusNext()
+    const listener = vi.fn()
+    core.subscribe(listener)
+    listener.mockClear()
+
+    core.collapse("root")
+
+    expect(core.getVisibleValues()).toEqual(["root"])
+    expect(core.getSnapshot().active).toBe("root")
+    expect(listener).toHaveBeenCalledTimes(1)
   })
 
   it("adds a single valid node without full source finalization", () => {
