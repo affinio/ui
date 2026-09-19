@@ -15,8 +15,8 @@ RUN apt-get update && apt-get install -y \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Node.js 22 + pnpm (via corepack)
-RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+# Node.js 24 + pnpm (via corepack)
+RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/* \
     && corepack enable

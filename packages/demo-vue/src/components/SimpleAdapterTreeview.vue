@@ -105,7 +105,7 @@ const visibleRows = computed(() => treeview.visibleRows.value)
 const totalHeight = computed(() => treeview.totalHeight.value)
 const totalNodeCount = nodes.length
 const visibleNodeCount = computed(() => {
-  snapshot.value
+  void snapshot.value
   return treeview.getVisibleCount()
 })
 const visibleRangeLabel = computed(() => {
@@ -119,7 +119,7 @@ const visibleRangeLabel = computed(() => {
 })
 
 const searchMatchCount = computed(() => {
-  snapshot.value
+  void snapshot.value
   return treeview.getSearchMatchCount()
 })
 const showEmptySearch = computed(() => searchQuery.value.trim().length > 0 && visibleNodeCount.value === 0)
