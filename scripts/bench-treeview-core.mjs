@@ -73,6 +73,17 @@ const results = {
       }
     } }
   }),
+  registerPatchField: measureInstrumented(() => {
+    const core = createInstrumentedCore({ nodes: balancedNodes, defaultExpanded: ["node-0"], defaultActive: "node-0" })
+    const target = balancedNodes[Math.min(100, balancedNodes.length - 1)]
+    let disabled = Boolean(target.disabled)
+    return { core, run: () => {
+      for (let index = 0; index < TOPOLOGY_PATCH_ITERATIONS; index += 1) {
+        disabled = !disabled
+        core.registerNodes([{ value: target.value, disabled }], { mode: "patch" })
+      }
+    } }
+  }),
   registerPatchSingleAdd: measureInstrumented(() => {
     const core = createInstrumentedCore({ nodes: balancedNodes, defaultExpanded: ["node-0"], defaultActive: "node-0" })
     return { core, run: () => {
@@ -418,6 +429,8 @@ function assertBudgets(report) {
   checkCounter(failures, "registerPatchNoop.sourceFinalizeCount", report.results.registerPatchNoop.sourceFinalizeCount, 0)
   checkCounter(failures, "registerPatchNoop.visibleRecomputeCount", report.results.registerPatchNoop.visibleRecomputeCount, 0)
   checkCounter(failures, "registerPatchNoop.emittedSnapshotCount", report.results.registerPatchNoop.emittedSnapshotCount, 0)
+  checkCounter(failures, "registerPatchField.sourceFinalizeCount", report.results.registerPatchField.sourceFinalizeCount, 0)
+  checkCounter(failures, "registerPatchField.traversalRebuildCount", report.results.registerPatchField.traversalRebuildCount, 0)
   if (failures.length) {
     throw new Error(`TreeView core benchmark budgets failed:\n${failures.join("\n")}`)
   }
