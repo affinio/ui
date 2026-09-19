@@ -245,6 +245,18 @@ describe("DiagramEngine", () => {
     expect(engine.getScene().entities.nodesById.get("n1")?.x).toBe(15)
   })
 
+  it("coalesces long gesture histories without nested patch chains", () => {
+    const engine = createDiagramEngine(scene)
+    for (let index = 0; index < 1000; index += 1) {
+      engine.dispatch({ type: "moveNode", id: "n1", delta: { x: 1, y: 0 }, historyKey: "drag:n1" })
+    }
+
+    expect(engine.getScene().entities.nodesById.get("n1")?.x).toBe(1000)
+    expect(engine.getDiagnostics().undoDepth).toBe(1)
+    engine.dispatch({ type: "undo" })
+    expect(engine.getScene().entities.nodesById.get("n1")?.x).toBe(0)
+  })
+
   it("keeps drag previews transient and commits one history entry", () => {
     const callbacks: Array<() => void> = []
     const engine = createDiagramEngine(scene)

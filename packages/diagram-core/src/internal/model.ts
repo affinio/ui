@@ -27,6 +27,7 @@ export type InternalState = {
 export type Patch = {
   apply: (state: InternalState) => Set<DiagramId>
   inverse: Patch
+  steps?: ReadonlyArray<Patch>
 }
 
 export type HistoryEntry = {

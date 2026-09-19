@@ -1262,15 +1262,22 @@ function endpointDeleted(endpoint: DiagramEdgeEndpoint, deleted: ReadonlySet<Dia
 }
 
 function composePatches(first: Patch, second: Patch): Patch {
+  const steps = [
+    ...(first.steps ?? [first]),
+    ...(second.steps ?? [second]),
+  ]
   return {
     apply: (state) => {
-      const changed = first.apply(state)
-      for (const id of second.apply(state)) {
-        changed.add(id)
+      const changed = new Set<DiagramId>()
+      for (const step of steps) {
+        for (const id of step.apply(state)) {
+          changed.add(id)
+        }
       }
       return changed
     },
     inverse: undefined as unknown as Patch,
+    steps,
   }
 }
 
