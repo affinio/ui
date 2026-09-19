@@ -55,7 +55,7 @@ try {
   const canvas = page.locator("svg.diagram-svg")
   await canvas.waitFor()
   const initialRevision = Number(await page.locator(".diagram-stats dd").nth(2).innerText())
-  await page.getByRole("button", { name: "Bay 1" }).click()
+  await page.getByRole("button", { name: "Bay 1", exact: true }).click()
   await page.getByRole("button", { name: "Rotate 15" }).click()
   const selected = page.locator('[data-diagram-id="node-0"][data-selected="true"]')
   await selected.waitFor()
