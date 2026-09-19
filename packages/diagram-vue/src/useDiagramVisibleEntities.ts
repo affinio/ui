@@ -41,7 +41,6 @@ export function useDiagramVisibleEntities(controller: DiagramEngineController, o
     disposed = true
     subscription.unsubscribe()
   }
-  refreshVisible()
   if (getCurrentScope()) {
     onScopeDispose(dispose)
   }
@@ -59,7 +58,7 @@ function buildProjection(controller: DiagramEngineController, bounds: DiagramRec
   const selected = new Set(scene.selection.ids)
   const entities: DiagramRenderEntity[] = []
   for (const id of ids) {
-    const geometry = createEntityGeometry(id, scene.entities)
+    const geometry = controller.engine.getGeometrySnapshot(id)
     if (!geometry) {
       continue
     }
