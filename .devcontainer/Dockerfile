@@ -19,7 +19,6 @@ RUN apt-get update && apt-get install -y \
 RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/* \
-    && node --version | grep -E '^v24\\.' \
     && corepack enable
 
 # Open AI Codex 
