@@ -75,6 +75,9 @@ jobs:
       - name: Run visual matrix suite
         if: matrix.suite == 'visual'
         run: pnpm run test:matrix:visual
+      - name: Build component demo
+        if: matrix.suite == 'visual'
+        run: pnpm --filter demo-vue build
       - name: Run component browser smoke
         if: matrix.suite == 'visual'
         env:
