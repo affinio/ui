@@ -1,6 +1,6 @@
 # Treeview — reliability / performance implementation plan для Luna
 
-Статус: **in_progress; 9/10 slices closed**. Дата аудита: 2026-09-19.
+Статус: **in_progress; 8/10 slices closed**. Дата аудита: 2026-09-19.
 Область: @affino/treeview-core, @affino/treeview-vue, JS bridge @affino/treeview-laravel.
 Обязательно прочитать [общий аудит и протокол](COMPONENT_ENGINEERING_AUDIT_2026-09-19.md) целиком перед исполнением.
 Цель: предсказуемая модель дерева и virtual adapter с проверенной стоимостью операций, а не обещание отсутствия bottlenecks при любой нагрузке.
@@ -44,7 +44,7 @@
 | T06 | Линейная search projection | T03 | done |
 | T07 | Стоимость patch / batching / registration API | T01,T02,T06 | done |
 | T08 | Laravel dynamic DOM и event ownership | T02,T03 | done |
-| T09 | Packed consumers / docs / accessibility contract | T05,T07,T08 | done |
+| T09 | Packed consumers / docs / accessibility contract | T05,T07,T08 | in_progress |
 | T10 | Нагрузочные и browser gates | T01–T09 | pending |
 
 ## T01 — Cycle-safe topology (TV-01)
@@ -142,3 +142,4 @@
 2026-09-19: T10 browser attempt уточнён: существующий `scripts/smoke-treeview-demo.mjs` fixture найден, а demo-vue type-check/production build прошёл. Запуск Playwright невозможен на текущем Ubuntu 26.04 arm64 runner: Playwright не поддерживает chromium для этой платформы и системный browser отсутствует; CI ubuntu-latest остаётся обязательным browser evidence.
 2026-09-19: T10 CI gate усилен: visual matrix теперь после Playwright install запускает `smoke:treeview:demo` без screenshots, поэтому treeview browser acceptance будет выполняться на поддерживаемом GitHub runner.
 2026-09-19: Component benchmark CI gate добавлен и локально прошёл на Node24: `bench:assert` 10k за 6589ms при бюджете 9000ms; no-op p95 2.066ms, field p95 5.242ms, counters topology/traversal/sourceFinalize = 0.
+2026-09-19: T09 local Vue consumer gate прошёл: локальные treeview-vue/core tarballs с Vue 3.5 и Vite 7.3 собраны/отрендерены через SSR под Node24 без workspace aliases. Registry consumer check выявил release gap: опубликованный @affino/treeview-core@0.2.2 содержит extensionless import `./TreeviewCore` и падает в Node24 ESM; текущий workspace dist уже содержит `.js`. Нужен новый опубликованный patch artifact перед закрытием T09; publish не выполнялся.
