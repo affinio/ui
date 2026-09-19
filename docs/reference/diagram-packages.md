@@ -20,6 +20,9 @@ engine.dispatch({ type: "moveNode", id: "bay-a", delta: { x: 24, y: 0 } })
 const visibleIds = engine.queryVisible(engine.getScene().viewport)
 const matches = engine.queryEntities({ kinds: ["node", "text"], text: "bay", limit: 20 })
 const hit = engine.hitTest({ x: 30, y: 20 })
+
+// Bound retained undo memory for a long-lived editor session.
+const boundedEngine = createDiagramEngine({}, { history: { maxEntries: 200 } })
 ```
 
 ## Vue Example

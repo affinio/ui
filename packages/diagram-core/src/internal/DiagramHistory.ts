@@ -1,8 +1,21 @@
+import type { DiagramHistoryOptions } from "../types.js"
 import type { HistoryEntry, Patch } from "./model.js"
 
 export class DiagramHistory {
   private undoStack: HistoryEntry[] = []
   private redoStack: HistoryEntry[] = []
+  private readonly maxEntries: number
+
+  constructor(options: DiagramHistoryOptions = {}) {
+    const maxEntries = options.maxEntries ?? Number.POSITIVE_INFINITY
+    if (!Number.isFinite(maxEntries) && maxEntries !== Number.POSITIVE_INFINITY) {
+      throw new RangeError("history.maxEntries must be finite or Infinity")
+    }
+    if (maxEntries !== Number.POSITIVE_INFINITY && (maxEntries < 0 || !Number.isInteger(maxEntries))) {
+      throw new RangeError("history.maxEntries must be a non-negative integer")
+    }
+    this.maxEntries = maxEntries
+  }
 
   canUndo(): boolean {
     return this.undoStack.length > 0
@@ -48,6 +61,9 @@ export class DiagramHistory {
       previous.inverse = compose(patch.inverse, previous.inverse)
     } else {
       this.undoStack.push({ patch, inverse: patch.inverse, key: historyKey })
+    }
+    while (this.undoStack.length > this.maxEntries) {
+      this.undoStack.shift()
     }
     this.redoStack = []
   }

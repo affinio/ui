@@ -319,6 +319,30 @@ describe("DiagramEngine", () => {
     expect(engine.getScene().entities.nodesById.get("n1")?.x).toBe(15)
   })
 
+  it("evicts oldest entries when bounded history is configured", () => {
+    const engine = createDiagramEngine(scene, { history: { maxEntries: 2 } })
+
+    engine.dispatch({ type: "moveNode", id: "n1", delta: { x: 10, y: 0 } })
+    engine.dispatch({ type: "moveNode", id: "n2", delta: { x: 20, y: 0 } })
+    engine.dispatch({ type: "moveNode", id: "n1", delta: { x: 30, y: 0 } })
+
+    expect(engine.getDiagnostics().undoDepth).toBe(2)
+    engine.dispatch({ type: "undo" })
+    engine.dispatch({ type: "undo" })
+    expect(engine.getScene().entities.nodesById.get("n1")?.x).toBe(10)
+    expect(engine.getScene().entities.nodesById.get("n2")?.x).toBe(260)
+    expect(engine.dispatch({ type: "undo" }).changed).toBe(false)
+  })
+
+  it("rejects invalid bounded history options", () => {
+    expect(() => createDiagramEngine(scene, { history: { maxEntries: -1 } })).toThrow(
+      "history.maxEntries must be a non-negative integer",
+    )
+    expect(() => createDiagramEngine(scene, { history: { maxEntries: 1.5 } })).toThrow(
+      "history.maxEntries must be a non-negative integer",
+    )
+  })
+
   it("coalesces long gesture histories without nested patch chains", () => {
     const engine = createDiagramEngine(scene)
     for (let index = 0; index < 1000; index += 1) {

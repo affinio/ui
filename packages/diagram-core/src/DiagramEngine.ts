@@ -29,6 +29,7 @@ import type {
   DiagramAlignEdge,
   DiagramScene,
   DiagramSceneInput,
+  DiagramEngineOptions,
   DiagramSelection,
   DiagramKeyboardCommand,
   DiagramKeyboardOptions,
@@ -44,7 +45,7 @@ export class DiagramEngine {
   private state: InternalState
   private geometryService = new DiagramGeometryService()
   private spatialIndex = new DiagramSpatialIndex()
-  private history = new DiagramHistory()
+  private history: DiagramHistory
   private viewportService = new DiagramViewportService()
   private clipboardService = new DiagramClipboardService()
   private visibleQueryCount = 0
@@ -61,7 +62,8 @@ export class DiagramEngine {
   private edgeIdsByNode = new Map<DiagramId, Set<DiagramId>>()
   private edgeIdsByPort = new Map<DiagramId, Set<DiagramId>>()
 
-  constructor(initialScene: DiagramSceneInput = {}) {
+  constructor(initialScene: DiagramSceneInput = {}, options: DiagramEngineOptions = {}) {
+    this.history = new DiagramHistory(options.history)
     this.store = new DiagramSceneStore(initialScene)
     this.state = this.store.state
     this.ensureIndexes()
@@ -696,8 +698,8 @@ function metadataValueMatches(actual: unknown, expected: unknown): boolean {
   return Object.is(actual, expected)
 }
 
-export function createDiagramEngine(initialScene: DiagramSceneInput = {}): DiagramEngine {
-  return new DiagramEngine(initialScene)
+export function createDiagramEngine(initialScene: DiagramSceneInput = {}, options: DiagramEngineOptions = {}): DiagramEngine {
+  return new DiagramEngine(initialScene, options)
 }
 
 export function serializeScene(scene: DiagramScene): SerializedDiagramScene {

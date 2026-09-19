@@ -1,6 +1,6 @@
 # Diagram — reliability / scalability implementation plan для Luna
 
-Статус: **in_progress; 4/12 slices closed**. Дата: 2026-09-19.
+Статус: **in_progress; 5/12 slices closed**. Дата: 2026-09-19.
 Область: @affino/diagram-core + @affino/diagram-vue, существующие benches/examples.
 Перед работой прочитать [общий аудит и протокол](COMPONENT_ENGINEERING_AUDIT_2026-09-19.md), docs/reference/diagram-packages.md и локальные инструкции.
 Сохранить единый публичный facade createDiagramEngine; внутренние SceneStore/History/Geometry/SpatialIndex уже существуют.
@@ -47,7 +47,7 @@
 | --- | --- | --- | --- |
 | G01 | Atomic replacement / input ownership | — | done |
 | G02 | Consistent transaction publication / history state | G01 | done |
-| G03 | Gesture-scoped bounded history | G02; API decision | in_progress |
+| G03 | Gesture-scoped bounded history | G02; API decision | done |
 | G04 | Command capability и validation | G01,G02 | done |
 | G05 | Immutable snapshots с structural sharing | G01,G02 | done |
 | G06 | Domain invalidation / adjacency / incremental indexes | G04,G05 | in_progress |
@@ -186,3 +186,4 @@
 2026-09-19: Component benchmark CI gate добавлен: diagram cold/warm benchmark 1k/5k/10k запускается в Node24 verify job вместе с treeview/dialog workloads. Последний прогон на 10k: warm visible 0.19ms, warm entity search 5.30ms, drag/undo 1.54ms, memory delta 29.1MB.
 2026-09-19: G11 Vite SSR consumer gate продвинут: локальный @affino/diagram-vue@0.2.0 tarball установлен изолированно с registry diagram-core@0.2.0, Vue 3.5 и Vite 7.3; SSR bundle и `renderToString` smoke прошли под Node24 без workspace aliases.
 2026-09-19: G06 продвинут: добавлен deterministic mutation-sequence oracle после move/resize/waypoint/delete/undo; indexed visibility и nearest-port результаты совпали с brute-force oracle во всех состояниях. Diagram-core test 32/32 прошёл.
+2026-09-19: G03 закрыт: добавлен публичный backward-compatible `createDiagramEngine(scene, { history: { maxEntries } })` policy. Старые записи eviction-first, `0` отключает undo retention, `Infinity` сохраняет legacy default; invalid values отвергаются. Regression проверяет eviction/undo depth, 34 diagram-core tests и build прошли. API и migration example добавлены в package/reference docs.

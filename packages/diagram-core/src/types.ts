@@ -191,6 +191,15 @@ export type DiagramSceneInput = Readonly<{
   viewport?: Partial<DiagramViewport>
 }>
 
+export type DiagramHistoryOptions = Readonly<{
+  /** Maximum number of undo entries retained. Infinity keeps the legacy unbounded policy. */
+  maxEntries?: number
+}>
+
+export type DiagramEngineOptions = Readonly<{
+  history?: DiagramHistoryOptions
+}>
+
 export type SerializedDiagramScene = Readonly<{
   nodes: ReadonlyArray<DiagramNode>
   edges: ReadonlyArray<DiagramEdge>

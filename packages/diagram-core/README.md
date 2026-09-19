@@ -24,7 +24,12 @@ const engine = createDiagramEngine({
 engine.dispatch({ type: "setSelection", selection: { ids: ["n1"], primaryId: "n1" } })
 engine.dispatch({ type: "moveEntities", ids: ["n1"], delta: { x: 24, y: 0 } })
 engine.dispatch({ type: "undo" })
+
+// Bound retained undo memory for a long-lived editor session.
+const boundedEngine = createDiagramEngine({}, { history: { maxEntries: 200 } })
 ```
+
+`history.maxEntries` evicts the oldest undo entries first. It accepts a non-negative integer; `0` disables undo retention, while the default `Infinity` preserves the legacy unbounded behavior. An accepted edit clears redo, and `transact()` replaces the scene and resets history.
 
 ## Clipboard and duplication
 
