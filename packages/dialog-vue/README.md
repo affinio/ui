@@ -1,14 +1,14 @@
 # @affino/dialog-vue
 
-Vue 3 bindings for [`@affino/dialog-core`](../dialog-core) with batteries included: focus-orchestration, async guards, nested stacks, and mobile-friendly gestures that drop into any component tree.
+Vue 3 bindings for [`@affino/dialog-core`](../dialog-core) with focus orchestration, async guards, and overlay-kernel integration.
 
 ## Why use it
 
 - **State machine quality** – identical controller used across Vue, React, and Livewire adapters.
-- **Focus handled for you** – tab trapping, sentinels, and focus return logic ship with the orchestrator.
+- **Focus orchestration** – initial focus, mount retries, and focus return are handled by the helper; modal Tab trapping remains a host responsibility.
 - **Async-friendly** – optimistic closes, guard hooks, and retry budgets are one option away.
 - **Stack aware** – controllers cooperate so ESC/backdrop close only the top-most surface.
-- **Mobile ready** – optional swipe-to-close gesture and scroll locking guards Safari/iOS quirks.
+- **Headless by design** – rendering, inert siblings, scroll locking, gestures, and modal Tab trapping remain host responsibilities.
 
 ## Installation
 
@@ -21,7 +21,7 @@ You need Vue 3.4+ (Composition API) available in your project.
 
 ## Quick start
 
-1. **Create a dialog host once.** We append one automatically, but you can also add it to your HTML shell for SSR:
+1. **Create a dialog host when using Teleport.** The package does not append or manage a DOM host; add it to your HTML shell for SSR:
 
 ```html
 <body>
@@ -99,7 +99,7 @@ function loopFocus(edge: "start" | "end") {
 
 > The Teleport host keeps z-index predictable and prevents stacking context clashes.
 
-3. **Bring your own styles.** The package is headless, so you can rely on Tailwind, UnoCSS, CSS Modules, etc.
+3. **Bring your own styles and modal behavior.** The package is headless, so you can rely on Tailwind, UnoCSS, CSS Modules, or an application modal primitive.
 
 ## Overlay kernel integration
 
@@ -154,7 +154,7 @@ Because each controller understands `phase`, `isOpen`, and `optimisticCloseInFli
 
 1. **Label every surface** with `aria-labelledby` or `aria-label`.
 2. **Provide a `data-dialog-initial` focus target** (usually a primary button).
-3. **Keep focus trapped**. The orchestrator already uses sentinels; just ensure focusable controls aren’t `display: none` when opening.
+3. **Implement the modal focus boundary**. The orchestrator does not install a Tab trap or sentinels; use the host pattern shown in the example or an equivalent accessible modal primitive.
 4. **Respect motion preferences** with `prefers-reduced-motion` in your CSS.
 5. **Announce guard status** through `dialog.snapshot.guardMessage` or custom alerts.
 
