@@ -51,7 +51,7 @@
 | G04 | Command capability и validation | G01,G02 | done |
 | G05 | Immutable snapshots с structural sharing | G01,G02 | pending |
 | G06 | Domain invalidation / adjacency / incremental indexes | G04,G05 | pending |
-| G07 | Cached order / bounded spatial queries / snapping | G04,G06 | pending |
+| G07 | Cached order / bounded spatial queries / snapping | G04,G06 | in_progress |
 | G08 | Incremental Vue projection / subscriptions | G05–G07 | in_progress |
 | G09 | Pointer ownership / frame budget / cancellation | G03,G04 | pending |
 | G10 | Rendering geometry / ordering / editor / viewport | G08,G09 | pending |
@@ -172,4 +172,4 @@
 
 ## Журнал
 
-2026-09-19: аудит, baseline diagram core 25 tests и Vue 15 tests, builds passed, direct Node ESM import обоих dist успешен на Node 22. Закрыты G01/G02/G04: replacement publishes old+new IDs включая empty scene, input entities owned at boundary, history state committed before publication, locked text и limit=0 guards. G03/G09 частично harden: unique gesture history keys, cancel resets tool, stale frame callbacks ignored. G08 начат: Vue visible projection использует core geometry cache и больше не делает duplicate initial refresh. Остальные acceptance gates остаются открыты: bounded history budget, incremental indexes, stable wrappers, rendering order, browser/perf/CI.
+2026-09-19: аудит, baseline diagram core 25 tests и Vue 15 tests, builds passed, direct Node ESM import обоих dist успешен на Node 22. Закрыты G01/G02/G04: replacement publishes old+new IDs включая empty scene, input entities owned at boundary, history state committed before publication, locked text и limit=0 guards. G03/G09 частично harden: unique gesture history keys, cancel resets tool, stale frame callbacks ignored. G07 начат: UniformGridIndex ограничивает cell expansion и делает bounded full-entry fallback для huge/invalid rect. G08 начат: Vue visible projection использует core geometry cache и больше не делает duplicate initial refresh. Остальные acceptance gates остаются открыты: bounded history budget, incremental indexes, stable wrappers, rendering order, browser/perf/CI.

@@ -7,9 +7,11 @@ type GridEntry = Readonly<{
 }>
 
 export class UniformGridIndex {
+  private static readonly MAX_GRID_CELLS = 10_000
   private readonly cellSize: number
   private cells = new Map<string, Set<DiagramId>>()
   private entries = new Map<DiagramId, GridEntry>()
+  private largeEntries = new Set<DiagramId>()
 
   constructor(cellSize = 256) {
     this.cellSize = cellSize
@@ -18,14 +20,24 @@ export class UniformGridIndex {
   rebuild(geometries: Iterable<DiagramGeometry>, useHitBounds = false): void {
     this.cells.clear()
     this.entries.clear()
+    this.largeEntries.clear()
     for (const geometry of geometries) {
       this.insert(geometry.id, useHitBounds ? geometry.hitBounds : geometry.bounds)
     }
   }
 
   query(rect: DiagramRect): DiagramId[] {
+    const keys = this.keysForRect(rect)
+    if (keys === null) {
+      return [...this.entries.values()]
+        .filter((entry) => rectIntersects(entry.bounds, rect))
+        .map((entry) => entry.id)
+    }
     const ids = new Set<DiagramId>()
-    for (const key of this.keysForRect(rect)) {
+    for (const id of this.largeEntries) {
+      ids.add(id)
+    }
+    for (const key of keys) {
       const bucket = this.cells.get(key)
       if (!bucket) {
         continue
@@ -42,7 +54,12 @@ export class UniformGridIndex {
 
   private insert(id: DiagramId, bounds: DiagramRect): void {
     this.entries.set(id, { id, bounds })
-    for (const key of this.keysForRect(bounds)) {
+    const keys = this.keysForRect(bounds)
+    if (keys === null) {
+      this.largeEntries.add(id)
+      return
+    }
+    for (const key of keys) {
       let bucket = this.cells.get(key)
       if (!bucket) {
         bucket = new Set()
@@ -52,11 +69,18 @@ export class UniformGridIndex {
     }
   }
 
-  private keysForRect(rect: DiagramRect): string[] {
+  private keysForRect(rect: DiagramRect): string[] | null {
+    if (![rect.x, rect.y, rect.width, rect.height].every(Number.isFinite)) {
+      return null
+    }
     const minX = Math.floor(rect.x / this.cellSize)
     const maxX = Math.floor((rect.x + Math.max(0, rect.width)) / this.cellSize)
     const minY = Math.floor(rect.y / this.cellSize)
     const maxY = Math.floor((rect.y + Math.max(0, rect.height)) / this.cellSize)
+    const cellCount = (maxX - minX + 1) * (maxY - minY + 1)
+    if (!Number.isSafeInteger(cellCount) || cellCount > UniformGridIndex.MAX_GRID_CELLS) {
+      return null
+    }
     const keys: string[] = []
     for (let x = minX; x <= maxX; x += 1) {
       for (let y = minY; y <= maxY; y += 1) {

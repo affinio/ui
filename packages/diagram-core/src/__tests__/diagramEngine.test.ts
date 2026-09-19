@@ -130,6 +130,13 @@ describe("DiagramEngine", () => {
     expect(engine.nearestPort({ x: 102, y: 30 }, 12)).toEqual(engine.nearestPortBruteForce({ x: 102, y: 30 }, 12))
   })
 
+  it("falls back to bounded scanning for huge visibility bounds", () => {
+    const engine = createDiagramEngine(scene)
+    expect(engine.queryVisible({ x: -1e12, y: -1e12, width: 2e12, height: 2e12 })).toEqual(
+      engine.queryVisibleBruteForce({ x: -1e12, y: -1e12, width: 2e12, height: 2e12 }),
+    )
+  })
+
   it("queries entities by kind, bounds, text, metadata, ports, and limit", () => {
     const engine = createDiagramEngine({
       nodes: [
