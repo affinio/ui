@@ -18,7 +18,7 @@ import type {
   TooltipTriggerProps,
   TooltipArrowParams,
   TooltipArrowProps,
-} from "../types"
+} from "../types.js"
 
 const DEFAULT_OVERLAY_KIND: OverlayKind = "tooltip"
 const SURFACE_TO_OVERLAY_CLOSE_REASON: Record<SurfaceReason, OverlayCloseReason> = {
@@ -64,10 +64,10 @@ export class TooltipCore extends SurfaceCore<TooltipState, TooltipCallbacks> {
       overlayManager: options.overlayManager ?? null,
       getOverlayManager: options.getOverlayManager,
       onCloseRequested: (reason) => this.handleKernelCloseRequest(reason),
-      initialState: this.surfaceState.open ? "open" : "closed",
-      releaseOnIdle: false,
+      initialState: this.surfaceState.open ? "open" : "idle",
+      releaseOnIdle: true,
     })
-    this.overlayIntegration.syncState(this.surfaceState.open ? "open" : "closed")
+    this.overlayIntegration.syncState(this.surfaceState.open ? "open" : "idle")
   }
 
   protected override composeState(surface: SurfaceState): TooltipState {
@@ -88,7 +88,7 @@ export class TooltipCore extends SurfaceCore<TooltipState, TooltipCallbacks> {
   }
 
   protected override onClosed(_reason: SurfaceReason): void {
-    this.overlayIntegration.syncState("closed")
+    this.overlayIntegration.syncState("idle")
   }
 
   override close(reason: SurfaceReason = "programmatic"): void {
@@ -133,7 +133,11 @@ export class TooltipCore extends SurfaceCore<TooltipState, TooltipCallbacks> {
         this.cancelPendingClose()
         this.open("keyboard")
       },
-      onBlur: () => {
+      onBlur: (event) => {
+        const currentTarget = event.currentTarget as (EventTarget & { contains?: (node: Node) => boolean }) | null
+        if (event.relatedTarget && typeof currentTarget?.contains === "function" && currentTarget.contains(event.relatedTarget as Node)) {
+          return
+        }
         this.focusWithin = false
         this.requestClose("keyboard")
       },
@@ -172,7 +176,12 @@ export class TooltipCore extends SurfaceCore<TooltipState, TooltipCallbacks> {
   }
 
   private closeWithSource(reason: SurfaceReason, source: "local" | "kernel"): void {
-    if (this.destroyedLocal || !this.surfaceState.open) {
+    if (this.destroyedLocal) {
+      return
+    }
+    if (!this.surfaceState.open) {
+      this.timers.cancelOpen()
+      this.timers.cancelClose()
       return
     }
     if (source === "local" && this.isKernelManagedReason(reason)) {
@@ -220,13 +229,17 @@ const clamp = (value: number, min: number, max: number) => {
   return value
 }
 
+function normalizeArrowValue(value: number | undefined, fallback: number, min: number): number {
+  return value !== undefined && Number.isFinite(value) ? Math.max(value, min) : fallback
+}
+
 function resolveArrowProps({ anchorRect, tooltipRect, position, options }: TooltipArrowParams): TooltipArrowProps {
   const placement = position.placement
   const align = position.align
   const isVertical = placement === "top" || placement === "bottom"
-  const size = Math.max(options?.size ?? 10, 1)
-  const inset = Math.max(options?.inset ?? 4, 0)
-  const staticOffset = options?.staticOffset ?? size / 2
+  const size = normalizeArrowValue(options?.size, 10, 1)
+  const inset = normalizeArrowValue(options?.inset, 4, 0)
+  const staticOffset = normalizeArrowValue(options?.staticOffset, size / 2, 0)
   const half = size / 2
   const surfaceSpan = isVertical ? tooltipRect.width : tooltipRect.height
   const anchorCenter = isVertical

@@ -53,7 +53,7 @@ Spread `triggerProps` across the element that owns the tooltip (usually a label 
 | `closeDelay` | `number` | Milliseconds before closing on pointer leave (defaults to `150`). |
 | `defaultOpen` | `boolean` | Start the tooltip in the open state, useful for SSR previews. |
 | `overlayKind` | `OverlayKind` | Forwarded to `@affino/overlay-kernel` (defaults to `"tooltip"`). |
-| `overlayManager` | `OverlayManager` | Inject a kernel instance so pointer/keyboard closes are mediated by the global stack. |
+| `overlayManager` | `OverlayManager` | Inject a kernel instance so pointer/keyboard close requests are mediated by the global stack. The core registers only while open. |
 | `getOverlayManager` | `() => OverlayManager \| null \| undefined` | Lazy resolver for adapters that hydrate the manager later. |
 | `overlayEntryTraits` | `TooltipOverlayTraits` | Override owner/modality/priority traits that are registered with the kernel. |
 
@@ -77,7 +77,7 @@ Spread `triggerProps` across the element that owns the tooltip (usually a label 
 
 | Option | Type | Description |
 | --- | --- | --- |
-| `describedBy` | `string \| string[]` | Additional ids merged into `aria-describedby` so you can point to persistent helper text or a live region. |
+| `describedBy` | `string \| string[]` | Additional ids merged into `aria-describedby`, usually for persistent helper text. The tooltip surface id is included automatically. |
 | `tabIndex` | `number` | Override the default `0` when your trigger is naturally focusable. |
 
 ## Positioning helper
@@ -157,33 +157,31 @@ Decision tree:
 
 ```ts
 function applyStyles(tooltip: HTMLElement, position: { left: number; top: number }, strategy: "absolute" | "fixed") {
+	const parent = strategy === "absolute" ? tooltip.offsetParent as HTMLElement | null : null
+	const rect = parent?.getBoundingClientRect()
+	const left = rect ? position.left - rect.left - parent!.clientLeft + parent!.scrollLeft : position.left
+	const top = rect ? position.top - rect.top - parent!.clientTop + parent!.scrollTop : position.top
 	Object.assign(tooltip.style, {
 		position: strategy,
-		transform: `translate(${position.left}px, ${position.top}px)`,
+		left: `${left}px`,
+		top: `${top}px`,
 	})
 }
 ```
 
 Pair this with a `ResizeObserver`/`IntersectionObserver` so that geometry updates whenever the trigger moves.
 
-## Live announcement helper
+## Separate live announcements
 
-When tooltips double as inline validation or status updates, use `getDescriptionProps` to mount a hidden live region and merge its id via `getTriggerProps({ describedBy: descriptionId })`:
+The tooltip surface (`role="tooltip"`) and `aria-describedby` provide the ordinary tooltip relationship. `getDescriptionProps` is a separate status/alert live-region helper; it is not a replacement for the tooltip surface or persistent field instructions.
 
-```ts
-const descriptionProps = tooltip.getDescriptionProps({
-	id: "field-help-description",
-	politeness: "assertive",
-})
+The helper mirrors the tooltip open state through `aria-hidden`. Changing visibility alone is not a reliable announcement contract across assistive technologies. Use it only for dynamic status content and verify behavior with the screen readers you support. For static instructions, use a persistent description node and pass its id through `describedBy`.
 
-Object.assign(descriptionElement, descriptionProps)
-```
+The helper props:
 
-The helper:
-
-- Defaults to `role="status"`, `aria-live="polite"`, and `aria-atomic=true`.
-- Mirrors tooltip state through `data-state` / `aria-hidden` so you can animate it independently.
-- Lets you switch to `role="alert"` + `politeness="assertive"` for high-priority announcements.
+- Default to `role="status"`, `aria-live="polite"`, and `aria-atomic=true`.
+- Mirror tooltip state through `data-state` / `aria-hidden`; consumers own content updates and announcement timing.
+- Allow `role="alert"` + `politeness="assertive"` for high-priority announcements.
 
 ## Accessibility pointers
 

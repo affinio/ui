@@ -1,5 +1,11 @@
 # @affino/tooltip-laravel
 
+## 0.1.1
+
+### Patch Changes
+
+- Fix pointer handling, viewport positioning, Escape behavior, and observer lifecycle.
+
 ## 0.1.0
 
 ### Minor Changes

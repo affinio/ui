@@ -52,6 +52,7 @@ export function setupPointerIntentTracker(options: {
 export function setupPointerGuards(options: {
   getActiveRoot(ownerDocument: Document): RootEl | null
   isGuardSkipped(root: RootEl): boolean
+  canCloseRoot(root: RootEl): boolean
   closeRoot(root: RootEl, reason: TooltipReason): void
 }): void {
   if (pointerGuardsBound) {
@@ -88,6 +89,16 @@ export function setupPointerGuards(options: {
   const handleDocumentLeave = () => {
     maybeCloseActiveTooltip(document, "pointer")
   }
+  const handleKeyDown = (event: KeyboardEvent) => {
+    if (event.key !== "Escape") return
+    const ownerDocument = event.target instanceof Node ? event.target.ownerDocument ?? document : document
+    const activeRoot = options.getActiveRoot(ownerDocument)
+    if (!activeRoot || activeRoot.dataset.affinoTooltipPinned === "true" || !options.canCloseRoot(activeRoot)) return
+    options.closeRoot(activeRoot, "keyboard")
+    if (activeRoot.dataset.affinoTooltipState !== "closed") return
+    event.preventDefault()
+    event.stopPropagation()
+  }
 
   const maybeCloseActiveTooltip = (ownerDocument: Document, reason: TooltipReason) => {
     const activeTooltipRoot = options.getActiveRoot(ownerDocument)
@@ -109,6 +120,7 @@ export function setupPointerGuards(options: {
 
   document.addEventListener("pointermove", handlePointerMove, { passive: true })
   document.addEventListener("mouseleave", handleDocumentLeave)
+  document.addEventListener("keydown", handleKeyDown)
   window.addEventListener("blur", handleDocumentLeave)
 
   pointerGuardsBound = true

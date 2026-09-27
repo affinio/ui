@@ -14,7 +14,10 @@ type MountedFloatingTooltip = {
   cleanup: () => void
 }
 
-function mountFloatingTooltip(options?: Parameters<typeof useFloatingTooltip>[1]): MountedFloatingTooltip {
+function mountFloatingTooltip(
+  options?: Parameters<typeof useFloatingTooltip>[1],
+  controllerOptions: Parameters<typeof useTooltipController>[0] = {},
+): MountedFloatingTooltip {
   const host = document.createElement("div")
   document.body.appendChild(host)
 
@@ -24,7 +27,7 @@ function mountFloatingTooltip(options?: Parameters<typeof useFloatingTooltip>[1]
   const app = createApp(
     defineComponent({
       setup() {
-        controller = useTooltipController({ id: `floating-tooltip-${Math.random().toString(36).slice(2)}` })
+        controller = useTooltipController({ id: `floating-tooltip-${Math.random().toString(36).slice(2)}`, ...controllerOptions })
         floating = useFloatingTooltip(controller, options)
         return () => h("div")
       },
@@ -72,6 +75,87 @@ describe("useFloatingTooltip", () => {
     }
   })
 
+  it("observes trigger and surface size only while initially open", async () => {
+    const observed: Element[] = []
+    const disconnect = vi.fn()
+    vi.stubGlobal("ResizeObserver", class {
+      observe(element: Element) { observed.push(element) }
+      disconnect = disconnect
+    })
+    const trigger = document.createElement("button")
+    const tooltip = document.createElement("div")
+    document.body.append(trigger, tooltip)
+    const { controller, floating, cleanup } = mountFloatingTooltip()
+    floating.triggerRef.value = trigger
+    floating.tooltipRef.value = tooltip
+    controller.open()
+    await nextTick()
+    expect(observed).toContain(trigger)
+    expect(observed).toContain(tooltip)
+    controller.close()
+    await nextTick()
+    expect(disconnect).toHaveBeenCalled()
+    cleanup()
+    trigger.remove()
+    tooltip.remove()
+    vi.unstubAllGlobals()
+  })
+
+  it("activates relayout listeners for defaultOpen", async () => {
+    const addSpy = vi.spyOn(window, "addEventListener")
+    const { controller, floating, cleanup } = mountFloatingTooltip(undefined, { defaultOpen: true })
+    const trigger = document.createElement("button")
+    const tooltip = document.createElement("div")
+    document.body.append(trigger, tooltip)
+    setRect(trigger, { x: 100, y: 80, width: 64, height: 24 })
+    setRect(tooltip, { width: 140, height: 56 })
+    floating.triggerRef.value = trigger
+    floating.tooltipRef.value = tooltip
+    await nextTick()
+    expect(addSpy.mock.calls.some(([type]) => type === "resize")).toBe(true)
+    expect(addSpy.mock.calls.some(([type]) => type === "scroll")).toBe(true)
+    controller.close()
+    cleanup()
+    trigger.remove()
+    tooltip.remove()
+    addSpy.mockRestore()
+  })
+
+  it("drops measurements when refs change or the scope is disposed", async () => {
+    const { controller, floating, cleanup } = mountFloatingTooltip()
+    const trigger = document.createElement("button")
+    const originalTooltip = document.createElement("div")
+    const replacementTooltip = document.createElement("div")
+    document.body.append(trigger, originalTooltip, replacementTooltip)
+    setRect(trigger, { width: 64, height: 24 })
+    setRect(originalTooltip, { width: 140, height: 56 })
+    setRect(replacementTooltip, { width: 180, height: 64 })
+    const originalMeasure = vi.spyOn(originalTooltip, "getBoundingClientRect")
+    floating.triggerRef.value = trigger
+    floating.tooltipRef.value = originalTooltip
+    controller.open("programmatic")
+
+    try {
+      const staleUpdate = floating.updatePosition()
+      floating.tooltipRef.value = replacementTooltip
+      await staleUpdate
+      expect(originalMeasure).not.toHaveBeenCalled()
+
+      const replacementMeasure = vi.spyOn(replacementTooltip, "getBoundingClientRect")
+      const replacementCallsBeforeDispose = replacementMeasure.mock.calls.length
+      const disposedUpdate = floating.updatePosition()
+      cleanup()
+      await disposedUpdate
+      expect(replacementMeasure).toHaveBeenCalledTimes(replacementCallsBeforeDispose)
+    } finally {
+      controller.close("programmatic")
+      trigger.remove()
+      originalTooltip.remove()
+      replacementTooltip.remove()
+      cleanup()
+    }
+  })
+
   it("handles relayout storms while open without losing position state", async () => {
     const { controller, floating, cleanup } = mountFloatingTooltip({ zIndex: 88 })
     const trigger = document.createElement("button")
@@ -111,6 +195,33 @@ describe("useFloatingTooltip", () => {
       tooltip.remove()
       cleanup()
     }
+  })
+
+  it.each(["absolute", "fixed"] as const)("converts viewport coordinates into the %s containing block", async (strategy) => {
+    const parent = document.createElement("div")
+    const trigger = document.createElement("button")
+    const tooltip = document.createElement("div")
+    document.body.append(parent, trigger, tooltip)
+    setRect(parent, { x: 100, y: 60, width: 400, height: 300 })
+    setRect(trigger, { x: 150, y: 80, width: 64, height: 24 })
+    setRect(tooltip, { x: 0, y: 0, width: 140, height: 56 })
+    Object.defineProperty(tooltip, "offsetParent", { configurable: true, value: parent })
+    Object.defineProperty(parent, "clientLeft", { configurable: true, value: 2 })
+    Object.defineProperty(parent, "clientTop", { configurable: true, value: 3 })
+    Object.defineProperty(parent, "scrollLeft", { configurable: true, value: 4 })
+    Object.defineProperty(parent, "scrollTop", { configurable: true, value: 5 })
+    const { controller, floating, cleanup } = mountFloatingTooltip({ strategy, teleportTo: false, placement: "right", align: "center" })
+    floating.triggerRef.value = trigger
+    floating.tooltipRef.value = tooltip
+    controller.open()
+    await nextTick()
+    await nextTick()
+    expect(floating.tooltipStyle.value.left).toBe("122px")
+    expect(floating.tooltipStyle.value.top).toBe("6px")
+    cleanup()
+    parent.remove()
+    trigger.remove()
+    tooltip.remove()
   })
 
   it("remains stable across rapid pointer-like open/close transitions", async () => {

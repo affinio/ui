@@ -1,7 +1,7 @@
-import type { Alignment, Placement, PositionOptions, PositionResult, Rect } from "../types"
-import { SurfaceDiagnostics } from "../core/SurfaceDiagnostics"
-import { ALIGNMENTS, clamp, crossAxis, sideAxis, SIDES } from "./geometry"
-import type { Side } from "./geometry"
+import type { Alignment, Placement, PositionOptions, PositionResult, Rect } from "../types.js"
+import { SurfaceDiagnostics } from "../core/SurfaceDiagnostics.js"
+import { ALIGNMENTS, clamp, crossAxis, sideAxis, SIDES } from "./geometry.js"
+import type { Side } from "./geometry.js"
 
 const DEFAULT_VIEWPORT = 10_000
 

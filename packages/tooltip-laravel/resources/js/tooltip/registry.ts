@@ -1,8 +1,21 @@
 import type { TooltipReason } from "@affino/tooltip-core"
+import { TooltipCore } from "@affino/tooltip-core"
 import type { Cleanup, RootEl } from "./types"
 
 export const registry = new WeakMap<RootEl, Cleanup>()
 export const structureRegistry = new WeakMap<RootEl, { trigger: HTMLElement; surface: HTMLElement }>()
+const tooltipCores = new WeakMap<RootEl, TooltipCore>()
+
+export function registerTooltipCore(root: RootEl, core: TooltipCore | null): void {
+  if (core) tooltipCores.set(root, core)
+  else tooltipCores.delete(root)
+}
+
+export function isTooltipTopmost(root: RootEl): boolean {
+  const core = tooltipCores.get(root)
+  const manager = core?.getOverlayManager()
+  return !manager || manager.isTopMost(core.id)
+}
 
 const activeByDocument = new WeakMap<Document, RootEl | null>()
 

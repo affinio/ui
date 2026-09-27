@@ -36,6 +36,14 @@ describe("TooltipCore", () => {
     expect(tooltip.getSnapshot().open).toBe(false)
   })
 
+  it("cancels a pending open when explicitly closed", () => {
+    const tooltip = createTooltip({ openDelay: 20 })
+    tooltip.getTriggerProps().onPointerEnter?.({})
+    tooltip.close()
+    vi.advanceTimersByTime(20)
+    expect(tooltip.getSnapshot().open).toBe(false)
+  })
+
   it("opens on focus and closes on blur immediately", () => {
     const tooltip = createTooltip()
     const trigger = tooltip.getTriggerProps()
@@ -47,9 +55,27 @@ describe("TooltipCore", () => {
     expect(tooltip.getSnapshot().open).toBe(false)
   })
 
+  it("stays open when focus moves between descendants of the trigger", () => {
+    const tooltip = createTooltip()
+    const trigger = tooltip.getTriggerProps()
+    const child = {}
+    const outside = {}
+    const container = { contains: (node: Node) => node === child } as unknown as EventTarget
+    const insideBlur = { currentTarget: container, relatedTarget: child } as unknown as FocusEvent
+
+    trigger.onFocus?.({} as FocusEvent)
+    trigger.onBlur?.(insideBlur)
+    expect(tooltip.getSnapshot().open).toBe(true)
+
+    const outsideBlur = { currentTarget: container, relatedTarget: outside } as unknown as FocusEvent
+    trigger.onBlur?.(outsideBlur)
+    expect(tooltip.getSnapshot().open).toBe(false)
+  })
+
   it("reflects the latest state in tooltip props", () => {
     const tooltip = createTooltip()
 
+    expect(tooltip.getTooltipProps().role).toBe("tooltip")
     expect(tooltip.getTooltipProps()["data-state"]).toBe("closed")
     tooltip.open("programmatic")
     expect(tooltip.getTooltipProps()["data-state"]).toBe("open")
@@ -141,6 +167,20 @@ describe("TooltipCore", () => {
     expect(arrow.style.right).toBeUndefined()
   })
 
+  it("normalizes non-finite arrow geometry options", () => {
+    const tooltip = createTooltip()
+    const arrow = tooltip.getArrowProps({
+      anchorRect: { x: 20, y: 20, width: 10, height: 10 },
+      tooltipRect: { x: 0, y: 0, width: 100, height: 40 },
+      position: { left: 0, top: 40, placement: "bottom", align: "center" },
+      options: { size: Number.NaN, inset: Number.POSITIVE_INFINITY, staticOffset: Number.NaN },
+    })
+
+    expect(arrow.style["--tooltip-arrow-size"]).toBe("10px")
+    expect(arrow.style.left).not.toContain("NaN")
+    expect(arrow.style.top).toBe("-5px")
+  })
+
   it("provides description props with ARIA live defaults", () => {
     const tooltip = createTooltip({ defaultOpen: true })
     const props = tooltip.getDescriptionProps({ role: "alert", politeness: "assertive", id: "custom" })
@@ -160,7 +200,7 @@ describe("TooltipCore", () => {
     expect(manager.getEntry("tooltip-overlay")?.state).toBe("open")
 
     tooltip.requestClose("programmatic")
-    expect(manager.getEntry("tooltip-overlay")?.state).toBe("closed")
+    expect(manager.getEntry("tooltip-overlay")).toBeNull()
 
     tooltip.destroy()
     expect(manager.getEntry("tooltip-overlay")).toBeNull()

@@ -1,4 +1,4 @@
-import type { SurfaceState } from "../types"
+import type { SurfaceState } from "../types.js"
 
 export interface SurfaceStateChange {
   changed: boolean

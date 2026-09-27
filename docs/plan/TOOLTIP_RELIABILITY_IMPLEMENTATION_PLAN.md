@@ -1,0 +1,40 @@
+# Tooltip reliability implementation plan
+
+Статус: **in_progress; T01–T08 и T10 закрыты, T09 ожидает browser и assistive-technology проверки**. Основание: [технический аудит](../audits/TOOLTIP_TECHNICAL_AUDIT_2026-09-27.md) и [runtime review](../audits/TOOLTIP_RUNTIME_REVIEW_2026-09-27.md). Область: `@affino/tooltip-core`, `@affino/tooltip-vue`, `@affino/tooltip-laravel`.
+
+Цель — закрывать подтверждённые reliability и accessibility gaps небольшими slices с тестируемыми критериями; не расширять публичный API без отдельного согласования.
+
+## Слайды
+
+- [x] **T01 — Ограничить и отменять Laravel measurement retries.** При close/unmount отменять ожидающее измерение; проверять connected/open до чтения; исключить бесконечный RAF при постоянно нулевом размере. Добавить регрессионные тесты на close с queued frame, постоянный zero-size и появление размеров. Done: нет RAF-loop после закрытия; постоянно zero-size поверхности дают не более двух дополнительных измерений; close/dispose отменяют ожидающую работу.
+- [x] **T02 — Полный контракт relayout для Laravel.** Пересчитывать позицию при scroll/viewport resize, изменении trigger и surface; coalesce в кадр и очищать все наблюдатели/обработчики. Done: вложенный scroll, изменение текста/размера поверхности, закрытие с queued relayout покрыты тестами.
+- [x] **T03 — Защитить Vue позиционирование от устаревших async задач.** Повторно валидировать open/ref после `nextTick`, инвалидировать frame/измерения при close, смене ref и dispose. Done: open-close-unmount и ref replacement не читают отсоединённые элементы и не публикуют устаревшую позицию.
+- [x] **T04 — Уточнить Laravel trigger, ARIA и focus contract.** Применять `aria-describedby` и фокусные события к реальному trigger; согласовать поведение для составного trigger. Устранить расхождение README и реализации focus restore. Done: keyboard/focus tests и DOM contract подтверждают описанный контракт.
+- [x] **T05 — Исправить focus-within переходы в core/Vue.** Не закрывать tooltip при переходе фокуса между потомками одного trigger; сохранить закрытие при уходе наружу и покрыть переход между дочерними контролами и выход из trigger. Done: тесты nested focus и focus exit зелёные без регрессии pointer timers.
+- [x] **T06 — Определить ownership глобальных Laravel listeners.** Зафиксировать поддерживаемую document-модель; listeners должны быть идемпотентными, привязаны к соответствующему browsing context, не удерживать устаревшие callbacks и корректно очищаться. Если требуется public API для нескольких документов, сначала описать additive API и получить согласование до реализации. Done: повторный bootstrap и multi-document contract либо корректно работают, либо явно ограничены документацией и проверкой.
+- [x] **T07 — Нормализовать входные значения позиционирования.** Валидировать конечность/диапазон чисел и enum dataset значений до core geometry; сохранять безопасные дефолты. Done: отрицательные/NaN/бесконечные значения и неподдерживаемые placement/align/strategy дают детерминированные defaults.
+- [x] **T08 — Разделить tooltip description и live announcement контракт.** Проверить `role=tooltip`, `aria-describedby`, live regions и `aria-hidden`; обновить примеры/README так, чтобы обычные подсказки и status/error announcements были отдельными сценариями. Done: API docs соответствуют покрытому поведению; browser/screen-reader validation gap явно записан.
+- [ ] **T09 — Интеграционные gates и release readiness.** Добавить/выполнить browser matrix для Vue teleport/scroll, Laravel morph/keyboard/focus, повторного mount/unmount, accessibility tree и overlay interactions; определить минимальные idle listener/frame guarantees. Done: нет открытых P1; package builds/tests и browser evidence собраны; Laravel release status пересмотрен на основании результатов.
+- [x] **T10 — Закрыть runtime review findings.** Отменять pending open/close, полностью очищать Laravel lifecycle, удерживать pointer на surface, закрывать topmost tooltip по Escape, ограничивать geometry viewport/containing block, наблюдать relayout только во время открытия, освобождать idle overlay/listeners/ResizeObserver и проверять dist native ESM import. Done: focused contracts и package builds проходят без public API expansion.
+
+## Прогресс
+
+| Слайс | Статус | Примечание |
+| --- | --- | --- |
+| T01 | done | Retry ограничен двумя кадрами; close/teardown отменяют frame; 16 тестов и build прошли |
+| T02 | done | Frame-coalesced scroll/resize; наблюдаются trigger и surface; close отменяет queued relayout; 17 тестов и build прошли |
+| T03 | done | Revalidate refs после nextTick; frame cancellation при close/dispose; 9 тестов и build прошли |
+| T04 | done | ARIA переносится на реальный focus target; README и 18 тестов обновлены; Laravel build passed |
+| T05 | done | Core сохраняет open при focus переходе внутрь trigger и закрывает при выходе; 15 тестов и build прошли |
+| T06 | done | Bootstrap scope explicitly limited to global document/window in README; no API expansion |
+| T07 | done | Finite non-negative numeric options and safe placement/alignment/strategy defaults; 19 Laravel and 16 core tests passed, builds passed |
+| T08 | done | Core/Vue docs separate tooltip descriptions from live regions; core role contract test; AT behavior remains for T09 |
+| T09 | in_progress | All package tests/builds and demo-vue build pass; Playwright browser gate cannot launch without installed Chromium; AT visual checks pending |
+| T10 | done | Runtime review findings addressed; five package suites/builds, native ESM imports and ESM specifier gate pass. Browser visual/AT/performance gates remain part of T09. |
+
+- 2026-09-27: создан план по результатам статического аудита. T01 закрыт: zero-size retry ограничен двумя дополнительными кадрами, отменяется на close/teardown и проверяет open/connected перед повтором. T02 закрыт: Laravel пересчитывает позицию при scroll, viewport resize и resize trigger/surface; relayout коалесцируется в кадр и снимается на close. Для обоих слайсов package tests (17 tests) и build прошли. T03 закрыт: Vue обновление повторно проверяет open state, refs и connected nodes после nextTick; отложенный relayout отменяется при close/dispose. Vue tests (9 tests) и build прошли. Начат T04.
+- 2026-09-27: T04 закрыт: ARIA/focus wiring применяются к первому focusable control внутри trigger slot, внешние described-by IDs сохраняются, README точно описывает morph focus. T05 закрыт: core игнорирует blur, если relatedTarget остаётся внутри currentTarget; 15 core tests и build прошли. Начат T06.
+- 2026-09-27: T06 закрыт уточнением README: Laravel bootstrap поддерживает текущий global document/window; multi-document support требует будущего согласованного API. Public API не менялся. Начат T07.
+- 2026-09-27: T07 закрыт: Laravel dataset placement/alignment/strategy и finite non-negative числа нормализуются до geometry; arrow size/inset/offset дают стабильные значения для NaN/Infinity. T08 закрыт: core и Vue docs различают role=tooltip relationship и dynamic live status; JSDOM покрывает role contract, screen-reader behavior остаётся проверкой T09. Начат T09.
+- 2026-09-27: T09 package matrix passed (core 16, Vue 9, Laravel 19 tests; all three builds) and demo-vue production build passed. Existing components smoke reached the server with 127.0.0.1 but Playwright launch failed because its Chromium headless executable is not installed. No browser download attempted; browser geometry, visual and assistive-technology checks remain open.
+- 2026-09-27: T10 закрыл девять runtime review findings: cancellation/teardown, hover transit, Escape arbitration, viewport/containing-block geometry, lifecycle-based resize observation, lazy overlay registration/shared Vue document listeners и native ESM entrypoints. Focused matrix passed: core 17, Vue 16, Laravel 24, surface-core 10, overlay-kernel 5; builds всех пяти пакетов и ESM smoke gate passed. T09 остаётся открыт: браузера для visual/layout/touch проверки и screen readers для AT проверки в окружении нет. Synthetic jsdom lifecycle probe не считается performance gate.

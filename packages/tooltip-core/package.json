@@ -1,6 +1,6 @@
 {
   "name": "@affino/tooltip-core",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "author": "Anton Pavlov <a.pavlov@affino.dev>",
   "type": "module",
   "description": "Headless tooltip core for Affino UI primitives",

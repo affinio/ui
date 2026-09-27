@@ -28,8 +28,11 @@ The adapter registers mutation observers + Livewire hooks and retries manual eve
 ## Behavior contract
 
 - Only one auto-managed tooltip stays open at a time. Manual (`trigger="manual"`) and pinned (`data-affino-tooltip-pinned="true"`) tips opt out so you can script multi-surface flows.
-- Scroll, resize, and DOM mutations trigger re-hydration so open state survives Livewire morphs. Pinned/manual tips re-open automatically after each scan.
-- Focus returns to the trigger (or its first focusable descendant) on close unless you explicitly unset the behavior.
+- Escape dismisses the active tooltip when it is topmost in the shared document overlay stack; a dialog or menu above it receives Escape instead.
+- While open, scroll, viewport resize, and trigger/surface size changes recalculate position. DOM mutations re-hydrate changed tooltip structure so open state can survive Livewire morphs; pinned/manual tips re-open automatically after each scan.
+- The adapter puts `aria-describedby` and keyboard focus behavior on the first focusable control inside the trigger slot. If the slot has no focusable control, its generated wrapper becomes the keyboard trigger. When the slot contains several focusable controls, the first in DOM order is used.
+- During a Livewire morph, focus-mode tooltips attempt to restore focus to the current trigger if focus was tracked and the user has not moved focus elsewhere. Closing a tooltip does not independently move focus.
+- Bootstrap is bound to the current global `document` and `window`; bootstrapping tooltips in additional iframe documents is not supported by this adapter entry point.
 - The Blade component emits deterministic `data-affino-tooltip-*` attributes for the JS helper; avoid stripping them so ARIA wiring, timers, and open-state syncing keep working.
 - Styling is entirely up to you—the helper only sets positioning + visibility attributes. Keep design tokens in your own CSS so the primitives remain headless.
 
@@ -115,7 +118,6 @@ When hydration runs, the controller re-opens any tooltip marked as pinned so the
 
 - [ ] Arrow helper wiring (`data-affino-tooltip-arrow`).
 - [ ] Live region helper + form-friendly presets.
-- [ ] Guard rails for stacked overlays (dialogs/popovers).
 - [ ] Tests inside a Laravel app using Pest + Livewire Dusk.
 
 Contributions welcome! Ping `@affino` on GitHub issues if you hit any edge cases.

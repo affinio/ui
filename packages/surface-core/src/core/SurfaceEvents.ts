@@ -1,4 +1,4 @@
-import type { PositionResult, SurfaceCallbacks } from "../types"
+import type { PositionResult, SurfaceCallbacks } from "../types.js"
 
 export class SurfaceEvents<C extends SurfaceCallbacks = SurfaceCallbacks> {
   constructor(private readonly surfaceId: string, private readonly callbacks: C = {} as C) {}

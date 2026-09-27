@@ -1,2 +1,2 @@
-export type * from "./types"
-export { TooltipCore } from "./core/TooltipCore"
+export type * from "./types.js"
+export { TooltipCore } from "./core/TooltipCore.js"

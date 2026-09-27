@@ -1,6 +1,6 @@
 import { TooltipCore } from "@affino/tooltip-core"
 import type { TooltipTriggerProps, TooltipState, TooltipReason } from "@affino/tooltip-core"
-import { didStructureChange, ensureDocumentObserver } from "@affino/overlay-kernel"
+import { didStructureChange, ensureDocumentObserver, getDocumentOverlayManager } from "@affino/overlay-kernel"
 import {
   scheduleFocusSync,
   setupPointerGuards as setupGlobalPointerGuards,
@@ -12,22 +12,25 @@ import {
   focusRestorers,
   focusedTooltipIds,
   getActiveTooltipRoot,
+  isTooltipTopmost,
+  registerTooltipCore,
   registry,
   setActiveTooltipRoot,
   structureRegistry,
 } from "./registry"
-import { isFocusMode, isPersistentTooltip, isPinnedTooltip, readNumber, resolveTriggerMode } from "./options"
+import { isFocusMode, isPersistentTooltip, isPinnedTooltip, readNumber, resolveAlignment, resolveCSSPosition, resolvePlacement, resolveTriggerMode } from "./options"
 import type {
   Cleanup,
-  CSSPosition,
   RootEl,
   TooltipHandle,
   TriggerEventHandlers,
   TriggerListenerEvent,
   TriggerMode,
+  CSSPosition,
 } from "./types"
 
 const POINTER_INTENT_WINDOW_MS = 300
+const MAX_ZERO_SIZE_MEASURE_RETRIES = 2
 const TOOLTIP_ROOT_SELECTOR = "[data-affino-tooltip-root]"
 const FOCUSABLE_WITHIN_SELECTOR = [
   '[data-affino-tooltip-focus-target]',
@@ -57,6 +60,7 @@ export function hydrateTooltip(root: RootEl): void {
     root.dataset.affinoTooltipState = "closed"
     return
   }
+  const focusTarget = resolveFocusableTarget(trigger) ?? trigger
 
   const teardown = registry.get(root)
   if (teardown) {
@@ -73,15 +77,30 @@ export function hydrateTooltip(root: RootEl): void {
     openDelay: readNumber(root.dataset.affinoTooltipOpenDelay, 80),
     closeDelay: readNumber(root.dataset.affinoTooltipCloseDelay, 150),
     defaultOpen,
+    overlayManager: getDocumentOverlayManager(root.ownerDocument),
   })
+  registerTooltipCore(root, tooltip)
 
   const detachments: Cleanup[] = []
+  let disposed = false
   let pendingMeasureFrame: number | null = null
   let pendingPositionSync: number | null = null
+  let pendingRelayoutFrame: number | null = null
+  let relayoutListenersActive = false
+  let zeroSizeMeasureRetries = 0
+
+  const cancelPendingMeasure = () => {
+    if (pendingMeasureFrame !== null) {
+      cancelAnimationFrame(pendingMeasureFrame)
+      pendingMeasureFrame = null
+    }
+    zeroSizeMeasureRetries = 0
+  }
 
   const updatePosition = () => {
+    if (disposed || !root.isConnected || !surface.isConnected) return
     const anchorRect = trigger.getBoundingClientRect()
-    const strategy = (root.dataset.affinoTooltipStrategy as CSSPosition) ?? "fixed"
+    const strategy = resolveCSSPosition(root.dataset.affinoTooltipStrategy)
 
     if (surface.style.position !== strategy) {
       surface.style.position = strategy
@@ -89,42 +108,54 @@ export function hydrateTooltip(root: RootEl): void {
 
     const tooltipRect = surface.getBoundingClientRect()
     if (tooltipRect.width === 0 || tooltipRect.height === 0) {
-      if (pendingMeasureFrame === null) {
+      if (pendingMeasureFrame === null && zeroSizeMeasureRetries < MAX_ZERO_SIZE_MEASURE_RETRIES) {
+        zeroSizeMeasureRetries += 1
         pendingMeasureFrame = requestAnimationFrame(() => {
           pendingMeasureFrame = null
-          if (!surface.hidden) {
+          if (!surface.hidden && surface.isConnected && root.isConnected && tooltip.getSnapshot().open) {
             updatePosition()
           }
         })
       }
       return
     }
+    zeroSizeMeasureRetries = 0
 
     const position = tooltip.computePosition(anchorRect, tooltipRect, {
-      placement: (root.dataset.affinoTooltipPlacement as any) ?? "top",
-      align: (root.dataset.affinoTooltipAlign as any) ?? "center",
+      placement: resolvePlacement(root.dataset.affinoTooltipPlacement),
+      align: resolveAlignment(root.dataset.affinoTooltipAlign),
       gutter: readNumber(root.dataset.affinoTooltipGutter, 8),
+      viewportWidth: ownerWindow?.innerWidth,
+      viewportHeight: ownerWindow?.innerHeight,
     })
 
+    const coordinates = resolveSurfaceCoordinates(surface, position.left, position.top, strategy, ownerWindow)
     surface.style.position = strategy
-    surface.style.left = `${position.left}px`
-    surface.style.top = `${position.top}px`
+    surface.style.left = `${coordinates.left}px`
+    surface.style.top = `${coordinates.top}px`
     surface.style.transform = ""
     surface.dataset.placement = position.placement
     surface.dataset.align = position.align
   }
 
+  const describedBy = (focusTarget.getAttribute("aria-describedby") ?? "")
+    .split(/\s+/)
+    .filter((id) => id && id !== tooltip.getTooltipProps().id)
   const triggerProps = tooltip.getTriggerProps({
-    tabIndex: trigger.hasAttribute("tabindex") ? trigger.tabIndex : undefined,
+    tabIndex: focusTarget.hasAttribute("tabindex") ? focusTarget.tabIndex : undefined,
+    describedBy,
   }) as TooltipTriggerProps
   const triggerAttributes = stripTriggerEventHandlers(triggerProps)
-  detachments.push(bindProps(trigger, triggerAttributes))
+  if (focusTarget !== trigger) {
+    triggerAttributes.tabIndex = focusTarget.tabIndex
+  }
+  detachments.push(bindProps(focusTarget, triggerAttributes))
   const primePosition = () => {
     if (!surface.hidden) {
       return
     }
 
-    surface.style.position = (root.dataset.affinoTooltipStrategy as CSSPosition) ?? "fixed"
+    surface.style.position = resolveCSSPosition(root.dataset.affinoTooltipStrategy)
     surface.style.left = "0px"
     surface.style.top = "0px"
     surface.style.visibility = "hidden"
@@ -178,7 +209,47 @@ export function hydrateTooltip(root: RootEl): void {
   detachments.push(attachTooltipHandle(root, tooltip))
   const tooltipProps = tooltip.getTooltipProps() as unknown as Record<string, unknown>
   bindTooltipProps(surface, tooltipProps)
-  syncA11yState(trigger, surface, tooltip.getSnapshot().open)
+  const surfacePointerEnter: EventListener = (event) => {
+    const handler = tooltipProps.onPointerEnter
+    if (typeof handler === "function") handler(event as PointerEvent)
+  }
+  const surfacePointerLeave: EventListener = (event) => {
+    const handler = tooltipProps.onPointerLeave
+    if (typeof handler === "function") handler(event as PointerEvent)
+  }
+  surface.addEventListener("pointerenter", surfacePointerEnter)
+  surface.addEventListener("pointerleave", surfacePointerLeave)
+  detachments.push(() => {
+    surface.removeEventListener("pointerenter", surfacePointerEnter)
+    surface.removeEventListener("pointerleave", surfacePointerLeave)
+  })
+  syncA11yState(focusTarget, surface, tooltip.getSnapshot().open, describedBy)
+
+  const ownerDocument = root.ownerDocument ?? document
+  const ownerWindow = ownerDocument.defaultView
+  const scheduleRelayout = () => {
+    if (disposed || pendingRelayoutFrame !== null) return
+    pendingRelayoutFrame = requestAnimationFrame(() => {
+      pendingRelayoutFrame = null
+      if (!disposed && !surface.hidden && tooltip.getSnapshot().open && root.isConnected) updatePosition()
+    })
+  }
+  const activateRelayoutListeners = () => {
+    if (relayoutListenersActive) return
+    ownerDocument.addEventListener("scroll", scheduleRelayout, { capture: true, passive: true })
+    ownerWindow?.addEventListener("resize", scheduleRelayout)
+    relayoutListenersActive = true
+  }
+  const deactivateRelayoutListeners = () => {
+    if (!relayoutListenersActive) return
+    ownerDocument.removeEventListener("scroll", scheduleRelayout, true)
+    ownerWindow?.removeEventListener("resize", scheduleRelayout)
+    relayoutListenersActive = false
+    if (pendingRelayoutFrame !== null) {
+      cancelAnimationFrame(pendingRelayoutFrame)
+      pendingRelayoutFrame = null
+    }
+  }
 
   const syncPosition = () => {
     surface.style.visibility = "hidden"
@@ -207,13 +278,29 @@ export function hydrateTooltip(root: RootEl): void {
     }
   }
 
+  let resizeObserver: ResizeObserver | null = null
+  const activateResizeObserver = () => {
+    if (resizeObserver || typeof ResizeObserver === "undefined") return
+    resizeObserver = new ResizeObserver(() => {
+      if (!surface.hidden && tooltip.getSnapshot().open) scheduleRelayout()
+    })
+    resizeObserver.observe(trigger)
+    resizeObserver.observe(surface)
+  }
+  const deactivateResizeObserver = () => {
+    resizeObserver?.disconnect()
+    resizeObserver = null
+  }
+
   const unsubscribe = tooltip.subscribe((snapshot: TooltipState) => {
     const state = snapshot.open ? "open" : "closed"
     root.dataset.affinoTooltipState = state
     surface.dataset.state = state
-    syncA11yState(trigger, surface, snapshot.open)
+    syncA11yState(focusTarget, surface, snapshot.open, describedBy)
     if (snapshot.open) {
-      surface.style.position = (root.dataset.affinoTooltipStrategy as CSSPosition) ?? "fixed"
+      activateRelayoutListeners()
+      activateResizeObserver()
+      surface.style.position = resolveCSSPosition(root.dataset.affinoTooltipStrategy)
       surface.style.left = "0px"
       surface.style.top = "0px"
       surface.style.visibility = "hidden"
@@ -221,8 +308,11 @@ export function hydrateTooltip(root: RootEl): void {
       ensureSingleActiveTooltip(root)
       syncPosition()
     } else {
+      deactivateRelayoutListeners()
+      deactivateResizeObserver()
       surface.hidden = true
       surface.style.visibility = ""
+      cancelPendingMeasure()
       if (pendingPositionSync !== null) {
         cancelAnimationFrame(pendingPositionSync)
         pendingPositionSync = null
@@ -236,48 +326,10 @@ export function hydrateTooltip(root: RootEl): void {
 
   detachments.push(() => unsubscribe.unsubscribe())
 
-  const a11yObserver = new MutationObserver((mutations) => {
-    for (const mutation of mutations) {
-      if (mutation.type === "attributes" && mutation.attributeName === "id") {
-        syncA11yState(trigger, surface, tooltip.getSnapshot().open)
-        return
-      }
-    }
-  })
-  a11yObserver.observe(surface, {
-    attributes: true,
-    attributeFilter: ["id"],
-  })
-  detachments.push(() => a11yObserver.disconnect())
-
-  const stateObserver = new MutationObserver((mutations) => {
-    for (const mutation of mutations) {
-      if (mutation.type === "attributes" && mutation.attributeName === "data-affino-tooltip-state") {
-        syncOpenFromDomState()
-        return
-      }
-    }
-  })
-  stateObserver.observe(root, {
-    attributes: true,
-    attributeFilter: ["data-affino-tooltip-state"],
-  })
-  detachments.push(() => stateObserver.disconnect())
-  syncOpenFromDomState()
-
-  const resizeObserver = new ResizeObserver(() => {
-    if (!surface.hidden) {
-      updatePosition()
-    }
-  })
-
-  resizeObserver.observe(trigger)
   detachments.push(() => {
-    resizeObserver.disconnect()
-    if (pendingMeasureFrame !== null) {
-      cancelAnimationFrame(pendingMeasureFrame)
-      pendingMeasureFrame = null
-    }
+    deactivateResizeObserver()
+    deactivateRelayoutListeners()
+    cancelPendingMeasure()
     if (pendingPositionSync !== null) {
       cancelAnimationFrame(pendingPositionSync)
       pendingPositionSync = null
@@ -292,23 +344,38 @@ export function hydrateTooltip(root: RootEl): void {
     pendingStructureRehydrate = true
     Promise.resolve().then(() => {
       pendingStructureRehydrate = false
-      if (!root.isConnected) {
+      if (disposed || !root.isConnected) {
         return
       }
       hydrateTooltip(root)
     })
   }
 
-  const structureObserver = new MutationObserver(() => {
-    const nextTrigger = resolveTriggerElement()
-    const nextSurface = resolveSurfaceElement()
-    if (nextTrigger !== trigger || nextSurface !== surface) {
-      scheduleStructureRehydrate()
+  const domObserver = new MutationObserver((mutations) => {
+    let checkStructure = false
+    for (const mutation of mutations) {
+      if (mutation.type === "attributes" && mutation.target === root && mutation.attributeName === "data-affino-tooltip-state") {
+        syncOpenFromDomState()
+      } else if (mutation.type === "attributes" && mutation.target === surface && mutation.attributeName === "id") {
+        syncA11yState(focusTarget, surface, tooltip.getSnapshot().open, describedBy)
+      } else if (mutation.type === "childList") {
+        checkStructure = true
+      }
+    }
+    if (checkStructure) {
+      const nextTrigger = resolveTriggerElement()
+      const nextSurface = resolveSurfaceElement()
+      const nextFocusTarget = nextTrigger ? resolveFocusableTarget(nextTrigger) ?? nextTrigger : null
+      if (nextTrigger !== trigger || nextFocusTarget !== focusTarget || nextSurface !== surface) {
+        scheduleStructureRehydrate()
+      }
     }
   })
 
-  structureObserver.observe(root, { childList: true, subtree: true })
-  detachments.push(() => structureObserver.disconnect())
+  domObserver.observe(root, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-affino-tooltip-state"] })
+  domObserver.observe(surface, { attributes: true, attributeFilter: ["id"] })
+  detachments.push(() => domObserver.disconnect())
+  syncOpenFromDomState()
 
   const restoreTrackedFocus = () => {
     if (!shouldSyncFocus || !rootId) {
@@ -357,13 +424,14 @@ export function hydrateTooltip(root: RootEl): void {
   }
 
   const hasTrackedFocus = shouldSyncFocus && rootId != null && focusedTooltipIds.has(rootId)
-  const ownerDocument = root.ownerDocument ?? document
-  const activeElement = ownerDocument.activeElement
+  const focusDocument = root.ownerDocument ?? document
+  const activeElement = focusDocument.activeElement
   const alreadyFocused = shouldSyncFocus
     && (activeElement === trigger || (activeElement instanceof Node && trigger.contains(activeElement)))
   if (shouldSyncFocus && (hasTrackedFocus || alreadyFocused)) {
     requestAnimationFrame(() => {
-      const active = ownerDocument.activeElement
+      if (disposed) return
+      const active = focusDocument.activeElement
       const focusOnTrigger = active === trigger || (active instanceof Node && trigger.contains(active))
       if (hasTrackedFocus && !focusOnTrigger) {
         restoreTrackedFocus()
@@ -379,6 +447,7 @@ export function hydrateTooltip(root: RootEl): void {
 
   if (isPinnedTooltip(root)) {
     requestAnimationFrame(() => {
+      if (disposed) return
       if (root.isConnected && isPinnedTooltip(root)) {
         tooltip.open("programmatic")
       }
@@ -386,12 +455,17 @@ export function hydrateTooltip(root: RootEl): void {
   }
 
   registry.set(root, (options = {}) => {
+    if (disposed) return
+    disposed = true
     const releaseFocus = options.releaseFocus !== false
     const ownerDocument = root.ownerDocument ?? document
     if (getActiveTooltipRoot(ownerDocument) === root) {
       closeTooltipRoot(root, "programmatic")
     }
+    if (tooltip.getSnapshot().open) tooltip.close("programmatic")
     detachments.forEach((cleanup) => cleanup())
+    tooltip.destroy()
+    registerTooltipCore(root, null)
     if (rootId) {
       if (releaseFocus) {
         focusedTooltipIds.delete(rootId)
@@ -479,6 +553,7 @@ function bindProps(element: HTMLElement, props: Record<string, unknown>): Cleanu
 
 function bindTooltipProps(element: HTMLElement, props: Record<string, unknown>): void {
   for (const [key, value] of Object.entries(props)) {
+    if (key.startsWith("on") && typeof value === "function") continue
     if (value == null) {
       continue
     }
@@ -493,6 +568,25 @@ function bindTooltipProps(element: HTMLElement, props: Record<string, unknown>):
     }
 
     element.setAttribute(toKebabCase(key), String(value))
+  }
+}
+
+function resolveSurfaceCoordinates(
+  surface: HTMLElement,
+  left: number,
+  top: number,
+  strategy: CSSPosition,
+  ownerWindow: Window | null,
+) {
+  const parent = surface.offsetParent as HTMLElement | null
+  if (!parent) {
+    if (strategy !== "absolute") return { left, top }
+    return { left: left + (ownerWindow?.scrollX ?? 0), top: top + (ownerWindow?.scrollY ?? 0) }
+  }
+  const rect = parent.getBoundingClientRect()
+  return {
+    left: left - rect.left - parent.clientLeft + parent.scrollLeft,
+    top: top - rect.top - parent.clientTop + parent.scrollTop,
   }
 }
 
@@ -752,6 +846,7 @@ export function setupPointerGuards(): void {
       const mode = resolveTriggerMode(root.dataset.affinoTooltipTriggerMode)
       return mode === "manual" || mode === "click" || mode === "focus" || isPinnedTooltip(root)
     },
+    canCloseRoot: (root) => isTooltipTopmost(root),
     closeRoot: (root, reason) => closeTooltipRoot(root, reason),
   })
 }
@@ -770,9 +865,12 @@ function toKebabCase(key: string): string {
     .toLowerCase()
 }
 
-function syncA11yState(trigger: HTMLElement, surface: HTMLElement, open: boolean): void {
-  if (surface.id) {
-    trigger.setAttribute("aria-describedby", surface.id)
+function syncA11yState(trigger: HTMLElement, surface: HTMLElement, open: boolean, describedBy: string[] = []): void {
+  const ids = Array.from(new Set([...describedBy, surface.id].filter(Boolean)))
+  if (ids.length) {
+    trigger.setAttribute("aria-describedby", ids.join(" "))
+  } else {
+    trigger.removeAttribute("aria-describedby")
   }
   surface.setAttribute("aria-hidden", open ? "false" : "true")
 }

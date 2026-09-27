@@ -30,4 +30,4 @@ export type TriggerEventHandlers = Pick<TooltipTriggerProps, "onPointerEnter" | 
 
 export type TriggerListenerEvent = keyof HTMLElementEventMap | "focusin" | "focusout"
 
-export type CSSPosition = Extract<CSSStyleDeclaration["position"], "fixed" | "absolute">
+export type CSSPosition = "fixed" | "absolute"

@@ -1,5 +1,11 @@
 # @affino/overlay-kernel
 
+## 0.2.1
+
+### Patch Changes
+
+- Fix overlay integration reconnection when releasing idle registrations.
+
 ## 0.2.0
 
 ### Minor Changes

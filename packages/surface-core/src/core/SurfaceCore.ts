@@ -1,7 +1,7 @@
-import { SurfaceEvents } from "./SurfaceEvents"
-import { SurfaceTimers } from "./SurfaceTimers"
-import { SurfaceStateMachine } from "./SurfaceStateMachine"
-import { computePosition } from "../positioning/computePosition"
+import { SurfaceEvents } from "./SurfaceEvents.js"
+import { SurfaceTimers } from "./SurfaceTimers.js"
+import { SurfaceStateMachine } from "./SurfaceStateMachine.js"
+import { computePosition } from "../positioning/computePosition.js"
 import type {
   PointerEventLike,
   PositionOptions,
@@ -13,7 +13,7 @@ import type {
   SurfaceState,
   SurfaceSubscriber,
   Subscription,
-} from "../types"
+} from "../types.js"
 
 let idCounter = 0
 

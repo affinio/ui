@@ -1,4 +1,4 @@
-import type { PositionOptions, Rect } from "../types"
+import type { PositionOptions, Rect } from "../types.js"
 
 type DiagnosticsReporter = (message: string, details?: Record<string, unknown>) => void
 

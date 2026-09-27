@@ -1,5 +1,12 @@
 # @affino/tooltip-vue
 
+## 1.1.1
+
+### Patch Changes
+
+- Fix shared keyboard and focus listeners, tooltip positioning, and observer cleanup.
+- Correct ESM entrypoint resolution through tooltip dependencies.
+
 ## 1.1.0
 
 ### Minor Changes

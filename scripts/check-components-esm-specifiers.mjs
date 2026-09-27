@@ -1,5 +1,6 @@
 import { readFile, readdir } from "node:fs/promises"
 import { extname, join, resolve } from "node:path"
+import { pathToFileURL } from "node:url"
 
 const root = resolve(new URL("..", import.meta.url).pathname)
 const packages = [
@@ -9,6 +10,8 @@ const packages = [
   "dialog-vue",
   "diagram-core",
   "diagram-vue",
+  "tooltip-core",
+  "tooltip-vue",
 ]
 const failures = []
 
@@ -22,6 +25,13 @@ for (const packageName of packages) {
       if (!specifier.endsWith(".js")) {
         failures.push(`${file}: ${specifier}`)
       }
+    }
+  }
+  if (packageName === "tooltip-core" || packageName === "tooltip-vue") {
+    try {
+      await import(pathToFileURL(join(dist, "index.js")).href)
+    } catch (error) {
+      failures.push(`${join(dist, "index.js")}: runtime import failed (${error instanceof Error ? error.message : String(error)})`)
     }
   }
 }

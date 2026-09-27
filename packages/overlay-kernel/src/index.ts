@@ -855,6 +855,7 @@ export function createOverlayIntegration(options: OverlayIntegrationOptions): Ov
   let currentManager: OverlayManager | null = overlayManager ?? null
   let handle: OverlayRegistrationHandle | null = null
   let listeners: Array<() => void> = []
+  let managerAttached = false
   let resolvedTraits = normalizeTraits(traits)
 
   function normalizeTraits(
@@ -876,6 +877,8 @@ export function createOverlayIntegration(options: OverlayIntegrationOptions): Ov
   }
 
   function attach(manager: OverlayManager): void {
+    if (managerAttached) return
+    managerAttached = true
     if (!onCloseRequested) {
       return
     }
@@ -892,6 +895,7 @@ export function createOverlayIntegration(options: OverlayIntegrationOptions): Ov
   function detach(): void {
     listeners.forEach((off) => off())
     listeners = []
+    managerAttached = false
     if (handle) {
       handle.unregister()
       handle = null
@@ -944,6 +948,9 @@ export function createOverlayIntegration(options: OverlayIntegrationOptions): Ov
       detach()
       return Boolean(currentManager)
     }
+    const manager = ensureManager()
+    if (!manager) return false
+    attach(manager)
     if (!ensureHandle(state)) {
       return false
     }
@@ -983,12 +990,10 @@ export function createOverlayIntegration(options: OverlayIntegrationOptions): Ov
     }
     detach()
     currentManager = manager
-    if (currentManager) {
+    if (currentManager && (!releaseOnIdle || currentState !== "idle")) {
       attach(currentManager)
-      if (!releaseOnIdle || currentState !== "idle") {
         ensureHandle(currentState)
         handle?.update({ state: currentState })
-      }
     }
   }
 
@@ -1010,8 +1015,8 @@ export function createOverlayIntegration(options: OverlayIntegrationOptions): Ov
   }
 
   if (currentManager) {
-    attach(currentManager)
     if (currentState !== "idle" || !releaseOnIdle) {
+      attach(currentManager)
       ensureHandle(currentState)
     }
   }

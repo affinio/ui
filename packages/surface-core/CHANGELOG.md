@@ -1,5 +1,11 @@
 # @affino/surface-core
 
+## 1.1.1
+
+### Patch Changes
+
+- Fix timer lifecycle edge cases and native ESM module resolution.
+
 ## 1.1.0
 
 ### Minor Changes

@@ -1,4 +1,4 @@
-import type { SurfaceOptions } from "../types"
+import type { SurfaceOptions } from "../types.js"
 
 type TimerHandle = ReturnType<typeof setTimeout> | null
 
@@ -9,7 +9,7 @@ export class SurfaceTimers {
   constructor(private readonly options: Required<Pick<SurfaceOptions, "openDelay" | "closeDelay">>) {}
 
   scheduleOpen(callback: () => void) {
-    if (this.openTimer) {
+    if (this.openTimer !== null) {
       clearTimeout(this.openTimer)
     }
     this.openTimer = setTimeout(() => {
@@ -19,7 +19,7 @@ export class SurfaceTimers {
   }
 
   scheduleClose(callback: () => void) {
-    if (this.closeTimer) {
+    if (this.closeTimer !== null) {
       clearTimeout(this.closeTimer)
     }
     this.closeTimer = setTimeout(() => {

@@ -13,8 +13,21 @@ export function resolveTriggerMode(value?: string): TriggerMode {
 }
 
 export function readNumber(value: string | undefined, fallback: number): number {
+  if (value === undefined || value.trim() === "") return fallback
   const parsed = Number(value)
-  return Number.isFinite(parsed) ? parsed : fallback
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback
+}
+
+export function resolvePlacement(value?: string): "top" | "bottom" | "left" | "right" {
+  return value === "bottom" || value === "left" || value === "right" ? value : "top"
+}
+
+export function resolveAlignment(value?: string): "start" | "center" | "end" {
+  return value === "start" || value === "end" ? value : "center"
+}
+
+export function resolveCSSPosition(value?: string): "fixed" | "absolute" {
+  return value === "absolute" ? "absolute" : "fixed"
 }
 
 export function isFocusMode(mode: TriggerMode): boolean {

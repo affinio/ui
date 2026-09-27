@@ -1,5 +1,12 @@
 # @affino/tooltip-core
 
+## 1.1.1
+
+### Patch Changes
+
+- Fix tooltip timer cleanup and lazily register overlay behavior.
+- Correct ESM entrypoint resolution through surface and overlay dependencies.
+
 ## 1.1.0
 
 ### Minor Changes
