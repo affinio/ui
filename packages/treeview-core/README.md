@@ -60,6 +60,8 @@ Legacy imperative methods remain and delegate internally:
 ## Other API
 
 - `registerNodes(nodes, options?)` — default mode replaces the source; use `{ mode: "patch" }` for upserts without removing omitted nodes. Returns `{ changed, topologyChanged }`, so adapters can skip downstream work for no-op updates.
+- `removeNodes(values)` — removes each existing ID and its full subtree. Missing IDs are ignored. If active/selected is removed, the nearest surviving ancestor becomes active/selected; root removal falls back to `null`.
+- `batch(callback)` — groups synchronous notifications across nested operations into one final notification. Mutations are applied immediately and are not rolled back if the callback throws; the final state is still published before the error is rethrown.
 - `expandPath(value)`
 - `clearSelection()`
 - `getVisibleValues()`
@@ -80,6 +82,7 @@ Nodes can provide `text`, or consumers can pass `textAccessor` in options. `setS
 - `getSnapshot()` returns a frozen immutable object.
 - `expanded` inside snapshot is also frozen.
 - Snapshot reference stays stable for no-op/failure requests.
+- A batch publishes at most one final snapshot; reads inside the callback see already-applied operations.
 
 ## Guardrails
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.0
+
+### Minor Changes
+
+- Added subtree deletion by stable IDs and nested notification batching.
+- Removing a selected or active node falls back to its nearest surviving ancestor.
+
 ## 0.3.0
 
 ### Minor Changes

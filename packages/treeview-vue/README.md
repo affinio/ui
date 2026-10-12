@@ -34,3 +34,5 @@ if (!focus.ok) {
 ```
 
 `registerNodes()` returns `{ changed, topologyChanged }`. The `request*` methods return the same `TreeviewActionResult` as `@affino/treeview-core`; legacy imperative methods remain available for compatibility. The virtual controller refreshes its visible window after these operations while returning the original result.
+
+Both controllers expose `removeNodes(ids)` (including subtree deletion) and `batch(callback)`. Batches publish one final state notification, including when a nested callback throws; applied changes are not rolled back. Virtual row state updates synchronously after core notifications. Scroll-driven updates remain coalesced through animation frames.

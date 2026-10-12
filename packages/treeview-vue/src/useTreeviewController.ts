@@ -18,6 +18,8 @@ export interface TreeviewController<Value = string> {
     nodes: ReadonlyArray<TreeviewNode<Value>>,
     options?: TreeviewRegisterOptions,
   ) => TreeviewRegisterResult
+  readonly removeNodes: (values: ReadonlyArray<Value>) => TreeviewRegisterResult
+  readonly batch: <T>(callback: () => T) => T
   readonly select: (value: Value) => void
   readonly requestSelect: (value: Value) => TreeviewActionResult
   readonly clearSelection: () => void
@@ -80,6 +82,8 @@ export function useTreeviewController<Value = string>(
     core,
     state,
     registerNodes: (nodes, options) => core.registerNodes(nodes, options),
+    removeNodes: (values) => core.removeNodes(values),
+    batch: (callback) => core.batch(callback),
     select: (value) => core.select(value),
     requestSelect: (value) => core.requestSelect(value),
     clearSelection: () => core.clearSelection(),

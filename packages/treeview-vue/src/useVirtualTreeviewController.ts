@@ -136,14 +136,6 @@ export function useVirtualTreeviewController<Value = string>(
     }
   }
 
-  const refreshAfter = <Args extends unknown[], Result>(callback: (...args: Args) => Result) => {
-    return (...args: Args): Result => {
-      const result = callback(...args)
-      refreshWindow()
-      return result
-    }
-  }
-
   const dispose = () => {
     if (disposed) {
       return
@@ -162,7 +154,7 @@ export function useVirtualTreeviewController<Value = string>(
   }
 
   refreshWindow()
-  const coreSubscription = controller.core.subscribe(() => scheduleRefresh())
+  const coreSubscription = controller.core.subscribe(() => refreshWindow())
 
   return {
     ...controller,
@@ -172,29 +164,6 @@ export function useVirtualTreeviewController<Value = string>(
     totalHeight,
     visibleWindow,
     visibleRows,
-    registerNodes: refreshAfter(controller.registerNodes),
-    select: refreshAfter(controller.select),
-    requestSelect: refreshAfter(controller.requestSelect),
-    clearSelection: refreshAfter(controller.clearSelection),
-    focus: refreshAfter(controller.focus),
-    requestFocus: refreshAfter(controller.requestFocus),
-    focusFirst: refreshAfter(controller.focusFirst),
-    requestFocusFirst: refreshAfter(controller.requestFocusFirst),
-    focusLast: refreshAfter(controller.focusLast),
-    requestFocusLast: refreshAfter(controller.requestFocusLast),
-    focusNext: refreshAfter(controller.focusNext),
-    requestFocusNext: refreshAfter(controller.requestFocusNext),
-    focusPrevious: refreshAfter(controller.focusPrevious),
-    requestFocusPrevious: refreshAfter(controller.requestFocusPrevious),
-    expand: refreshAfter(controller.expand),
-    requestExpand: refreshAfter(controller.requestExpand),
-    collapse: refreshAfter(controller.collapse),
-    requestCollapse: refreshAfter(controller.requestCollapse),
-    toggle: refreshAfter(controller.toggle),
-    requestToggle: refreshAfter(controller.requestToggle),
-    expandPath: refreshAfter(controller.expandPath),
-    setSearchQuery: refreshAfter(controller.setSearchQuery),
-    clearSearchQuery: refreshAfter(controller.clearSearchQuery),
     setScrollTop,
     setViewportHeight,
     scrollToIndex,

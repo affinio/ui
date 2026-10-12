@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.0
+
+### Minor Changes
+
+- Forwarded subtree removal and batch operations through both Vue controllers.
+- Virtual window updates now follow the single synchronous core notification; scroll updates remain frame-coalesced.
+
 ## 0.3.0
 
 ### Minor Changes

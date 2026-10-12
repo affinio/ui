@@ -854,4 +854,27 @@ describe("TreeviewCore", () => {
     expect(core.requestFocus("missing")).toEqual({ ok: false, changed: false, reason: "missing-node" })
     expect(core.getSnapshot()).toBe(before)
   })
+
+  it("removes subtrees, preserves selection via ancestor fallback, and batches notifications", () => {
+    const core = new TreeviewCore<string>({ nodes: [
+      { value: "root", parent: null }, { value: "branch", parent: "root" },
+      { value: "leaf", parent: "branch" }, { value: "sibling", parent: "root" },
+    ], defaultExpanded: ["root", "branch"], defaultSelected: "leaf", defaultActive: "leaf" })
+    const notifications: unknown[] = []
+    core.subscribe((snapshot) => notifications.push(snapshot))
+    notifications.length = 0
+    core.batch(() => {
+      core.removeNodes(["unknown"])
+      core.removeNodes(["branch"])
+      core.registerNodes([{ value: "new", parent: "root" }], { mode: "patch" })
+    })
+    expect(core.getVisibleValues()).toEqual(["root", "sibling", "new"])
+    expect(core.getSnapshot().selected).toBe("root")
+    expect(core.getSnapshot().active).toBe("root")
+    expect(core.getParent("sibling")).toBe("root")
+    expect(notifications).toHaveLength(1)
+    const before = notifications.length
+    core.batch(() => core.removeNodes(["unknown"]))
+    expect(notifications).toHaveLength(before)
+  })
 })

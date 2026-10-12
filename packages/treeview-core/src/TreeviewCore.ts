@@ -90,6 +90,8 @@ export class TreeviewCore<Value = string> {
     refreshEntryStage: "visible",
   })
   private readonly loop: boolean
+  private batchDepth = 0
+  private batchChanged = false
 
   constructor(options: TreeviewOptions<Value> = {}) {
     this.loop = options.loop ?? false
@@ -126,6 +128,53 @@ export class TreeviewCore<Value = string> {
       this.emitSnapshot()
     }
     return result
+  }
+
+  /** Removes the requested nodes and their full subtrees. Missing IDs are ignored. */
+  removeNodes(values: ReadonlyArray<Value>): TreeviewRegisterResult {
+    const removed = new Set<Value>()
+    const fallback = new Map<Value, Value | null>()
+    const visit = (value: Value, ancestor: Value | null) => {
+      const node = this.nodes.get(value)
+      if (!node || removed.has(value)) return
+      fallback.set(value, ancestor)
+      removed.add(value)
+      node.children.forEach((child) => visit(child, value))
+    }
+    values.forEach((value) => visit(value, this.nodes.get(value)?.parent ?? null))
+    if (!removed.size) return { changed: false, topologyChanged: false }
+    // Prefer the nearest surviving ancestor when selection or active focus is removed.
+    const survivingAncestor = (value: Value | null): Value | null => {
+      let current = value
+      while (current !== null && removed.has(current)) current = fallback.get(current) ?? null
+      return current
+    }
+    const active = removed.has(this.state.active as Value) ? survivingAncestor(this.state.active) : this.state.active
+    const selected = removed.has(this.state.selected as Value) ? survivingAncestor(this.state.selected) : this.state.selected
+    for (const value of removed) this.nodes.delete(value)
+    this.rootValues = this.rootValues.filter((value) => !removed.has(value))
+    this.nodes.forEach((node) => { node.children = node.children.filter((value) => !removed.has(value)) })
+    this.state = { ...this.state, active, selected, expanded: this.state.expanded.filter((value) => !removed.has(value)) }
+    this.expandedSet = new Set(this.state.expanded)
+    this.rebuildSourceIndexes(this.nodes)
+    this.rebuildSearchProjection()
+    this.invalidateVisibleProjection()
+    this.snapshot = this.createSnapshot(this.state)
+    this.emitSnapshot()
+    return { changed: true, topologyChanged: true }
+  }
+
+  /** Groups synchronous changes into one final subscriber notification. Changes are retained if callback throws. */
+  batch<T>(callback: () => T): T {
+    this.batchDepth++
+    try { return callback() }
+    finally {
+      this.batchDepth--
+      if (this.batchDepth === 0 && this.batchChanged) {
+        this.batchChanged = false
+        this.subscribers.forEach((subscriber) => subscriber(this.snapshot))
+      }
+    }
   }
 
   select(value: Value): void {
@@ -284,7 +333,7 @@ export class TreeviewCore<Value = string> {
       const previousSnapshot = this.snapshot
       this.snapshot = this.createSnapshot(this.state)
       if (this.snapshot === previousSnapshot) {
-        this.subscribers.forEach((subscriber) => subscriber(this.snapshot))
+        this.emitSnapshot()
       }
     }
     return actionSuccess(!statesEqual(previous, this.state) || overlayChanged)
@@ -368,7 +417,7 @@ export class TreeviewCore<Value = string> {
     this.patch(this.normalizeState(this.state))
     if (this.snapshot === previousSnapshot) {
       this.snapshot = this.createSnapshot(this.state)
-      this.subscribers.forEach((subscriber) => subscriber(this.snapshot))
+      this.emitSnapshot()
     }
   }
 
@@ -897,6 +946,10 @@ export class TreeviewCore<Value = string> {
   }
 
   private emitSnapshot(): void {
+    if (this.batchDepth > 0) {
+      this.batchChanged = true
+      return
+    }
     this.subscribers.forEach((subscriber) => subscriber(this.snapshot))
   }
 
