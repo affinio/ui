@@ -55,7 +55,7 @@ It is not a browser frame benchmark. It protects controller/render-window churn 
 
 ## Budgets
 
-`bench:treeview:core:assert` and `bench:treeview:vue:virtual:assert` use conservative smoke budgets for 10k nodes. The core total budget includes the topology patch workloads, which are intentionally more expensive than the per-operation latency gates.
+`bench:treeview:core:assert` and `bench:treeview:vue:virtual:assert` use conservative smoke budgets for 10k nodes. The core total budget is 24 seconds and includes fixture setup, forced-GC heap sampling, and topology patch workloads, so it is a suite-runtime guard rather than a per-operation performance signal. Per-operation p95 and heap budgets remain the regression gates. The previous 18-second total budget was exceeded once in CI (19.4 seconds) while all individual budgets passed; local repeat runs completed in about 6.6 seconds, indicating runner-sensitive total timing.
 
 Supported budget environment variables:
 
