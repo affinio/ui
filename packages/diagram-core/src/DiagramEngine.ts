@@ -16,6 +16,7 @@ import type {
   DiagramEdge,
   DiagramEdgeEndpoint,
   DiagramEntityKind,
+  DiagramMetadata,
   DiagramGeometry,
   DiagramHit,
   DiagramHitTestOptions,
@@ -542,6 +543,8 @@ export class DiagramEngine {
         return createOrderPatch(this.state, command.ids, "back")
       case "setLayer":
         return createLayerPatch(this.state, command.ids, command.layer, command.layerRole)
+      case "setEntityMetadata":
+        return createEntityMetadataPatch(this.state, command.id, command.metadata)
       case "keyboard":
         return createKeyboardPatch(this.state, command.command, command.options ?? {})
       case "setSelection":
@@ -1042,6 +1045,29 @@ function createZIndexPatch(state: InternalState, ids: ReadonlyArray<DiagramId>, 
     nextMetadata.set(id, { ...(previous ?? {}), zIndex: mode === "front" ? base + index + 1 : base - ids.length + index })
   })
   return createMetadataSnapshotPatch(ids, previousMetadata, nextMetadata)
+}
+
+function createEntityMetadataPatch(state: InternalState, id: DiagramId, metadata: DiagramMetadata | undefined): Patch | null {
+  if (!hasEntity(state, id)) return null
+  const previousMetadata = getEntityMetadata(state, id)
+  const nextMetadata = metadata === undefined ? undefined : { ...metadata }
+  if (metadataEqual(previousMetadata, nextMetadata)) return null
+  return createMetadataSnapshotPatch(
+    [id],
+    new Map([[id, previousMetadata]]),
+    new Map([[id, nextMetadata]]),
+  )
+}
+
+function metadataEqual(
+  first: Readonly<Record<string, unknown>> | undefined,
+  second: Readonly<Record<string, unknown>> | undefined,
+): boolean {
+  if (first === second) return true
+  if (first === undefined || second === undefined) return false
+  const firstKeys = Object.keys(first)
+  const secondKeys = Object.keys(second)
+  return firstKeys.length === secondKeys.length && firstKeys.every((key) => first[key] === second[key])
 }
 
 function createMetadataSnapshotPatch(ids: ReadonlyArray<DiagramId>, previous: ReadonlyMap<DiagramId, Readonly<Record<string, unknown>> | undefined>, nextMetadata: ReadonlyMap<DiagramId, Readonly<Record<string, unknown>> | undefined>): Patch {

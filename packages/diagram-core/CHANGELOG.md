@@ -1,5 +1,12 @@
 # @affino/diagram-core
 
+## 0.4.0
+
+### Minor Changes
+
+- Added `setEntityMetadata` to update or remove entity metadata through the shared undo/redo history.
+- Preserved metadata changes in history groups and bounded history alongside other commands.
+
 ## 0.3.0
 
 ### Minor Changes

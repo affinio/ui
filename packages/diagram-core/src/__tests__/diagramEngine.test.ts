@@ -283,6 +283,55 @@ describe("DiagramEngine", () => {
     expect(engine.getScene().entities.nodesById.get("n1")?.x).toBe(20)
   })
 
+  it("undoes and redoes entity metadata in order with movement and serialization", () => {
+    const engine = createDiagramEngine({
+      nodes: [{ id: "switchgear", kind: "node", x: 0, y: 0, width: 100, height: 60, metadata: { type: "LV" } }],
+    })
+    const switchgear = () => engine.getScene().entities.nodesById.get("switchgear")!
+
+    engine.dispatch({ type: "moveNode", id: "switchgear", delta: { x: 24, y: 0 } })
+    engine.dispatch({ type: "setEntityMetadata", id: "switchgear", metadata: { type: "SLD" } })
+    expect(switchgear().metadata?.type).toBe("SLD")
+    expect(engine.serialize().nodes[0]?.metadata?.type).toBe("SLD")
+
+    engine.dispatch({ type: "undo" })
+    expect(switchgear().metadata?.type).toBe("LV")
+    expect(switchgear().x).toBe(24)
+    expect(engine.serialize().nodes[0]?.metadata?.type).toBe("LV")
+
+    engine.dispatch({ type: "undo" })
+    expect(switchgear().x).toBe(0)
+    engine.dispatch({ type: "redo" })
+    expect(switchgear().x).toBe(24)
+    expect(switchgear().metadata?.type).toBe("LV")
+    engine.dispatch({ type: "redo" })
+    expect(switchgear().metadata?.type).toBe("SLD")
+    expect(engine.serialize().nodes[0]).toMatchObject({ x: 24, metadata: { type: "SLD" } })
+  })
+
+  it("groups metadata updates and counts them toward the history limit", () => {
+    const grouped = createDiagramEngine({
+      nodes: [{ id: "switchgear", kind: "node", x: 0, y: 0, width: 100, height: 60, metadata: { type: "LV" } }],
+    })
+    grouped.dispatch({ type: "setEntityMetadata", id: "switchgear", metadata: { type: "MV" }, historyKey: "type:switchgear" })
+    grouped.dispatch({ type: "setEntityMetadata", id: "switchgear", metadata: { type: "SLD" }, historyKey: "type:switchgear" })
+    expect(grouped.getDiagnostics().undoDepth).toBe(1)
+    grouped.dispatch({ type: "undo" })
+    expect(grouped.getScene().entities.nodesById.get("switchgear")?.metadata?.type).toBe("LV")
+    grouped.dispatch({ type: "redo" })
+    expect(grouped.getScene().entities.nodesById.get("switchgear")?.metadata?.type).toBe("SLD")
+
+    const bounded = createDiagramEngine({
+      nodes: [{ id: "switchgear", kind: "node", x: 0, y: 0, width: 100, height: 60, metadata: { type: "LV" } }],
+    }, { history: { maxEntries: 1 } })
+    bounded.dispatch({ type: "moveNode", id: "switchgear", delta: { x: 10, y: 0 } })
+    bounded.dispatch({ type: "setEntityMetadata", id: "switchgear", metadata: { type: "SLD" } })
+    expect(bounded.getDiagnostics().undoDepth).toBe(1)
+    bounded.dispatch({ type: "undo" })
+    expect(bounded.getScene().entities.nodesById.get("switchgear")).toMatchObject({ x: 10, metadata: { type: "LV" } })
+    expect(bounded.dispatch({ type: "undo" }).changed).toBe(false)
+  })
+
   it("deletes and restores selected entities", () => {
     const engine = createDiagramEngine(scene)
 
