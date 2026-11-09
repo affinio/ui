@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.1
+
+### Patch Changes
+
+- Updated the treeview core dependency to include corrected temporary expansion behavior during search.
+
 ## 0.4.0
 
 ### Minor Changes

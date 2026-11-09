@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.0
+
+### Minor Changes
+
+- Search now shows descendants of matching nodes when those nodes are expanded, with expand/collapse overrides kept temporary for the active query.
+- Changing the query resets temporary expansion overrides; clearing search restores the persistent expansion state.
+
 ## 0.4.0
 
 ### Minor Changes

@@ -196,7 +196,7 @@ describe("TreeviewCore", () => {
 
     core.expand("root")
     expect(core.getVisibleValues()).toEqual(["root", "beta", "gamma"])
-    expect(core.getSnapshot().expanded).toEqual(["root"])
+    expect(core.getSnapshot().expanded).toEqual([])
     expect(core.getNodeMeta("root")).toMatchObject({ expanded: true })
 
     core.collapse("root")
@@ -206,25 +206,43 @@ describe("TreeviewCore", () => {
 
     core.expand("root")
     expect(core.getVisibleValues()).toEqual(["root", "beta", "gamma"])
-    expect(core.getSnapshot().expanded).toEqual(["root"])
+    expect(core.getSnapshot().expanded).toEqual([])
 
     core.collapse("beta")
     expect(core.getVisibleValues()).toEqual(["root", "beta"])
-    expect(core.getSnapshot().expanded).toEqual(["root"])
+    expect(core.getSnapshot().expanded).toEqual([])
     expect(core.getNodeMeta("beta")).toMatchObject({ expanded: false })
 
     core.expand("beta")
     expect(core.getVisibleValues()).toEqual(["root", "beta", "gamma"])
-    expect(core.getSnapshot().expanded).toEqual(["root", "beta"])
+    expect(core.getSnapshot().expanded).toEqual([])
 
     core.clearSearchQuery()
 
-    expect(core.getVisibleValues()).toEqual(["root", "alpha", "beta", "gamma"])
+    expect(core.getVisibleValues()).toEqual(["root"])
     expect(core.getSearchMatchCount()).toBe(0)
-    expect(core.getSnapshot().expanded).toEqual(["root", "beta"])
-    expect(snapshots).toEqual(["alpha", "root", "root", "root", "root", "root", "root", "root", "root"])
+    expect(core.getSnapshot().expanded).toEqual([])
+    expect(snapshots[0]).toBe("alpha")
+    expect(snapshots.slice(1)).toEqual(Array.from({ length: snapshots.length - 1 }, () => "root"))
 
     subscription.unsubscribe()
+  })
+
+  it("shows expanded matching subtrees and keeps search expansion temporary", () => {
+    const core = new TreeviewCore<string>({
+      nodes: [
+        { value: "root", parent: null, text: "Workspace" },
+        { value: "match", parent: "root", text: "Bay 01" },
+        { value: "child", parent: "match", text: "BCU" },
+        { value: "leaf", parent: "child", text: "Controller" },
+      ],
+      defaultExpanded: ["root", "match"],
+    })
+    core.setSearchQuery("bay")
+    expect(core.getVisibleValues()).toEqual(["root", "match", "child"])
+    expect(core.getSnapshot().expanded).toEqual(["root", "match"])
+    core.clearSearchQuery()
+    expect(core.getVisibleValues()).toEqual(["root", "match", "child"])
   })
 
   it("uses textAccessor and refreshes search text on patch", () => {

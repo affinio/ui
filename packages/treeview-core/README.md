@@ -75,7 +75,7 @@ Legacy imperative methods remain and delegate internally:
 
 ## Search projection
 
-Nodes can provide `text`, or consumers can pass `textAccessor` in options. `setSearchQuery(query)` filters the visible projection to matching nodes and their ancestors without mutating expansion state. `TreeviewNodeMeta.matched` marks direct matches for UI highlighting. Clearing the query restores the regular expansion-driven visible projection.
+Nodes can provide `text`, or consumers can pass `textAccessor` in options. `setSearchQuery(query)` creates a temporary visible projection containing direct matches, their ancestor paths, and descendants of direct matches. Ancestors needed to reach a match expand temporarily; a matching node's own descendants appear only when that node is effectively expanded. Descendants are not recursively expanded. `TreeviewNodeMeta.matched` marks direct matches for UI highlighting. Expand/collapse actions during search are temporary overrides, including on required ancestors, and do not alter the snapshot's persistent `expanded` state. Changing the query starts a fresh override session. Clearing the query discards search overrides and restores the normal expansion-driven projection.
 
 ## Snapshot guarantees
 
