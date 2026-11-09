@@ -102,14 +102,14 @@ describe("useTreeviewController", () => {
       controller = useTreeviewController<string>({
         nodes: [
           { value: "project", parent: null, text: "Project" },
-          { value: "segment", parent: "project", text: "Segment" },
+          { value: "segment", parent: "project", text: "Station LAN A" },
           { value: "switch", parent: "segment", text: "Switch" },
         ],
         defaultExpanded: ["project", "segment"],
       })
     })
 
-    controller.setSearchQuery("segment")
+    controller.setSearchQuery("Station LAN A")
     expect(controller.getVisibleValues()).toEqual(["project", "segment", "switch"])
     controller.requestToggle("segment")
     expect(controller.getVisibleValues()).toEqual(["project", "segment"])
@@ -147,6 +147,53 @@ describe("useTreeviewController", () => {
     expect(controller.isExpanded("closed")).toBe(false)
     controller.clearSearchQuery()
     expect(controller.getVisibleValues()).toEqual(["project", "segment", "switch", "detail", "closed"])
+    scope.stop()
+  })
+
+  it("toggles ancestors required by the search projection without changing saved expansion", () => {
+    const scope = effectScope()
+    let controller!: TreeviewController<string>
+    scope.run(() => {
+      controller = useTreeviewController<string>({
+        nodes: [
+          { value: "project", parent: null, text: "Project" },
+          { value: "segment", parent: "project", text: "Station LAN A" },
+          { value: "switch", parent: "segment", text: "Switch" },
+        ],
+        defaultExpanded: ["project", "segment"],
+      })
+    })
+
+    controller.setSearchQuery("Station LAN A")
+    controller.requestToggle("project")
+    expect(controller.getVisibleValues()).toEqual(["project"])
+    controller.requestToggle("project")
+    expect(controller.getVisibleValues()).toEqual(["project", "segment", "switch"])
+    expect(controller.state.value.expanded).toEqual(["project", "segment"])
+    controller.clearSearchQuery()
+    expect(controller.getVisibleValues()).toEqual(["project", "segment", "switch"])
+    scope.stop()
+  })
+
+  it("keeps ordinary requestToggle collapse and expand behavior outside search", () => {
+    const scope = effectScope()
+    let controller!: TreeviewController<string>
+    scope.run(() => {
+      controller = useTreeviewController<string>({
+        nodes: [
+          { value: "project", parent: null },
+          { value: "segment", parent: "project" },
+        ],
+        defaultExpanded: ["project"],
+      })
+    })
+
+    controller.requestToggle("project")
+    expect(controller.getVisibleValues()).toEqual(["project"])
+    expect(controller.state.value.expanded).toEqual([])
+    controller.requestToggle("project")
+    expect(controller.getVisibleValues()).toEqual(["project", "segment"])
+    expect(controller.state.value.expanded).toEqual(["project"])
     scope.stop()
   })
 

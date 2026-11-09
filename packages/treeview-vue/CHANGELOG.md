@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.3
+
+### Patch Changes
+
+- Updated the treeview core dependency for corrected toggling during search.
+
 ## 0.4.2
 
 ### Patch Changes

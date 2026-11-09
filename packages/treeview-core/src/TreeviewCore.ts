@@ -1255,7 +1255,13 @@ export class TreeviewCore<Value = string> {
     if (!this.normalizedSearchQuery) {
       return this.isExpanded(value)
     }
-    return this.getSearchEffectiveExpanded(this.expandedSet).has(value)
+    if (this.searchSuppressedExpandedValues.has(value)) {
+      return false
+    }
+    if (this.searchManuallyExpandedValues.has(value) || this.searchProjectionExpandedValues.has(value)) {
+      return true
+    }
+    return this.isExpanded(value)
   }
 
   private findAdjacentEnabledVisible(currentIndex: number, direction: 1 | -1): Value | null {

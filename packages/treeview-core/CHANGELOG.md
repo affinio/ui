@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.2
+
+### Patch Changes
+
+- Fixed repeated toggling of search-projected nodes by honoring temporary collapse overrides.
+
 ## 0.5.1
 
 ### Patch Changes
