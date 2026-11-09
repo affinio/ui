@@ -95,6 +95,61 @@ describe("useTreeviewController", () => {
     scope.stop()
   })
 
+  it("toggles a matched branch during search and restores persisted expansion", () => {
+    const scope = effectScope()
+    let controller!: TreeviewController<string>
+    scope.run(() => {
+      controller = useTreeviewController<string>({
+        nodes: [
+          { value: "project", parent: null, text: "Project" },
+          { value: "segment", parent: "project", text: "Segment" },
+          { value: "switch", parent: "segment", text: "Switch" },
+        ],
+        defaultExpanded: ["project", "segment"],
+      })
+    })
+
+    controller.setSearchQuery("segment")
+    expect(controller.getVisibleValues()).toEqual(["project", "segment", "switch"])
+    controller.requestToggle("segment")
+    expect(controller.getVisibleValues()).toEqual(["project", "segment"])
+    controller.requestToggle("segment")
+    expect(controller.getVisibleValues()).toEqual(["project", "segment", "switch"])
+    expect(controller.state.value.expanded).toEqual(["project", "segment"])
+
+    controller.requestToggle("segment")
+    expect(controller.getVisibleValues()).toEqual(["project", "segment"])
+    controller.clearSearchQuery()
+    expect(controller.getVisibleValues()).toEqual(["project", "segment", "switch"])
+    expect(controller.state.value.expanded).toEqual(["project", "segment"])
+    scope.stop()
+  })
+
+  it("projects matching descendants through persisted expansion at every depth", () => {
+    const scope = effectScope()
+    let controller!: TreeviewController<string>
+    scope.run(() => {
+      controller = useTreeviewController<string>({
+        nodes: [
+          { value: "project", parent: null, text: "Project" },
+          { value: "segment", parent: "project", text: "Segment" },
+          { value: "switch", parent: "segment", text: "Switch" },
+          { value: "detail", parent: "switch", text: "Detail" },
+          { value: "closed", parent: "segment", text: "Closed branch" },
+          { value: "hidden", parent: "closed", text: "Hidden detail" },
+        ],
+        defaultExpanded: ["project", "segment", "switch"],
+      })
+    })
+
+    controller.setSearchQuery("segment")
+    expect(controller.getVisibleValues()).toEqual(["project", "segment", "switch", "detail", "closed"])
+    expect(controller.isExpanded("closed")).toBe(false)
+    controller.clearSearchQuery()
+    expect(controller.getVisibleValues()).toEqual(["project", "segment", "switch", "detail", "closed"])
+    scope.stop()
+  })
+
   it("exposes tree navigation helpers", () => {
     const scope = effectScope()
     let controller!: TreeviewController<string>

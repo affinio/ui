@@ -1117,9 +1117,26 @@ export class TreeviewCore<Value = string> {
       }
       this.searchMatchedValues.add(value)
     })
+    // A match exposes its children, then follows the persisted expansion
+    // state through deeper descendants. Search must not expand those branches.
     this.searchMatchedValues.forEach((match) => {
-      const node = this.nodes.get(match)
-      node?.children.forEach((child) => this.searchVisibleValues.add(child))
+      let ancestor = this.nodes.get(match)?.parent ?? null
+      while (ancestor !== null) {
+        this.searchProjectionExpandedValues.add(ancestor)
+        ancestor = this.nodes.get(ancestor)?.parent ?? null
+      }
+      const stack = [...(this.nodes.get(match)?.children ?? [])].reverse()
+      while (stack.length) {
+        const value = stack.pop()
+        if (value === undefined || this.searchVisibleValues.has(value)) continue
+        this.searchVisibleValues.add(value)
+        if (!this.expandedSet.has(value)) continue
+        const children = this.nodes.get(value)?.children ?? []
+        for (let index = children.length - 1; index >= 0; index -= 1) {
+          const child = children[index]
+          if (child !== undefined) stack.push(child)
+        }
+      }
     })
     for (let index = this.preorderValues.length - 1; index >= 0; index -= 1) {
       const value = this.preorderValues[index]
@@ -1129,7 +1146,7 @@ export class TreeviewCore<Value = string> {
       const visible = this.searchVisibleValues.has(value) || this.searchMatchedValues.has(value) || node.children.some((child) => this.searchVisibleValues.has(child))
       if (!visible) continue
       this.searchVisibleValues.add(value)
-      if (node.children.some((child) => this.searchVisibleValues.has(child))) {
+      if (this.expandedSet.has(value) && node.children.some((child) => this.searchVisibleValues.has(child))) {
         this.searchProjectionExpandedValues.add(value)
       }
     }
@@ -1235,11 +1252,8 @@ export class TreeviewCore<Value = string> {
   }
 
   private isVisuallyExpanded(value: Value): boolean {
-    if (this.isExpanded(value)) {
-      return true
-    }
     if (!this.normalizedSearchQuery) {
-      return false
+      return this.isExpanded(value)
     }
     return this.getSearchEffectiveExpanded(this.expandedSet).has(value)
   }

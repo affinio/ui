@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.2
+
+### Patch Changes
+
+- Updated the treeview core dependency for corrected search toggling and descendant projection.
+
 ## 0.4.1
 
 ### Patch Changes
