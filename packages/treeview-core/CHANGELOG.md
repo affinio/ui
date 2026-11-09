@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.3
+
+### Patch Changes
+
+- Publish snapshot notifications when search-only expansion overrides change, while keeping persistent expanded state unchanged.
+
 ## 0.5.2
 
 ### Patch Changes

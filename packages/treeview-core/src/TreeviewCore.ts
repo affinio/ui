@@ -326,9 +326,8 @@ export class TreeviewCore<Value = string> {
       this.searchManuallyExpandedValues.add(value)
       if (!wasSuppressed && !wasAdded) return actionSuccess(false)
       this.invalidateVisibleProjection()
-      const previousSnapshot = this.snapshot
       this.snapshot = this.createSnapshot(this.state)
-      if (this.snapshot === previousSnapshot) this.emitSnapshot()
+      this.emitSnapshot()
       return actionSuccess(true)
     }
     if (!this.isExpanded(value)) {

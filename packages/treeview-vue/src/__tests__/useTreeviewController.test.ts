@@ -175,6 +175,45 @@ describe("useTreeviewController", () => {
     scope.stop()
   })
 
+  it("reopens collapsed ancestors and the match while preserving their pre-search state", () => {
+    const scope = effectScope()
+    let controller!: TreeviewController<string>
+    scope.run(() => {
+      controller = useTreeviewController<string>({
+        nodes: [
+          { value: "root", parent: null, text: "Root" },
+          { value: "project", parent: "root", text: "Project" },
+          { value: "segment", parent: "project", text: "Station LAN A" },
+          { value: "switch", parent: "segment", text: "Switch" },
+        ],
+      })
+    })
+
+    controller.setSearchQuery("Station LAN A")
+    expect(controller.getVisibleValues()).toEqual(["root", "project", "segment"])
+    expect(controller.getNodeMeta("project")?.expanded).toBe(true)
+
+    controller.requestToggle("project")
+    expect(controller.getVisibleValues()).toEqual(["root", "project"])
+    expect(controller.getNodeMeta("project")?.expanded).toBe(false)
+    controller.requestToggle("project")
+    expect(controller.getVisibleValues()).toEqual(["root", "project", "segment"])
+    expect(controller.getNodeMeta("project")?.expanded).toBe(true)
+
+    controller.requestToggle("segment")
+    expect(controller.getVisibleValues()).toEqual(["root", "project", "segment", "switch"])
+    controller.requestToggle("segment")
+    expect(controller.getVisibleValues()).toEqual(["root", "project", "segment"])
+    controller.requestToggle("segment")
+    expect(controller.getVisibleValues()).toEqual(["root", "project", "segment", "switch"])
+
+    expect(controller.state.value.expanded).toEqual([])
+    controller.clearSearchQuery()
+    expect(controller.getVisibleValues()).toEqual(["root"])
+    expect(controller.state.value.expanded).toEqual([])
+    scope.stop()
+  })
+
   it("keeps ordinary requestToggle collapse and expand behavior outside search", () => {
     const scope = effectScope()
     let controller!: TreeviewController<string>

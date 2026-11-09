@@ -231,6 +231,34 @@ describe("useVirtualTreeviewController", () => {
     vi.useRealTimers()
   })
 
+  it("publishes effective search expansion changes to Vue rows", () => {
+    const scope = effectScope()
+    let controller!: VirtualTreeviewController<string>
+    scope.run(() => {
+      controller = useVirtualTreeviewController<string>({
+        nodes: [
+          { value: "root", parent: null, text: "Workspace" },
+          { value: "match", parent: "root", text: "Station LAN A" },
+          { value: "child", parent: "match", text: "Switch" },
+        ],
+        defaultExpanded: ["root"],
+        rowHeight: 10,
+        viewportHeight: 30,
+        overscan: 0,
+      })
+    })
+
+    controller.setSearchQuery("Station LAN A")
+    expect(controller.visibleRows.value.find((row) => row.value === "match")?.expanded).toBe(false)
+
+    controller.requestToggle("match")
+    expect(controller.visibleRows.value.find((row) => row.value === "match")?.expanded).toBe(true)
+    expect(controller.visibleRows.value.map((row) => row.value)).toEqual(["root", "match", "child"])
+    expect(controller.state.value.expanded).toEqual(["root"])
+
+    scope.stop()
+  })
+
   it("renders positioned virtual rows without blanking the viewport", async () => {
     vi.useFakeTimers()
     let controller!: VirtualTreeviewController<string>

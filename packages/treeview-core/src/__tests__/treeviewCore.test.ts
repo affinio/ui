@@ -245,6 +245,40 @@ describe("TreeviewCore", () => {
     expect(core.getVisibleValues()).toEqual(["root", "match", "child"])
   })
 
+  it("publishes search-only expansion changes without changing persistent snapshot state", () => {
+    const core = new TreeviewCore<string>({
+      nodes: [
+        { value: "root", parent: null, text: "Workspace" },
+        { value: "match", parent: "root", text: "Station LAN A" },
+        { value: "child", parent: "match", text: "Switch" },
+      ],
+      defaultExpanded: ["root"],
+    })
+    const snapshots: Array<ReturnType<typeof core.getSnapshot>> = []
+    const subscription = core.subscribe((snapshot) => snapshots.push(snapshot))
+    core.setSearchQuery("Station LAN A")
+
+    core.requestToggle("match")
+    const openedSnapshot = core.getSnapshot()
+    expect(core.getNodeMeta("match")?.expanded).toBe(true)
+    expect(snapshots.at(-1)).toBe(openedSnapshot)
+
+    core.requestToggle("match")
+    const collapsedSnapshot = core.getSnapshot()
+    expect(core.getNodeMeta("match")?.expanded).toBe(false)
+    expect(snapshots.at(-1)).toBe(collapsedSnapshot)
+
+    core.requestToggle("match")
+    const expandedSnapshot = core.getSnapshot()
+    expect(core.getNodeMeta("match")?.expanded).toBe(true)
+    expect(core.getVisibleValues()).toEqual(["root", "match", "child"])
+    expect(core.getSnapshot().expanded).toEqual(["root"])
+    expect(expandedSnapshot).not.toBe(collapsedSnapshot)
+    expect(snapshots.at(-1)).toBe(expandedSnapshot)
+
+    subscription.unsubscribe()
+  })
+
   it("uses textAccessor and refreshes search text on patch", () => {
     const core = new TreeviewCore<string>({
       nodes: [

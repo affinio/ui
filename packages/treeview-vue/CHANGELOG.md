@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.4
+
+### Patch Changes
+
+- Refresh virtual row metadata after search-only expansion changes from the core.
+
 ## 0.4.3
 
 ### Patch Changes
