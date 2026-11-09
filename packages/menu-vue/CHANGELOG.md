@@ -1,5 +1,11 @@
 # @affino/menu-vue
 
+## 2.2.1
+
+### Patch Changes
+
+- Updated the `@affino/menu-core` dependency to 1.2.1, which fixes native Node.js ESM resolution for consumers of the Vue adapter.
+
 ## 2.2.0
 
 ### Minor Changes

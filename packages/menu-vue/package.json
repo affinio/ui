@@ -1,6 +1,6 @@
 {
   "name": "@affino/menu-vue",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "author": "Anton Pavlov <a.pavlov@affino.dev>",
   "type": "module",
   "description": "Vue adapter and headless UI components for @affino/menu-core",
