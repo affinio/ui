@@ -4,8 +4,8 @@ import type {
   MousePredictionDebugPayload,
   Point,
   Rect,
-} from "../types"
-import { center, dotProduct, magnitude, subtract } from "./helpers"
+} from "../types.js"
+import { center, dotProduct, magnitude, subtract } from "./helpers.js"
 
 type Orientation = "horizontal" | "vertical"
 

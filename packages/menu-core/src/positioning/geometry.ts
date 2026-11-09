@@ -1,4 +1,4 @@
-import type { Alignment, Rect } from "../types"
+import type { Alignment, Rect } from "../types.js"
 
 export type Axis = "x" | "y"
 

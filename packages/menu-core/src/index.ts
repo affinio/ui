@@ -1,9 +1,9 @@
-export type * from "./types"
-export { MenuCore } from "./core/MenuCore"
-export { SubmenuCore } from "./core/SubmenuCore"
-export type { SubmenuOptions } from "./core/SubmenuCore"
+export type * from "./types.js"
+export { MenuCore } from "./core/MenuCore.js"
+export { SubmenuCore } from "./core/SubmenuCore.js"
+export type { SubmenuOptions } from "./core/SubmenuCore.js"
 export { computePosition } from "@affino/surface-core"
-export { MousePrediction, predictMouseDirection } from "./prediction/MousePrediction"
+export { MousePrediction, predictMouseDirection } from "./prediction/MousePrediction.js"
 export {
 	createMenuTree,
 	type CreateMenuTreeOptions,
@@ -13,4 +13,4 @@ export {
 	type MenuTreeController,
 	type SubmenuGeometryAdapter,
 	type SubmenuPointerAdapter,
-} from "./createMenuTree"
+} from "./createMenuTree.js"

@@ -1,5 +1,5 @@
-import { MenuCore } from "./MenuCore"
-import { MousePrediction } from "../prediction/MousePrediction"
+import { MenuCore } from "./MenuCore.js"
+import { MousePrediction } from "../prediction/MousePrediction.js"
 import type {
   ItemProps,
   MenuCallbacks,
@@ -8,8 +8,8 @@ import type {
   PointerEventLike,
   Rect,
   TriggerProps,
-} from "../types"
-import type { MenuTreeState } from "./MenuTree"
+} from "../types.js"
+import type { MenuTreeState } from "./MenuTree.js"
 
 function getProcessEnv() {
   if (typeof globalThis === "undefined") {

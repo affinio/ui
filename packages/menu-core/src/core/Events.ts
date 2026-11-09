@@ -1,4 +1,4 @@
-import type { MenuCallbacks, MenuDebugEvent } from "../types"
+import type { MenuCallbacks, MenuDebugEvent } from "../types.js"
 
 export class MenuEvents {
   constructor(private readonly menuId: string, private readonly callbacks: MenuCallbacks = {}) {}

@@ -8,9 +8,9 @@ import type {
   Point,
   Rect,
   TriggerProps,
-} from "./types"
-import { MenuCore } from "./core/MenuCore"
-import { SubmenuCore } from "./core/SubmenuCore"
+} from "./types.js"
+import { MenuCore } from "./core/MenuCore.js"
+import { SubmenuCore } from "./core/SubmenuCore.js"
 
 export type MenuTreeBranchKind = "root" | "submenu"
 

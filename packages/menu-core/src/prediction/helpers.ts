@@ -1,4 +1,4 @@
-import type { Point, Rect } from "../types"
+import type { Point, Rect } from "../types.js"
 
 export interface Vector {
   x: number

@@ -1,5 +1,11 @@
 # @affino/menu-core
 
+## 1.2.1
+
+### Patch Changes
+
+- Added explicit `.js` extensions to relative ESM imports so the published package loads with native Node.js ESM resolution.
+
 ## 1.2.0
 
 ### Minor Changes

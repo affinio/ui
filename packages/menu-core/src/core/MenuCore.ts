@@ -16,12 +16,12 @@ import type {
   PanelProps,
   TriggerProps,
   MousePredictionConfig,
-} from "../types"
-import type { HighlightChange } from "./StateMachine"
-import { ItemRegistry } from "./ItemRegistry"
-import { MenuEvents } from "./Events"
-import { MenuStateMachine } from "./StateMachine"
-import { MenuTree } from "./MenuTree"
+} from "../types.js"
+import type { HighlightChange } from "./StateMachine.js"
+import { ItemRegistry } from "./ItemRegistry.js"
+import { MenuEvents } from "./Events.js"
+import { MenuStateMachine } from "./StateMachine.js"
+import { MenuTree } from "./MenuTree.js"
 
 interface NormalizedMenuOptions {
   closeOnSelect: boolean
