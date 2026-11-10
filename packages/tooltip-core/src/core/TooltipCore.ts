@@ -219,7 +219,8 @@ export class TooltipCore extends SurfaceCore<TooltipState, TooltipCallbacks> {
 }
 
 function isFocusVisible(event: FocusEvent): boolean {
-  const target = event.currentTarget as (EventTarget & { matches?: (selector: string) => boolean }) | null
+  const focusTarget = event.target ?? event.currentTarget
+  const target = focusTarget as (EventTarget & { matches?: (selector: string) => boolean }) | null
   if (typeof target?.matches !== "function") return true
   try {
     return target.matches(":focus-visible")

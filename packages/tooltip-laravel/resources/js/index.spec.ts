@@ -105,10 +105,11 @@ describe("hydrateTooltip", () => {
     expect(button.getAttribute("aria-describedby")).toBe(`field-help ${surface.id}`)
     expect(trigger.hasAttribute("aria-describedby")).toBe(false)
     expect(trigger.hasAttribute("tabindex")).toBe(false)
-    button.dispatchEvent(new FocusEvent("focusin", { bubbles: true }))
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true }))
+    button.focus()
     expect(root.dataset.affinoTooltipState).toBe("open")
     expect(surface.getAttribute("aria-hidden")).toBe("false")
-    button.dispatchEvent(new FocusEvent("focusout", { bubbles: true, relatedTarget: document.body }))
+    button.blur()
     expect(root.dataset.affinoTooltipState).toBe("closed")
   })
 

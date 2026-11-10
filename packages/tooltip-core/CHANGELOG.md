@@ -1,5 +1,11 @@
 # @affino/tooltip-core
 
+## 1.1.3
+
+### Fixed
+
+- Read `:focus-visible` from the focused event target when focus events bubble through wrapper elements.
+
 ## 1.1.2
 
 ### Fixed

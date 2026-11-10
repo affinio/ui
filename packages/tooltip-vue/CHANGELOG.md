@@ -1,5 +1,11 @@
 # @affino/tooltip-vue
 
+## 1.1.3
+
+### Fixed
+
+- Require `@affino/tooltip-core@^1.1.3` for accurate focus modality when events bubble through adapter wrappers.
+
 ## 1.1.2
 
 ### Fixed
