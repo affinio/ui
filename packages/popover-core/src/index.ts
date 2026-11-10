@@ -1,2 +1,2 @@
-export type * from "./types"
-export { PopoverCore } from "./core/PopoverCore"
+export type * from "./types.js"
+export { PopoverCore } from "./core/PopoverCore.js"

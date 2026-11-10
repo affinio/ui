@@ -19,7 +19,7 @@ import type {
   PopoverState,
   PopoverTriggerOptions,
   PopoverTriggerProps,
-} from "../types"
+} from "../types.js"
 
 const DEFAULT_OVERLAY_KIND: OverlayKind = "popover"
 

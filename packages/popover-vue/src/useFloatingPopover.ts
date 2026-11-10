@@ -1,7 +1,7 @@
 import { nextTick, onScopeDispose, ref, watch } from "vue"
 import type { Ref } from "vue"
 import type { PositionOptions, PopoverArrowOptions, PopoverArrowProps } from "@affino/popover-core"
-import type { PopoverController } from "./usePopoverController"
+import type { PopoverController } from "./usePopoverController.js"
 import {
   createFloatingHiddenStyle,
   createFloatingRelayoutController,

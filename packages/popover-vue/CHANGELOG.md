@@ -1,5 +1,11 @@
 # @affino/popover-vue
 
+## 1.1.1
+
+### Fixed
+
+- Updated `@affino/popover-core` and emitted Node.js-resolvable relative ESM imports.
+
 ## 1.1.0
 
 ### Minor Changes

@@ -1,5 +1,11 @@
 # @affino/popover-core
 
+## 1.1.1
+
+### Fixed
+
+- Added explicit `.js` extensions to relative imports for native Node.js ESM resolution.
+
 ## 1.1.0
 
 ### Minor Changes
