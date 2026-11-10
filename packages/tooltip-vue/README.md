@@ -105,6 +105,7 @@ Escape dismisses the topmost open tooltip in the document overlay stack. The ada
 and visibility listeners across open tooltips; closed controllers do not install global listeners or overlay entries.
 When the owning window loses focus or the document becomes hidden, an open or pending hover tooltip is closed/cancelled.
 Hover stays suppressed after focus returns until the pointer leaves the trigger. Keyboard focus can still open it normally.
+Pointer-induced focus from a click does not keep a hover tooltip open after the pointer leaves; keyboard-visible focus keeps it open until blur.
 
 ## Overlay kernel integration
 

@@ -1,5 +1,11 @@
 # @affino/tooltip-vue
 
+## 1.1.2
+
+### Fixed
+
+- Use `@affino/tooltip-core@^1.1.2`, which distinguishes pointer-induced focus from keyboard-visible focus when dismissing hover tooltips.
+
 ## 1.1.1
 
 ### Patch Changes

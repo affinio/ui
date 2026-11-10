@@ -55,6 +55,37 @@ describe("TooltipCore", () => {
     expect(tooltip.getSnapshot().open).toBe(false)
   })
 
+  it("does not let pointer-induced focus keep a hover tooltip open after pointerleave", () => {
+    const tooltip = createTooltip({ openDelay: 0, closeDelay: 10 })
+    const trigger = tooltip.getTriggerProps()
+    const pointerFocusedTarget = { matches: () => false } as unknown as EventTarget
+
+    trigger.onPointerEnter?.({})
+    vi.runOnlyPendingTimers()
+    expect(tooltip.getSnapshot().open).toBe(true)
+
+    trigger.onFocus?.({ currentTarget: pointerFocusedTarget } as FocusEvent)
+    trigger.onPointerLeave?.({})
+    vi.advanceTimersByTime(10)
+
+    expect(tooltip.getSnapshot().open).toBe(false)
+  })
+
+  it("keeps a keyboard-focused tooltip open on pointerleave until blur", () => {
+    const tooltip = createTooltip({ openDelay: 0, closeDelay: 10 })
+    const trigger = tooltip.getTriggerProps()
+    const keyboardFocusedTarget = { matches: () => true } as unknown as EventTarget
+
+    trigger.onFocus?.({ currentTarget: keyboardFocusedTarget } as FocusEvent)
+    trigger.onPointerLeave?.({})
+    vi.advanceTimersByTime(10)
+
+    expect(tooltip.getSnapshot().open).toBe(true)
+
+    trigger.onBlur?.({} as FocusEvent)
+    expect(tooltip.getSnapshot().open).toBe(false)
+  })
+
   it("stays open when focus moves between descendants of the trigger", () => {
     const tooltip = createTooltip()
     const trigger = tooltip.getTriggerProps()

@@ -32,7 +32,7 @@ const OVERLAY_TO_SURFACE_CLOSE_REASON: Record<string, SurfaceReason> = {
 }
 
 export class TooltipCore extends SurfaceCore<TooltipState, TooltipCallbacks> {
-  private focusWithin = false
+  private keyboardFocusWithin = false
   private readonly overlayKind: OverlayKind
   private readonly triggerElementId: string
   private readonly contentElementId: string
@@ -128,8 +128,10 @@ export class TooltipCore extends SurfaceCore<TooltipState, TooltipCallbacks> {
         this.timers.scheduleOpen(() => this.open("pointer"))
       },
       onPointerLeave: (event) => this.handlePointerLeave(event),
-      onFocus: () => {
-        this.focusWithin = true
+      onFocus: (event) => {
+        const keyboardFocus = isFocusVisible(event)
+        this.keyboardFocusWithin = keyboardFocus
+        if (!keyboardFocus) return
         this.cancelPendingClose()
         this.open("keyboard")
       },
@@ -138,8 +140,9 @@ export class TooltipCore extends SurfaceCore<TooltipState, TooltipCallbacks> {
         if (event.relatedTarget && typeof currentTarget?.contains === "function" && currentTarget.contains(event.relatedTarget as Node)) {
           return
         }
-        this.focusWithin = false
-        this.requestClose("keyboard")
+        const wasKeyboardFocus = this.keyboardFocusWithin
+        this.keyboardFocusWithin = false
+        if (wasKeyboardFocus) this.requestClose("keyboard")
       },
     }
   }
@@ -172,7 +175,7 @@ export class TooltipCore extends SurfaceCore<TooltipState, TooltipCallbacks> {
   }
 
   protected override shouldIgnorePointerLeave(event?: PointerEventLike): boolean {
-    return this.focusWithin || super.shouldIgnorePointerLeave(event)
+    return this.keyboardFocusWithin || super.shouldIgnorePointerLeave(event)
   }
 
   private closeWithSource(reason: SurfaceReason, source: "local" | "kernel"): void {
@@ -212,6 +215,16 @@ export class TooltipCore extends SurfaceCore<TooltipState, TooltipCallbacks> {
   private handleKernelCloseRequest(reason: OverlayCloseReason): void {
     const surfaceReason = this.mapOverlayReasonToSurface(reason)
     this.closeWithSource(surfaceReason, "kernel")
+  }
+}
+
+function isFocusVisible(event: FocusEvent): boolean {
+  const target = event.currentTarget as (EventTarget & { matches?: (selector: string) => boolean }) | null
+  if (typeof target?.matches !== "function") return true
+  try {
+    return target.matches(":focus-visible")
+  } catch {
+    return true
   }
 }
 

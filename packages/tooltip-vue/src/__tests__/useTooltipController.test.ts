@@ -72,6 +72,42 @@ describe("useTooltipController", () => {
     vi.useRealTimers()
   })
 
+  it("closes hover after pointer-induced focus and pointerleave", () => {
+    vi.useFakeTimers()
+    const controller = useTooltipController({ id: "pointer-focused-tooltip", openDelay: 0, closeDelay: 10 })
+    const trigger = controller.getTriggerProps()
+    const target = document.createElement("button")
+    const matches = vi.spyOn(target, "matches").mockReturnValue(false)
+
+    trigger.onPointerenter?.({} as PointerEvent)
+    vi.runOnlyPendingTimers()
+    expect(controller.state.value.open).toBe(true)
+
+    trigger.onFocus?.({ currentTarget: target } as unknown as FocusEvent)
+    trigger.onPointerleave?.({} as PointerEvent)
+    vi.advanceTimersByTime(10)
+
+    expect(matches).toHaveBeenCalledWith(":focus-visible")
+    expect(controller.state.value.open).toBe(false)
+    controller.dispose()
+    vi.useRealTimers()
+  })
+
+  it("keeps keyboard-visible focus open through pointerleave until blur", () => {
+    const controller = useTooltipController({ id: "keyboard-focused-tooltip", closeDelay: 10 })
+    const trigger = controller.getTriggerProps()
+    const target = document.createElement("button")
+    vi.spyOn(target, "matches").mockReturnValue(true)
+
+    trigger.onFocus?.({ currentTarget: target } as unknown as FocusEvent)
+    trigger.onPointerleave?.({} as PointerEvent)
+    expect(controller.state.value.open).toBe(true)
+
+    trigger.onBlur?.({} as FocusEvent)
+    expect(controller.state.value.open).toBe(false)
+    controller.dispose()
+  })
+
   it("cancels pending hover opening on blur and Escape closes the active tooltip", () => {
     vi.useFakeTimers()
     const controller = useTooltipController({ id: "tooltip-pending-blur", openDelay: 100 })

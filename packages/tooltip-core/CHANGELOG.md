@@ -1,5 +1,11 @@
 # @affino/tooltip-core
 
+## 1.1.2
+
+### Fixed
+
+- Keep hover tooltips open only for keyboard-visible focus; pointer-induced focus no longer suppresses pointerleave dismissal.
+
 ## 1.1.1
 
 ### Patch Changes

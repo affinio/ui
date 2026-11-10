@@ -5,7 +5,7 @@ Deterministic tooltip controller powered by `@affino/surface-core`. Use it when 
 ## Highlights
 
 - Built on the shared surface kernel, so timers and state semantics match menus/popovers.
-- Pointer + focus orchestration with forgiving open/close delays.
+- Pointer + keyboard-visible focus orchestration with forgiving open/close delays. Pointer-induced focus does not hold a hover tooltip open after pointer leave.
 - Geometry helpers (`computePosition`) without bringing in Popper/floating-ui.
 - Pure TypeScript with zero DOM dependencies, ready for any framework adapter.
 - Optional `@affino/overlay-kernel` integration so stacked tooltips respect global close cascades.
