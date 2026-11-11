@@ -62,12 +62,17 @@ export function useFloatingTooltip(
 
   const updatePosition = async () => {
     if (typeof window === "undefined" || disposed || !controller.state.value.open) return
-    const trigger = triggerRef.value
-    const tooltip = tooltipRef.value
+    const trigger = resolveElement(triggerRef.value)
+    const tooltip = resolveElement(tooltipRef.value)
     if (!trigger || !tooltip) return
 
     await nextTick()
-    if (disposed || !controller.state.value.open || triggerRef.value !== trigger || tooltipRef.value !== tooltip) return
+    if (
+      disposed ||
+      !controller.state.value.open ||
+      resolveElement(triggerRef.value) !== trigger ||
+      resolveElement(tooltipRef.value) !== tooltip
+    ) return
     if (!trigger.isConnected || !tooltip.isConnected) return
 
     const anchorRect = trigger.getBoundingClientRect()
@@ -106,8 +111,8 @@ export function useFloatingTooltip(
 
   const syncResizeObservation = () => {
     if (typeof ResizeObserver === "undefined") return
-    const trigger = controller.state.value.open ? triggerRef.value : null
-    const tooltip = controller.state.value.open ? tooltipRef.value : null
+    const trigger = controller.state.value.open ? resolveElement(triggerRef.value) : null
+    const tooltip = controller.state.value.open ? resolveElement(tooltipRef.value) : null
     if (trigger === observedTrigger && tooltip === observedTooltip) return
     resizeObserver?.disconnect()
     observedTrigger = trigger
@@ -176,6 +181,13 @@ export function useFloatingTooltip(
     arrowProps,
     updatePosition,
   }
+}
+
+function resolveElement(value: unknown): HTMLElement | null {
+  if (typeof value !== "object" || value === null) return null
+  const candidate = value as Node
+  if (candidate.nodeType !== 1) return null
+  return value as HTMLElement
 }
 
 function resolveFloatingCoordinates(element: HTMLElement, left: number, top: number, strategy: Strategy) {

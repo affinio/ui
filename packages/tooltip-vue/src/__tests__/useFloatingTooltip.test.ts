@@ -101,6 +101,54 @@ describe("useFloatingTooltip", () => {
     vi.unstubAllGlobals()
   })
 
+  it("reconnects observation when the open trigger ref is replaced or removed", async () => {
+    const observed: Element[] = []
+    const disconnect = vi.fn()
+    vi.stubGlobal("ResizeObserver", class {
+      observe(element: Element) {
+        if (element.nodeType !== Node.ELEMENT_NODE) throw new TypeError("ResizeObserver requires an Element")
+        observed.push(element)
+      }
+      disconnect = disconnect
+    })
+    const firstTrigger = document.createElement("button")
+    const replacementTrigger = document.createElement("button")
+    const tooltip = document.createElement("div")
+    document.body.append(firstTrigger, replacementTrigger, tooltip)
+    const { controller, floating, cleanup } = mountFloatingTooltip()
+    floating.triggerRef.value = firstTrigger
+    floating.tooltipRef.value = tooltip
+    controller.open("programmatic")
+
+    try {
+      await nextTick()
+      expect(observed).toContain(firstTrigger)
+      expect(observed).toContain(tooltip)
+
+      floating.triggerRef.value = document.createComment("trigger temporarily unavailable") as unknown as HTMLElement
+      await nextTick()
+      expect(disconnect).toHaveBeenCalled()
+      expect(observed.at(-1)).toBe(tooltip)
+
+      floating.triggerRef.value = replacementTrigger
+      await nextTick()
+      expect(observed).toContain(replacementTrigger)
+      expect(observed.at(-1)).toBe(tooltip)
+
+      floating.triggerRef.value = null
+      await nextTick()
+      expect(disconnect).toHaveBeenCalled()
+      expect(observed.at(-1)).toBe(tooltip)
+    } finally {
+      controller.close("programmatic")
+      cleanup()
+      firstTrigger.remove()
+      replacementTrigger.remove()
+      tooltip.remove()
+      vi.unstubAllGlobals()
+    }
+  })
+
   it("activates relayout listeners for defaultOpen", async () => {
     const addSpy = vi.spyOn(window, "addEventListener")
     const { controller, floating, cleanup } = mountFloatingTooltip(undefined, { defaultOpen: true })

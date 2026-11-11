@@ -1,5 +1,11 @@
 # @affino/tooltip-vue
 
+## 1.1.4
+
+### Fixed
+
+- Ignore non-element template ref values when observing and positioning an open tooltip, and reconnect observation when refs change.
+
 ## 1.1.3
 
 ### Fixed
