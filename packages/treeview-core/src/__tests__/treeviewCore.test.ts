@@ -10,6 +10,17 @@ const DEFAULT_NODES: TreeviewNode<string>[] = [
 ]
 
 describe("TreeviewCore", () => {
+  it("keeps single selection as the default and preserves the legacy selected field", () => {
+    const core = new TreeviewCore<string>({ nodes: DEFAULT_NODES })
+    expect(core.selectionMode).toBe("single")
+    core.requestSelect("alpha")
+    expect(core.getSnapshot()).toMatchObject({ selected: "alpha", selectedValues: ["alpha"], anchorValue: "alpha" })
+    core.requestSelect("beta", { ctrlKey: true })
+    expect(core.getSnapshot()).toMatchObject({ selected: "beta", selectedValues: ["beta"] })
+    core.requestToggleSelection("beta")
+    expect(core.getSnapshot()).toMatchObject({ selected: null, selectedValues: [], anchorValue: null })
+  })
+
   it("tracks selection and expands ancestor path", () => {
     const core = new TreeviewCore<string>({
       nodes: DEFAULT_NODES,
@@ -820,16 +831,24 @@ describe("TreeviewCore", () => {
     const snapshot = core.getSnapshot() as {
       active: string | null
       selected: string | null
+      selectedValues: string[]
+      anchorValue: string | null
+      focusedValue: string | null
       expanded: string[]
     }
 
     expect(Object.isFrozen(snapshot)).toBe(true)
+    expect(Object.isFrozen(snapshot.selectedValues)).toBe(true)
+    expect(snapshot.focusedValue).toBe(snapshot.active)
     expect(Object.isFrozen(snapshot.expanded)).toBe(true)
     expect(() => {
       snapshot.active = "alpha"
     }).toThrow(TypeError)
     expect(() => {
       snapshot.expanded.push("beta")
+    }).toThrow(TypeError)
+    expect(() => {
+      snapshot.selectedValues.push("beta")
     }).toThrow(TypeError)
   })
 
@@ -928,5 +947,75 @@ describe("TreeviewCore", () => {
     const before = notifications.length
     core.batch(() => core.removeNodes(["unknown"]))
     expect(notifications).toHaveLength(before)
+  })
+
+  it("supports modifier selection, stable range anchors, focus movement, and disabled range gaps", () => {
+    const core = new TreeviewCore<string>({
+      selectionMode: "multiple",
+      nodes: [
+        { value: "root", parent: null },
+        { value: "alpha", parent: "root" },
+        { value: "disabled", parent: "root", disabled: true },
+        { value: "beta", parent: "root" },
+        { value: "closed", parent: "root" },
+        { value: "hidden", parent: "closed" },
+        { value: "omega", parent: null },
+      ],
+      defaultExpanded: ["root"],
+      defaultActive: "root",
+      defaultSelected: "root",
+    })
+
+    expect(core.requestSelect("alpha", { ctrlKey: true })).toEqual({ ok: true, changed: true })
+    expect(core.getSnapshot().selectedValues).toEqual(["root", "alpha"])
+    expect(core.getSnapshot().anchorValue).toBe("alpha")
+    expect(core.requestSelect("alpha", { metaKey: true })).toEqual({ ok: true, changed: true })
+    expect(core.getSnapshot().selectedValues).toEqual(["root"])
+    expect(core.requestSelect("omega", { shiftKey: true })).toEqual({ ok: true, changed: true })
+    expect(core.getSnapshot().selectedValues).toEqual(["alpha", "beta", "closed", "omega"])
+    expect(core.getSnapshot().anchorValue).toBe("alpha")
+
+    core.requestFocus("beta")
+    expect(core.getSnapshot().focusedValue).toBe("beta")
+    expect(core.getSnapshot().selectedValues).toEqual(["alpha", "beta", "closed", "omega"])
+    expect(core.requestSelect("beta", { shiftKey: true })).toEqual({ ok: true, changed: true })
+    expect(core.getSnapshot().selectedValues).toEqual(["alpha", "beta"])
+    expect(core.getSnapshot().anchorValue).toBe("alpha")
+    expect(core.requestFocusPrevious({ extendSelection: true })).toEqual({ ok: true, changed: true })
+    expect(core.getSnapshot().focusedValue).toBe("alpha")
+    expect(core.getSnapshot().selectedValues).toEqual(["alpha"])
+    expect(core.requestRangeSelection("hidden")).toEqual({ ok: false, changed: false, reason: "not-visible" })
+    expect(core.requestSelect("disabled", { ctrlKey: true })).toEqual({ ok: false, changed: false, reason: "disabled-node" })
+    expect(core.getSnapshot().selectedValues).toEqual(["alpha"])
+  })
+
+  it("emits drag/drop and clipboard intents without mutating tree data", () => {
+    const core = new TreeviewCore<string>({
+      selectionMode: "multiple",
+      nodes: [{ value: "a", parent: null }, { value: "b", parent: null }],
+      defaultSelected: "a",
+    })
+    const events: unknown[] = []
+    core.subscribeInteractions((event) => events.push(event))
+
+    expect(core.requestBeginDrag()).toBe(true)
+    expect(core.requestHoverDrop("b", "inside")).toBe(true)
+    expect(core.requestResolveDrop(false)).toBe(true)
+    expect(core.requestBeginDrag(["a"])).toBe(true)
+    expect(core.requestHoverDrop("b", "after")).toBe(true)
+    expect(core.requestResolveDrop(true)).toBe(true)
+    core.requestClipboardIntent("copy")
+
+    expect(events).toEqual([
+      { type: "drag-start", sourceValues: ["a"] },
+      { type: "drag-over", sourceValues: ["a"], targetValue: "b", position: "inside" },
+      { type: "drop-rejected", sourceValues: ["a"], targetValue: "b", position: "inside" },
+      { type: "drag-start", sourceValues: ["a"] },
+      { type: "drag-over", sourceValues: ["a"], targetValue: "b", position: "after" },
+      { type: "drop-accepted", sourceValues: ["a"], targetValue: "b", position: "after" },
+      { type: "clipboard", action: "copy", selectedValues: ["a"], targetValue: null },
+    ])
+    expect(core.getChildren("b")).toEqual([])
+    expect(core.getParent("a")).toBe(null)
   })
 })

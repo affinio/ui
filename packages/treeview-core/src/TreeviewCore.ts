@@ -2,15 +2,28 @@ import { createProjectionStageEngine } from "@affino/projection-engine"
 import type {
   TreeviewActionFailureReason,
   TreeviewActionResult,
+  TreeviewClipboardAction,
+  TreeviewDropIntent,
+  TreeviewDropPosition,
+  TreeviewInteractionEvent,
+  TreeviewInteractionSubscriber,
   TreeviewNode,
   TreeviewNodeMeta,
   TreeviewOptions,
   TreeviewRegisterOptions,
   TreeviewRegisterResult,
   TreeviewSnapshot,
-  TreeviewState,
+  TreeviewSelectionModifiers,
   TreeviewSubscriber,
 } from "./types"
+
+type InternalTreeviewState<Value> = {
+  active: Value | null
+  selected: Value | null
+  selectedValues: Value[]
+  anchorValue: Value | null
+  expanded: Value[]
+}
 
 type InternalNode<Value> = {
   value: Value
@@ -49,11 +62,17 @@ type VisibleProjection<Value> = {
 
 export class TreeviewCore<Value = string> {
   private nodes = new Map<Value, InternalNode<Value>>()
-  private state: TreeviewState<Value>
+  private state: InternalTreeviewState<Value>
   private snapshot: TreeviewSnapshot<Value>
   private snapshotExpandedSource: Value[] | null = null
   private snapshotExpandedValues: ReadonlyArray<Value> = Object.freeze([])
+  private snapshotSelectedSource: Value[] | null = null
+  private snapshotSelectedValues: ReadonlyArray<Value> = Object.freeze([])
   private subscribers = new Set<TreeviewSubscriber<Value>>()
+  private interactionSubscribers = new Set<TreeviewInteractionSubscriber<Value>>()
+  private activeDragSources: ReadonlyArray<Value> | null = null
+  private pendingDropIntent: TreeviewDropIntent<Value> | null = null
+  private selectedValuesSet = new Set<Value>()
   private rootValues: Value[] = []
   private preorderValues: Value[] = []
   private preorderIndexByValue = new Map<Value, number>()
@@ -91,21 +110,27 @@ export class TreeviewCore<Value = string> {
     refreshEntryStage: "visible",
   })
   private readonly loop: boolean
+  readonly selectionMode: "single" | "multiple"
   private batchDepth = 0
   private batchChanged = false
 
   constructor(options: TreeviewOptions<Value> = {}) {
     this.loop = options.loop ?? false
+    this.selectionMode = options.selectionMode ?? "single"
     this.textAccessor = options.textAccessor ?? defaultTextAccessor
     this.state = {
       active: options.defaultActive ?? null,
       selected: options.defaultSelected ?? null,
+      selectedValues: options.defaultSelected === undefined || options.defaultSelected === null ? [] : [options.defaultSelected],
+      anchorValue: options.defaultSelected ?? null,
       expanded: toUniqueList(options.defaultExpanded ?? []),
     }
+    this.selectedValuesSet = new Set(this.state.selectedValues)
     this.expandedSet = new Set(this.state.expanded)
     this.snapshot = this.createSnapshot(this.state)
     this.registerNodes(options.nodes ?? [], { emit: false })
     this.state = this.normalizeState(this.state)
+    this.selectedValuesSet = new Set(this.state.selectedValues)
     this.snapshot = this.createSnapshot(this.state)
   }
 
@@ -151,11 +176,20 @@ export class TreeviewCore<Value = string> {
       return current
     }
     const active = removed.has(this.state.active as Value) ? survivingAncestor(this.state.active) : this.state.active
-    const selected = removed.has(this.state.selected as Value) ? survivingAncestor(this.state.selected) : this.state.selected
+    const selectedValues = this.state.selectedValues.filter((value) => !removed.has(value))
+    if (!selectedValues.length && this.state.selected !== null && removed.has(this.state.selected)) {
+      const fallbackSelection = survivingAncestor(this.state.selected)
+      if (fallbackSelection !== null) selectedValues.push(fallbackSelection)
+    }
+    const selected = lastValue(selectedValues)
+    const anchorValue = this.state.anchorValue !== null && removed.has(this.state.anchorValue)
+      ? survivingAncestor(this.state.anchorValue)
+      : this.state.anchorValue
     for (const value of removed) this.nodes.delete(value)
     this.rootValues = this.rootValues.filter((value) => !removed.has(value))
     this.nodes.forEach((node) => { node.children = node.children.filter((value) => !removed.has(value)) })
-    this.state = { ...this.state, active, selected, expanded: this.state.expanded.filter((value) => !removed.has(value)) }
+    this.state = { ...this.state, active, selected, selectedValues, anchorValue, expanded: this.state.expanded.filter((value) => !removed.has(value)) }
+    this.selectedValuesSet = new Set(selectedValues)
     this.expandedSet = new Set(this.state.expanded)
     this.rebuildSourceIndexes(this.nodes)
     this.rebuildSearchProjection()
@@ -182,18 +216,51 @@ export class TreeviewCore<Value = string> {
     this.requestSelect(value)
   }
 
-  requestSelect(value: Value): TreeviewActionResult {
+  requestSelect(value: Value, modifiers: TreeviewSelectionModifiers = {}): TreeviewActionResult {
     const node = this.nodes.get(value)
     if (!node || node.disabled) {
       return node ? actionFailure("disabled-node") : actionFailure("missing-node")
     }
+    if (this.selectionMode === "multiple" && modifiers.shiftKey) return this.requestRangeSelection(value)
+    if (this.selectionMode === "multiple" && (modifiers.ctrlKey || modifiers.metaKey)) return this.requestToggleSelection(value)
+    return this.selectValues(value, [value], value)
+  }
+
+  requestToggleSelection(value: Value): TreeviewActionResult {
+    const node = this.nodes.get(value)
+    if (!node || node.disabled) return node ? actionFailure("disabled-node") : actionFailure("missing-node")
+    if (this.selectionMode !== "multiple") {
+      const isSelected = this.state.selectedValues.includes(value)
+      return this.selectValues(value, isSelected ? [] : [value], isSelected ? null : value)
+    }
+    const selected = new Set(this.state.selectedValues)
+    if (selected.has(value)) selected.delete(value)
+    else selected.add(value)
+    return this.selectValues(value, [...selected], value)
+  }
+
+  requestRangeSelection(value: Value): TreeviewActionResult {
+    const node = this.nodes.get(value)
+    if (!node || node.disabled) return node ? actionFailure("disabled-node") : actionFailure("missing-node")
+    if (this.selectionMode !== "multiple") return this.requestSelect(value)
+    const anchor = this.state.anchorValue ?? this.state.active ?? value
+    const visible = this.getVisibleValuesCached()
+    const anchorIndex = visible.indexOf(anchor)
+    const targetIndex = visible.indexOf(value)
+    if (targetIndex < 0) return actionFailure("not-visible")
+    if (anchorIndex < 0) return this.selectValues(value, [value], value)
+    const start = Math.min(anchorIndex, targetIndex)
+    const end = Math.max(anchorIndex, targetIndex)
+    const range = visible.slice(start, end + 1).filter((entry) => !this.nodes.get(entry)?.disabled)
+    return this.selectValues(value, range, anchor)
+  }
+
+  private selectValues(active: Value, selectedValues: Value[], anchorValue: Value | null): TreeviewActionResult {
     const previous = this.state
-    const expanded = this.getExpandedWithAncestorPath(value)
-    this.patch({
-      active: value,
-      selected: value,
-      expanded,
-    })
+    const expanded = this.getExpandedWithAncestorPath(active)
+    const orderedSelection = this.orderSelectedValues(selectedValues)
+    const selected = orderedSelection.includes(active) ? active : lastValue(orderedSelection)
+    this.patch({ ...this.state, active, selected, selectedValues: orderedSelection, anchorValue, expanded })
     return actionSuccess(!statesEqual(previous, this.state))
   }
 
@@ -201,6 +268,8 @@ export class TreeviewCore<Value = string> {
     this.patch({
       ...this.state,
       selected: null,
+      selectedValues: [],
+      anchorValue: null,
     })
   }
 
@@ -257,11 +326,11 @@ export class TreeviewCore<Value = string> {
     return actionSuccess(!statesEqual(previous, this.state))
   }
 
-  focusNext(): void {
-    this.requestFocusNext()
+  focusNext(options: { extendSelection?: boolean } = {}): void {
+    this.requestFocusNext(options)
   }
 
-  requestFocusNext(): TreeviewActionResult {
+  requestFocusNext(options: { extendSelection?: boolean } = {}): TreeviewActionResult {
     this.getVisibleValuesCached()
     const currentIndex = this.state.active === null ? undefined : this.visibleIndexByValue.get(this.state.active)
     if (currentIndex === undefined) {
@@ -274,6 +343,7 @@ export class TreeviewCore<Value = string> {
       }
       return actionFailure("boundary")
     }
+    if (options.extendSelection && this.selectionMode === "multiple") return this.requestRangeSelection(target)
     const previous = this.state
     this.patch({
       ...this.state,
@@ -282,11 +352,11 @@ export class TreeviewCore<Value = string> {
     return actionSuccess(!statesEqual(previous, this.state))
   }
 
-  focusPrevious(): void {
-    this.requestFocusPrevious()
+  focusPrevious(options: { extendSelection?: boolean } = {}): void {
+    this.requestFocusPrevious(options)
   }
 
-  requestFocusPrevious(): TreeviewActionResult {
+  requestFocusPrevious(options: { extendSelection?: boolean } = {}): TreeviewActionResult {
     this.getVisibleValuesCached()
     const currentIndex = this.state.active === null ? undefined : this.visibleIndexByValue.get(this.state.active)
     if (currentIndex === undefined) {
@@ -299,6 +369,7 @@ export class TreeviewCore<Value = string> {
       }
       return actionFailure("boundary")
     }
+    if (options.extendSelection && this.selectionMode === "multiple") return this.requestRangeSelection(target)
     const previous = this.state
     this.patch({
       ...this.state,
@@ -516,7 +587,7 @@ export class TreeviewCore<Value = string> {
   }
 
   isSelected(value: Value): boolean {
-    return this.state.selected === value
+    return this.selectedValuesSet.has(value)
   }
 
   isActive(value: Value): boolean {
@@ -525,6 +596,10 @@ export class TreeviewCore<Value = string> {
 
   getSnapshot(): TreeviewSnapshot<Value> {
     return this.snapshot
+  }
+
+  getSelectedValues(): ReadonlyArray<Value> {
+    return this.snapshot.selectedValues
   }
 
   subscribe(subscriber: TreeviewSubscriber<Value>): { unsubscribe: () => void } {
@@ -537,8 +612,74 @@ export class TreeviewCore<Value = string> {
     }
   }
 
+  subscribeInteractions(subscriber: TreeviewInteractionSubscriber<Value>): { unsubscribe: () => void } {
+    this.interactionSubscribers.add(subscriber)
+    return { unsubscribe: () => this.interactionSubscribers.delete(subscriber) }
+  }
+
+  requestBeginDrag(sourceValues: ReadonlyArray<Value> = this.state.selectedValues): boolean {
+    const sources = [...new Set(sourceValues)]
+    const allSourcesValid = sources.length > 0 && sources.every((value) => {
+      const node = this.nodes.get(value)
+      return Boolean(node && !node.disabled)
+    })
+    if (!allSourcesValid) return false
+    this.activeDragSources = Object.freeze(sources)
+    this.emitInteraction(Object.freeze({ type: "drag-start", sourceValues: this.activeDragSources }))
+    return true
+  }
+
+  requestHoverDrop(targetValue: Value, position: TreeviewDropPosition): boolean {
+    if (!this.activeDragSources || !this.nodes.has(targetValue)) return false
+    const intent: TreeviewDropIntent<Value> = Object.freeze({
+      sourceValues: this.activeDragSources,
+      targetValue,
+      position,
+    })
+    this.pendingDropIntent = intent
+    this.emitInteraction(Object.freeze({ type: "drag-over", ...intent }))
+    return true
+  }
+
+  requestResolveDrop(accepted: boolean): boolean {
+    const sources = this.activeDragSources
+    if (!sources) return false
+    // The application resolves the target it validated. Require a preceding hover intent.
+    const pending = this.pendingDropIntent
+    if (!pending) return false
+    this.activeDragSources = null
+    this.pendingDropIntent = null
+    this.emitInteraction(Object.freeze({ type: accepted ? "drop-accepted" : "drop-rejected", ...pending, sourceValues: sources }))
+    return true
+  }
+
+  requestCancelDrag(): boolean {
+    const sourceValues = this.activeDragSources
+    if (!sourceValues) return false
+    this.activeDragSources = null
+    this.pendingDropIntent = null
+    this.emitInteraction(Object.freeze({ type: "drag-cancel", sourceValues }))
+    return true
+  }
+
+  requestClipboardIntent(action: TreeviewClipboardAction, targetValue: Value | null = null): void {
+    this.emitInteraction(Object.freeze({
+      type: "clipboard",
+      action,
+      selectedValues: this.state.selectedValues.slice(),
+      targetValue,
+    }))
+  }
+
+  private emitInteraction(event: TreeviewInteractionEvent<Value>): void {
+    this.interactionSubscribers.forEach((subscriber) => subscriber(event))
+  }
+
   destroy(): void {
     this.subscribers.clear()
+    this.interactionSubscribers.clear()
+    this.activeDragSources = null
+    this.pendingDropIntent = null
     this.visibleCache = null
   }
 
@@ -933,11 +1074,13 @@ export class TreeviewCore<Value = string> {
     return cycleValues
   }
 
-  private patch(next: TreeviewState<Value>, emit = true): boolean {
+  private patch(next: InternalTreeviewState<Value>, emit = true): boolean {
     const expandedChanged = !expandedValuesEqual(this.state.expanded, next.expanded)
-    const normalizedNext: TreeviewState<Value> = {
+    const normalizedNext: InternalTreeviewState<Value> = {
       active: next.active,
       selected: next.selected,
+      selectedValues: next.selectedValues,
+      anchorValue: next.anchorValue,
       expanded: expandedChanged ? this.normalizeExpandedValues(next.expanded) : this.state.expanded,
     }
     if (statesEqual(this.state, normalizedNext)) {
@@ -946,6 +1089,9 @@ export class TreeviewCore<Value = string> {
     if (!expandedValuesEqual(this.state.expanded, normalizedNext.expanded)) {
       this.expandedSet = new Set(normalizedNext.expanded)
       this.invalidateVisibleProjection()
+    }
+    if (!selectionValuesEqual(this.state.selectedValues, normalizedNext.selectedValues)) {
+      this.selectedValuesSet = new Set(normalizedNext.selectedValues)
     }
     this.state = normalizedNext
     this.snapshot = this.createSnapshot(normalizedNext)
@@ -963,23 +1109,38 @@ export class TreeviewCore<Value = string> {
     this.subscribers.forEach((subscriber) => subscriber(this.snapshot))
   }
 
-  private createSnapshot(state: TreeviewState<Value>): TreeviewSnapshot<Value> {
+  private createSnapshot(state: InternalTreeviewState<Value>): TreeviewSnapshot<Value> {
     if (this.snapshotExpandedSource !== state.expanded) {
       this.snapshotExpandedSource = state.expanded
       this.snapshotExpandedValues = Object.freeze([...state.expanded])
     }
+    if (this.snapshotSelectedSource !== state.selectedValues) {
+      this.snapshotSelectedSource = state.selectedValues
+      this.snapshotSelectedValues = Object.freeze([...state.selectedValues])
+    }
     return Object.freeze({
       active: state.active,
+      focusedValue: state.active,
       selected: state.selected,
+      selectedValues: this.snapshotSelectedValues,
+      anchorValue: state.anchorValue,
       expanded: this.snapshotExpandedValues,
     })
   }
 
-  private normalizeState(state: TreeviewState<Value>): TreeviewState<Value> {
+  private normalizeState(state: InternalTreeviewState<Value>): InternalTreeviewState<Value> {
     const expandedSet = new Set(this.normalizeExpandedValues(state.expanded))
 
-    const selected = this.normalizeSelected(state.selected)
-    this.includeAncestorPath(expandedSet, selected)
+    const selectedValues = this.selectionMode === "multiple"
+      ? this.orderSelectedValues(state.selectedValues)
+      : (this.normalizeSelected(state.selected) === null ? [] : [state.selected as Value])
+    const selected = selectedValues.includes(state.selected as Value)
+      ? state.selected
+      : lastValue(selectedValues)
+    const anchorValue = this.normalizeSelected(state.anchorValue) !== null
+      ? state.anchorValue
+      : lastValue(selectedValues)
+    selectedValues.forEach((value) => this.includeAncestorPath(expandedSet, value))
     const visible = this.computeVisibleProjection(expandedSet).visible
     const visibleIndex = new Set(visible)
     const active = this.normalizeActive(state.active, visible, visibleIndex)
@@ -991,6 +1152,8 @@ export class TreeviewCore<Value = string> {
     return {
       active: nextActive,
       selected,
+      selectedValues,
+      anchorValue,
       expanded: this.normalizeExpandedValues(expandedSet),
     }
   }
@@ -1004,6 +1167,12 @@ export class TreeviewCore<Value = string> {
       return null
     }
     return candidate
+  }
+
+  private orderSelectedValues(values: Iterable<Value>): Value[] {
+    return [...new Set(values)]
+      .filter((value) => this.normalizeSelected(value) !== null)
+      .sort((a, b) => (this.preorderIndexByValue.get(a) ?? Number.MAX_SAFE_INTEGER) - (this.preorderIndexByValue.get(b) ?? Number.MAX_SAFE_INTEGER))
   }
 
   private normalizeActive(candidate: Value | null, visible: Value[], visibleIndex: ReadonlySet<Value>): Value | null {
@@ -1323,14 +1492,22 @@ function clampVisibleWindowIndex(index: number, length: number): number {
   return Math.trunc(index)
 }
 
-function statesEqual<Value>(a: TreeviewState<Value>, b: TreeviewState<Value>): boolean {
+function statesEqual<Value>(a: InternalTreeviewState<Value>, b: InternalTreeviewState<Value>): boolean {
   if (a === b) {
     return true
   }
-  if (a.active !== b.active || a.selected !== b.selected) {
+  if (a.active !== b.active || a.selected !== b.selected || a.anchorValue !== b.anchorValue || !selectionValuesEqual(a.selectedValues, b.selectedValues)) {
     return false
   }
   return expandedValuesEqual(a.expanded, b.expanded)
+}
+
+function selectionValuesEqual<Value>(a: Value[], b: Value[]): boolean {
+  return a === b || (a.length === b.length && a.every((value, index) => Object.is(value, b[index])))
+}
+
+function lastValue<Value>(values: Value[]): Value | null {
+  return values.length ? values[values.length - 1] ?? null : null
 }
 
 function expandedValuesEqual<Value>(a: Value[], b: Value[]): boolean {

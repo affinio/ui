@@ -290,4 +290,43 @@ describe("useTreeviewController", () => {
 
     scope.stop()
   })
+
+  it("exposes multiple selection, keyboard range extension, and app-owned intents", () => {
+    const scope = effectScope()
+    let controller!: TreeviewController<string>
+    scope.run(() => {
+      controller = useTreeviewController<string>({
+        selectionMode: "multiple",
+        nodes: [
+          { value: "root", parent: null },
+          { value: "first", parent: "root" },
+          { value: "second", parent: "root" },
+        ],
+        defaultExpanded: ["root"],
+        defaultActive: "first",
+        defaultSelected: "first",
+      })
+    })
+    const events: unknown[] = []
+    expect(controller.selectionMode).toBe("multiple")
+    const subscription = controller.subscribeInteractions((event) => events.push(event))
+
+    controller.requestSelect("second", { ctrlKey: true })
+    expect(controller.state.value.selectedValues).toEqual(["first", "second"])
+    expect(controller.state.value.anchorValue).toBe("second")
+    controller.requestFocusPrevious({ extendSelection: true })
+    expect(controller.state.value.focusedValue).toBe("first")
+    expect(controller.getSelectedValues()).toEqual(["first", "second"])
+
+    controller.requestBeginDrag()
+    controller.requestHoverDrop("root", "before")
+    controller.requestResolveDrop(true)
+    controller.requestClipboardIntent("cut")
+    expect(events.map((event) => (event as { type: string }).type)).toEqual([
+      "drag-start", "drag-over", "drop-accepted", "clipboard",
+    ])
+
+    subscription.unsubscribe()
+    scope.stop()
+  })
 })

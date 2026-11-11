@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.0
+
+### Minor Changes
+
+- Forwarded opt-in multi-selection, range/focus commands, drag/drop intents, and clipboard intents from the TreeView core.
+
 ## 0.4.4
 
 ### Patch Changes

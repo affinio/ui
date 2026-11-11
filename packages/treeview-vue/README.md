@@ -15,7 +15,11 @@ pnpm --filter @affino/treeview-vue test
 
 `useTreeviewController()` and `useVirtualTreeviewController()` expose `setSearchQuery(query)`, `clearSearchQuery()`, and `getSearchMatchCount()` from `@affino/treeview-core`. Virtual rows include `matched` metadata for direct search hits.
 
-`rowHeight` is measured in CSS pixels and must be positive. `overscan` is a row count. The controller exposes single selection/active-node semantics inherited from the core.
+`rowHeight` is measured in CSS pixels and must be positive. `overscan` is a row count. Controllers preserve single selection by default and forward opt-in `selectionMode: "multiple"`, including modifier selection, range extension, anchor/focused values, drag/drop intent events, and clipboard intents. They do not render DOM or mutate application data.
+
+In multiple mode, pass click modifiers to `requestSelect(value, modifiers)` and call `requestFocusNext({ extendSelection: true })` / `requestFocusPrevious({ extendSelection: true })` from Shift+Arrow handlers. Ranges use enabled currently visible nodes; collapsed descendants are excluded and disabled nodes are skipped. Keyboard listener ownership stays with the renderer, which can avoid intercepting shortcuts from editable descendants.
+
+Subscribe to `subscribeInteractions()` for drag/drop and clipboard intents. The consumer computes drop position from rendered geometry, validates the intent, and applies/persists domain changes; `requestResolveDrop(accepted)` reports the result through the interaction subscription. Clipboard intent methods do not access the browser clipboard.
 
 ## Core result parity
 

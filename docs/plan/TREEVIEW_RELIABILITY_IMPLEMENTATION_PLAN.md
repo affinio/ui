@@ -19,10 +19,10 @@
 | TV-08 | P1 / S | treeview-laravel/resources/js/index.ts: collectTreeviewStructure, isSameStructure, setupMutationObserver | Structure equality сравнивает только DOM identities; attributes disabled/parent/value игнорируются, observer видит только childList и ищет новые roots, а не изменения items внутри существующего root. Rehydrate пересоздаёт core с defaults. |
 | TV-09 | P2 / S | Laravel renderState/onClick/onKeyDown/resolveModels | На каждый focus пишутся атрибуты всех N items, expanded.includes для каждой ветки; 2N listeners. Nested DOM item events могут обработаться предками, nested roots попадают в querySelectorAll. Проверить boundary и state preservation. |
 | TV-10 | P1 / R | treeview-core/vue src/index.ts и dist | Plain Node ESM import падает на extensionless imports; source aliases скрывают дефект. |
-| TV-11 | P2 / S+V | public types, Vue wrappers, destroy | Core patch mode не проброшен через wrapper registerNodes; request* results также доступны только через core. Нет явного remove/reorder/batch API, terminal destroy guard; lazy loading/multi-select не заявлять реализованными. |
+| TV-11 | P2 / S+V | public types, Vue wrappers, destroy | Core patch mode не проброшен через wrapper registerNodes; request* results также доступны только через core. Нет явного remove/reorder/batch API, terminal destroy guard; lazy loading remains outside the API. |
 | TV-12 | P2 / V | package tests/scripts/CI | Нет evidence реального браузера для virtual focus/ARIA; perf gate не подключён в CI. Тесты private counters не гарантируют bounded total work. |
 
-Ограничения существующей архитектуры: flat parent model, single selection, fixed-height virtual rows. Это не баги сами по себе. Новые multi-select, DnD, variable heights и async child loading не включать автоматически в этот план; сначала продуктовый контракт.
+Ограничения существующей архитектуры: flat parent model, opt-in multiple selection (see the 2026-11 interaction contract addendum), and fixed-height virtual rows. Async child loading and variable heights remain outside this plan.
 
 ## API-решения
 
@@ -120,7 +120,7 @@
 ## T09 — Package and consumer contract (TV-10, TV-11, TV-12)
 
 - Исправить ESM relative specifiers/build при сохранении export map; проверить pack → temporary consumer без workspace aliases: Node 24 import, Vue build, declarations.
-- README/examples: fixed-height only, single selection, data identity/unique value contract (null reserved), patch replace distinction, manual dispose вне scope, revisions и API migration.
+- README/examples: fixed-height only, single by default with opt-in multiple selection, data identity/unique value contract (null reserved), patch replace distinction, manual dispose вне scope, revisions и API migration.
 - Tree semantics: проверить owner focus strategy, aria-level/posinset/setsize/expanded/selected, typeahead/RTL support или documented absence. Не добавлять ARIA semantics в core DOM-кодом.
 - Done: реальные integration examples build; никаких обещаний, что core автоматически обеспечивает DOM accessibility.
 
@@ -133,6 +133,8 @@
 - Done: нет открытых P1, все acceptance checks выполнены на Node 24 и поддерживаемом браузере; limitations явно утверждены. Без этого статус in_progress/blocked, не done.
 
 ## Журнал
+
+2026-11-11: Approved additive interaction contract implemented in workspace: core/Vue now provide opt-in multi-selection with visible enabled-node ranges and stable anchor, focus/selection separation, and typed app-owned drag/drop and clipboard intents. Core/Vue tests cover modifier clicks, keyboard range extension, disabled nodes, hidden descendants, intent event payloads, and no model mutation. No DOM component exists in these packages, so renderer geometry, ARIA attributes, native key ownership, drop validation, and domain persistence remain consumer responsibilities. Package-level test/build and packed consumer release gates remain to be run before release.
 
 2026-09-19: аудит и baseline treeview 47 tests (core 32, Vue 11, Laravel 4), builds passed на Node 24. Закрыты T01–T06, T08 и T09: prospective cycle normalization, structural notifications/no-op replace, search active invariants, fractional virtual range, core-owned virtual invalidation, bottom-up search projection, attribute-aware Laravel rehydrate с сохранением selection/expansion и explicit consumer/accessibility envelope в README + ESM consumer verification. T07 начат: topology patch больше не перестраивает search projection второй раз; benchmark получил deterministic no-op gates для source finalization, visible recompute и snapshot emission, отдельный field-patch workload подтвердил нулевые topology/traversal rebuilds, Node24 smoke на 1k nodes прошёл. T10 остаётся открытым; T07 требует полного calibrated patch cost model.
 2026-09-19: T10 продвинут: Node24 core benchmark на 10k прошёл с no-op/field-patch counter gates, Vue virtual benchmark на 10k прошёл с blanks=0 и heap delta 7.97MB; все 52 treeview tests, builds и pack dry-run прошли. Browser-native interaction gate остаётся validation gap из-за отсутствия component E2E fixtures.

@@ -50,6 +50,28 @@ describe("useVirtualTreeviewController", () => {
     scope.stop()
   })
 
+  it("reflects multiple selection independently from focus in virtual row metadata", () => {
+    const scope = effectScope()
+    let controller!: VirtualTreeviewController<string>
+    scope.run(() => {
+      controller = useVirtualTreeviewController<string>({
+        selectionMode: "multiple",
+        nodes: NODES,
+        defaultExpanded: ["root"],
+        defaultActive: "alpha",
+        defaultSelected: "alpha",
+      })
+    })
+
+    controller.requestSelect("beta", { metaKey: true })
+    controller.requestFocus("root")
+    expect(controller.visibleRows.value.filter((row) => row.selected).map((row) => row.value)).toEqual(["alpha", "beta"])
+    expect(controller.visibleRows.value.find((row) => row.active)?.value).toBe("root")
+    expect(controller.state.value.selectedValues).toEqual(["alpha", "beta"])
+
+    scope.stop()
+  })
+
   it("batches scroll updates through animation frames", async () => {
     vi.useFakeTimers()
     const scope = effectScope()

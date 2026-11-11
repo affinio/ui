@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.0
+
+### Minor Changes
+
+- Added opt-in multiple selection with stable anchors, visible-range selection, modifier selection, and focus-independent selected values.
+- Added typed drag/drop and clipboard intent events; TreeView reports interaction intent without mutating consumer data.
+
 ## 0.5.3
 
 ### Patch Changes
