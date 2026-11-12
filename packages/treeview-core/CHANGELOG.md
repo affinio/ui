@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.1
+
+### Patch Changes
+
+- Added APG ArrowLeft and ArrowRight navigation while preserving selection and anchor state.
+
 ## 0.6.0
 
 ### Minor Changes

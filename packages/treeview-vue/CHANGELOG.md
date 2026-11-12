@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.1
+
+### Patch Changes
+
+- Exposed core ArrowLeft and ArrowRight navigation actions through the Vue controller.
+- Updated the treeview core dependency.
+
 ## 0.5.0
 
 ### Minor Changes

@@ -486,32 +486,17 @@ const onNodeKeydown = (event: KeyboardEvent, value: NodeValue): void => {
       })
       break
     case "ArrowRight": {
-      if (!hasChildren(value)) {
-        return
-      }
       event.preventDefault()
-      if (!treeview.isExpanded(value)) {
-        treeview.expand(value)
-        refreshAndSyncScroll()
-        return
-      }
-      const child = childrenByParent.get(value)?.[0]
-      if (child) {
-        treeview.focus(child)
-      }
+      const result = treeview.requestArrowRight()
+      if (result.ok && result.changed) refreshAndSyncScroll()
       break
     }
-    case "ArrowLeft":
+    case "ArrowLeft": {
       event.preventDefault()
-      if (treeview.isExpanded(value)) {
-        treeview.collapse(value)
-        refreshAndSyncScroll()
-        return
-      }
-      if (parentByValue.get(value)) {
-        treeview.focus(parentByValue.get(value) as NodeValue)
-      }
+      const result = treeview.requestArrowLeft()
+      if (result.ok && result.changed) refreshAndSyncScroll()
       break
+    }
   }
 }
 

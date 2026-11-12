@@ -292,6 +292,35 @@ export class TreeviewCore<Value = string> {
     return actionSuccess(!statesEqual(previous, this.state))
   }
 
+  requestArrowLeft(): TreeviewActionResult {
+    const value = this.state.active
+    if (value === null) return actionFailure("no-focusable-node")
+    const node = this.nodes.get(value)
+    if (!node) return actionFailure("missing-node")
+    if (node.disabled) return actionFailure("disabled-node")
+    if (node.children.length > 0 && this.isVisuallyExpanded(value)) {
+      return this.requestCollapse(value)
+    }
+    return node.parent === null ? actionSuccess(false) : this.requestFocus(node.parent)
+  }
+
+  requestArrowRight(): TreeviewActionResult {
+    const value = this.state.active
+    if (value === null) return actionFailure("no-focusable-node")
+    const node = this.nodes.get(value)
+    if (!node) return actionFailure("missing-node")
+    if (node.disabled) return actionFailure("disabled-node")
+    if (node.children.length === 0) return actionSuccess(false)
+    if (!this.isVisuallyExpanded(value)) return this.requestExpand(value)
+
+    this.getVisibleValuesCached()
+    const child = node.children.find((candidate) => {
+      const childNode = this.nodes.get(candidate)
+      return Boolean(childNode && !childNode.disabled && this.visibleIndexByValue.has(candidate))
+    })
+    return child === undefined ? actionSuccess(false) : this.requestFocus(child)
+  }
+
   focusFirst(): void {
     this.requestFocusFirst()
   }

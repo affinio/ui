@@ -37,6 +37,7 @@ Snapshots retain the legacy `selected` field and add `selectedValues`, `anchorVa
 Use `request*` methods for explicit success/failure semantics:
 
 - `requestFocus(value)`
+- `requestArrowLeft()` / `requestArrowRight()` for APG tree navigation: collapse in place, move to parent, expand in place, or focus the first enabled visible child. These actions do not change selection or anchor state.
 - `requestSelect(value)`
 - `requestToggleSelection(value)` / `requestRangeSelection(value)`
 - `requestExpand(value)`
