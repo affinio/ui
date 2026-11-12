@@ -226,6 +226,7 @@ try {
     page.locator('[role=treeitem][data-value="node-6"]'),
     { targetPosition: { x: 10, y: 16 } },
   )
+  await page.getByRole("button", { name: "Clear selection" }).click()
   await page.locator('[role=treeitem][data-value="node-1"]').dragTo(
     page.locator('[role=treeitem][data-value="workspace"]'),
     { targetPosition: { x: 10, y: 1 } },
