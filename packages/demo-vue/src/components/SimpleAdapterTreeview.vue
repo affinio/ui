@@ -1,12 +1,13 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch, type ComponentPublicInstance } from "vue"
-import { useVirtualTreeviewController, type TreeviewNode } from "@affino/treeview-vue"
+import { computed, nextTick, onScopeDispose, ref, watch, type ComponentPublicInstance } from "vue"
+import { useVirtualTreeviewController, type TreeviewInteractionEvent, type TreeviewNode, type TreeviewDropPosition } from "@affino/treeview-vue"
 
 type NodeValue = string
 
 type DemoNodeMeta = {
   title: string
   detail: string
+  disabled: boolean
 }
 
 const targetNodeCount = 2400
@@ -18,9 +19,9 @@ const nodes: TreeviewNode<NodeValue>[] = []
 const nodeMeta: Record<NodeValue, DemoNodeMeta> = {}
 const defaultExpanded: NodeValue[] = []
 
-const addNode = (value: NodeValue, parent: NodeValue | null, title: string, detail: string): void => {
-  nodes.push({ value, parent, text: `${title} ${detail}` })
-  nodeMeta[value] = { title, detail }
+const addNode = (value: NodeValue, parent: NodeValue | null, title: string, detail: string, disabled = false): void => {
+  nodes.push({ value, parent, text: `${title} ${detail}`, ...(disabled ? { disabled: true } : {}) })
+  nodeMeta[value] = { title, detail, disabled }
 }
 
 addNode("workspace", null, "Workspace", "Synthetic perf root with thousands of nested branches")
@@ -41,7 +42,7 @@ while (cursor < queue.length && nodes.length < targetNodeCount) {
     const depth = parent.depth + 1
     const title = `Node ${id}`
     const detail = `Depth ${depth}, child ${index + 1} of ${parent.value}`
-    addNode(value, parent.value, title, detail)
+    addNode(value, parent.value, title, detail, id % 127 === 0)
     queue.push({ value, depth, ordinal: id })
     if (depth <= 5) {
       defaultExpanded.push(value)
@@ -84,6 +85,7 @@ const resolveLevel = (value: NodeValue): number => {
 
 const treeview = useVirtualTreeviewController<NodeValue>({
   nodes,
+  selectionMode: "multiple",
   defaultExpanded,
   defaultSelected: "node-42",
   defaultActive: "node-42",
@@ -96,17 +98,59 @@ const treeview = useVirtualTreeviewController<NodeValue>({
 const rowsViewport = ref<HTMLElement | null>(null)
 const searchInput = ref<HTMLInputElement | null>(null)
 const searchQuery = ref("")
+const lastInteraction = ref<TreeviewInteractionEvent<NodeValue> | null>(null)
+const hoverEventCount = ref(0)
+const dragStartCount = ref(0)
+const acceptedDropCount = ref(0)
+const rejectedDropCount = ref(0)
+const clipboardEventCount = ref(0)
+const hoveredTarget = ref<{ value: NodeValue; position: TreeviewDropPosition } | null>(null)
+let rawHoverEventCount = 0
+let hoverCountFrame: number | null = null
+let draggedValues: NodeValue[] = []
+let dragPointer: { x: number; y: number } | null = null
+let dragScrollFrame: number | null = null
+const interactionSubscription = treeview.subscribeInteractions((event) => {
+  if (event.type === "drag-over") {
+    rawHoverEventCount += 1
+    if (hoverCountFrame === null) {
+      hoverCountFrame = window.requestAnimationFrame(() => {
+        hoverCountFrame = null
+        hoverEventCount.value = rawHoverEventCount
+      })
+    }
+    return
+  }
+  lastInteraction.value = event
+  if (event.type === "drag-start") dragStartCount.value += 1
+  if (event.type === "drop-accepted") acceptedDropCount.value += 1
+  if (event.type === "drop-rejected") rejectedDropCount.value += 1
+  if (event.type === "clipboard") clipboardEventCount.value += 1
+})
+onScopeDispose(() => {
+  interactionSubscription.unsubscribe()
+  if (hoverCountFrame !== null) window.cancelAnimationFrame(hoverCountFrame)
+  if (dragScrollFrame !== null) window.cancelAnimationFrame(dragScrollFrame)
+})
 
 const snapshot = computed(() => treeview.state.value)
 const activeValue = computed(() => snapshot.value.active)
 const selectedValue = computed(() => snapshot.value.selected)
+const selectedValues = computed(() => snapshot.value.selectedValues)
+const anchorValue = computed(() => snapshot.value.anchorValue)
 const expandedSet = computed(() => new Set(snapshot.value.expanded))
 const visibleRows = computed(() => treeview.visibleRows.value)
 const totalHeight = computed(() => treeview.totalHeight.value)
 const totalNodeCount = nodes.length
+const disabledNodeCount = nodes.filter((node) => node.disabled).length
 const visibleNodeCount = computed(() => {
   void snapshot.value
   return treeview.getVisibleCount()
+})
+const stressRangeSize = computed(() => {
+  const anchor = anchorValue.value
+  const anchorIndex = anchor === null ? 0 : treeview.getVisibleIndex(anchor)
+  return Math.max(0, visibleNodeCount.value - Math.max(anchorIndex, 0))
 })
 const visibleRangeLabel = computed(() => {
   const rows = visibleRows.value
@@ -199,6 +243,138 @@ const selectedMeta = computed(() => {
   }
   return nodeMeta[selected]
 })
+const lastInteractionLabel = computed(() => {
+  const event = lastInteraction.value
+  if (!event) return "No completed interaction yet"
+  if (event.type === "clipboard") return `${event.action} intent · ${event.selectedValues.length} selected · target ${event.targetValue ?? "none"}`
+  if (event.type === "drag-start" || event.type === "drag-cancel") return `${event.type} · ${event.sourceValues.length} source nodes`
+  return `${event.type} · ${event.sourceValues.length} source nodes · ${event.position} ${event.targetValue}`
+})
+
+const selectStressRange = (): void => {
+  const visible = treeview.getVisibleValues()
+  const first = visible[0]
+  const last = visible[visible.length - 1]
+  if (!first || !last) return
+  if (treeview.state.value.anchorValue === null) treeview.requestSelect(first)
+  treeview.requestRangeSelection(last)
+}
+
+const getDropPosition = (event: DragEvent): TreeviewDropPosition => {
+  const target = event.currentTarget
+  if (!(target instanceof HTMLElement)) return "inside"
+  const rect = target.getBoundingClientRect()
+  const ratio = rect.height > 0 ? (event.clientY - rect.top) / rect.height : 0.5
+  if (ratio < 0.25) return "before"
+  if (ratio > 0.75) return "after"
+  return "inside"
+}
+
+const isDescendantOrSelf = (candidate: NodeValue, ancestor: NodeValue): boolean => {
+  let current: NodeValue | null = candidate
+  const visited = new Set<NodeValue>()
+  while (current !== null && !visited.has(current)) {
+    if (current === ancestor) return true
+    visited.add(current)
+    current = parentByValue.get(current) ?? null
+  }
+  return false
+}
+
+const onNodeDragStart = (event: DragEvent, value: NodeValue): void => {
+  const selection = snapshot.value.selectedValues
+  draggedValues = selection.includes(value) ? [...selection] : [value]
+  if (!treeview.requestBeginDrag(draggedValues)) {
+    event.preventDefault()
+    draggedValues = []
+    return
+  }
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = "move"
+    event.dataTransfer.setData("text/plain", value)
+  }
+}
+
+const stopDragAutoScroll = (): void => {
+  dragPointer = null
+  if (dragScrollFrame !== null) {
+    window.cancelAnimationFrame(dragScrollFrame)
+    dragScrollFrame = null
+  }
+}
+
+const runDragAutoScroll = (): void => {
+  dragScrollFrame = null
+  const viewport = rowsViewport.value
+  const pointer = dragPointer
+  if (!viewport || !pointer || draggedValues.length === 0) return
+
+  const rect = viewport.getBoundingClientRect()
+  if (pointer.x < rect.left || pointer.x > rect.right || pointer.y < rect.top || pointer.y > rect.bottom) return
+  const edgeSize = 48
+  let velocity = 0
+  if (pointer.y < rect.top + edgeSize) {
+    velocity = -Math.max(2, Math.ceil(((rect.top + edgeSize - pointer.y) / edgeSize) * 24))
+  } else if (pointer.y > rect.bottom - edgeSize) {
+    velocity = Math.max(2, Math.ceil(((pointer.y - (rect.bottom - edgeSize)) / edgeSize) * 24))
+  }
+  if (velocity === 0) return
+
+  const maxScrollTop = Math.max(0, viewport.scrollHeight - viewport.clientHeight)
+  const nextScrollTop = Math.max(0, Math.min(maxScrollTop, viewport.scrollTop + velocity))
+  if (nextScrollTop === viewport.scrollTop) return
+  viewport.scrollTop = nextScrollTop
+  treeview.setScrollTop(nextScrollTop)
+  dragScrollFrame = window.requestAnimationFrame(runDragAutoScroll)
+}
+
+const scheduleDragAutoScroll = (event: DragEvent): void => {
+  dragPointer = { x: event.clientX, y: event.clientY }
+  if (dragScrollFrame === null) dragScrollFrame = window.requestAnimationFrame(runDragAutoScroll)
+}
+
+const onNodeDragOver = (event: DragEvent, value: NodeValue): void => {
+  if (!draggedValues.length) return
+  event.preventDefault()
+  if (event.dataTransfer) event.dataTransfer.dropEffect = "move"
+  scheduleDragAutoScroll(event)
+  const position = getDropPosition(event)
+  treeview.requestHoverDrop(value, position)
+  if (hoveredTarget.value?.value !== value || hoveredTarget.value.position !== position) {
+    hoveredTarget.value = { value, position }
+  }
+}
+
+const onNodeDrop = (event: DragEvent, value: NodeValue): void => {
+  if (!draggedValues.length) return
+  event.preventDefault()
+  stopDragAutoScroll()
+  const position = getDropPosition(event)
+  treeview.requestHoverDrop(value, position)
+  const cycle = draggedValues.some((source) => isDescendantOrSelf(value, source))
+  treeview.requestResolveDrop(!cycle)
+  hoveredTarget.value = null
+  draggedValues = []
+}
+
+const onNodeDragEnd = (): void => {
+  stopDragAutoScroll()
+  treeview.requestCancelDrag()
+  hoveredTarget.value = null
+  draggedValues = []
+}
+
+const isEditableTarget = (target: EventTarget | null): boolean => {
+  return target instanceof HTMLElement && Boolean(target.closest("input, textarea, select, [contenteditable='true']"))
+}
+
+const onNodeDragLeave = (event: DragEvent, value: NodeValue): void => {
+  const current = event.currentTarget
+  if (current instanceof HTMLElement && event.relatedTarget instanceof Node && current.contains(event.relatedTarget)) return
+  if (hoveredTarget.value?.value === value) hoveredTarget.value = null
+}
+
+const selectedPreview = computed(() => selectedValues.value.slice(0, 6).map(getTitle).join(", "))
 
 const getTitle = (value: NodeValue): string => nodeMeta[value]?.title ?? String(value)
 const getDetail = (value: NodeValue): string => nodeMeta[value]?.detail ?? ""
@@ -222,11 +398,34 @@ watch(
     if (!active) {
       return
     }
-    treeview.scrollToValue(active)
-    refreshAndSyncScroll()
-    await nextTick()
-    const target = itemElements.get(active)
-    if (!target || target.hidden || target === document.activeElement || document.activeElement === searchInput.value) {
+    const viewport = rowsViewport.value
+    if (!viewport || document.activeElement === searchInput.value) return
+    let target = itemElements.get(active)
+    if (!target) {
+      const index = treeview.getVisibleIndex(active)
+      if (index < 0) return
+      treeview.scrollToIndex(index)
+      treeview.refreshWindow()
+      syncViewportScroll()
+      await nextTick()
+      if (activeValue.value !== active) return
+      target = itemElements.get(active)
+    }
+    if (!target || target.hidden || target === document.activeElement) return
+
+    const viewportRect = viewport.getBoundingClientRect()
+    const targetRect = target.getBoundingClientRect()
+    let nextScrollTop = viewport.scrollTop
+    if (targetRect.top < viewportRect.top) nextScrollTop -= viewportRect.top - targetRect.top
+    else if (targetRect.bottom > viewportRect.bottom) nextScrollTop += targetRect.bottom - viewportRect.bottom
+    if (nextScrollTop !== viewport.scrollTop) {
+      treeview.setScrollTop(nextScrollTop)
+      viewport.scrollTop = nextScrollTop
+      await nextTick()
+      if (activeValue.value !== active) return
+      target = itemElements.get(active) ?? target
+    }
+    if (!target || target.hidden || target === document.activeElement) {
       return
     }
     try {
@@ -244,15 +443,30 @@ const onRowsScroll = (event: Event): void => {
   }
 }
 
-const onNodeKeydown = (event: KeyboardEvent, value: NodeValue) => {
+const onNodeKeydown = (event: KeyboardEvent, value: NodeValue): void => {
+  const key = event.key.toLowerCase()
+  if ((event.ctrlKey || event.metaKey) && ["c", "x", "v"].includes(key) && !isEditableTarget(event.target)) {
+    event.preventDefault()
+    const action = key === "c" ? "copy" : key === "x" ? "cut" : "paste"
+    treeview.requestClipboardIntent(action, action === "paste" ? value : null)
+    return
+  }
   switch (event.key) {
+    case "Escape": {
+      if (snapshot.value.selectedValues.length <= 1) return
+      event.preventDefault()
+      const anchor = snapshot.value.anchorValue ?? value
+      treeview.clearSelection()
+      treeview.requestFocus(anchor)
+      break
+    }
     case "ArrowDown":
       event.preventDefault()
-      treeview.focusNext()
+      treeview.requestFocusNext({ extendSelection: event.shiftKey })
       break
     case "ArrowUp":
       event.preventDefault()
-      treeview.focusPrevious()
+      treeview.requestFocusPrevious({ extendSelection: event.shiftKey })
       break
     case "Home":
       event.preventDefault()
@@ -265,7 +479,11 @@ const onNodeKeydown = (event: KeyboardEvent, value: NodeValue) => {
     case "Enter":
     case " ":
       event.preventDefault()
-      treeview.select(value)
+      treeview.requestSelect(value, {
+        ctrlKey: event.ctrlKey,
+        metaKey: event.metaKey,
+        shiftKey: event.shiftKey,
+      })
       break
     case "ArrowRight": {
       if (!hasChildren(value)) {
@@ -297,8 +515,12 @@ const onNodeKeydown = (event: KeyboardEvent, value: NodeValue) => {
   }
 }
 
-const onNodeClick = (value: NodeValue): void => {
-  treeview.select(value)
+const onNodeClick = (event: MouseEvent, value: NodeValue): void => {
+  treeview.requestSelect(value, {
+    ctrlKey: event.ctrlKey,
+    metaKey: event.metaKey,
+    shiftKey: event.shiftKey,
+  })
   treeview.focus(value)
   refreshAndSyncScroll()
 }
@@ -336,10 +558,20 @@ const onToggleClick = (value: NodeValue): void => {
       </span>
     </div>
 
+    <div class="treeview-selection-tools" aria-label="Tree selection stress controls">
+      <button type="button" @click="selectStressRange">Select range to last visible node ({{ stressRangeSize }} rows)</button>
+      <button type="button" :disabled="selectedValues.length === 0" @click="treeview.clearSelection()">Clear selection</button>
+      <span>Ctrl/⌘ click toggles · Shift click/↑/↓ extends · Escape clears group to anchor · drag rows to probe drops</span>
+    </div>
+
     <div class="treeview-summary" aria-live="polite">
       <span>{{ visibleNodeCount }} visible / {{ totalNodeCount }} total</span>
       <span>{{ visibleRangeLabel }}</span>
       <span>{{ visibleRows.length }} DOM rows</span>
+      <span>{{ disabledNodeCount }} disabled nodes</span>
+      <span>{{ selectedValues.length }} selected</span>
+      <span>Focus: {{ activeValue ?? "none" }}</span>
+      <span>Anchor: {{ anchorValue ?? "none" }}</span>
     </div>
 
     <div
@@ -347,6 +579,7 @@ const onToggleClick = (value: NodeValue): void => {
       class="treeview-rows"
       role="tree"
       aria-label="Project map treeview"
+      aria-multiselectable="true"
       :style="{ height: `${virtualViewportHeight}px` }"
       @scroll.passive="onRowsScroll"
     >
@@ -357,26 +590,37 @@ const onToggleClick = (value: NodeValue): void => {
           :ref="bindItemElement(row.value)"
           type="button"
           class="treeview-node"
+          :disabled="row.disabled"
+          :draggable="!row.disabled"
           :class="{
-            'is-selected': selectedValue === row.value,
+            'is-selected': row.selected,
             'is-active': activeValue === row.value,
             'is-matched': isMatched(row.value),
+            'is-drop-before': hoveredTarget?.value === row.value && hoveredTarget.position === 'before',
+            'is-drop-inside': hoveredTarget?.value === row.value && hoveredTarget.position === 'inside',
+            'is-drop-after': hoveredTarget?.value === row.value && hoveredTarget.position === 'after',
           }"
           :style="{ '--tree-level': String(resolveLevel(row.value)), transform: `translateY(${row.top}px)` }"
           :data-value="row.value"
           :data-tree-last="isLastSibling(row.value) ? 'true' : 'false'"
-          :data-state="selectedValue === row.value ? 'selected' : 'idle'"
+          :data-state="row.selected ? 'selected' : 'idle'"
           :data-active="activeValue === row.value ? 'true' : 'false'"
           :data-matched="isMatched(row.value) ? 'true' : 'false'"
           role="treeitem"
           :aria-level="String(resolveLevel(row.value))"
           :aria-setsize="String(getSiblingCount(row.value))"
           :aria-posinset="String(getPosInSet(row.value))"
-          :aria-selected="selectedValue === row.value ? 'true' : 'false'"
+          :aria-selected="row.selected ? 'true' : 'false'"
+          :aria-disabled="row.disabled ? 'true' : undefined"
           :aria-expanded="hasChildren(row.value) ? (expandedSet.has(row.value) ? 'true' : 'false') : undefined"
           :tabindex="activeValue === row.value ? 0 : -1"
-          @click="onNodeClick(row.value)"
+          @click="onNodeClick($event, row.value)"
           @keydown="onNodeKeydown($event, row.value)"
+          @dragstart="onNodeDragStart($event, row.value)"
+          @dragover="onNodeDragOver($event, row.value)"
+          @dragleave="onNodeDragLeave($event, row.value)"
+          @drop="onNodeDrop($event, row.value)"
+          @dragend="onNodeDragEnd"
         >
           <span class="treeview-node__rail" aria-hidden="true">
             <span class="treeview-node__guides">
@@ -414,9 +658,17 @@ const onToggleClick = (value: NodeValue): void => {
     </div>
 
     <footer class="treeview-footer">
-      <p class="ui-eyebrow">Current selection</p>
+      <p class="ui-eyebrow">Selection · {{ selectedValues.length }} nodes</p>
       <p v-if="selectedMeta">{{ selectedMeta.title }} | {{ selectedMeta.detail }}</p>
       <p v-else>No node selected</p>
+      <p v-if="selectedPreview" class="treeview-footer__preview">{{ selectedPreview }}{{ selectedValues.length > 6 ? `, +${selectedValues.length - 6} more` : "" }}</p>
+      <section class="treeview-intents" aria-label="Interaction intent diagnostics">
+        <p class="ui-eyebrow">Interaction stress</p>
+        <p>Drag starts {{ dragStartCount }} · hover events {{ hoverEventCount }} · accepted {{ acceptedDropCount }} · rejected {{ rejectedDropCount }} · clipboard intents {{ clipboardEventCount }}</p>
+        <p class="treeview-intents__last" aria-live="polite">{{ lastInteractionLabel }}</p>
+        <p class="treeview-intents__hint">Demo validation rejects drops onto a dragged node or its descendant. Accepted intents are reported but do not mutate this performance fixture.</p>
+        <p class="treeview-intents__hint">Focus a row and press Ctrl/⌘+C, Ctrl/⌘+X, or Ctrl/⌘+V to emit clipboard intents.</p>
+      </section>
     </footer>
   </section>
 </template>
@@ -495,6 +747,32 @@ const onToggleClick = (value: NodeValue): void => {
   color: var(--text-muted);
   font-size: 0.82rem;
   white-space: nowrap;
+}
+
+.treeview-selection-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.65rem;
+  padding: 0 0 0.45rem;
+  color: var(--text-muted);
+  font-size: 0.76rem;
+}
+
+.treeview-selection-tools button {
+  min-height: 1.8rem;
+  border: 1px solid var(--tree-border);
+  border-radius: 0;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--tree-fg);
+  padding: 0.25rem 0.45rem;
+  font: inherit;
+  cursor: pointer;
+}
+
+.treeview-selection-tools button:disabled {
+  cursor: default;
+  opacity: 0.45;
 }
 
 .treeview-summary {
@@ -658,10 +936,38 @@ const onToggleClick = (value: NodeValue): void => {
   outline-offset: 2px;
 }
 
-.treeview-node:focus-visible,
-.treeview-node[data-state="selected"][aria-selected="true"] {
+.treeview-node:focus-visible {
   outline: 1px dotted var(--tree-focus);
   outline-offset: -1px;
+}
+
+.treeview-node:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.treeview-node.is-drop-before::after,
+.treeview-node.is-drop-after::after {
+  content: "";
+  position: absolute;
+  left: 0.1rem;
+  right: 0.1rem;
+  height: 2px;
+  background: #0f766e;
+  pointer-events: none;
+}
+
+.treeview-node.is-drop-before::after {
+  top: 0;
+}
+
+.treeview-node.is-drop-after::after {
+  bottom: 0;
+}
+
+.treeview-node.is-drop-inside {
+  outline: 2px solid rgba(15, 118, 110, 0.8);
+  outline-offset: -2px;
 }
 
 .treeview-node__toggle {
@@ -738,6 +1044,35 @@ const onToggleClick = (value: NodeValue): void => {
   border-top: 1px dashed var(--tree-line);
   margin-top: 0.65rem;
   padding-top: 0.85rem;
+}
+
+.treeview-footer__preview {
+  overflow-wrap: anywhere;
+}
+
+.treeview-intents {
+  margin-top: 0.8rem;
+  padding-top: 0.65rem;
+  border-top: 1px dashed var(--tree-line);
+  color: var(--text-muted);
+  font-size: 0.76rem;
+}
+
+.treeview-intents .ui-eyebrow {
+  margin-bottom: 0.35rem;
+}
+
+.treeview-intents p {
+  margin: 0.25rem 0;
+}
+
+.treeview-intents__last {
+  color: var(--tree-fg);
+  font-weight: 600;
+}
+
+.treeview-intents__hint {
+  font-size: 0.7rem;
 }
 
 @media (max-width: 520px) {

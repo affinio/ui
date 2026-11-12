@@ -5,15 +5,15 @@ import SimpleAdapterTreeview from "@/components/SimpleAdapterTreeview.vue"
 const highlights = [
   {
     title: "Same core contract",
-    detail: "The treeview core keeps expansion, focus, and selection working as one coherent interaction model.",
+    detail: "Ctrl/Meta-click and Shift ranges stress focus-independent multi-selection across a large virtual tree.",
   },
   {
     title: "Keyboard-first",
-    detail: "Arrow navigation, Home/End, Enter, and Space mirror the ARIA treeview interaction pattern.",
+    detail: "Shift+Arrow extends the stable anchor; Escape clears the group and focuses the anchor; Ctrl/Meta+C/X/V emits intents.",
   },
   {
     title: "Manual control ready",
-    detail: "You can still drive focus and selection intentionally when the product needs more guided navigation behavior.",
+    detail: "Drag rows to inspect before/inside/after intents, accepted/rejected validation, and hover counts without mutating fixture data.",
   },
 ]
 
@@ -22,6 +22,7 @@ const snippet = `import { useTreeviewController } from "@affino/treeview-vue"
 const tree = useTreeviewController({
   nodes,
   defaultExpanded: ["root"],
+  selectionMode: "multiple",
 })`
 </script>
 
@@ -29,8 +30,8 @@ const tree = useTreeviewController({
   <section class="adapter-page ui-page-shell">
     <header class="adapter-hero ui-copy-stack ui-page-header">
       <p class="ui-eyebrow">Affino treeview</p>
-      <h1 class="ui-title">Click nodes or use arrow keys in the tree below.</h1>
-      <p class="ui-lead">The behavior demo comes first. Keyboard notes and starter code are tucked away.</p>
+      <h1 class="ui-title">Stress selection, keyboard navigation, drag targets, and intents in a 2.4k-node tree.</h1>
+      <p class="ui-lead">Use the selection controls or tree directly; the fixture reports drop and clipboard intents without changing its node data.</p>
     </header>
 
     <section class="adapter-simple adapter-simple--single ui-page-main ui-page-main--single">

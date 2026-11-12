@@ -60,6 +60,15 @@ const getVisibleTotal = async (page) => {
   return Number.parseInt(match[1], 10)
 }
 
+const getSelectedCount = async (page) => {
+  const summary = await page.locator(".treeview-summary").innerText()
+  const match = summary.match(/(\d+) selected/)
+  if (!match) {
+    throw new Error(`could not parse selected count: ${summary}`)
+  }
+  return Number.parseInt(match[1], 10)
+}
+
 const isActiveElementInsideViewport = async (page) => {
   return page.evaluate(() => {
     const viewportElement = document.querySelector(".treeview-rows")
@@ -165,6 +174,88 @@ try {
   if (activeAfterClick !== firstRowValue) {
     throw new Error(`click did not set active row, expected ${firstRowValue}, received ${activeAfterClick}`)
   }
+  const scrollBeforeInitialSelection = await viewport.evaluate((element) => element.scrollTop)
+  if (scrollBeforeInitialSelection !== 0) {
+    throw new Error(`initial row selection unexpectedly scrolled the viewport: ${scrollBeforeInitialSelection}`)
+  }
+
+  const selectionTree = page.getByRole("tree")
+  if (await selectionTree.getAttribute("aria-multiselectable") !== "true") {
+    throw new Error("multiple selection tree is missing aria-multiselectable=true")
+  }
+  const modifierTarget = page.locator("[role=treeitem]").nth(1)
+  await modifierTarget.click({ modifiers: ["Control"] })
+  if (await getSelectedCount(page) !== 2) {
+    throw new Error("Ctrl-click did not add a second selected tree item")
+  }
+  await page.locator("[role=treeitem]").nth(3).click({ modifiers: ["Shift"] })
+  if (await getSelectedCount(page) < 2) {
+    throw new Error("Shift-click did not preserve a multi-item visible range")
+  }
+  await page.keyboard.press("Shift+ArrowDown")
+  const selectedAfterShiftArrow = await getSelectedCount(page)
+  if (selectedAfterShiftArrow < 2) {
+    throw new Error("Shift+Arrow did not retain range selection")
+  }
+  for (const shortcut of ["Control+c", "Control+x", "Control+v"]) {
+    await page.keyboard.press(shortcut)
+  }
+  const clipboardDiagnostics = await page.locator(".treeview-intents").innerText()
+  if (!clipboardDiagnostics.includes("clipboard intents 3")) {
+    throw new Error(`clipboard shortcuts did not emit all three intents: ${clipboardDiagnostics}`)
+  }
+  const anchorSummary = await page.locator(".treeview-summary").innerText()
+  const anchorMatch = anchorSummary.match(/Anchor: ([^\s]+)/)
+  if (!anchorMatch) throw new Error(`could not read range anchor: ${anchorSummary}`)
+  await page.keyboard.press("Escape")
+  if (await getSelectedCount(page) !== 0 || await getActiveRowValue(page) !== anchorMatch[1]) {
+    throw new Error(`Escape did not clear group selection and focus the anchor ${anchorMatch[1]}`)
+  }
+
+  await page.getByRole("button", { name: /Select range to last visible node/ }).click()
+  const stressSelectedCount = await getSelectedCount(page)
+  if (stressSelectedCount < 1000) {
+    throw new Error(`stress range selected too few nodes: ${stressSelectedCount}`)
+  }
+  await viewport.evaluate((element) => {
+    element.scrollTop = 0
+    element.dispatchEvent(new Event("scroll", { bubbles: true }))
+  })
+  await page.waitForTimeout(160)
+  await page.locator('[role=treeitem][data-value="node-1"]').dragTo(
+    page.locator('[role=treeitem][data-value="node-6"]'),
+    { targetPosition: { x: 10, y: 16 } },
+  )
+  await page.locator('[role=treeitem][data-value="node-1"]').dragTo(
+    page.locator('[role=treeitem][data-value="workspace"]'),
+    { targetPosition: { x: 10, y: 1 } },
+  )
+  await page.locator('[role=treeitem][data-value="node-1"]').dragTo(
+    page.locator('[role=treeitem][data-value="workspace"]'),
+    { targetPosition: { x: 10, y: 31 } },
+  )
+  const dragDiagnostics = await page.locator(".treeview-intents").innerText()
+  if (!dragDiagnostics.includes("hover events") || !dragDiagnostics.includes("accepted 2") || !dragDiagnostics.includes("rejected 1")) {
+    throw new Error(`drag/drop intents did not report expected validation outcomes: ${dragDiagnostics}`)
+  }
+
+  await viewport.evaluate((element) => {
+    element.scrollTop = 0
+    element.dispatchEvent(new Event("scroll", { bubbles: true }))
+  })
+  await page.waitForTimeout(160)
+  const viewportBounds = await viewport.boundingBox()
+  if (!viewportBounds) throw new Error("tree viewport has no browser bounding box")
+  await page.locator('[role=treeitem][data-value="node-1"]').hover()
+  await page.mouse.down()
+  await page.mouse.move(viewportBounds.x + viewportBounds.width / 2, viewportBounds.y + viewportBounds.height - 10, { steps: 12 })
+  await page.waitForTimeout(240)
+  const dragEdgeScrollTop = await viewport.evaluate((element) => element.scrollTop)
+  await page.mouse.up()
+  if (!(dragEdgeScrollTop > 0)) {
+    throw new Error(`dragging near the viewport edge did not autoscroll: ${dragEdgeScrollTop}`)
+  }
+  const interactionScreenshot = await captureScreenshot(page, "treeview-interaction-stress")
 
   await measure("keyboardBurstMs", async () => {
     for (let index = 0; index < 30; index += 1) {
@@ -198,6 +289,13 @@ try {
 
   const rowsAfterScroll = await page.locator("[role=treeitem]").count()
   assertPositive("rowsAfterScroll", rowsAfterScroll)
+
+  const scrollBeforeVisibleSelection = await viewport.evaluate((element) => element.scrollTop)
+  await page.locator("[role=treeitem]").nth(5).click()
+  const scrollAfterVisibleSelection = await viewport.evaluate((element) => element.scrollTop)
+  if (Math.abs(scrollAfterVisibleSelection - scrollBeforeVisibleSelection) > 1) {
+    throw new Error(`selecting an already-visible row changed scrollTop: ${scrollBeforeVisibleSelection} -> ${scrollAfterVisibleSelection}`)
+  }
 
   const rowsIntersectingViewport = await countRowsIntersectingViewport(page)
   assertPositive("rowsIntersectingViewport", rowsIntersectingViewport)
@@ -328,15 +426,22 @@ try {
   console.log(JSON.stringify({
     route,
     serverStarted: Boolean(server),
-    screenshots: [initialScreenshot, scrolledScreenshot, searchScreenshot, emptyScreenshot, mobileInitialScreenshot, mobileSearchScreenshot].filter(Boolean),
+    screenshots: [initialScreenshot, interactionScreenshot, scrolledScreenshot, searchScreenshot, emptyScreenshot, mobileInitialScreenshot, mobileSearchScreenshot].filter(Boolean),
     latencyMs: measuredLatencies,
     initialRows,
     activeAfterClick,
+    selectedAfterShiftArrow,
+    stressSelectedCount,
+    clipboardDiagnostics,
+    dragDiagnostics,
+    dragEdgeScrollTop,
     activeAfterKeyboard,
     keyboardScrollTop,
     keyboardRowsIntersectingViewport,
     keyboardFocusVisible,
     rowsAfterScroll,
+    scrollBeforeVisibleSelection,
+    scrollAfterVisibleSelection,
     rowsIntersectingViewport,
     rowsAfterSearch,
     matchedRows,

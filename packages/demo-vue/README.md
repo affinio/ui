@@ -10,7 +10,7 @@ Included demo areas:
 - popover
 - disclosure
 - tabs
-- treeview (`/treeview`, including a virtualized ~2.4k-node performance fixture, search projection, and matched-node styling)
+- treeview (`/treeview`, including a virtualized ~2.4k-node fixture for modifier/range selection, keyboard focus, drag/drop validation intents, clipboard intents, and search)
 - selection
 - combobox
 - virtualization
@@ -32,6 +32,7 @@ pnpm run smoke:treeview:demo
 - The sandbox is intentionally Vue-only and focuses on compact, copy-paste friendly examples.
 - Overlay diagnostics are visible in the floating stack panel during local development.
 - `pnpm run smoke:treeview:demo` starts the Vite demo server automatically when `TREEVIEW_DEMO_URL` is not already available and writes desktop and mobile screenshots to `artifacts/treeview-smoke` unless `TREEVIEW_SMOKE_SCREENSHOTS=0`; set `TREEVIEW_SMOKE_MAX_LATENCY_MS` to fail on slow smoke operations.
+- The `/treeview` page enables multiple selection on a virtualized 2.4k-node fixture. Use the range stress button, Ctrl/Meta-click, Shift-click, Shift+Arrow, Escape to clear and focus the anchor, drag/drop rows, and Ctrl/Meta+C/X/V; diagnostics display app-owned intents without changing the fixture hierarchy.
 
 
 ## Diagram demo
