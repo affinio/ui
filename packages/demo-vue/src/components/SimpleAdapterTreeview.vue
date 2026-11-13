@@ -333,11 +333,17 @@ const scheduleDragAutoScroll = (event: DragEvent): void => {
   if (dragScrollFrame === null) dragScrollFrame = window.requestAnimationFrame(runDragAutoScroll)
 }
 
-const onNodeDragOver = (event: DragEvent, value: NodeValue): void => {
+const onViewportDragOver = (event: DragEvent): void => {
   if (!draggedValues.length) return
   event.preventDefault()
   if (event.dataTransfer) event.dataTransfer.dropEffect = "move"
   scheduleDragAutoScroll(event)
+}
+
+const onNodeDragOver = (event: DragEvent, value: NodeValue): void => {
+  if (!draggedValues.length) return
+  event.preventDefault()
+  if (event.dataTransfer) event.dataTransfer.dropEffect = "move"
   const position = getDropPosition(event)
   treeview.requestHoverDrop(value, position)
   if (hoveredTarget.value?.value !== value || hoveredTarget.value.position !== position) {
@@ -567,6 +573,7 @@ const onToggleClick = (value: NodeValue): void => {
       aria-multiselectable="true"
       :style="{ height: `${virtualViewportHeight}px` }"
       @scroll.passive="onRowsScroll"
+      @dragover="onViewportDragOver"
     >
       <div class="treeview-rows__spacer" :style="{ height: `${totalHeight}px` }">
         <button
