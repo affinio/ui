@@ -247,12 +247,25 @@ try {
   await page.waitForTimeout(160)
   const viewportBounds = await viewport.boundingBox()
   if (!viewportBounds) throw new Error("tree viewport has no browser bounding box")
+  const dragStartsBeforeEdge = Number(
+    (await page.locator(".treeview-intents").innerText()).match(/Drag starts (\d+)/)?.[1] ?? 0,
+  )
   await page.locator('[role=treeitem][data-value="node-1"]').hover()
   await page.mouse.down()
   await page.mouse.move(viewportBounds.x + viewportBounds.width / 2, viewportBounds.y + viewportBounds.height - 10, { steps: 12 })
-  await page.waitForTimeout(240)
-  const dragEdgeScrollTop = await viewport.evaluate((element) => element.scrollTop)
+  let dragEdgeScrollTop = 0
+  const dragEdgeDeadline = Date.now() + 1200
+  while (dragEdgeScrollTop === 0 && Date.now() < dragEdgeDeadline) {
+    await page.waitForTimeout(50)
+    dragEdgeScrollTop = await viewport.evaluate((element) => element.scrollTop)
+  }
+  const dragStartsAfterEdge = Number(
+    (await page.locator(".treeview-intents").innerText()).match(/Drag starts (\d+)/)?.[1] ?? 0,
+  )
   await page.mouse.up()
+  if (dragStartsAfterEdge <= dragStartsBeforeEdge) {
+    throw new Error(`edge auto-scroll check did not start a native drag: ${dragStartsBeforeEdge} -> ${dragStartsAfterEdge}`)
+  }
   if (!(dragEdgeScrollTop > 0)) {
     throw new Error(`dragging near the viewport edge did not autoscroll: ${dragEdgeScrollTop}`)
   }

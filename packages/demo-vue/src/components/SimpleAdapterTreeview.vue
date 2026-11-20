@@ -340,6 +340,11 @@ const onViewportDragOver = (event: DragEvent): void => {
   scheduleDragAutoScroll(event)
 }
 
+const onViewportDrag = (event: DragEvent): void => {
+  if (!draggedValues.length) return
+  scheduleDragAutoScroll(event)
+}
+
 const onNodeDragOver = (event: DragEvent, value: NodeValue): void => {
   if (!draggedValues.length) return
   event.preventDefault()
@@ -573,6 +578,7 @@ const onToggleClick = (value: NodeValue): void => {
       aria-multiselectable="true"
       :style="{ height: `${virtualViewportHeight}px` }"
       @scroll.passive="onRowsScroll"
+      @drag="onViewportDrag"
       @dragover="onViewportDragOver"
     >
       <div class="treeview-rows__spacer" :style="{ height: `${totalHeight}px` }">
