@@ -545,6 +545,8 @@ export class DiagramEngine {
         return createLayerPatch(this.state, command.ids, command.layer, command.layerRole)
       case "setEntityMetadata":
         return createEntityMetadataPatch(this.state, command.id, command.metadata)
+      case "updateEntities":
+        return createEntityUpdatesPatch(this.state, command.updates)
       case "keyboard":
         return createKeyboardPatch(this.state, command.command, command.options ?? {})
       case "setSelection":
@@ -1056,6 +1058,33 @@ function createEntityMetadataPatch(state: InternalState, id: DiagramId, metadata
     [id],
     new Map([[id, previousMetadata]]),
     new Map([[id, nextMetadata]]),
+  )
+}
+
+function createEntityUpdatesPatch(
+  state: InternalState,
+  updates: ReadonlyArray<{ id: DiagramId; metadata?: Readonly<Record<string, unknown>> }>,
+): Patch | null {
+  const ids: DiagramId[] = []
+  const previous = new Map<DiagramId, Readonly<Record<string, unknown>> | undefined>()
+  const next = new Map<DiagramId, Readonly<Record<string, unknown>> | undefined>()
+  for (const update of updates) {
+    if (!hasEntity(state, update.id)) continue
+    const original = previous.has(update.id) ? previous.get(update.id) : getEntityMetadata(state, update.id)
+    if (!previous.has(update.id)) {
+      ids.push(update.id)
+      previous.set(update.id, original)
+    }
+    const current = next.has(update.id) ? next.get(update.id) : original
+    const merged = update.metadata === undefined ? current : { ...(current ?? {}), ...update.metadata }
+    next.set(update.id, merged)
+  }
+  const changedIds = ids.filter((id) => !metadataEqual(previous.get(id), next.get(id)))
+  if (changedIds.length === 0) return null
+  return createMetadataSnapshotPatch(
+    changedIds,
+    new Map(changedIds.map((id) => [id, previous.get(id)])),
+    new Map(changedIds.map((id) => [id, next.get(id)])),
   )
 }
 

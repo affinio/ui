@@ -332,6 +332,46 @@ describe("DiagramEngine", () => {
     expect(bounded.dispatch({ type: "undo" }).changed).toBe(false)
   })
 
+  it("updates multiple entity metadata values as one undoable patch", () => {
+    const engine = createDiagramEngine({
+      nodes: [{ id: "n1", kind: "node", x: 0, y: 0, width: 20, height: 20, metadata: { keep: true, edgeWidth: 1 } }],
+      edges: [{ id: "e1", kind: "edge", source: { kind: "point", point: { x: 0, y: 0 } }, target: { kind: "point", point: { x: 20, y: 0 } }, metadata: { edgeStyle: "solid" } }],
+    })
+    engine.dispatch({ type: "moveNode", id: "n1", delta: { x: 4, y: 0 } })
+    const untouched = engine.getScene().entities.nodesById.get("n1")
+
+    engine.dispatch({ type: "updateEntities", updates: [
+      { id: "n1", metadata: { edgeWidth: 3 } },
+      { id: "e1", metadata: { edgeStyle: "dashed" } },
+    ] })
+    expect(engine.getDiagnostics().undoDepth).toBe(2)
+    expect(engine.getScene().entities.nodesById.get("n1")?.metadata).toEqual({ keep: true, edgeWidth: 3 })
+    expect(engine.getScene().entities.edgesById.get("e1")?.metadata).toEqual({ edgeStyle: "dashed" })
+    expect(engine.getScene().entities.nodesById.get("n1")).not.toBe(untouched)
+    expect(engine.getScene().entities.nodesById.get("n1")?.x).toBe(4)
+
+    engine.dispatch({ type: "undo" })
+    expect(engine.getScene().entities.nodesById.get("n1")?.metadata).toEqual({ keep: true, edgeWidth: 1 })
+    expect(engine.getScene().entities.edgesById.get("e1")?.metadata?.edgeStyle).toBe("solid")
+    engine.dispatch({ type: "undo" })
+    expect(engine.getScene().entities.nodesById.get("n1")?.x).toBe(0)
+    engine.dispatch({ type: "redo" })
+    engine.dispatch({ type: "redo" })
+    expect(engine.getScene().entities.nodesById.get("n1")?.metadata?.edgeWidth).toBe(3)
+  })
+
+  it("treats empty, unchanged, and unknown entity updates as no-ops", () => {
+    const engine = createDiagramEngine({ nodes: [{ id: "n1", kind: "node", x: 0, y: 0, width: 20, height: 20, metadata: { keep: true } }] })
+    engine.dispatch({ type: "moveNode", id: "n1", delta: { x: 1, y: 0 } })
+    const depth = engine.getDiagnostics().undoDepth
+    expect(engine.dispatch({ type: "updateEntities", updates: [] }).changed).toBe(false)
+    expect(engine.dispatch({ type: "updateEntities", updates: [{ id: "missing", metadata: { a: 1 } }] }).changed).toBe(false)
+    expect(engine.dispatch({ type: "updateEntities", updates: [{ id: "n1", metadata: { keep: true } }] }).changed).toBe(false)
+    expect(engine.getDiagnostics().undoDepth).toBe(depth)
+    engine.dispatch({ type: "undo" })
+    expect(engine.getScene().entities.nodesById.get("n1")?.x).toBe(0)
+  })
+
   it("deletes and restores selected entities", () => {
     const engine = createDiagramEngine(scene)
 

@@ -242,6 +242,7 @@ export type DiagramChange = Readonly<{
 export type DiagramSubscriber = (scene: DiagramScene, change: DiagramChange) => void
 
 export type DiagramCommand =
+  | Readonly<{ type: "updateEntities"; updates: ReadonlyArray<DiagramEntityUpdate>; historyKey?: string }>
   | Readonly<{ type: "moveEntities"; ids: ReadonlyArray<DiagramId>; delta: DiagramPoint; historyKey?: string }>
   | Readonly<{ type: "moveNode"; id: DiagramId; delta: DiagramPoint; historyKey?: string }>
   | Readonly<{ type: "moveEdgeEndpoint"; id: DiagramId; endpoint: "source" | "target"; point: DiagramPoint; historyKey?: string }>
@@ -267,6 +268,12 @@ export type DiagramCommand =
   | Readonly<{ type: "setViewport"; viewport: Partial<DiagramViewport>; historyKey?: string }>
   | Readonly<{ type: "undo" }>
   | Readonly<{ type: "redo" }>
+
+/** Metadata values are merged by key. Omitted keys are preserved; keys cannot be removed by this command. */
+export type DiagramEntityUpdate = Readonly<{
+  id: DiagramId
+  metadata?: Readonly<Record<string, unknown>>
+}>
 
 export type DiagramCommandResult = Readonly<{
   changed: boolean

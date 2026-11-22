@@ -31,6 +31,15 @@ const boundedEngine = createDiagramEngine({}, { history: { maxEntries: 200 } })
 
 `history.maxEntries` evicts the oldest undo entries first. It accepts a non-negative integer; `0` disables undo retention, while the default `Infinity` preserves the legacy unbounded behavior. An accepted edit clears redo, and `transact()` replaces the scene and resets history.
 
+`updateEntities` applies metadata updates to existing entities in one undoable command. Metadata is merged by key, so omitted keys remain unchanged. The command does not remove metadata keys; assigning `undefined` stores an `undefined` value. Unknown IDs are ignored, and updates with no effective changes create no history entry. Use `setEntityMetadata` to replace the complete metadata object.
+
+```ts
+engine.dispatch({
+  type: "updateEntities",
+  updates: [{ id: "e1", metadata: { edgeWidth: 3, edgeStyle: "dashed" } }],
+})
+```
+
 ## Clipboard and duplication
 
 Clipboard exports are scene-shaped and safe to persist or pass through app-level clipboard code. Import remaps all ids, offsets nodes/texts/shapes/edge waypoints, and remaps node port ids plus edge endpoints inside the selected subgraph.
