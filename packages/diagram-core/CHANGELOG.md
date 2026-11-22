@@ -1,5 +1,11 @@
 # @affino/diagram-core
 
+## 0.5.0
+
+### Minor Changes
+
+- Added `updateEntities` for undoable metadata updates across multiple existing entities. Metadata merges by key; unknown IDs and no-op updates do not create history entries.
+
 ## 0.4.0
 
 ### Minor Changes
