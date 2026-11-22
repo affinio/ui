@@ -488,6 +488,58 @@ describe("DiagramEngine", () => {
     expect(engine.getScene().entities.nodesById.get("n1")).toMatchObject({ width: 100, height: 60 })
   })
 
+  it("previews edge endpoint drags by frame and commits one undoable endpoint change", () => {
+    const callbacks: Array<() => void> = []
+    const engine = createDiagramEngine({
+      edges: [{ id: "edge", kind: "edge", source: { kind: "point", point: { x: 0, y: 0 } }, target: { kind: "point", point: { x: 100, y: 0 } }, points: [{ x: 40, y: 20 }] }],
+    })
+    const controller = createDiagramInteractionController(engine, { scheduleFrame: (callback) => callbacks.push(callback) })
+    const original = engine.getScene().entities.edgesById.get("edge")!
+
+    expect(controller.beginEdgeEndpointHandle("edge", "source", { id: 1, point: { x: 0, y: 0 } })).toBe(true)
+    controller.pointerMove({ id: 1, point: { x: -10, y: 15 } })
+    controller.pointerMove({ id: 1, point: { x: -20, y: 25 } })
+    expect(engine.getScene().entities.edgesById.get("edge")).toBe(original)
+    expect(callbacks).toHaveLength(1)
+    callbacks[0]()
+    expect(controller.getSnapshot().edgeEndpointPreview).toEqual({ id: "edge", endpoint: "source", point: { x: -20, y: 25 } })
+    expect(controller.getPreviewGeometry("edge")?.path).toEqual([{ x: -20, y: 25 }, { x: 40, y: 20 }, { x: 100, y: 0 }])
+    expect(engine.getScene().entities.edgesById.get("edge")).toBe(original)
+
+    controller.pointerUp({ id: 1, point: { x: -20, y: 25 } })
+    expect(engine.getScene().entities.edgesById.get("edge")).toMatchObject({
+      source: { kind: "point", point: { x: -20, y: 25 } },
+      target: original.target,
+      points: original.points,
+    })
+    expect(controller.getCommitCount()).toBe(1)
+    engine.dispatch({ type: "undo" })
+    expect(engine.getScene().entities.edgesById.get("edge")).toEqual(original)
+    engine.dispatch({ type: "redo" })
+    expect(engine.getScene().entities.edgesById.get("edge")?.source).toEqual({ kind: "point", point: { x: -20, y: 25 } })
+  })
+
+  it("supports dragging either edge endpoint and cancels without history changes", () => {
+    for (const endpoint of ["source", "target"] as const) {
+      const callbacks: Array<() => void> = []
+      const engine = createDiagramEngine({
+        edges: [{ id: "edge", kind: "edge", source: { kind: "point", point: { x: 0, y: 0 } }, target: { kind: "point", point: { x: 100, y: 0 } }, points: [{ x: 50, y: 10 }] }],
+      })
+      const controller = createDiagramInteractionController(engine, { scheduleFrame: (callback) => callbacks.push(callback) })
+      const original = engine.getScene().entities.edgesById.get("edge")!
+      engine.dispatch({ type: "setViewport", viewport: { x: 10 } })
+      const historyDepth = engine.getDiagnostics().undoDepth
+      expect(controller.beginEdgeEndpointHandle("edge", endpoint, { id: 1, point: { x: 0, y: 0 } })).toBe(true)
+      controller.pointerMove({ id: 1, point: { x: 30, y: 40 } })
+      callbacks[0]()
+      expect(controller.getPreviewGeometry("edge")?.path?.[endpoint === "source" ? 0 : 2]).toEqual({ x: 30, y: 40 })
+      controller.cancel()
+      expect(engine.getScene().entities.edgesById.get("edge")).toBe(original)
+      expect(engine.getDiagnostics().undoDepth).toBe(historyDepth)
+      expect(controller.getSnapshot().edgeEndpointPreview).toBeNull()
+    }
+  })
+
   it("maps resize-handle drag deltas through entity rotation", () => {
     const callbacks: Array<() => void> = []
     const engine = createDiagramEngine({

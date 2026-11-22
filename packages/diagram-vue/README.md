@@ -73,7 +73,7 @@ viewport.setViewport({ x: 120, y: 40, zoom: 1.25 })
 `useDiagramVisibleEntities()` exposes:
 
 - `nodes`, `edges`, `ports`, `shapes`, and `texts` for SVG rendering;
-- `activeHandles` for selected resize/port handles;
+- `activeHandles` for selected resize/port handles and source/target handles on selected edges;
 - `overlayAnchors` for context menus and toolbars.
 
 Selected entities are included even when outside the viewport, which keeps handles and overlays stable during keyboard or programmatic selection changes. `useDiagramTextEditor()` owns one shared DOM editor overlay for the active text entity; it reads bounds from core, positions through the viewport transform, and commits through the `editText` command.
@@ -88,7 +88,7 @@ Do not put domain rules, snapping decisions, hit testing, undo/redo, or geometry
 
 For DOM overlays call `getDomEntityStyle(entity, viewport.viewport.value)`; text editor positioning already applies the same transform. Use core `zoomViewportAt()` for cursor focus and `zoomViewportCentered()` for toolbar zoom. Minimap dimensions use the world scene bounds and the same camera transform.
 
-Preview geometry remains transient until pointerup. Render the interaction preview and its handles from core state; entity IDs are opaque strings and may contain `:`. Use `handle.ownerId`, never parse `handle.id`. Escape/pointercancel cancels without history; pointerup commits one undo operation.
+Preview geometry remains transient until pointerup. Start endpoint gestures with `interaction.beginEdgeEndpointHandle(handle.ownerId, "source" | "target", event)` and render `interaction.getPreviewGeometry(edgeId)` while the gesture is active. Entity IDs are opaque strings and may contain `:`. Use `handle.ownerId`, never parse `handle.id`. Escape/pointercancel cancels without history; pointerup commits one undo operation.
 
 ### Migration from 0.1.0
 

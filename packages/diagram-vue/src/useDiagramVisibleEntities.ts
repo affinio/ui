@@ -88,7 +88,10 @@ function buildProjection(
   }
   const activeGeometries = entities.filter((entity) => entity.selected).map((entity) => entity.geometry)
   const anchorGeometries = activeGeometries.filter((geometry) => geometry.kind !== "edge")
-  const activeHandles = anchorGeometries.length > 1 ? createGroupHandles(anchorGeometries) : activeGeometries.flatMap(createHandles)
+  const activeHandles = [
+    ...(anchorGeometries.length > 1 ? createGroupHandles(anchorGeometries) : activeGeometries.flatMap(createHandles)),
+    ...activeGeometries.filter((geometry) => geometry.kind === "edge").flatMap(createEdgeEndpointHandles),
+  ]
   return Object.freeze({
     ids: Object.freeze(entities.map((entity) => entity.id)),
     nodes: freezeKind(entities, "node"),
@@ -108,9 +111,7 @@ function freezeKind(entities: ReadonlyArray<DiagramRenderEntity>, kind: DiagramR
 }
 
 function createHandles(geometry: DiagramGeometry): DiagramHandle[] {
-  if (geometry.kind === "edge") {
-    return []
-  }
+  if (geometry.kind === "edge") return []
   const rect = geometry.unrotatedBounds ?? geometry.bounds
   if (geometry.kind === "port") {
     return [{ id: `${geometry.id}:port`, ownerId: geometry.id, kind: "port", point: geometry.point ?? { x: rect.x, y: rect.y } }]
@@ -126,6 +127,14 @@ function createHandles(geometry: DiagramGeometry): DiagramHandle[] {
     { id: `${geometry.id}:ne`, ownerId: geometry.id, kind: "resize", point: corners[1]! },
     { id: `${geometry.id}:se`, ownerId: geometry.id, kind: "resize", point: corners[2]! },
     { id: `${geometry.id}:sw`, ownerId: geometry.id, kind: "resize", point: corners[3]! },
+  ]
+}
+
+function createEdgeEndpointHandles(geometry: DiagramGeometry): DiagramHandle[] {
+  if (geometry.kind !== "edge" || !geometry.path?.length) return []
+  return [
+    { id: `${geometry.id}:source`, ownerId: geometry.id, kind: "edge-endpoint", point: geometry.path[0]! },
+    { id: `${geometry.id}:target`, ownerId: geometry.id, kind: "edge-endpoint", point: geometry.path[geometry.path.length - 1]! },
   ]
 }
 

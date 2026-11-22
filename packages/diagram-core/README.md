@@ -85,6 +85,8 @@ const entries = interaction.getSnapshot().resizePreviewEntries
 
 `resizePreview` is intentionally transient: it lets SVG render live dimensions without mutating serialized scene state on every pointer move. Drag deltas are mapped through entity rotation and the opposite rotated corner stays anchored, so handles follow the local resize axes exposed by rotated geometry. Multi-selection resize uses group bounds and emits one preview entry per resizable selected entity.
 
+Selected edge endpoints use `beginEdgeEndpointHandle(id, endpoint, event)`. The controller publishes an `edgeEndpointPreview` on scheduled frames and `getPreviewGeometry(id)` returns the previewed route without changing the scene. Pointer up commits one undoable `moveEdgeEndpoint`; cancel discards the preview.
+
 ## Keyboard and capability helpers
 
 Adapters should use command helpers and capability checks so UI buttons do not guess state from selection alone.

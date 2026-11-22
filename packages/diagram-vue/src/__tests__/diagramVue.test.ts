@@ -202,6 +202,17 @@ describe("diagram-vue", () => {
     expect(visible.projection.value.activeHandles[2]?.point).toEqual({ x: 280, y: 120 })
   })
 
+  it("exposes source and target handles for selected edges", () => {
+    const controller = useDiagramEngine(scene)
+    const selection = useDiagramSelection(controller)
+    const visible = useDiagramVisibleEntities(controller)
+    selection.setSelection(["e1"], "e1")
+    expect(visible.projection.value.activeHandles).toEqual([
+      { id: "e1:source", ownerId: "e1", kind: "edge-endpoint", point: { x: 100, y: 30 } },
+      { id: "e1:target", ownerId: "e1", kind: "edge-endpoint", point: { x: 400, y: 30 } },
+    ])
+  })
+
   it("keeps opaque colon ids in handles and cancels a disposed drag", () => {
     const controller = useDiagramEngine({
       nodes: [{ id: "switchgear:123:main", kind: "node", x: 0, y: 0, width: 40, height: 20 }],
@@ -218,7 +229,7 @@ describe("diagram-vue", () => {
     expect(controller.scene.value.entities.nodesById.get("switchgear:123:main")?.x).toBe(0)
   })
 
-  it("does not expose edge bounding boxes as selection overlays", () => {
+  it("does not expose edge bounding boxes as selection overlays and exposes endpoint handles", () => {
     const controller = useDiagramEngine(scene)
     const selection = useDiagramSelection(controller)
     const visible = useDiagramVisibleEntities(controller)
@@ -227,7 +238,7 @@ describe("diagram-vue", () => {
 
     expect(visible.projection.value.edges.map((entity) => entity.id)).toContain("e1")
     expect(visible.projection.value.overlayAnchors.map((anchor) => anchor.id)).not.toContain("e1")
-    expect(visible.projection.value.activeHandles).toEqual([])
+    expect(visible.projection.value.activeHandles.map((handle) => handle.id)).toEqual(["e1:source", "e1:target"])
   })
 
   it("keeps selection in the projection even when outside the viewport", () => {

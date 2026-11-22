@@ -1,5 +1,12 @@
 # @affino/diagram-vue
 
+## 0.5.0
+
+### Minor Changes
+
+- Projected source and target endpoint handles for selected edges to `activeHandles`.
+- Updated the core dependency to `@affino/diagram-core` 0.6.0 for endpoint drag previews and commits.
+
 ## 0.4.0
 
 ### Minor Changes

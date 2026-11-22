@@ -1,4 +1,4 @@
-import { createEntityGeometry } from "./geometry.js"
+import { createEntityGeometry, inflateRect, rectFromPoints as boundsFromPoints } from "./geometry.js"
 import type { DiagramEngine } from "./DiagramEngine.js"
 import type { DiagramId, DiagramGeometry, DiagramInteractionSnapshot, DiagramInteractionTool, DiagramMarqueeMode, DiagramPointerEvent, DiagramPoint, DiagramRect, DiagramResizeEntry, DiagramResizeHandle } from "./types.js"
 
@@ -23,6 +23,10 @@ export class DiagramInteractionController {
   private resizeStartRotation = 0
   private resizePreview: DiagramResizeEntry | null = null
   private resizePreviewEntries: ReadonlyArray<DiagramResizeEntry> = Object.freeze([])
+  private edgeEndpointId: DiagramId | null = null
+  private edgeEndpointKind: "source" | "target" | null = null
+  private edgeEndpointStart: DiagramPoint | null = null
+  private edgeEndpointPreview: DiagramPoint | null = null
   private framePending = false
   private pendingMoveCount = 0
   private commitCount = 0
@@ -79,6 +83,21 @@ export class DiagramInteractionController {
     this.resizeHandle = handle
     this.resizeStartBounds = geometry.unrotatedBounds ?? geometry.bounds
     this.resizeStartRotation = geometry.rotation ?? 0
+    return true
+  }
+
+  beginEdgeEndpointHandle(ownerId: DiagramId, endpoint: "source" | "target", event: DiagramPointerEvent): boolean {
+    const geometry = this.engine.getGeometrySnapshot(ownerId)
+    if (!geometry || geometry.kind !== "edge" || !geometry.path?.length) return false
+    const point = endpoint === "source" ? geometry.path[0]! : geometry.path[geometry.path.length - 1]!
+    this.cancel()
+    this.tool = "drag-edge-endpoint"
+    this.activePointer = event
+    this.startPoint = event.point
+    this.latestPoint = event.point
+    this.edgeEndpointId = ownerId
+    this.edgeEndpointKind = endpoint
+    this.edgeEndpointStart = point
     return true
   }
 
@@ -142,6 +161,11 @@ export class DiagramInteractionController {
       this.engine.dispatch({ type: "resizeEntities", entries: this.resizePreviewEntries, historyKey: `resize:${this.resizePreview?.id ?? "selection"}:${++this.gestureHistoryId}` })
       this.commitCount += 1
     }
+    if (this.tool === "drag-edge-endpoint" && this.edgeEndpointId && this.edgeEndpointKind && this.edgeEndpointPreview
+      && (this.edgeEndpointPreview.x !== this.edgeEndpointStart?.x || this.edgeEndpointPreview.y !== this.edgeEndpointStart?.y)) {
+      this.engine.dispatch({ type: "moveEdgeEndpoint", id: this.edgeEndpointId, endpoint: this.edgeEndpointKind, point: this.edgeEndpointPreview })
+      this.commitCount += 1
+    }
     if (this.tool === "marquee" && this.marquee) {
       const ids = this.getMarqueeSelectionIds(this.marquee)
       this.engine.dispatch({ type: "setSelection", selection: { ids, primaryId: ids[0] ?? null }, mode: this.activePointer.shiftKey ? "add" : "replace" })
@@ -161,6 +185,14 @@ export class DiagramInteractionController {
   /** Returns the renderer-ready geometry for the active move preview. */
   getPreviewGeometry(id: DiagramId): DiagramGeometry | null {
     const geometry = this.engine.getGeometrySnapshot(id)
+    if (geometry?.kind === "edge" && geometry.path?.length && this.edgeEndpointId === id && this.edgeEndpointKind && this.edgeEndpointPreview) {
+      const path = geometry.path.map((point, index) => {
+        const isEndpoint = this.edgeEndpointKind === "source" ? index === 0 : index === geometry.path!.length - 1
+        return isEndpoint ? this.edgeEndpointPreview! : point
+      })
+      const bounds = boundsFromPoints(path)
+      return Object.freeze({ ...geometry, path: Object.freeze(path), bounds, hitBounds: inflateRect(bounds, 6) })
+    }
     if (!geometry || this.tool !== "drag-selection" || !this.previewDelta || !this.engine.getScene().selection.ids.includes(id)) {
       return geometry
     }
@@ -183,6 +215,9 @@ export class DiagramInteractionController {
       previewDelta: this.previewDelta,
       resizePreview: this.resizePreview,
       resizePreviewEntries: this.resizePreviewEntries,
+      edgeEndpointPreview: this.edgeEndpointId && this.edgeEndpointKind && this.edgeEndpointPreview
+        ? { id: this.edgeEndpointId, endpoint: this.edgeEndpointKind, point: this.edgeEndpointPreview }
+        : null,
       marquee: this.marquee,
     }
   }
@@ -208,6 +243,10 @@ export class DiagramInteractionController {
     if (this.tool === "resize-selection") {
       this.resizePreviewEntries = this.createResizePreviewEntries(delta)
       this.resizePreview = this.resizePreviewEntries[0] ?? null
+      return
+    }
+    if (this.tool === "drag-edge-endpoint") {
+      this.edgeEndpointPreview = this.latestPoint
       return
     }
     if (this.tool === "marquee") {
@@ -307,6 +346,10 @@ export class DiagramInteractionController {
     this.resizeStartRotation = 0
     this.resizePreview = null
     this.resizePreviewEntries = Object.freeze([])
+    this.edgeEndpointId = null
+    this.edgeEndpointKind = null
+    this.edgeEndpointStart = null
+    this.edgeEndpointPreview = null
     this.framePending = false
     this.pendingMoveCount = 0
   }

@@ -280,7 +280,7 @@ export type DiagramCommandResult = Readonly<{
   revision: number
 }>
 
-export type DiagramInteractionTool = "pan" | "select" | "marquee" | "drag-selection" | "resize-selection" | "connect-edge" | "edit-text"
+export type DiagramInteractionTool = "pan" | "select" | "marquee" | "drag-selection" | "resize-selection" | "drag-edge-endpoint" | "connect-edge" | "edit-text"
 
 export type DiagramResizeHandle = "nw" | "ne" | "se" | "sw"
 
@@ -298,7 +298,14 @@ export type DiagramInteractionSnapshot = Readonly<{
   previewDelta: DiagramPoint | null
   resizePreview: DiagramResizeEntry | null
   resizePreviewEntries: ReadonlyArray<DiagramResizeEntry>
+  edgeEndpointPreview: DiagramEdgeEndpointPreview | null
   marquee: DiagramRect | null
+}>
+
+export type DiagramEdgeEndpointPreview = Readonly<{
+  id: DiagramId
+  endpoint: "source" | "target"
+  point: DiagramPoint
 }>
 
 export type DiagramSnapContext = Readonly<{

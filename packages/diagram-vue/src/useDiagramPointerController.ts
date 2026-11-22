@@ -98,6 +98,7 @@ function sameSnapshot(previous: DiagramInteractionSnapshot, next: DiagramInterac
     && previous.previewDelta === next.previewDelta
     && previous.resizePreview === next.resizePreview
     && previous.resizePreviewEntries === next.resizePreviewEntries
+    && previous.edgeEndpointPreview === next.edgeEndpointPreview
     && previous.marquee === next.marquee
 }
 
