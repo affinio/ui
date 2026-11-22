@@ -1,5 +1,11 @@
 # @affino/diagram-vue
 
+## 0.4.0
+
+### Minor Changes
+
+- Updated the adapter's core dependency to `@affino/diagram-core` 0.5.0, exposing undoable multi-entity metadata updates through the existing engine command API.
+
 ## 0.3.0
 
 ### Minor Changes
