@@ -105,7 +105,11 @@ const entries = interaction.getSnapshot().resizePreviewEntries
 
 `resizePreview` is intentionally transient: it lets SVG render live dimensions without mutating serialized scene state on every pointer move. Drag deltas are mapped through entity rotation and the opposite rotated corner stays anchored, so handles follow the local resize axes exposed by rotated geometry. Multi-selection resize uses group bounds and emits one preview entry per resizable selected entity.
 
+Holding Shift during a resize preserves the original aspect ratio. The modifier is read on each pointer event, so pressing or releasing Shift updates the scheduled preview and the same geometry is committed on pointer up. When grid snapping is configured, the constrained resize snaps its driving dimension to that grid while deriving the other dimension from the original ratio.
+
 Selected edge endpoints use `beginEdgeEndpointHandle(id, endpoint, event)`. The controller publishes an `edgeEndpointPreview` on scheduled frames and `getPreviewGeometry(id)` returns the previewed route without changing the scene. Pointer up commits one undoable `moveEdgeEndpoint`; cancel discards the preview.
+
+Holding Shift while dragging an endpoint constrains it to the dominant axis measured from its original position (horizontal wins an exact tie). Port, alignment, and grid snapping preserve that axis. Pressing or releasing Shift during a drag updates both preview and final command.
 
 Selection drags snap by default to ports, alignments, and equal spacing. Configure grid spacing and screen-space tolerance when creating the controller; the tolerance is converted to world units using the viewport zoom. The `snapGuides` snapshot field contains world-space line segments for active alignment and equal-spacing matches. Set `enabled: false` to disable drag snapping. Moving a selected edge translates free endpoints and route points while preserving node/port endpoint attachments.
 

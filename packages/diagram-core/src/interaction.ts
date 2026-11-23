@@ -101,6 +101,7 @@ export class DiagramInteractionController {
     this.activePointer = event
     this.startPoint = event.point
     this.latestPoint = event.point
+    this.latestShiftKey = event.shiftKey === true
     this.resizeOwnerId = ownerId
     this.resizeHandle = handle
     this.resizeStartBounds = geometry.unrotatedBounds ?? geometry.bounds
@@ -117,6 +118,7 @@ export class DiagramInteractionController {
     this.activePointer = event
     this.startPoint = event.point
     this.latestPoint = event.point
+    this.latestShiftKey = event.shiftKey === true
     this.edgeEndpointId = ownerId
     this.edgeEndpointKind = endpoint
     this.edgeEndpointStart = point
@@ -140,6 +142,7 @@ export class DiagramInteractionController {
     this.activePointer = event
     this.startPoint = event.point
     this.latestPoint = event.point
+    this.latestShiftKey = event.shiftKey === true
     this.resizeSelectionIds = ids
     this.resizeHandle = handle
     this.resizeStartBounds = bounds
@@ -318,7 +321,29 @@ export class DiagramInteractionController {
       return
     }
     if (this.tool === "drag-edge-endpoint") {
-      this.edgeEndpointPreview = this.latestPoint
+      if (!this.edgeEndpointStart) return
+      const origin = this.edgeEndpointStart
+      const axisConstraint = this.latestShiftKey
+        ? Math.abs(delta.x) >= Math.abs(delta.y) ? "x" : "y"
+        : undefined
+      const desiredPoint = {
+        x: axisConstraint === "y" ? origin.x : this.latestPoint.x,
+        y: axisConstraint === "x" ? origin.y : this.latestPoint.y,
+      }
+      if (this.snapOptions.enabled === false) {
+        this.edgeEndpointPreview = desiredPoint
+      } else {
+        const viewport = this.engine.getScene().viewport
+        const zoom = viewport.zoom > 0 ? viewport.zoom : 1
+        this.edgeEndpointPreview = this.engine.snapPoint(desiredPoint, {
+          radius: (this.snapOptions.tolerancePx ?? 6) / zoom,
+          gridSize: this.snapOptions.gridSize,
+          axisConstraint,
+          snapToPorts: this.snapOptions.snapToPorts,
+          snapToAlignment: this.snapOptions.snapToAlignment,
+          excludeIds: new Set(this.edgeEndpointId ? [this.edgeEndpointId] : []),
+        }).point
+      }
       return
     }
     if (this.tool === "marquee") {
@@ -336,7 +361,7 @@ export class DiagramInteractionController {
 
   private createSelectionResizePreviewEntries(delta: DiagramPoint): ReadonlyArray<DiagramResizeEntry> {
     if (!this.resizeHandle || !this.resizeStartBounds) return Object.freeze([])
-    const nextBounds = resizeBoundsByHandle(this.resizeStartBounds, this.resizeHandle, delta, 8)
+    const nextBounds = resizeBoundsByHandle(this.resizeStartBounds, this.resizeHandle, delta, 8, this.latestShiftKey, this.resizeGridSize())
     const scaleX = this.resizeStartBounds.width ? nextBounds.width / this.resizeStartBounds.width : 1
     const scaleY = this.resizeStartBounds.height ? nextBounds.height / this.resizeStartBounds.height : 1
     const entries: DiagramResizeEntry[] = []
@@ -360,21 +385,8 @@ export class DiagramInteractionController {
     const bounds = this.resizeStartBounds
     const localDelta = rotateDelta(delta, -this.resizeStartRotation)
     const minSize = 8
-    let x = bounds.x
-    let y = bounds.y
-    let width = bounds.width
-    let height = bounds.height
-
-    if (this.resizeHandle.includes("e")) width = Math.max(minSize, bounds.width + localDelta.x)
-    if (this.resizeHandle.includes("s")) height = Math.max(minSize, bounds.height + localDelta.y)
-    if (this.resizeHandle.includes("w")) {
-      width = Math.max(minSize, bounds.width - localDelta.x)
-      x = bounds.x + (bounds.width - width)
-    }
-    if (this.resizeHandle.includes("n")) {
-      height = Math.max(minSize, bounds.height - localDelta.y)
-      y = bounds.y + (bounds.height - height)
-    }
+    const nextBounds = resizeBoundsByHandle(bounds, this.resizeHandle, localDelta, minSize, this.latestShiftKey, this.resizeGridSize())
+    const { x, y, width, height } = nextBounds
 
     const entry: { id: DiagramId; x?: number; y?: number; width?: number; height?: number } = { id: this.resizeOwnerId, width, height }
     if (this.resizeStartRotation) {
@@ -386,6 +398,10 @@ export class DiagramInteractionController {
       if (y !== bounds.y) entry.y = y
     }
     return entry
+  }
+
+  private resizeGridSize(): number | undefined {
+    return !this.latestShiftKey || this.snapOptions.enabled === false ? undefined : this.snapOptions.gridSize
   }
 
   private getMarqueeSelectionIds(rect: DiagramRect): DiagramId[] {
@@ -449,7 +465,7 @@ function rotateDelta(delta: DiagramPoint, rotation: number): DiagramPoint {
   return { x: delta.x * cos - delta.y * sin, y: delta.x * sin + delta.y * cos }
 }
 
-function resizeBoundsByHandle(bounds: DiagramRect, handle: DiagramResizeHandle, delta: DiagramPoint, minSize: number): DiagramRect {
+function resizeBoundsByHandle(bounds: DiagramRect, handle: DiagramResizeHandle, delta: DiagramPoint, minSize: number, preserveAspectRatio = false, gridSize?: number): DiagramRect {
   let x = bounds.x
   let y = bounds.y
   let width = bounds.width
@@ -463,6 +479,18 @@ function resizeBoundsByHandle(bounds: DiagramRect, handle: DiagramResizeHandle, 
   if (handle.includes("n")) {
     height = Math.max(minSize, bounds.height - delta.y)
     y = bounds.y + (bounds.height - height)
+  }
+  if (preserveAspectRatio && bounds.width > 0 && bounds.height > 0) {
+    const ratio = bounds.width / bounds.height
+    const widthChange = handle.includes("e") || handle.includes("w") ? Math.abs(width - bounds.width) : 0
+    const heightChangeAsWidth = (handle.includes("n") || handle.includes("s")) ? Math.abs(height - bounds.height) * ratio : 0
+    let nextWidth = widthChange >= heightChangeAsWidth ? width : height * ratio
+    if (gridSize && gridSize > 0) nextWidth = Math.round(nextWidth / gridSize) * gridSize
+    nextWidth = Math.max(minSize, nextWidth)
+    width = nextWidth
+    height = width / ratio
+    if (handle.includes("w")) x = bounds.x + bounds.width - width
+    if (handle.includes("n")) y = bounds.y + bounds.height - height
   }
   return { x, y, width, height }
 }

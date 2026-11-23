@@ -285,14 +285,15 @@ describe("diagram-vue", () => {
 
     props.onPointerdown({ pointerId: 1, clientX: 10, clientY: 10, shiftKey: false } as PointerEvent)
     const activeSnapshot = pointer.state.value
-    props.onPointermove({ pointerId: 1, clientX: 20, clientY: 20, shiftKey: false } as PointerEvent)
+    props.onPointermove({ pointerId: 1, clientX: 20, clientY: 20, shiftKey: true } as PointerEvent)
     expect(pointer.state.value).toBe(activeSnapshot)
-    props.onPointerup({ pointerId: 1, clientX: 20, clientY: 20, shiftKey: false } as PointerEvent)
+    props.onPointerup({ pointerId: 1, clientX: 20, clientY: 20, shiftKey: true } as PointerEvent)
 
     expect(captured).toHaveBeenCalledOnce()
     expect(released).toHaveBeenCalledOnce()
     expect(pointer.state.value.active).toBe(false)
     expect(controller.scene.value.entities.nodesById.get("n1")?.x).toBe(10)
+    expect(controller.scene.value.entities.nodesById.get("n1")?.y).toBe(0)
   })
 
   it("publishes snap guides from the public pointer interaction snapshot", () => {

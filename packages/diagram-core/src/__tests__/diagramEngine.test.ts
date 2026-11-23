@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { createDiagramEngine, createDiagramInteractionController, deserializeDiagramDocument, deserializeScene, screenToWorld, serializeScene, worldToScreen, zoomViewportAt } from ".."
-import type { DiagramSceneInput } from ".."
+import type { DiagramPoint, DiagramSceneInput } from ".."
 
 const scene: DiagramSceneInput = {
   nodes: [
@@ -1038,6 +1038,78 @@ describe("DiagramEngine", () => {
     expect(engine.getScene().entities.edgesById.get("edge")).toEqual(original)
     engine.dispatch({ type: "redo" })
     expect(engine.getScene().entities.edgesById.get("edge")?.source).toEqual({ kind: "point", point: { x: -20, y: 25 } })
+  })
+
+  it("axis-locks endpoint drags from their original position and tracks Shift changes", () => {
+    const run = (start: DiagramPoint, end: DiagramPoint) => {
+      const callbacks: Array<() => void> = []
+      const engine = createDiagramEngine({
+        edges: [{ id: "edge", kind: "edge", source: { kind: "point", point: { x: 100, y: 0 } }, target: { kind: "point", point: { x: 200, y: 0 } }, points: [{ x: 150, y: 20 }] }],
+      })
+      const controller = createDiagramInteractionController(engine, { scheduleFrame: (callback) => callbacks.push(callback), snap: { enabled: false } })
+      controller.beginEdgeEndpointHandle("edge", "source", { id: 1, point: start })
+      controller.pointerMove({ id: 1, point: end, shiftKey: true })
+      callbacks.shift()?.()
+      return { engine, controller, callbacks }
+    }
+
+    const horizontal = run({ x: 100, y: 0 }, { x: 120, y: 15 })
+    expect(horizontal.controller.getSnapshot().edgeEndpointPreview?.point).toEqual({ x: 120, y: 0 })
+    expect(horizontal.controller.getPreviewGeometry("edge")?.path?.[0]).toEqual({ x: 120, y: 0 })
+    horizontal.controller.pointerUp({ id: 1, point: { x: 120, y: 15 }, shiftKey: true })
+    expect(horizontal.engine.getScene().entities.edgesById.get("edge")?.source).toEqual({ kind: "point", point: { x: 120, y: 0 } })
+
+    const vertical = run({ x: 100, y: 0 }, { x: 115, y: 20 })
+    expect(vertical.controller.getSnapshot().edgeEndpointPreview?.point).toEqual({ x: 100, y: 20 })
+    vertical.controller.pointerUp({ id: 1, point: { x: 115, y: 20 }, shiftKey: true })
+    expect(vertical.engine.getScene().entities.edgesById.get("edge")?.source).toEqual({ kind: "point", point: { x: 100, y: 20 } })
+
+    const snappedEngine = createDiagramEngine({
+      edges: [{ id: "edge", kind: "edge", source: { kind: "point", point: { x: 100, y: 0 } }, target: { kind: "point", point: { x: 200, y: 0 } } }],
+    })
+    const snappedCallbacks: Array<() => void> = []
+    const snapped = createDiagramInteractionController(snappedEngine, { scheduleFrame: (callback) => snappedCallbacks.push(callback), snap: { gridSize: 10 } })
+    snapped.beginEdgeEndpointHandle("edge", "source", { id: 1, point: { x: 100, y: 0 } })
+    snapped.pointerMove({ id: 1, point: { x: 127, y: 20 }, shiftKey: true })
+    snappedCallbacks[0]?.()
+    expect(snapped.getSnapshot().edgeEndpointPreview?.point).toEqual({ x: 130, y: 0 })
+    snapped.pointerUp({ id: 1, point: { x: 127, y: 20 }, shiftKey: true })
+    expect(snappedEngine.getScene().entities.edgesById.get("edge")?.source).toEqual({ kind: "point", point: { x: 130, y: 0 } })
+
+    const toggled = run({ x: 100, y: 0 }, { x: 120, y: 15 })
+    toggled.controller.pointerMove({ id: 1, point: { x: 120, y: 15 }, shiftKey: false })
+    toggled.callbacks[0]?.()
+    expect(toggled.controller.getSnapshot().edgeEndpointPreview?.point).toEqual({ x: 120, y: 15 })
+    toggled.controller.pointerUp({ id: 1, point: { x: 120, y: 15 }, shiftKey: false })
+    expect(toggled.engine.getScene().entities.edgesById.get("edge")?.source).toEqual({ kind: "point", point: { x: 120, y: 15 } })
+  })
+
+  it("preserves resize aspect ratio under Shift and grid snapping in preview and commit", () => {
+    const callbacks: Array<() => void> = []
+    const engine = createDiagramEngine({ nodes: [{ id: "shape", kind: "node", x: 0, y: 0, width: 100, height: 50 }] })
+    const controller = createDiagramInteractionController(engine, { scheduleFrame: (callback) => callbacks.push(callback), snap: { gridSize: 10 } })
+    expect(controller.beginResizeHandle("shape", "se", { id: 1, point: { x: 100, y: 50 }, shiftKey: true })).toBe(true)
+    controller.pointerMove({ id: 1, point: { x: 127, y: 73 }, shiftKey: true })
+    callbacks[0]?.()
+    expect(controller.getSnapshot().resizePreview).toEqual({ id: "shape", width: 150, height: 75 })
+    controller.pointerUp({ id: 1, point: { x: 127, y: 73 }, shiftKey: true })
+    expect(engine.getScene().entities.nodesById.get("shape")).toMatchObject({ width: 150, height: 75 })
+    expect(engine.getScene().entities.nodesById.get("shape")!.width / engine.getScene().entities.nodesById.get("shape")!.height).toBe(2)
+
+    const toggleCallbacks: Array<() => void> = []
+    const toggleEngine = createDiagramEngine({ nodes: [{ id: "shape", kind: "node", x: 0, y: 0, width: 100, height: 50 }] })
+    const toggle = createDiagramInteractionController(toggleEngine, { scheduleFrame: (callback) => toggleCallbacks.push(callback) })
+    toggle.beginResizeHandle("shape", "se", { id: 1, point: { x: 100, y: 50 } })
+    toggle.pointerMove({ id: 1, point: { x: 130, y: 70 }, shiftKey: true })
+    toggleCallbacks[0]?.()
+    expect(toggle.getSnapshot().resizePreview?.width).toBe(140)
+    expect(toggle.getSnapshot().resizePreview?.height).toBe(70)
+    toggle.pointerMove({ id: 1, point: { x: 130, y: 70 }, shiftKey: false })
+    toggleCallbacks[1]?.()
+    expect(toggle.getSnapshot().resizePreview?.width).toBe(130)
+    expect(toggle.getSnapshot().resizePreview?.height).toBe(70)
+    toggle.pointerUp({ id: 1, point: { x: 130, y: 70 }, shiftKey: false })
+    expect(toggleEngine.getScene().entities.nodesById.get("shape")).toMatchObject({ width: 130, height: 70 })
   })
 
   it("supports dragging either edge endpoint and cancels without history changes", () => {

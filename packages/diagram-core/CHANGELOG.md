@@ -1,5 +1,11 @@
 # @affino/diagram-core
 
+## 0.10.0
+
+### Minor Changes
+
+- Added Shift axis locking to edge endpoint drags and aspect-ratio locking to resize gestures, with live modifier updates and constraint-aware snapping.
+
 ## 0.9.0
 
 ### Minor Changes

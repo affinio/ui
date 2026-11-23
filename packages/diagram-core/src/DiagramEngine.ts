@@ -307,27 +307,27 @@ export class DiagramEngine {
   snapPoint(point: DiagramPoint, context: DiagramSnapContext = {}): DiagramSnapResult {
     const custom = context.custom?.(point)
     if (custom) {
-      return { point: custom, snapped: true, source: "custom" }
+      return { point: constrainSnapPoint(custom, point, context.axisConstraint), snapped: true, source: "custom" }
     }
     const port = context.snapToPorts === false ? null : this.nearestPort(point, context.radius ?? 12, context.excludeIds ?? new Set())
     if (port) {
       const geometry = this.getGeometry(port.id)
       if (geometry?.point) {
-        return { point: geometry.point, snapped: true, source: "port" }
+        return { point: constrainSnapPoint(geometry.point, point, context.axisConstraint), snapped: true, source: "port" }
       }
     }
-    const aligned = context.snapToAlignment === false ? null : this.snapToAlignment(point, context.radius ?? 6, context.excludeIds)
+    const aligned = context.snapToAlignment === false ? null : this.snapToAlignment(point, context.radius ?? 6, context.excludeIds, context.axisConstraint)
     if (aligned) {
       return { point: aligned, snapped: true, source: "alignment" }
     }
     if (context.angleConstraint && context.angleConstraint > 0) {
-      return { point: constrainAngle(point, context.angleConstraint), snapped: true, source: "angle" }
+      return { point: constrainSnapPoint(constrainAngle(point, context.angleConstraint), point, context.axisConstraint), snapped: true, source: "angle" }
     }
     if (context.gridSize && context.gridSize > 0) {
       return {
         point: {
-          x: Math.round(point.x / context.gridSize) * context.gridSize,
-          y: Math.round(point.y / context.gridSize) * context.gridSize,
+          x: context.axisConstraint === "y" ? point.x : Math.round(point.x / context.gridSize) * context.gridSize,
+          y: context.axisConstraint === "x" ? point.y : Math.round(point.y / context.gridSize) * context.gridSize,
         },
         snapped: true,
         source: "grid",
@@ -741,7 +741,7 @@ export class DiagramEngine {
     }
   }
 
-  private snapToAlignment(point: DiagramPoint, radius: number, excludeIds?: ReadonlySet<DiagramId>): DiagramPoint | null {
+  private snapToAlignment(point: DiagramPoint, radius: number, excludeIds?: ReadonlySet<DiagramId>, axisConstraint?: "x" | "y"): DiagramPoint | null {
     for (const id of this.state.order.nodeIds) {
       if (excludeIds?.has(id)) {
         continue
@@ -751,10 +751,10 @@ export class DiagramEngine {
         continue
       }
       const center = { x: geometry.bounds.x + geometry.bounds.width / 2, y: geometry.bounds.y + geometry.bounds.height / 2 }
-      if (Math.abs(center.x - point.x) <= radius) {
+      if (axisConstraint !== "y" && Math.abs(center.x - point.x) <= radius) {
         return { x: center.x, y: point.y }
       }
-      if (Math.abs(center.y - point.y) <= radius) {
+      if (axisConstraint !== "x" && Math.abs(center.y - point.y) <= radius) {
         return { x: point.x, y: center.y }
       }
     }

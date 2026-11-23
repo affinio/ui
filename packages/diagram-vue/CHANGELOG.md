@@ -1,5 +1,11 @@
 # @affino/diagram-vue
 
+## 0.8.0
+
+### Minor Changes
+
+- Updated the core dependency to `@affino/diagram-core` 0.10.0. Existing pointer events continue forwarding `shiftKey` for endpoint and resize constraints.
+
 ## 0.7.0
 
 ### Minor Changes
