@@ -1,5 +1,11 @@
 # @affino/diagram-core
 
+## 0.8.1
+
+### Patch Changes
+
+- Reduced equal-spacing guide selection to a single indexed candidate scan while retaining nearest-neighbor behavior and stable tie-breaking.
+
 ## 0.8.0
 
 ### Minor Changes

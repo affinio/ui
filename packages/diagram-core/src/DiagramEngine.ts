@@ -808,30 +808,39 @@ export class DiagramEngine {
   ): { dx: number; dy: number; guides: DiagramSnapGuide[] } | null {
     const moving = { ...sourceBounds, x: targetOrigin.x, y: targetOrigin.y }
     const reach = Math.max(128, radius * 16, sourceBounds.width * 8, sourceBounds.height * 8)
-    const fixed = this.queryEntities({
-      bounds: { x: moving.x - reach, y: moving.y - reach, width: moving.width + reach * 2, height: moving.height + reach * 2 },
-      kinds: ["node", "shape", "text"],
-    })
-      .filter((id) => !excludeIds.has(id))
-      .map((id) => this.getGeometry(id)?.bounds)
-      .filter((bounds): bounds is DiagramRect => Boolean(bounds))
+    const searchBounds = { x: moving.x - reach, y: moving.y - reach, width: moving.width + reach * 2, height: moving.height + reach * 2 }
+    const order = this.createOrderIndex()
+    let xBefore: { id: DiagramId; bounds: DiagramRect } | null = null
+    let xAfter: { id: DiagramId; bounds: DiagramRect } | null = null
+    let yBefore: { id: DiagramId; bounds: DiagramRect } | null = null
+    let yAfter: { id: DiagramId; bounds: DiagramRect } | null = null
+    const earlier = (candidate: DiagramId, current: DiagramId) => (order.get(candidate) ?? 0) < (order.get(current) ?? 0)
+    for (const id of this.spatialIndex.queryVisible(searchBounds)) {
+      if (excludeIds.has(id)) continue
+      const kind = this.getEntityKind(id)
+      if (kind !== "node" && kind !== "shape" && kind !== "text") continue
+      const bounds = this.getGeometry(id)?.bounds
+      if (!bounds) continue
+      if (rangesOverlap(bounds.y, bounds.y + bounds.height, moving.y, moving.y + moving.height)) {
+        if (bounds.x + bounds.width <= moving.x && (!xBefore || bounds.x + bounds.width > xBefore.bounds.x + xBefore.bounds.width || (bounds.x + bounds.width === xBefore.bounds.x + xBefore.bounds.width && earlier(id, xBefore.id)))) xBefore = { id, bounds }
+        if (bounds.x >= moving.x + moving.width && (!xAfter || bounds.x < xAfter.bounds.x || (bounds.x === xAfter.bounds.x && earlier(id, xAfter.id)))) xAfter = { id, bounds }
+      }
+      if (rangesOverlap(bounds.x, bounds.x + bounds.width, moving.x, moving.x + moving.width)) {
+        if (bounds.y + bounds.height <= moving.y && (!yBefore || bounds.y + bounds.height > yBefore.bounds.y + yBefore.bounds.height || (bounds.y + bounds.height === yBefore.bounds.y + yBefore.bounds.height && earlier(id, yBefore.id)))) yBefore = { id, bounds }
+        if (bounds.y >= moving.y + moving.height && (!yAfter || bounds.y < yAfter.bounds.y || (bounds.y === yAfter.bounds.y && earlier(id, yAfter.id)))) yAfter = { id, bounds }
+      }
+    }
     let best: { axis: "x" | "y"; delta: number; before: DiagramRect; after: DiagramRect } | null = null
     if (!excludeAxes.has("x")) {
-      const horizontal = fixed.filter((rect) => rangesOverlap(rect.y, rect.y + rect.height, moving.y, moving.y + moving.height))
-      const before = horizontal.filter((rect) => rect.x + rect.width <= moving.x).sort((a, b) => b.x + b.width - (a.x + a.width))[0]
-      const after = horizontal.filter((rect) => rect.x >= moving.x + moving.width).sort((a, b) => a.x - b.x)[0]
-      if (before && after) {
-        const delta = ((after.x - moving.x - moving.width) - (moving.x - before.x - before.width)) / 2
-        if (Math.abs(delta) <= radius) best = { axis: "x", delta, before, after }
+      if (xBefore && xAfter) {
+        const delta = ((xAfter.bounds.x - moving.x - moving.width) - (moving.x - xBefore.bounds.x - xBefore.bounds.width)) / 2
+        if (Math.abs(delta) <= radius) best = { axis: "x", delta, before: xBefore.bounds, after: xAfter.bounds }
       }
     }
     if (!excludeAxes.has("y")) {
-      const vertical = fixed.filter((rect) => rangesOverlap(rect.x, rect.x + rect.width, moving.x, moving.x + moving.width))
-      const before = vertical.filter((rect) => rect.y + rect.height <= moving.y).sort((a, b) => b.y + b.height - (a.y + a.height))[0]
-      const after = vertical.filter((rect) => rect.y >= moving.y + moving.height).sort((a, b) => a.y - b.y)[0]
-      if (before && after) {
-        const delta = ((after.y - moving.y - moving.height) - (moving.y - before.y - before.height)) / 2
-        if (Math.abs(delta) <= radius && (!best || Math.abs(delta) < Math.abs(best.delta))) best = { axis: "y", delta, before, after }
+      if (yBefore && yAfter) {
+        const delta = ((yAfter.bounds.y - moving.y - moving.height) - (moving.y - yBefore.bounds.y - yBefore.bounds.height)) / 2
+        if (Math.abs(delta) <= radius && (!best || Math.abs(delta) < Math.abs(best.delta))) best = { axis: "y", delta, before: yBefore.bounds, after: yAfter.bounds }
       }
     }
     if (!best) return null
@@ -926,6 +935,7 @@ export class DiagramEngine {
     return this.state.entities.nodesById.has(id) || this.state.entities.textsById.has(id) || this.state.entities.shapesById.has(id)
   }
 }
+
 
 function isBatchNoOp(state: InternalState, command: DiagramCommand): boolean {
   if (command.type === "updateEntities" && command.updates.every((update) => {

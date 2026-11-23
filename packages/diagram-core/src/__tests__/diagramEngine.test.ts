@@ -746,6 +746,93 @@ describe("DiagramEngine", () => {
     expect(runAtZoom(4).some((guide) => guide.kind === "alignment" && guide.start.x === guide.end.x)).toBe(false)
   })
 
+  it("keeps nearest equal-spacing guides stable near a farther exact pair across zoom levels", () => {
+    for (const zoom of [0.5, 1, 2]) {
+      const engine = createDiagramEngine({
+        nodes: [
+          { id: "near-before", kind: "node", x: -10, y: 0, width: 20, height: 10 },
+          { id: "near-after", kind: "node", x: 41, y: 0, width: 10, height: 10 },
+          { id: "far-before", kind: "node", x: -100, y: 0, width: 20, height: 10 },
+          { id: "far-after", kind: "node", x: 136, y: 0, width: 10, height: 10 },
+          { id: "moving", kind: "node", x: 0, y: 0, width: 10, height: 10 },
+        ],
+        viewport: { x: 0, y: 0, width: 200, height: 100, zoom },
+      })
+      const frames: Array<() => void> = []
+      const interaction = createDiagramInteractionController(engine, {
+        scheduleFrame: (callback) => { frames.push(callback) },
+        snap: { tolerancePx: 6, snapToPorts: false, snapToAlignment: false, snapToEqualSpacing: true },
+      })
+      interaction.pointerDown({ id: 1, point: { x: 5, y: 5 } })
+      const guideStarts: number[] = []
+      for (const x of [28, 28.1, 28.2]) {
+        interaction.pointerMove({ id: 1, point: { x, y: 5 } })
+        frames.shift()?.()
+        const snapshot = interaction.getSnapshot()
+        const guide = snapshot.snapGuides.find((entry) => entry.kind === "equal-spacing" && entry.axis === "x")
+        expect(guide).toBeDefined()
+        guideStarts.push(guide!.start.x)
+      }
+      expect(guideStarts).toEqual([10, 10, 10])
+      const preview = interaction.getSnapshot().previewDelta!
+      interaction.pointerUp({ id: 1, point: { x: 28.2, y: 5 } })
+      expect(engine.getGeometrySnapshot("moving")?.bounds.x).toBeCloseTo(preview.x)
+      expect(engine.hitTest({ x: preview.x + 5, y: 5 })?.id).toBe("moving")
+      engine.dispatch({ type: "undo" })
+      expect(engine.getScene().entities.nodesById.get("moving")?.x).toBe(0)
+
+      const alignmentEngine = createDiagramEngine({
+        nodes: [
+          { id: "align-moving", kind: "node", x: 0, y: 0, width: 10, height: 10 },
+          { id: "align-fixed", kind: "node", x: 50, y: 0, width: 10, height: 10 },
+        ],
+        viewport: { x: 0, y: 0, width: 200, height: 100, zoom },
+      })
+      const alignmentController = createDiagramInteractionController(alignmentEngine, {
+        scheduleFrame: (callback) => { frames.push(callback) },
+        snap: { tolerancePx: 6, snapToPorts: false, snapToEqualSpacing: false },
+      })
+      frames.length = 0
+      alignmentController.pointerDown({ id: 2, point: { x: 5, y: 5 } })
+      alignmentController.pointerMove({ id: 2, point: { x: 42, y: 5 } })
+      frames.shift()?.()
+      expect(alignmentController.getSnapshot().snapGuides.some((entry) => entry.kind === "alignment")).toBe(true)
+    }
+  })
+
+  it("keeps viewport and selection outside document revision while undo restores overlap order", () => {
+    const engine = createDiagramEngine({
+      nodes: [
+        { id: "lower", kind: "node", x: 0, y: 0, width: 30, height: 30 },
+        { id: "upper", kind: "node", x: 0, y: 0, width: 30, height: 30 },
+      ],
+    })
+    const initialRevision = engine.getDocumentRevision()
+    const initialOrder = engine.getRenderOrder()
+    engine.dispatch({ type: "setSelection", selection: { ids: ["upper"], primaryId: "upper" } })
+    engine.dispatch({ type: "setViewport", viewport: { x: 20, zoom: 1.25 } })
+    expect(engine.getDocumentRevision()).toBe(initialRevision)
+    engine.dispatch({ type: "moveNode", id: "upper", delta: { x: 40, y: 0 } })
+    const changedRevision = engine.getDocumentRevision()
+    engine.dispatch({ type: "setSelection", selection: { ids: ["lower"], primaryId: "lower" } })
+    const pan = createDiagramInteractionController(engine)
+    pan.setTool("pan")
+    pan.pointerDown({ id: 9, point: { x: 0, y: 0 } })
+    pan.pointerMove({ id: 9, point: { x: 10, y: 0 } })
+    pan.pointerUp({ id: 9, point: { x: 10, y: 0 } })
+    engine.dispatch({ type: "setViewport", viewport: { zoom: 0.8 } })
+    expect(engine.getDocumentRevision()).toBe(changedRevision)
+    engine.dispatch({ type: "undo" })
+    engine.dispatch({ type: "undo" })
+    engine.dispatch({ type: "undo" })
+    engine.dispatch({ type: "undo" })
+    expect(engine.getScene().entities.nodesById.get("upper")?.x).toBe(0)
+    expect(engine.getRenderOrder()).toEqual(initialOrder)
+    expect(engine.hitTest({ x: 5, y: 5 })?.id).toBe("upper")
+    engine.dispatch({ type: "redo" })
+    expect(engine.getScene().entities.nodesById.get("upper")?.x).toBe(40)
+  })
+
   it("cancels a snapped selection drag without changing scene or history", () => {
     const callbacks: Array<() => void> = []
     const engine = createDiagramEngine({

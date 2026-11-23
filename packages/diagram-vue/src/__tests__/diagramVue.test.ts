@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest"
 import { effectScope, nextTick, shallowRef } from "vue"
 import { createDiagramEngine, type DiagramSceneInput } from "@affino/diagram-core"
+import { createDiagramInteractionController } from "@affino/diagram-core"
 import { getDomEntityStyle, getSvgEntityProps, useDiagramEngine, useDiagramPointerController, useDiagramSelection, useDiagramTextEditor, useDiagramViewport, useDiagramVisibleEntities } from ".."
+import { beginDiagramHandleInteraction } from "../../../demo-vue/src/pages/diagramHandleInteractions"
 
 const scene: DiagramSceneInput = {
   nodes: [
@@ -239,6 +241,21 @@ describe("diagram-vue", () => {
     expect(visible.projection.value.edges.map((entity) => entity.id)).toContain("e1")
     expect(visible.projection.value.overlayAnchors.map((anchor) => anchor.id)).not.toContain("e1")
     expect(visible.projection.value.activeHandles.map((handle) => handle.id)).toEqual(["e1:source", "e1:target"])
+  })
+
+  it("routes Vue endpoint handles through the public endpoint drag interaction", () => {
+    const engine = createDiagramEngine({
+      edges: [{ id: "e1", kind: "edge", source: { kind: "point", point: { x: 0, y: 0 } }, target: { kind: "point", point: { x: 100, y: 0 } } }],
+    })
+    let scheduledFrame: (() => void) | null = null
+    const interaction = createDiagramInteractionController(engine, { scheduleFrame: (callback) => { scheduledFrame = callback; return 1 } })
+    const started = beginDiagramHandleInteraction(interaction, { id: "e1:source", ownerId: "e1", kind: "edge-endpoint", point: { x: 0, y: 0 } }, { id: 7, point: { x: 0, y: 0 } })
+    expect(started).toBe(true)
+    interaction.pointerMove({ id: 7, point: { x: 15, y: 20 } })
+    scheduledFrame?.()
+    interaction.pointerUp({ id: 7, point: { x: 15, y: 20 } })
+    expect(engine.getScene().entities.edgesById.get("e1")?.source).toEqual({ kind: "point", point: { x: 15, y: 20 } })
+    expect(engine.canUndo()).toBe(true)
   })
 
   it("keeps selection in the projection even when outside the viewport", () => {

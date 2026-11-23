@@ -9,7 +9,8 @@ import {
   useDiagramVisibleEntities,
   type DiagramRenderEntity,
 } from "@affino/diagram-vue"
-import { createEntityGeometry, type DiagramClipboard, type DiagramEdgeEndpoint, type DiagramGeometry, type DiagramPoint, type DiagramResizeHandle, type DiagramSceneInput } from "@affino/diagram-core"
+import { createEntityGeometry, type DiagramClipboard, type DiagramEdgeEndpoint, type DiagramGeometry, type DiagramPoint, type DiagramSceneInput } from "@affino/diagram-core"
+import { beginDiagramHandleInteraction } from "./diagramHandleInteractions"
 
 const stageRef = ref<HTMLElement | null>(null)
 const clipboard = ref<DiagramClipboard | null>(null)
@@ -94,6 +95,7 @@ const revision = computed(() => diagram.scene.value.revision)
 const visibleCount = computed(() => visible.projection.value.ids.length)
 const tool = computed(() => pointer.state.value.tool)
 const previewDelta = computed(() => pointer.state.value.previewDelta)
+const snapGuides = computed(() => pointer.state.value.snapGuides)
 const displayViewport = computed(() => {
   const current = viewport.viewport.value
   const delta = pointer.state.value.tool === "pan" ? previewDelta.value : null
@@ -158,11 +160,10 @@ function rectPreviewProps(entity: DiagramRenderEntity): Readonly<Record<string, 
 }
 
 function beginResizeHandle(handleId: string, ownerId: string, event: PointerEvent): void {
-  const handle = handleId.slice(handleId.lastIndexOf(":") + 1) as DiagramResizeHandle
+  const handle = visible.projection.value.activeHandles.find((candidate) => candidate.id === handleId)
+  if (!handle) return
   const pointerEvent = { id: event.pointerId, point: toWorldPoint(event), shiftKey: event.shiftKey }
-  const started = ownerId === "__selection__"
-    ? pointer.interaction.beginResizeSelectionHandle(handle, pointerEvent)
-    : pointer.interaction.beginResizeHandle(ownerId, handle, pointerEvent)
+  const started = beginDiagramHandleInteraction(pointer.interaction, handle, pointerEvent)
   if (started) {
     ;(event.currentTarget as Element).setPointerCapture?.(event.pointerId)
   }
@@ -558,6 +559,7 @@ function clamp(value: number, min: number, max: number): number {
               {{ diagram.scene.value.entities.textsById.get(entity.id)?.text }}
             </text>
           </template>
+          <line v-for="(guide, index) in snapGuides" :key="`snap-${index}`" class="diagram-snap-guide" :class="`diagram-snap-guide--${guide.kind}`" :data-axis="guide.axis" :x1="guide.start.x" :y1="guide.start.y" :x2="guide.end.x" :y2="guide.end.y" />
           <template v-if="showSelectionOverlays">
             <rect v-for="anchor in visible.projection.value.overlayAnchors" :key="anchor.id" class="diagram-anchor" :x="anchor.rect.x" :y="anchor.rect.y" :width="anchor.rect.width" :height="anchor.rect.height" />
             <circle v-for="handle in visible.projection.value.activeHandles" :key="handle.id" class="diagram-handle" :cx="handle.point.x" :cy="handle.point.y" r="5" @pointerdown.stop.prevent="beginResizeHandle(handle.id, handle.ownerId, $event)" />
@@ -818,6 +820,18 @@ button.active {
   stroke: rgba(13, 127, 104, 0.28);
   stroke-dasharray: 5 4;
   pointer-events: none;
+}
+
+.diagram-snap-guide {
+  stroke: #d06a18;
+  stroke-width: 1.5;
+  stroke-dasharray: 5 3;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+.diagram-snap-guide--equal-spacing {
+  stroke: #7a4cb5;
 }
 
 .diagram-handle {
