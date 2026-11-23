@@ -583,6 +583,139 @@ describe("DiagramEngine", () => {
     expect(engine.getScene().entities.nodesById.get("n1")?.x).toBe(0)
   })
 
+  it("locks Shift-drag movement to the dominant axis for nodes, shapes, text, and edges", () => {
+    const scenarios = [
+      { id: "node", point: { x: 10, y: 10 }, scene: { nodes: [{ id: "node", kind: "node" as const, x: 0, y: 0, width: 20, height: 20 }] } },
+      { id: "shape", point: { x: 40, y: 10 }, scene: { shapes: [{ id: "shape", kind: "shape" as const, shape: "rect" as const, x: 30, y: 0, width: 20, height: 20 }] } },
+      { id: "text", point: { x: 61, y: 5 }, scene: { texts: [{ id: "text", kind: "text" as const, x: 60, y: 0, text: "Label" }] } },
+      { id: "edge", point: { x: 120, y: 10 }, scene: { edges: [{ id: "edge", kind: "edge" as const, source: { kind: "point" as const, point: { x: 100, y: 10 } }, target: { kind: "point" as const, point: { x: 140, y: 10 } }, points: [{ x: 120, y: 10 }] }] } },
+    ]
+
+    for (const scenario of scenarios) {
+      for (const axis of ["x", "y"] as const) {
+        const callbacks: Array<() => void> = []
+        const engine = createDiagramEngine(scenario.scene)
+        engine.dispatch({ type: "setSelection", selection: { ids: [scenario.id], primaryId: scenario.id } })
+        const original = engine.getGeometrySnapshot(scenario.id)!.bounds
+        const interaction = createDiagramInteractionController(engine, { scheduleFrame: (callback) => callbacks.push(callback), snap: { enabled: false } })
+        const movement = axis === "x" ? { x: 30, y: 8 } : { x: 8, y: 30 }
+        const expectedDelta = axis === "x" ? { x: 30, y: 0 } : { x: 0, y: 30 }
+
+        interaction.pointerDown({ id: 1, point: scenario.point })
+        interaction.pointerMove({ id: 1, point: { x: scenario.point.x + movement.x, y: scenario.point.y + movement.y }, shiftKey: true })
+        callbacks.shift()?.()
+        expect(interaction.getSnapshot().previewDelta, `${scenario.id} ${axis} preview`).toEqual(expectedDelta)
+        const previewBounds = interaction.getPreviewGeometry(scenario.id)!.bounds
+        interaction.pointerUp({ id: 1, point: { x: scenario.point.x + movement.x, y: scenario.point.y + movement.y }, shiftKey: true })
+        const committedBounds = engine.getGeometrySnapshot(scenario.id)!.bounds
+        expect(committedBounds).toEqual(previewBounds)
+        expect(committedBounds).toMatchObject({ x: original.x + expectedDelta.x, y: original.y + expectedDelta.y })
+        engine.dispatch({ type: "undo" })
+        expect(engine.getGeometrySnapshot(scenario.id)?.bounds).toEqual(original)
+        engine.dispatch({ type: "redo" })
+        expect(engine.getGeometrySnapshot(scenario.id)?.bounds).toEqual(committedBounds)
+      }
+    }
+  })
+
+  it("updates Shift axis lock while dragging and applies translation snaps only on the locked axis", () => {
+    const frames: Array<() => void> = []
+    const engine = createDiagramEngine({
+      nodes: [
+        { id: "moving", kind: "node", x: 0, y: 0, width: 10, height: 10 },
+        { id: "fixed", kind: "node", x: 50, y: 0, width: 10, height: 10 },
+      ],
+      ports: [{ id: "fixed-port", kind: "port", nodeId: "fixed", x: 50, y: 2 }],
+    })
+    const interaction = createDiagramInteractionController(engine, {
+      scheduleFrame: (callback) => frames.push(callback),
+      snap: { tolerancePx: 8, snapToPorts: false, snapToAlignment: true, snapToEqualSpacing: false },
+    })
+    interaction.pointerDown({ id: 1, point: { x: 5, y: 5 } })
+    interaction.pointerMove({ id: 1, point: { x: 42, y: 15 }, shiftKey: true })
+    frames.shift()?.()
+    expect(interaction.getSnapshot().previewDelta).toEqual({ x: 40, y: 0 })
+    expect(interaction.getSnapshot().snapGuides.length).toBeGreaterThan(0)
+    expect(interaction.getSnapshot().snapGuides.every((guide) => guide.axis === "x")).toBe(true)
+    const alignedPreview = interaction.getPreviewGeometry("moving")!.bounds
+    interaction.pointerUp({ id: 1, point: { x: 42, y: 15 }, shiftKey: true })
+    expect(engine.getGeometrySnapshot("moving")?.bounds).toEqual(alignedPreview)
+
+    const spacingEngine = createDiagramEngine({
+      nodes: [
+        { id: "before", kind: "node", x: 0, y: 0, width: 10, height: 10 },
+        { id: "spacing-moving", kind: "node", x: 31, y: 0, width: 10, height: 10 },
+        { id: "after", kind: "node", x: 60, y: 0, width: 10, height: 10 },
+      ],
+    })
+    const spacingInteraction = createDiagramInteractionController(spacingEngine, {
+      scheduleFrame: (callback) => frames.push(callback),
+      snap: { tolerancePx: 6, snapToPorts: false, snapToAlignment: false, snapToEqualSpacing: true },
+    })
+    spacingInteraction.pointerDown({ id: 2, point: { x: 36, y: 5 } })
+    spacingInteraction.pointerMove({ id: 2, point: { x: 35, y: 6 }, shiftKey: true })
+    frames.shift()?.()
+    expect(spacingInteraction.getSnapshot().previewDelta).toEqual({ x: -1, y: 0 })
+    expect(spacingInteraction.getSnapshot().snapGuides).toHaveLength(2)
+    expect(spacingInteraction.getSnapshot().snapGuides.every((guide) => guide.kind === "equal-spacing" && guide.axis === "x")).toBe(true)
+    spacingInteraction.pointerUp({ id: 2, point: { x: 35, y: 6 }, shiftKey: true })
+    expect(spacingEngine.getGeometrySnapshot("spacing-moving")?.bounds.y).toBe(0)
+    expect(spacingEngine.getGeometrySnapshot("spacing-moving")?.bounds.x).toBe(30)
+
+    const portEngine = createDiagramEngine({
+      nodes: [
+        { id: "port-moving", kind: "node", x: 0, y: 0, width: 10, height: 10 },
+        { id: "port-owner", kind: "node", x: 40, y: 0, width: 20, height: 20 },
+      ],
+      ports: [{ id: "snap-port", kind: "port", nodeId: "port-owner", x: 10, y: 2 }],
+    })
+    const portInteraction = createDiagramInteractionController(portEngine, {
+      scheduleFrame: (callback) => frames.push(callback),
+      snap: { tolerancePx: 8, snapToPorts: true, snapToAlignment: false, snapToEqualSpacing: false },
+    })
+    portInteraction.pointerDown({ id: 3, point: { x: 5, y: 5 } })
+    portInteraction.pointerMove({ id: 3, point: { x: 48, y: 8 }, shiftKey: true })
+    frames.shift()?.()
+    expect(portInteraction.getSnapshot().previewDelta).toEqual({ x: 50, y: 0 })
+    portInteraction.pointerUp({ id: 3, point: { x: 48, y: 8 }, shiftKey: true })
+    expect(portEngine.getScene().entities.nodesById.get("port-moving")).toMatchObject({ x: 50, y: 0 })
+  })
+
+  it("keeps Shift-click additive selection and releases the axis lock when Shift is lifted", () => {
+    const callbacks: Array<() => void> = []
+    const engine = createDiagramEngine(scene)
+    engine.dispatch({ type: "setSelection", selection: { ids: ["n1"], primaryId: "n1" } })
+    const interaction = createDiagramInteractionController(engine, { scheduleFrame: (callback) => callbacks.push(callback), snap: { enabled: false } })
+    interaction.pointerDown({ id: 1, point: { x: 300, y: 30 }, shiftKey: true })
+    expect(engine.getScene().selection.ids).toEqual(["n1", "n2"])
+    interaction.pointerUp({ id: 1, point: { x: 300, y: 30 }, shiftKey: true })
+
+    interaction.pointerDown({ id: 2, point: { x: 10, y: 10 } })
+    interaction.pointerMove({ id: 2, point: { x: 40, y: 18 }, shiftKey: true })
+    callbacks.shift()?.()
+    expect(interaction.getSnapshot().previewDelta).toEqual({ x: 30, y: 0 })
+    interaction.pointerMove({ id: 2, point: { x: 40, y: 18 }, shiftKey: false })
+    callbacks.shift()?.()
+    expect(interaction.getSnapshot().previewDelta).toEqual({ x: 30, y: 8 })
+    interaction.pointerUp({ id: 2, point: { x: 40, y: 18 }, shiftKey: false })
+    expect(engine.getScene().entities.nodesById.get("n1")).toMatchObject({ x: 30, y: 8 })
+  })
+
+  it("keeps grid snapping on the active Shift-drag axis", () => {
+    const frames: Array<() => void> = []
+    const engine = createDiagramEngine({ nodes: [{ id: "grid-moving", kind: "node", x: 3, y: 5, width: 10, height: 10 }] })
+    const interaction = createDiagramInteractionController(engine, {
+      scheduleFrame: (callback) => frames.push(callback),
+      snap: { gridSize: 10, snapToPorts: false, snapToAlignment: false, snapToEqualSpacing: false },
+    })
+    interaction.pointerDown({ id: 1, point: { x: 8, y: 10 } })
+    interaction.pointerMove({ id: 1, point: { x: 21, y: 17 }, shiftKey: true })
+    frames.shift()?.()
+    expect(interaction.getSnapshot().previewDelta).toEqual({ x: 17, y: 0 })
+    interaction.pointerUp({ id: 1, point: { x: 21, y: 17 }, shiftKey: true })
+    expect(engine.getScene().entities.nodesById.get("grid-moving")).toMatchObject({ x: 20, y: 5 })
+  })
+
   it("selects and moves a port owner instead of selecting the immovable port", () => {
     const callbacks: Array<() => void> = []
     const engine = createDiagramEngine(scene)

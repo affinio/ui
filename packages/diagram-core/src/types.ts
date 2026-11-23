@@ -339,6 +339,8 @@ export type DiagramEdgeEndpointPreview = Readonly<{
 export type DiagramSnapContext = Readonly<{
   gridSize?: number
   radius?: number
+  /** Restrict translation snapping to this movement axis. */
+  axisConstraint?: "x" | "y"
   snapToPorts?: boolean
   snapToAlignment?: boolean
   snapToEqualSpacing?: boolean

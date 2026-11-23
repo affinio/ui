@@ -92,6 +92,8 @@ Preview geometry remains transient until pointerup. Start endpoint gestures with
 
 `useDiagramPointerController()` accepts `snap` options for grid spacing, port snapping, alignment, equal spacing, and screen pixel tolerance. Its `state.value.snapGuides` contains world-space line segments for currently active alignment and equal-spacing matches and clears when the gesture ends.
 
+During selection drags, holding Shift constrains movement to the dominant axis from the gesture origin. The Vue pointer adapter forwards `shiftKey` to core on pointer events, so releasing Shift restores free movement during the same drag.
+
 ### Migration from 0.1.0
 
 - Replace `viewBox.width = viewport.width / viewport.zoom` and the corresponding height formula with raw world `viewport.width` and `viewport.height`.

@@ -1,5 +1,11 @@
 # @affino/diagram-core
 
+## 0.9.0
+
+### Minor Changes
+
+- Added Shift axis-lock for selection drags, including previews, commits, and axis-compatible port, alignment, equal-spacing, and grid snapping.
+
 ## 0.8.1
 
 ### Patch Changes

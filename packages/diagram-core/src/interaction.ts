@@ -15,6 +15,7 @@ export class DiagramInteractionController {
   private activePointer: DiagramPointerEvent | null = null
   private startPoint: DiagramPoint | null = null
   private latestPoint: DiagramPoint | null = null
+  private latestShiftKey = false
   private previewDelta: DiagramPoint | null = null
   private marquee: DiagramRect | null = null
   private resizeOwnerId: DiagramId | null = null
@@ -55,6 +56,7 @@ export class DiagramInteractionController {
     this.activePointer = event
     this.startPoint = event.point
     this.latestPoint = event.point
+    this.latestShiftKey = event.shiftKey === true
     this.previewDelta = null
     this.marquee = null
     this.snapGuides = Object.freeze([])
@@ -150,6 +152,7 @@ export class DiagramInteractionController {
       return
     }
     this.latestPoint = event.point
+    this.latestShiftKey = event.shiftKey === true
     this.pendingMoveCount += 1
     if (!this.framePending) {
       this.framePending = true
@@ -166,6 +169,7 @@ export class DiagramInteractionController {
       return
     }
     this.latestPoint = event.point
+    this.latestShiftKey = event.shiftKey === true
     this.flushPointerMove()
     if (this.tool === "drag-selection" && this.previewDelta) {
       const selection = this.engine.getScene().selection
@@ -280,13 +284,22 @@ export class DiagramInteractionController {
     }
     const delta = { x: this.latestPoint.x - this.startPoint.x, y: this.latestPoint.y - this.startPoint.y }
     if (this.tool === "drag-selection" || this.tool === "pan") {
+      const axisConstraint = this.tool === "drag-selection" && this.latestShiftKey
+        ? Math.abs(delta.x) >= Math.abs(delta.y) ? "x" : "y"
+        : undefined
+      const constrainedDelta = axisConstraint === "x"
+        ? { x: delta.x, y: 0 }
+        : axisConstraint === "y"
+          ? { x: 0, y: delta.y }
+          : delta
       if (this.tool === "drag-selection" && this.snapOptions.enabled !== false) {
         const viewport = this.engine.getScene().viewport
         const zoom = viewport.zoom > 0 ? viewport.zoom : 1
         const selection = this.engine.getScene().selection
-        const snapped = this.engine.snapTranslation({ ...selection, ids: this.dragSelectionIds, primaryId: this.dragSelectionIds.includes(selection.primaryId ?? "") ? selection.primaryId : this.dragSelectionIds[0] ?? null }, delta, {
+        const snapped = this.engine.snapTranslation({ ...selection, ids: this.dragSelectionIds, primaryId: this.dragSelectionIds.includes(selection.primaryId ?? "") ? selection.primaryId : this.dragSelectionIds[0] ?? null }, constrainedDelta, {
           radius: (this.snapOptions.tolerancePx ?? 6) / zoom,
           gridSize: this.snapOptions.gridSize,
+          axisConstraint,
           snapToPorts: this.snapOptions.snapToPorts,
           snapToAlignment: this.snapOptions.snapToAlignment,
           snapToEqualSpacing: this.snapOptions.snapToEqualSpacing ?? true,
@@ -294,7 +307,7 @@ export class DiagramInteractionController {
         this.previewDelta = snapped.point
         this.snapGuides = snapped.guides
       } else {
-        this.previewDelta = delta
+        this.previewDelta = constrainedDelta
         this.snapGuides = Object.freeze([])
       }
       return
@@ -396,6 +409,7 @@ export class DiagramInteractionController {
     this.activePointer = null
     this.startPoint = null
     this.latestPoint = null
+    this.latestShiftKey = false
     this.previewDelta = null
     this.marquee = null
     this.resizeOwnerId = null

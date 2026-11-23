@@ -342,7 +342,11 @@ export class DiagramEngine {
     const origin = geometry ? { x: geometry.bounds.x, y: geometry.bounds.y } : { x: 0, y: 0 }
     const radius = context.radius ?? 6
     const excludeIds = new Set([...(context.excludeIds ?? []), ...selection.ids])
-    const proposed = { x: origin.x + delta.x, y: origin.y + delta.y }
+    const proposed = context.axisConstraint === "x"
+      ? { x: origin.x + delta.x, y: origin.y }
+      : context.axisConstraint === "y"
+        ? { x: origin.x, y: origin.y + delta.y }
+        : { x: origin.x + delta.x, y: origin.y + delta.y }
     const guides: DiagramSnapGuide[] = []
     let point = proposed
     let source: DiagramSnapResult["source"] = null
@@ -351,12 +355,12 @@ export class DiagramEngine {
       ? { point, snapped: false, source: null as DiagramSnapResult["source"] }
       : this.snapPoint(point, { ...context, gridSize: undefined, radius, excludeIds, snapToAlignment: false })
     if (portSnap.source === "port" || portSnap.source === "custom") {
-      point = portSnap.point
+      point = constrainSnapPoint(portSnap.point, origin, context.axisConstraint)
       source = portSnap.source
       prioritySnap = true
     }
     if (!prioritySnap && context.snapToAlignment !== false && geometry) {
-      const aligned = this.findTranslationAlignment(geometry.bounds, point, radius, excludeIds)
+      const aligned = this.findTranslationAlignment(geometry.bounds, point, radius, excludeIds, context.axisConstraint)
       if (aligned) {
         point = { x: point.x + aligned.dx, y: point.y + aligned.dy }
         guides.push(...aligned.guides)
@@ -365,6 +369,8 @@ export class DiagramEngine {
     }
     if (!prioritySnap && context.snapToEqualSpacing && geometry) {
       const alignedAxes = new Set(guides.filter((guide) => guide.kind === "alignment").map((guide) => guide.axis))
+      if (context.axisConstraint === "x") alignedAxes.add("y")
+      if (context.axisConstraint === "y") alignedAxes.add("x")
       const spaced = this.findEqualSpacing(geometry.bounds, point, radius, excludeIds, alignedAxes)
       if (spaced) {
         point = { x: point.x + spaced.dx, y: point.y + spaced.dy }
@@ -375,12 +381,12 @@ export class DiagramEngine {
     if (!prioritySnap && context.gridSize && context.gridSize > 0) {
       const snappedAxes = new Set(guides.map((guide) => guide.axis))
       let gridChanged = false
-      if (!snappedAxes.has("x")) {
+      if (!snappedAxes.has("x") && context.axisConstraint !== "y") {
         const x = Math.round(point.x / context.gridSize) * context.gridSize
         gridChanged ||= x !== point.x
         point = { ...point, x }
       }
-      if (!snappedAxes.has("y")) {
+      if (!snappedAxes.has("y") && context.axisConstraint !== "x") {
         const y = Math.round(point.y / context.gridSize) * context.gridSize
         gridChanged ||= y !== point.y
         point = { ...point, y }
@@ -760,6 +766,7 @@ export class DiagramEngine {
     targetOrigin: DiagramPoint,
     radius: number,
     excludeIds: ReadonlySet<DiagramId>,
+    axisConstraint?: "x" | "y",
   ): { dx: number; dy: number; guides: DiagramSnapGuide[] } | null {
     const moving = { ...sourceBounds, x: targetOrigin.x, y: targetOrigin.y }
     let bestX: { delta: number; coordinate: number; start: number; end: number; startIsMoving: boolean; endIsMoving: boolean } | null = null
@@ -769,23 +776,27 @@ export class DiagramEngine {
       if (excludeIds.has(fixedId)) continue
       const fixed = this.getGeometry(fixedId)?.bounds
       if (!fixed) continue
-      const movingX = [moving.x, moving.x + moving.width / 2, moving.x + moving.width]
-      const fixedX = [fixed.x, fixed.x + fixed.width / 2, fixed.x + fixed.width]
-      for (const [index, value] of movingX.entries()) {
-        for (const coordinate of fixedX) {
-          const delta = coordinate - value
-          if (Math.abs(delta) <= radius && (!bestX || Math.abs(delta) < Math.abs(bestX.delta))) {
-            bestX = { delta, coordinate, start: Math.min(moving.y, fixed.y), end: Math.max(moving.y + moving.height, fixed.y + fixed.height), startIsMoving: moving.y <= fixed.y, endIsMoving: moving.y + moving.height >= fixed.y + fixed.height }
+      if (axisConstraint !== "y") {
+        const movingX = [moving.x, moving.x + moving.width / 2, moving.x + moving.width]
+        const fixedX = [fixed.x, fixed.x + fixed.width / 2, fixed.x + fixed.width]
+        for (const value of movingX) {
+          for (const coordinate of fixedX) {
+            const delta = coordinate - value
+            if (Math.abs(delta) <= radius && (!bestX || Math.abs(delta) < Math.abs(bestX.delta))) {
+              bestX = { delta, coordinate, start: Math.min(moving.y, fixed.y), end: Math.max(moving.y + moving.height, fixed.y + fixed.height), startIsMoving: moving.y <= fixed.y, endIsMoving: moving.y + moving.height >= fixed.y + fixed.height }
+            }
           }
         }
       }
-      const movingY = [moving.y, moving.y + moving.height / 2, moving.y + moving.height]
-      const fixedY = [fixed.y, fixed.y + fixed.height / 2, fixed.y + fixed.height]
-      for (const value of movingY) {
-        for (const coordinate of fixedY) {
-          const delta = coordinate - value
-          if (Math.abs(delta) <= radius && (!bestY || Math.abs(delta) < Math.abs(bestY.delta))) {
-            bestY = { delta, coordinate, start: Math.min(moving.x, fixed.x), end: Math.max(moving.x + moving.width, fixed.x + fixed.width), startIsMoving: moving.x <= fixed.x, endIsMoving: moving.x + moving.width >= fixed.x + fixed.width }
+      if (axisConstraint !== "x") {
+        const movingY = [moving.y, moving.y + moving.height / 2, moving.y + moving.height]
+        const fixedY = [fixed.y, fixed.y + fixed.height / 2, fixed.y + fixed.height]
+        for (const value of movingY) {
+          for (const coordinate of fixedY) {
+            const delta = coordinate - value
+            if (Math.abs(delta) <= radius && (!bestY || Math.abs(delta) < Math.abs(bestY.delta))) {
+              bestY = { delta, coordinate, start: Math.min(moving.x, fixed.x), end: Math.max(moving.x + moving.width, fixed.x + fixed.width), startIsMoving: moving.x <= fixed.x, endIsMoving: moving.x + moving.width >= fixed.x + fixed.width }
+            }
           }
         }
       }
@@ -2121,6 +2132,12 @@ function constrainAngle(point: DiagramPoint, angleDegrees: number): DiagramPoint
   const step = angleDegrees * (Math.PI / 180)
   const constrained = Math.round(angle / step) * step
   return { x: Math.cos(constrained) * length, y: Math.sin(constrained) * length }
+}
+
+function constrainSnapPoint(point: DiagramPoint, origin: DiagramPoint, axisConstraint?: "x" | "y"): DiagramPoint {
+  if (axisConstraint === "x") return { x: point.x, y: origin.y }
+  if (axisConstraint === "y") return { x: origin.x, y: point.y }
+  return point
 }
 
 function normalizeSelectionByMode(previous: DiagramSelection, selection: DiagramSelection, mode: "replace" | "add" | "toggle"): DiagramSelection {

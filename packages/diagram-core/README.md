@@ -109,6 +109,8 @@ Selected edge endpoints use `beginEdgeEndpointHandle(id, endpoint, event)`. The 
 
 Selection drags snap by default to ports, alignments, and equal spacing. Configure grid spacing and screen-space tolerance when creating the controller; the tolerance is converted to world units using the viewport zoom. The `snapGuides` snapshot field contains world-space line segments for active alignment and equal-spacing matches. Set `enabled: false` to disable drag snapping. Moving a selected edge translates free endpoints and route points while preserving node/port endpoint attachments.
 
+Holding Shift during a selection drag constrains the group to the dominant axis from the gesture origin (horizontal wins an exact tie). The constraint applies to the frame-batched preview and the committed delta; snapping stays on that axis, and releasing Shift resumes free movement for the rest of the drag. Shift-click continues to add or toggle selection. Direct `snapTranslation()` callers can set `axisConstraint: "x" | "y"` to apply the same axis-aware port, alignment, equal-spacing, and grid snapping.
+
 ```ts
 const interaction = createDiagramInteractionController(engine, {
   snap: { gridSize: 16, tolerancePx: 8, snapToPorts: true, snapToAlignment: true, snapToEqualSpacing: true },

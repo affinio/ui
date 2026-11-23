@@ -1,5 +1,11 @@
 # @affino/diagram-vue
 
+## 0.7.0
+
+### Minor Changes
+
+- Updated the core dependency to `@affino/diagram-core` 0.9.0 for Shift-constrained selection dragging; the existing pointer adapter forwards the modifier state.
+
 ## 0.6.0
 
 ### Minor Changes
