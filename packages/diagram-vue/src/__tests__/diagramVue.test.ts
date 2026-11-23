@@ -147,6 +147,52 @@ describe("diagram-vue", () => {
     controller.dispose()
   })
 
+  it("starts replacement editing from printable keys and preserves keyboard navigation and focus styling", async () => {
+    const controller = useDiagramEngine({
+      tables: [{ id: "keyboard-table", kind: "table", x: 0, y: 0, width: 120, height: 40, rowCount: 1, columnCount: 2, cells: [[{ text: "Old" }, { text: "Next" }]] }],
+      selection: { ids: ["keyboard-table"], primaryId: "keyboard-table" },
+    })
+    const mount = document.createElement("div")
+    document.body.append(mount)
+    const app = createApp({ render: () => h("svg", [h(DiagramTableView, { controller, id: "keyboard-table" })]) })
+    app.mount(mount)
+    const cell = (column: number) => mount.querySelector<SVGRectElement>(`[data-table-row="0"][data-table-column="${column}"]`)!
+    const style = mount.querySelector("style")?.textContent ?? ""
+    expect(style).toContain(":focus{outline:none}")
+    expect(style).toContain(":focus-visible{stroke:var(--affino-focus-ring-color,var(--affino-accent,#3b82f6));stroke-width:2")
+    expect(mount.querySelector("line")?.getAttribute("stroke-width")).toBe("1")
+
+    cell(0).dispatchEvent(new KeyboardEvent("keydown", { key: "x", bubbles: true }))
+    await nextTick()
+    const editor = mount.querySelector<HTMLInputElement>('[aria-label="Edit row 1, column 1"]')!
+    expect(editor.value).toBe("x")
+    expect(controller.scene.value.entities.tablesById.get("keyboard-table")?.cells?.[0]?.[0]?.text).toBe("Old")
+    editor.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))
+    await nextTick()
+    expect(controller.scene.value.entities.tablesById.get("keyboard-table")?.cells?.[0]?.[0]?.text).toBe("x")
+
+    cell(0).dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }))
+    await nextTick()
+    expect(document.activeElement).toBe(cell(1))
+    cell(1).dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))
+    await nextTick()
+    expect(mount.querySelector<HTMLInputElement>('[aria-label="Edit row 1, column 2"]')?.value).toBe("Next")
+    mount.querySelector<HTMLInputElement>('[aria-label="Edit row 1, column 2"]')!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
+    await nextTick()
+    cell(1).dispatchEvent(new KeyboardEvent("keydown", { key: "F2", bubbles: true }))
+    await nextTick()
+    expect(mount.querySelector<HTMLInputElement>('[aria-label="Edit row 1, column 2"]')?.value).toBe("Next")
+    mount.querySelector<HTMLInputElement>('[aria-label="Edit row 1, column 2"]')!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
+    await nextTick()
+
+    cell(0).dispatchEvent(new KeyboardEvent("keydown", { key: "a", isComposing: true, bubbles: true }))
+    cell(0).dispatchEvent(new KeyboardEvent("keydown", { key: "c", ctrlKey: true, bubbles: true }))
+    expect(mount.querySelector('[aria-label^="Edit row"]')).toBeNull()
+    app.unmount()
+    mount.remove()
+    controller.dispose()
+  })
+
   it("hides only the formatting toolbar when showToolbar is false", async () => {
     const controller = useDiagramEngine({ tables: [{ id: "hidden-toolbar", kind: "table", x: 0, y: 0, width: 100, height: 40, rowCount: 1, columnCount: 1, cells: [[{ text: "Value" }]] }] })
     const mount = document.createElement("div")

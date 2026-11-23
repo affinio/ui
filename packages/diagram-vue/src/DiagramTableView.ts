@@ -58,9 +58,9 @@ export const DiagramTableView = defineComponent({
       return changed
     }
     const cancelEdit = () => { const edit = editing.value; editing.value = null; if (edit) focusCell(edit.row, edit.column) }
-    const beginEdit = (table: DiagramTable, row: number, column: number) => {
+    const beginEdit = (table: DiagramTable, row: number, column: number, initialText?: string) => {
       selectedCell.value = { row, column }
-      editing.value = { row, column, text: currentCell(table, row, column).text }
+      editing.value = { row, column, text: initialText ?? currentCell(table, row, column).text }
     }
     const navigateEdit = (table: DiagramTable, rowDelta: number, columnDelta: number, expected?: { row: number; column: number; text: string }) => {
       commitEdit(expected)
@@ -107,14 +107,14 @@ export const DiagramTableView = defineComponent({
           const anchor = cell.horizontalAlign === "center" ? "middle" : cell.horizontalAlign === "right" ? "end" : "start"
           const textX = anchor === "start" ? x + padding : anchor === "end" ? x + width - padding : x + width / 2
           const textY = cell.verticalAlign === "top" ? y + padding : cell.verticalAlign === "bottom" ? y + height - padding : y + height / 2
-          children.push(h("rect", { x, y, width, height, fill: active && selected.value ? "var(--affino-diagram-table-cell-active, rgba(59, 130, 246, 0.08))" : "transparent", stroke: active && selected.value ? "var(--affino-accent, #3b82f6)" : "transparent", "stroke-width": active && selected.value ? 1 : 0, role: "gridcell", tabindex: selected.value && active ? 0 : -1, "data-table-row": row, "data-table-column": column, "aria-label": `Row ${row + 1}, column ${column + 1}: ${cell.text}`, onClick: (event: Event) => { event.stopPropagation(); selectedCell.value = { row, column } }, onDblclick: (event: Event) => { event.stopPropagation(); beginEdit(table, row, column) }, onKeydown: (event: KeyboardEvent) => onCellKey(event, table, row, column, beginEdit, selectedCell) }))
+          children.push(h("rect", { class: "affino-diagram-table-cell", x, y, width, height, fill: active && selected.value ? "var(--affino-diagram-table-cell-active, rgba(59, 130, 246, 0.08))" : "transparent", stroke: active && selected.value ? "var(--affino-accent, #3b82f6)" : "transparent", "stroke-width": active && selected.value ? 1 : 0, role: "gridcell", tabindex: selected.value && active ? 0 : -1, "data-table-row": row, "data-table-column": column, "aria-label": `Row ${row + 1}, column ${column + 1}: ${cell.text}`, onClick: (event: Event) => { event.stopPropagation(); selectedCell.value = { row, column } }, onDblclick: (event: Event) => { event.stopPropagation(); beginEdit(table, row, column) }, onKeydown: (event: KeyboardEvent) => onCellKey(event, table, row, column, beginEdit, selectedCell) }))
           if (!isEditing) children.push(h("text", { x: textX, y: textY, "text-anchor": anchor, "dominant-baseline": cell.verticalAlign === "top" ? "hanging" : cell.verticalAlign === "bottom" ? "auto" : "middle", fill: "var(--affino-diagram-table-text, currentColor)", "font-size": 14, "pointer-events": "none" }, cell.text))
         }
       }
       if (style.border.visible) children.push(h("rect", { x: table.x + style.border.stroke.width / 2, y: table.y + style.border.stroke.width / 2, width: Math.max(0, table.width - style.border.stroke.width), height: Math.max(0, table.height - style.border.stroke.width), rx: style.border.radius, fill: "none", stroke: style.border.stroke.color, "stroke-width": style.border.stroke.width, "stroke-dasharray": dash(style.border.stroke.style), "vector-effect": "non-scaling-stroke", "pointer-events": "none" }))
       const tableTransform = svgTransform(0, table.flipX === true, table.flipY === true, table)
       const visualChildren = children.splice(0, children.length)
-      children.push(h("g", { transform: tableTransform }, visualChildren))
+      children.push(h("style", tableCellFocusStyles), h("g", { transform: tableTransform }, visualChildren))
       const activeEdit = editing.value
       if (activeEdit) {
         const cellX = columnOffsets[activeEdit.column]!
@@ -169,7 +169,7 @@ function toolbar(table: DiagramTable, style: DiagramTableStyle, cell: { row: num
   return h("foreignObject", { x: table.x, y: table.y - 42, width: 660, height: 40 }, [h("div", { role: "toolbar", "aria-label": "Table formatting", onPointerdown: (event: Event) => event.stopPropagation(), onClick: (event: Event) => event.stopPropagation(), style: toolbarStyle }, controls)])
 }
 
-function onCellKey(event: KeyboardEvent, table: DiagramTable, row: number, column: number, beginEdit: (table: DiagramTable, row: number, column: number) => void, selectedCell: { value: { row: number; column: number } }): void {
+function onCellKey(event: KeyboardEvent, table: DiagramTable, row: number, column: number, beginEdit: (table: DiagramTable, row: number, column: number, initialText?: string) => void, selectedCell: { value: { row: number; column: number } }): void {
   const delta = event.key === "ArrowUp" ? [-1, 0] : event.key === "ArrowDown" ? [1, 0] : event.key === "ArrowLeft" ? [0, -1] : event.key === "ArrowRight" ? [0, 1] : null
   if (delta) {
     event.preventDefault()
@@ -180,13 +180,27 @@ function onCellKey(event: KeyboardEvent, table: DiagramTable, row: number, colum
     void nextTick(() => grid?.querySelector<SVGRectElement>(`[data-table-row="${nextRow}"][data-table-column="${nextColumn}"]`)?.focus())
     return
   }
-  if (event.key === "Enter" || event.key === "F2") { event.preventDefault(); beginEdit(table, row, column) }
+  if (event.key === "Enter" || event.key === "F2") { event.preventDefault(); beginEdit(table, row, column); return }
+  if (isPrintableCellInput(event)) {
+    event.preventDefault()
+    event.stopPropagation()
+    beginEdit(table, row, column, event.key)
+  }
+}
+function isPrintableCellInput(event: KeyboardEvent): boolean {
+  return !event.isComposing
+    && event.keyCode !== 229
+    && !event.ctrlKey
+    && !event.metaKey
+    && !event.altKey
+    && Array.from(event.key).length === 1
 }
 function currentCellValue(table: DiagramTable, cell: { row: number; column: number }): DiagramTableCell { return table.cells?.[cell.row]?.[cell.column] ?? table.defaultCell ?? { text: "" } }
 function offsets(sizes: ReadonlyArray<number>, start: number): number[] { const result = [start]; for (const size of sizes) result.push(result[result.length - 1]! + size); return result }
 function dash(style: DiagramTableStyle["grid"]["stroke"]["style"]): string | undefined { return style === "dashed" ? "6 4" : style === "dotted" ? "1 3" : undefined }
 function colorInputValue(color: string): string { return /^#[0-9a-f]{6}$/i.test(color) ? color : "#64748b" }
 const defaultStyle: DiagramTableStyle = { grid: { visible: true, stroke: { color: "#d1d5db", width: 1, style: "solid" } }, border: { visible: true, stroke: { color: "#9ca3af", width: 1, style: "solid" }, radius: 8 }, cellPadding: 8 }
+const tableCellFocusStyles = `.affino-diagram-table-cell:focus{outline:none}.affino-diagram-table-cell:focus-visible{stroke:var(--affino-focus-ring-color,var(--affino-accent,#3b82f6));stroke-width:2;vector-effect:non-scaling-stroke}`
 const buttonStyle = { border: "1px solid var(--affino-border, #d1d5db)", borderRadius: "5px", background: "var(--affino-surface, #fff)", color: "var(--affino-text, #111827)", fontSize: "12px", padding: "3px 6px", whiteSpace: "nowrap" }
 const inputStyle = { boxSizing: "border-box", maxWidth: "72px", border: "1px solid var(--affino-border, #d1d5db)", borderRadius: "4px", background: "var(--affino-surface, #fff)", color: "var(--affino-text, #111827)", fontSize: "12px", padding: "3px" }
 const fieldStyle = { display: "inline-flex", alignItems: "center", gap: "3px", fontSize: "11px", whiteSpace: "nowrap" }

@@ -1,5 +1,11 @@
 # @affino/diagram-vue
 
+## 0.11.1
+
+### Patch Changes
+
+- Starting cell editing with a printable key now replaces the current text while preserving IME and shortcut behavior. Added a theme-token-backed `:focus-visible` cell ring without changing grid strokes.
+
 ## 0.11.0
 
 ### Minor Changes
