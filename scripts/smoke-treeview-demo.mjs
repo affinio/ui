@@ -157,7 +157,10 @@ try {
     server = await startDemoServer()
   }
 
-  browser = await chromium.launch({ headless: true })
+  browser = await chromium.launch({
+    headless: true,
+    executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
+  })
   const page = await browser.newPage({ viewport: { width: 1280, height: 860 } })
   await page.goto(route, { waitUntil: "networkidle" })
 
@@ -245,6 +248,7 @@ try {
     element.dispatchEvent(new Event("scroll", { bubbles: true }))
   })
   await page.waitForTimeout(160)
+  await viewport.scrollIntoViewIfNeeded()
   const viewportBounds = await viewport.boundingBox()
   if (!viewportBounds) throw new Error("tree viewport has no browser bounding box")
   const dragStartsBeforeEdge = Number(
