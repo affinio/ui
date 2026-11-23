@@ -1,5 +1,11 @@
 # @affino/diagram-vue
 
+## 0.9.0
+
+### Minor Changes
+
+- Added `DiagramTableView` and `useDiagramTable` for SVG-native table rendering, accessible cell editing/navigation, and undoable row, column, alignment, and border controls backed by `@affino/diagram-core`.
+
 ## 0.8.0
 
 ### Minor Changes

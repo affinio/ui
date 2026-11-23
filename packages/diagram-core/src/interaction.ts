@@ -78,6 +78,8 @@ export class DiagramInteractionController {
             return
           }
         }
+        const ownerGroup = [...this.engine.getScene().entities.groupsById.values()].find((group) => group.childIds.includes(targetId))
+        if (ownerGroup) targetId = ownerGroup.id
         const selection = this.engine.getScene().selection
         if (event.shiftKey) {
           this.engine.dispatch({ type: "setSelection", selection: { ids: [targetId], primaryId: targetId }, mode: "toggle" })
@@ -249,7 +251,7 @@ export class DiagramInteractionController {
     const edge = scene.entities.edgesById.get(id)
     if (geometry.kind === "edge" && edge) {
       const delta = this.previewDelta
-      const moved = new Set(this.dragSelectionIds)
+      const moved = new Set(this.expandedDragSelectionIds())
       const endpointMoves = (endpoint: typeof edge.source): boolean => endpoint.kind === "point"
         ? moved.has(id)
         : endpoint.kind === "node"
@@ -268,7 +270,7 @@ export class DiagramInteractionController {
         return Object.freeze({ ...geometry, path: Object.freeze(path), bounds, hitBounds: inflateRect(bounds, 6) })
       }
     }
-    if (!this.dragSelectionIds.includes(id)) return geometry
+    if (!this.isDraggedEntity(id)) return geometry
     const move = (point: DiagramPoint): DiagramPoint => ({ x: point.x + this.previewDelta!.x, y: point.y + this.previewDelta!.y })
     return Object.freeze({
       ...geometry,
@@ -321,7 +323,8 @@ export class DiagramInteractionController {
         const viewport = this.engine.getScene().viewport
         const zoom = viewport.zoom > 0 ? viewport.zoom : 1
         const selection = this.engine.getScene().selection
-        const snapped = this.engine.snapTranslation({ ...selection, ids: this.dragSelectionIds, primaryId: this.dragSelectionIds.includes(selection.primaryId ?? "") ? selection.primaryId : this.dragSelectionIds[0] ?? null }, constrainedDelta, {
+        const snapIds = [...new Set([...this.dragSelectionIds, ...this.expandedDragSelectionIds()])]
+        const snapped = this.engine.snapTranslation({ ...selection, ids: snapIds, primaryId: this.dragSelectionIds.includes(selection.primaryId ?? "") ? selection.primaryId : this.dragSelectionIds[0] ?? null }, constrainedDelta, {
           radius: (this.snapOptions.tolerancePx ?? 6) / zoom,
           gridSize: this.snapOptions.gridSize,
           axisConstraint,
@@ -428,6 +431,21 @@ export class DiagramInteractionController {
     return !this.latestShiftKey || this.snapOptions.enabled === false ? undefined : this.snapOptions.gridSize
   }
 
+  private expandedDragSelectionIds(): DiagramId[] {
+    const groups = this.engine.getScene().entities.groupsById
+    const ids = new Set(this.dragSelectionIds)
+    for (const id of this.dragSelectionIds) {
+      for (const childId of groups.get(id)?.childIds ?? []) ids.add(childId)
+    }
+    return [...ids]
+  }
+
+  private isDraggedEntity(id: DiagramId): boolean {
+    if (this.dragSelectionIds.includes(id)) return true
+    const groups = this.engine.getScene().entities.groupsById
+    return this.dragSelectionIds.some((groupId) => groups.get(groupId)?.childIds.includes(id) === true)
+  }
+
   private updateShiftAxis(shiftKey: boolean, point: DiagramPoint): void {
     const wasShifted = this.latestShiftKey
     this.latestShiftKey = shiftKey
@@ -492,12 +510,16 @@ export class DiagramInteractionController {
   private getMarqueeSelectionIds(rect: DiagramRect): DiagramId[] {
     const visible = new Set(this.engine.queryVisible(rect))
     const scene = this.engine.getScene()
+    const groupedChildren = new Set([...scene.entities.groupsById.values()].flatMap((group) => group.childIds))
     return [
+      ...scene.order.groupIds,
       ...scene.order.nodeIds,
       ...scene.order.shapeIds,
+      ...scene.order.tableIds,
       ...scene.order.textIds,
       ...scene.order.edgeIds,
     ].filter((id) => {
+      if (groupedChildren.has(id)) return false
       if (!visible.has(id)) return false
       if (this.marqueeMode === "intersect") return true
       const geometry = createEntityGeometry(id, scene.entities)

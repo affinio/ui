@@ -29,6 +29,7 @@ export type DiagramVisibleProjection = Readonly<{
   edges: ReadonlyArray<DiagramRenderEntity>
   texts: ReadonlyArray<DiagramRenderEntity>
   shapes: ReadonlyArray<DiagramRenderEntity>
+  tables: ReadonlyArray<DiagramRenderEntity>
   ports: ReadonlyArray<DiagramRenderEntity>
   activeHandles: ReadonlyArray<DiagramHandle>
   overlayAnchors: ReadonlyArray<DiagramOverlayAnchor>

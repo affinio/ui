@@ -33,6 +33,38 @@ const boundedEngine = createDiagramEngine({}, { history: { maxEntries: 200 } })
 
 `updateEntities` applies metadata updates to existing entities in one undoable command. Metadata is merged by key, so omitted keys remain unchanged. The command does not remove metadata keys; assigning `undefined` stores an `undefined` value. Unknown IDs are ignored, and updates with no effective changes create no history entry. Use `setEntityMetadata` to replace the complete metadata object.
 
+### Groups
+
+Groups are structural scene entities with stable IDs and ordered `childIds`. Group only existing, ungrouped nodes, edges, texts, shapes, or tables; ports cannot be direct children because they follow their owning node. Nested groups are rejected with a `TypeError` during scene construction, `transact()`, and deserialization.
+
+```ts
+engine.dispatch({ type: "groupEntities", id: "g1", ids: ["n1", "n2"] })
+engine.dispatch({ type: "moveEntities", ids: ["g1"], delta: { x: 24, y: 0 } })
+engine.dispatch({ type: "resizeEntities", entries: [{ id: "g1", x: 0, y: 0, width: 240, height: 128 }] })
+engine.dispatch({ type: "ungroupEntities", ids: ["g1"] })
+```
+
+Group and ungroup commands participate in undo/redo. `serialize()`, `DiagramSceneInput`, and `DiagramDocument` preserve groups and their members. Copy, paste, and duplicate remap group and member IDs together; edges between copied nodes retain their remapped port references. Deleting a group deletes its members and dependent ports/edges. Ungrouping removes only the group and keeps child IDs and geometry.
+
+### Visual tables
+
+`DiagramTable` is a plain text table object, not a spreadsheet. It stores a stable ID, world bounds, cells, row/column sizes, per-cell alignment, and table-level grid/border styles. Missing cell content defaults to empty text; omitted row and column sizes are initialized evenly. Tables are included in scene/document serialization, render order, hit testing, selection, move/resize, z-order, history, batch commands, copy/paste, duplicate, and delete.
+
+```ts
+engine.dispatch({ type: "createTable", table: {
+  id: "notes", kind: "table", x: 40, y: 40, width: 320, height: 120,
+  rowCount: 2, columnCount: 2,
+  cells: [[{ text: "Item", horizontalAlign: "center" }, { text: "Value" }], [{ text: "Relay" }, { text: "R1" }]],
+} })
+engine.dispatch({ type: "insertTableRow", id: "notes", index: 1 }) // zero-based insertion point, including rowCount
+engine.dispatch({ type: "updateTableCell", id: "notes", row: 1, column: 0, cell: { text: "Breaker", verticalAlign: "middle" } })
+engine.dispatch({ type: "updateTableStyle", id: "notes", style: { grid: { visible: true }, border: { radius: 8 } } })
+```
+
+Row/column indexes are zero-based. Insert accepts indexes `0..count`; delete and resize accept `0..count-1`. Deleting the last row or column is rejected as a no-op. Empty text is valid. Tables and row/column dimensions must be finite and positive; row heights and column widths must sum to the outer table size. Alignment is `left|center|right` and `top|middle|bottom`. Line style is `solid|dashed|dotted`; colors must be non-empty strings; stroke widths, cell padding, and corner radius must be finite and non-negative. Invalid constructor/deserialization input throws `TypeError`; invalid commands return `changed: false` and create no history entry. Table cell hit testing is available through `getDiagramTableCellAt(table, worldPoint)`.
+
+Cell edits are dispatched as one `updateTableCell` command. The Vue adapter keeps keystrokes in a local active editor and commits once on Enter, blur, or cell navigation; Escape discards the draft.
+
 ### Atomic graph edits and documents
 
 `dispatchBatch()` applies commands against a draft in order and publishes one change and one undo entry only after every command succeeds. Set `expectedRevision` to `getDocumentRevision()` to reject stale document edits. Viewport and selection changes do not advance that revision. A rejected result contains `failedCommandIndex`, `reason`, and known `affectedIds`; the scene, subscribers, and undo/redo stacks remain untouched.

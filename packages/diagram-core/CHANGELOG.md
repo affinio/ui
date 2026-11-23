@@ -1,5 +1,12 @@
 # @affino/diagram-core
 
+## 0.11.0
+
+### Minor Changes
+
+- Added public groups with stable IDs and child membership, undoable group/ungroup commands, grouped movement and resizing, z-order integration, serialization, and clipboard ID remapping. Nested groups and ports as direct children are rejected by scene validation; deleting a group deletes its members and graph dependencies, while ungrouping preserves member IDs.
+- Added first-class text table entities with validated row/column/cell/style commands, cell hit testing, geometry/history/clipboard/serialization integration, and proportional cell-size updates on resize.
+
 ## 0.10.2
 
 ### Patch Changes

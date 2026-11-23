@@ -1,4 +1,4 @@
-import type { DiagramEdge, DiagramEdgeEndpoint, DiagramEntities, DiagramGeometry, DiagramId, DiagramPoint, DiagramPort, DiagramRect } from "./types.js"
+import type { DiagramEdge, DiagramEdgeEndpoint, DiagramEntities, DiagramGeometry, DiagramId, DiagramPoint, DiagramPort, DiagramRect, DiagramTable, DiagramTableCellPosition } from "./types.js"
 
 export function rectIntersects(a: DiagramRect, b: DiagramRect): boolean {
   return a.x <= b.x + b.width && a.x + a.width >= b.x && a.y <= b.y + b.height && a.y + a.height >= b.y
@@ -45,6 +45,26 @@ export function distance(a: DiagramPoint, b: DiagramPoint): number {
   return Math.hypot(a.x - b.x, a.y - b.y)
 }
 
+/** Returns the zero-based table cell at a world-space point, or null when outside the table. */
+export function getDiagramTableCellAt(table: DiagramTable, point: DiagramPoint): DiagramTableCellPosition | null {
+  if (point.x < table.x || point.y < table.y || point.x > table.x + table.width || point.y > table.y + table.height) return null
+  const columnWidths = table.columnWidths ?? Array(table.columnCount).fill(table.width / table.columnCount) as number[]
+  const rowHeights = table.rowHeights ?? Array(table.rowCount).fill(table.height / table.rowCount) as number[]
+  const column = findCellIndex(point.x - table.x, columnWidths, table.width)
+  const row = findCellIndex(point.y - table.y, rowHeights, table.height)
+  return { row, column }
+}
+
+function findCellIndex(offset: number, sizes: ReadonlyArray<number>, total: number): number {
+  if (offset >= total) return sizes.length - 1
+  let edge = 0
+  for (let index = 0; index < sizes.length; index += 1) {
+    edge += sizes[index]!
+    if (offset < edge) return index
+  }
+  return Math.max(0, sizes.length - 1)
+}
+
 export function createEntityGeometry(id: DiagramId, entities: DiagramEntities): DiagramGeometry | null {
   const node = entities.nodesById.get(id)
   if (node) {
@@ -73,6 +93,17 @@ export function createEntityGeometry(id: DiagramId, entities: DiagramEntities): 
   if (shape) {
     return rectGeometry(id, "shape", { x: shape.x, y: shape.y, width: shape.width, height: shape.height }, shape.rotation ?? 0, 3)
   }
+  const group = entities.groupsById.get(id)
+  if (group) {
+    const bounds = unionRects(group.childIds
+      .filter((childId) => childId !== id)
+      .map((childId) => createEntityGeometry(childId, entities)?.bounds)
+      .filter((rect): rect is DiagramRect => Boolean(rect)))
+    if (!bounds) return null
+    return { id, kind: "group", bounds, unrotatedBounds: bounds, rotation: 0, hitBounds: inflateRect(bounds, 6) }
+  }
+  const table = entities.tablesById.get(id)
+  if (table) return rectGeometry(id, "table", { x: table.x, y: table.y, width: table.width, height: table.height }, 0, 3)
   return null
 }
 
@@ -105,7 +136,7 @@ export function resolvePortPoint(port: DiagramPort, entities: DiagramEntities): 
   return rotatePoint(point, rectCenter({ x: node.x, y: node.y, width: node.width, height: node.height }), node.rotation ?? 0)
 }
 
-function rectGeometry(id: DiagramId, kind: "node" | "shape" | "text", bounds: DiagramRect, rotation: number, hitPadding: number): DiagramGeometry {
+function rectGeometry(id: DiagramId, kind: "node" | "shape" | "text" | "table", bounds: DiagramRect, rotation: number, hitPadding: number): DiagramGeometry {
   const normalizedRotation = normalizeRotation(rotation)
   if (!normalizedRotation) {
     return { id, kind, bounds, hitBounds: inflateRect(bounds, hitPadding), unrotatedBounds: bounds, rotation: 0 }
@@ -139,4 +170,13 @@ export function rotatePoint(point: DiagramPoint, center: DiagramPoint, rotation:
 function normalizeRotation(rotation: number): number {
   const normalized = rotation % 360
   return normalized < 0 ? normalized + 360 : normalized
+}
+
+function unionRects(rects: ReadonlyArray<DiagramRect>): DiagramRect | null {
+  if (!rects.length) return null
+  const minX = Math.min(...rects.map((rect) => rect.x))
+  const minY = Math.min(...rects.map((rect) => rect.y))
+  const maxX = Math.max(...rects.map((rect) => rect.x + rect.width))
+  const maxY = Math.max(...rects.map((rect) => rect.y + rect.height))
+  return { x: minX, y: minY, width: maxX - minX, height: maxY - minY }
 }

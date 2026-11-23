@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { createDiagramEngine, createDiagramInteractionController, deserializeDiagramDocument, deserializeScene, screenToWorld, serializeScene, worldToScreen, zoomViewportAt } from ".."
+import { createDiagramEngine, createDiagramInteractionController, deserializeDiagramDocument, deserializeScene, getDiagramTableCellAt, screenToWorld, serializeScene, worldToScreen, zoomViewportAt } from ".."
 import type { DiagramPoint, DiagramSceneInput } from ".."
 
 const scene: DiagramSceneInput = {
@@ -24,6 +24,280 @@ const scene: DiagramSceneInput = {
 }
 
 describe("DiagramEngine", () => {
+  it("updates render order and visible queries when pasting after order caches are read", () => {
+    const engine = createDiagramEngine({ viewport: { x: 0, y: 0, width: 900, height: 600, zoom: 1 } })
+    engine.serialize()
+    engine.getRenderOrder()
+    const clipboard = {
+      nodes: [], edges: [], texts: [],
+      shapes: [
+        { id: "figure-test", kind: "shape" as const, x: 100, y: 100, width: 100, height: 80, shape: "rect" as const },
+        { id: "figure-second", kind: "shape" as const, x: 250, y: 100, width: 80, height: 60, shape: "rect" as const },
+      ],
+      ports: [], selection: { ids: [], primaryId: null }, viewport: engine.serialize().viewport,
+    }
+
+    expect(engine.dispatch({ type: "pasteClipboard", clipboard, offset: { x: 0, y: 0 } }).changed).toBe(true)
+    const pastedIds = engine.serialize().shapes.map((shape) => shape.id)
+    expect(engine.getRenderOrder()).toEqual(pastedIds)
+    expect(engine.queryVisible({ x: 90, y: 90, width: 250, height: 100 })).toEqual(pastedIds)
+
+    engine.dispatch({ type: "undo" })
+    expect(engine.getRenderOrder()).toEqual([])
+    expect(engine.queryVisible({ x: 90, y: 90, width: 250, height: 100 })).toEqual([])
+    engine.dispatch({ type: "redo" })
+    expect(engine.getRenderOrder()).toEqual(pastedIds)
+    expect(engine.queryVisible({ x: 90, y: 90, width: 250, height: 100 })).toEqual(pastedIds)
+  })
+
+  it("updates render order when one paste inserts multiple entity types", () => {
+    const engine = createDiagramEngine()
+    engine.getRenderOrder()
+    const clipboard = {
+      nodes: [{ id: "node", kind: "node" as const, x: 10, y: 10, width: 20, height: 20 }],
+      edges: [], texts: [{ id: "text", kind: "text" as const, x: 40, y: 10, text: "hello" }],
+      shapes: [{ id: "shape", kind: "shape" as const, shape: "rect" as const, x: 70, y: 10, width: 20, height: 20 }],
+      ports: [], selection: { ids: [], primaryId: null }, viewport: { x: 0, y: 0, width: 200, height: 100, zoom: 1 },
+    }
+    engine.dispatch({ type: "pasteClipboard", clipboard, offset: { x: 0, y: 0 } })
+    expect(engine.getRenderOrder()).toEqual(expect.arrayContaining(["node-copy-1", "text-copy-2", "shape-copy-3"]))
+    expect(engine.getRenderOrder()).toHaveLength(3)
+  })
+
+  it("creates and round-trips a styled table through scene and document serialization", () => {
+    const engine = createDiagramEngine()
+    const table = {
+      id: "table-1", kind: "table" as const, x: 20, y: 30, width: 200, height: 100, rowCount: 2, columnCount: 2,
+      cells: [[{ text: "Name", horizontalAlign: "center" as const }, { text: "Value" }], [{ text: "A" }, { text: "12", verticalAlign: "bottom" as const }]],
+      rowHeights: [40, 60], columnWidths: [80, 120],
+      style: { grid: { visible: true, stroke: { color: "#123456", width: 2, style: "dashed" as const } }, border: { visible: true, stroke: { color: "#654321", width: 3, style: "solid" as const }, radius: 12 }, cellPadding: 6 },
+    }
+    expect(engine.dispatch({ type: "createTable", table }).changed).toBe(true)
+    const saved = engine.serialize()
+    expect(saved.tables?.[0]).toMatchObject({ cells: table.cells, style: table.style, rowHeights: [40, 60], columnWidths: [80, 120] })
+    expect(createDiagramEngine(deserializeScene(saved)).serialize().tables).toEqual(saved.tables)
+    expect(createDiagramEngine(deserializeDiagramDocument(engine.serializeDocument())).serialize().tables).toEqual(saved.tables)
+  })
+
+  it("inserts and deletes table rows and columns while preserving neighbor data and size", () => {
+    const engine = createDiagramEngine({ tables: [{ id: "t", kind: "table", x: 0, y: 0, width: 120, height: 60, rowCount: 2, columnCount: 2, cells: [[{ text: "a" }, { text: "b" }], [{ text: "c" }, { text: "d" }]] }] })
+    engine.dispatch({ type: "insertTableRow", id: "t", index: 1, cells: [{ text: "x" }, { text: "y" }] })
+    expect(engine.getScene().entities.tablesById.get("t")).toMatchObject({ rowCount: 3, rowHeights: [30, 15, 15], cells: [[{ text: "a" }, { text: "b" }], [{ text: "x" }, { text: "y" }], [{ text: "c" }, { text: "d" }]] })
+    engine.dispatch({ type: "undo" })
+    expect(engine.getScene().entities.tablesById.get("t")?.rowCount).toBe(2)
+    engine.dispatch({ type: "redo" })
+    engine.dispatch({ type: "deleteTableRow", id: "t", index: 1 })
+    expect(engine.getScene().entities.tablesById.get("t")?.rowHeights).toEqual([30, 30])
+    engine.dispatch({ type: "insertTableColumn", id: "t", index: 1, cells: [{ text: "m" }, { text: "n" }] })
+    expect(engine.getScene().entities.tablesById.get("t")?.cells).toEqual([[{ text: "a" }, { text: "m" }, { text: "b" }], [{ text: "c" }, { text: "n" }, { text: "d" }]])
+    engine.dispatch({ type: "deleteTableColumn", id: "t", index: 1 })
+    const finalTable = engine.getScene().entities.tablesById.get("t")!
+    expect(finalTable.columnCount).toBe(2)
+    expect(finalTable.cells).toEqual([[{ text: "a" }, { text: "b" }], [{ text: "c" }, { text: "d" }]])
+    expect(finalTable.columnWidths!.reduce((sum, size) => sum + size, 0)).toBe(120)
+    expect(engine.dispatch({ type: "deleteTableRow", id: "t", index: 0 }).changed).toBe(true)
+    expect(engine.dispatch({ type: "deleteTableRow", id: "t", index: 0 }).changed).toBe(false)
+    expect(engine.dispatch({ type: "deleteTableColumn", id: "t", index: 0 }).changed).toBe(true)
+    expect(engine.dispatch({ type: "deleteTableColumn", id: "t", index: 0 }).changed).toBe(false)
+  })
+
+  it("edits cells and alignment as undoable changes and validates cell/style commands", () => {
+    const engine = createDiagramEngine({ tables: [{ id: "t", kind: "table", x: 0, y: 0, width: 100, height: 40, rowCount: 1, columnCount: 2 }] })
+    engine.dispatch({ type: "updateTableCell", id: "t", row: 0, column: 1, cell: { text: "hello", horizontalAlign: "right", verticalAlign: "middle" } })
+    expect(engine.getScene().entities.tablesById.get("t")?.cells?.[0]?.[1]).toEqual({ text: "hello", horizontalAlign: "right", verticalAlign: "middle" })
+    engine.dispatch({ type: "undo" })
+    expect(engine.getScene().entities.tablesById.get("t")?.cells?.[0]?.[1]?.text).toBe("")
+    engine.dispatch({ type: "redo" })
+    engine.dispatch({ type: "updateTableStyle", id: "t", style: { grid: { visible: false }, border: { radius: 10, stroke: { color: "#ff0000", width: 2, style: "dotted" } } } })
+    expect(engine.getScene().entities.tablesById.get("t")?.style).toMatchObject({ grid: { visible: false }, border: { radius: 10, stroke: { color: "#ff0000", width: 2, style: "dotted" } } })
+    expect(engine.dispatch({ type: "updateTableCell", id: "t", row: 3, column: 0, cell: { text: "bad" } }).changed).toBe(false)
+    expect(engine.dispatch({ type: "updateTableCell", id: "t", row: 0, column: 0, cell: { horizontalAlign: "justify" as unknown as "left" } }).changed).toBe(false)
+    expect(engine.dispatch({ type: "updateTableStyle", id: "t", style: { border: { stroke: { width: -1 } } } }).changed).toBe(false)
+  })
+
+  it("resizes individual rows and columns as undoable geometry changes", () => {
+    const engine = createDiagramEngine({ tables: [{ id: "t", kind: "table", x: 0, y: 0, width: 100, height: 40, rowCount: 2, columnCount: 2 }] })
+    engine.dispatch({ type: "resizeTableRow", id: "t", index: 0, height: 30 })
+    expect(engine.getScene().entities.tablesById.get("t")).toMatchObject({ height: 50, rowHeights: [30, 20] })
+    engine.dispatch({ type: "undo" })
+    expect(engine.getScene().entities.tablesById.get("t")).toMatchObject({ height: 40, rowHeights: [20, 20] })
+    engine.dispatch({ type: "resizeTableColumn", id: "t", index: 1, width: 70 })
+    expect(engine.getScene().entities.tablesById.get("t")).toMatchObject({ width: 120, columnWidths: [50, 70] })
+    expect(engine.dispatch({ type: "resizeTableColumn", id: "t", index: 4, width: 100 }).changed).toBe(false)
+  })
+
+  it("applies table construction and edits atomically in one batch history entry", () => {
+    const engine = createDiagramEngine()
+    const result = engine.dispatchBatch([
+      { type: "createTable", table: { id: "t", kind: "table", x: 0, y: 0, width: 100, height: 40, rowCount: 1, columnCount: 1 } },
+      { type: "insertTableRow", id: "t", index: 1, cells: [{ text: "second" }] },
+      { type: "updateTableCell", id: "t", row: 1, column: 0, cell: { horizontalAlign: "right" } },
+    ])
+    expect(result).toMatchObject({ ok: true, changed: true })
+    expect(engine.getDiagnostics().undoDepth).toBe(1)
+    expect(engine.getScene().entities.tablesById.get("t")?.cells?.[1]?.[0]).toEqual({ text: "second", horizontalAlign: "right" })
+    engine.dispatch({ type: "undo" })
+    expect(engine.getScene().entities.tablesById.has("t")).toBe(false)
+    engine.dispatch({ type: "redo" })
+    expect(engine.getScene().entities.tablesById.get("t")?.rowCount).toBe(2)
+  })
+
+  it("previews and commits table resize with scaled row and column sizes", () => {
+    const callbacks: Array<() => void> = []
+    const engine = createDiagramEngine({
+      tables: [{ id: "t", kind: "table", x: 0, y: 0, width: 100, height: 50, rowCount: 2, columnCount: 2, rowHeights: [20, 30], columnWidths: [40, 60] }],
+      selection: { ids: ["t"], primaryId: "t" },
+    })
+    const controller = createDiagramInteractionController(engine, { scheduleFrame: (callback) => callbacks.push(callback) })
+    expect(controller.beginResizeHandle("t", "se", { id: 4, point: { x: 100, y: 50 } })).toBe(true)
+    controller.pointerMove({ id: 4, point: { x: 150, y: 100 } })
+    callbacks.shift()?.()
+    expect(controller.getSnapshot().resizePreview).toMatchObject({ id: "t", width: 150, height: 100 })
+    expect(engine.getScene().entities.tablesById.get("t")).toMatchObject({ width: 100, height: 50 })
+    controller.pointerUp({ id: 4, point: { x: 150, y: 100 } })
+    expect(engine.getScene().entities.tablesById.get("t")).toMatchObject({ width: 150, height: 100, rowHeights: [40, 60], columnWidths: [60, 90] })
+    engine.dispatch({ type: "undo" })
+    expect(engine.getScene().entities.tablesById.get("t")).toMatchObject({ width: 100, height: 50, rowHeights: [20, 30], columnWidths: [40, 60] })
+  })
+
+  it("integrates table hit testing, selection, movement, resize, clipboard, duplicate, and delete", () => {
+    const engine = createDiagramEngine({ tables: [{ id: "t", kind: "table", x: 10, y: 20, width: 100, height: 40, rowCount: 2, columnCount: 2, cells: [[{ text: "a" }, { text: "b" }], [{ text: "c" }, { text: "d" }]] }] })
+    expect(engine.hitTest({ x: 15, y: 25 })?.id).toBe("t")
+    const table = engine.getScene().entities.tablesById.get("t")!
+    expect(getDiagramTableCellAt(table, { x: 15, y: 25 })).toEqual({ row: 0, column: 0 })
+    expect(getDiagramTableCellAt(table, { x: 90, y: 50 })).toEqual({ row: 1, column: 1 })
+    expect(getDiagramTableCellAt(table, { x: 200, y: 200 })).toBeNull()
+    engine.dispatch({ type: "setSelection", selection: { ids: ["t"], primaryId: "t" } })
+    engine.dispatch({ type: "moveEntities", ids: ["t"], delta: { x: 5, y: 7 } })
+    expect(engine.getScene().entities.tablesById.get("t")).toMatchObject({ x: 15, y: 27 })
+    engine.dispatch({ type: "resizeEntities", entries: [{ id: "t", width: 200, height: 80 }] })
+    expect(engine.getScene().entities.tablesById.get("t")).toMatchObject({ width: 200, height: 80, columnWidths: [100, 100], rowHeights: [40, 40] })
+    engine.dispatch({ type: "undo" })
+    expect(engine.getScene().entities.tablesById.get("t")).toMatchObject({ width: 100, height: 40, columnWidths: [50, 50], rowHeights: [20, 20] })
+    const clipboard = engine.exportSelection()
+    expect(engine.canPaste(clipboard)).toBe(true)
+    engine.importClipboard(clipboard, { x: 30, y: 40 })
+    const pasted = [...engine.getScene().entities.tablesById.values()].find((entity) => entity.id !== "t")!
+    expect(pasted.id).not.toBe("t")
+    expect(pasted.cells).toEqual(engine.getScene().entities.tablesById.get("t")?.cells)
+    engine.dispatch({ type: "undo" })
+    engine.dispatch({ type: "setSelection", selection: { ids: ["t"], primaryId: "t" } })
+    engine.duplicateSelection()
+    expect(engine.getScene().entities.tablesById.size).toBe(2)
+    engine.dispatch({ type: "deleteSelection" })
+    expect(engine.getScene().entities.tablesById.size).toBe(1)
+    engine.dispatch({ type: "undo" })
+    expect(engine.getScene().entities.tablesById.size).toBe(2)
+  })
+
+  it("groups, moves, resizes, serializes, and ungroups entities through public commands", () => {
+    const engine = createDiagramEngine({
+      shapes: [
+        { id: "a", kind: "shape", shape: "rect", x: 0, y: 0, width: 20, height: 10 },
+        { id: "b", kind: "shape", shape: "rect", x: 40, y: 0, width: 20, height: 10 },
+      ],
+    })
+    expect(engine.dispatch({ type: "groupEntities", id: "g", ids: ["a", "b"] }).changed).toBe(true)
+    expect(engine.getScene().entities.groupsById.get("g")?.childIds).toEqual(["a", "b"])
+    expect(engine.canMove(["g"])).toBe(true)
+    expect(engine.canResize(["g"])).toBe(true)
+    expect(engine.getGeometrySnapshot("g")?.bounds).toEqual({ x: 0, y: 0, width: 60, height: 10 })
+
+    engine.dispatch({ type: "moveEntities", ids: ["g"], delta: { x: 10, y: 5 } })
+    expect(engine.getScene().entities.shapesById.get("a")).toMatchObject({ x: 10, y: 5 })
+    expect(engine.getScene().entities.shapesById.get("b")).toMatchObject({ x: 50, y: 5 })
+    engine.dispatch({ type: "resizeEntities", entries: [{ id: "g", x: 10, y: 5, width: 120, height: 20 }] })
+    expect(engine.getScene().entities.shapesById.get("a")).toMatchObject({ x: 10, y: 5, width: 40, height: 20 })
+    expect(engine.getScene().entities.shapesById.get("b")).toMatchObject({ x: 90, y: 5, width: 40, height: 20 })
+
+    engine.dispatch({ type: "undo" })
+    expect(engine.getScene().entities.shapesById.get("b")).toMatchObject({ x: 50, y: 5, width: 20, height: 10 })
+    engine.dispatch({ type: "redo" })
+    expect(engine.getScene().entities.shapesById.get("b")).toMatchObject({ x: 90, y: 5, width: 40, height: 20 })
+    engine.dispatch({ type: "undo" })
+    engine.dispatch({ type: "undo" })
+    expect(engine.getScene().entities.shapesById.get("a")).toMatchObject({ x: 0, y: 0, width: 20, height: 10 })
+    engine.dispatch({ type: "redo" })
+    engine.dispatch({ type: "redo" })
+    expect(engine.getScene().entities.groupsById.get("g")?.childIds).toEqual(["a", "b"])
+
+    const restored = createDiagramEngine(engine.serialize())
+    expect(restored.serialize().groups).toEqual(engine.serialize().groups)
+    const documentRestored = createDiagramEngine(deserializeScene(engine.serialize()))
+    expect(documentRestored.getGeometrySnapshot("g")?.bounds).toEqual(engine.getGeometrySnapshot("g")?.bounds)
+    const document = createDiagramEngine(deserializeDiagramDocument(engine.serializeDocument()))
+    expect(document.getScene().entities.groupsById.get("g")?.childIds).toEqual(["a", "b"])
+
+    engine.dispatch({ type: "ungroupEntities", ids: ["g"] })
+    expect(engine.getScene().entities.groupsById.has("g")).toBe(false)
+    expect(engine.getScene().entities.shapesById.has("a")).toBe(true)
+    engine.dispatch({ type: "undo" })
+    expect(engine.getScene().entities.groupsById.get("g")?.childIds).toEqual(["a", "b"])
+  })
+
+  it("copies, duplicates, and deletes groups with port and edge references intact", () => {
+    const engine = createDiagramEngine({
+      nodes: [
+        { id: "n1", kind: "node", x: 0, y: 0, width: 20, height: 20, portIds: ["p1"] },
+        { id: "n2", kind: "node", x: 80, y: 0, width: 20, height: 20, portIds: ["p2"] },
+      ],
+      ports: [
+        { id: "p1", kind: "port", nodeId: "n1", x: 20, y: 10 },
+        { id: "p2", kind: "port", nodeId: "n2", x: 0, y: 10 },
+      ],
+      edges: [{ id: "e", kind: "edge", source: { kind: "port", portId: "p1" }, target: { kind: "port", portId: "p2" }, points: [{ x: 50, y: 4 }] }],
+    })
+    engine.dispatch({ type: "groupEntities", id: "g", ids: ["n1", "n2"] })
+    const clipboard = engine.exportSelection()
+    expect(clipboard.groups?.[0]?.childIds).toEqual(["n1", "n2"])
+    expect(engine.canPaste(clipboard)).toBe(true)
+    engine.importClipboard(clipboard, { x: 10, y: 20 })
+    const pastedGroup = [...engine.getScene().entities.groupsById.values()].find((group) => group.id !== "g")!
+    const pastedNodes = pastedGroup.childIds
+    const pastedEdge = [...engine.getScene().entities.edgesById.values()].find((edge) => edge.id !== "e")!
+    expect(pastedEdge.source.kind).toBe("port")
+    if (pastedEdge.source.kind === "port") expect(engine.getScene().entities.portsById.get(pastedEdge.source.portId)?.nodeId).toBe(pastedNodes[0])
+    engine.dispatch({ type: "undo" })
+    engine.dispatch({ type: "setSelection", selection: { ids: ["g"], primaryId: "g" } })
+    engine.duplicateSelection({ x: 30, y: 30 })
+    expect(engine.getScene().entities.groupsById.size).toBe(2)
+    engine.dispatch({ type: "deleteSelection" })
+    expect(engine.getScene().entities.groupsById.size).toBe(1)
+    expect(engine.getScene().entities.nodesById.size).toBe(2)
+    expect(engine.getScene().entities.edgesById.size).toBe(1)
+    engine.dispatch({ type: "undo" })
+    expect(engine.getScene().entities.groupsById.size).toBe(2)
+    expect([...engine.getScene().entities.edgesById.values()]).toHaveLength(2)
+  })
+
+  it("rejects nested and invalid groups at scene boundaries and supports groups in transact", () => {
+    const invalid = { shapes: [{ id: "s", kind: "shape" as const, shape: "rect", x: 0, y: 0, width: 10, height: 10 }], groups: [{ id: "g", kind: "group" as const, childIds: ["s", "missing"] }] }
+    expect(() => createDiagramEngine(invalid)).toThrow(/Invalid group/)
+    const engine = createDiagramEngine()
+    engine.transact(() => ({
+      shapes: [...invalid.shapes, { id: "s2", kind: "shape" as const, shape: "rect", x: 20, y: 0, width: 10, height: 10 }],
+      groups: [{ id: "g", kind: "group" as const, childIds: ["s", "s2"] }],
+    }))
+    expect(engine.getScene().entities.groupsById.has("g")).toBe(true)
+    expect(() => deserializeScene({ ...engine.serialize(), groups: [{ id: "nested", kind: "group", childIds: ["g", "s"] }] })).toThrow(/nested/)
+  })
+
+  it("does not partially delete a group when a dependent port is protected", () => {
+    const engine = createDiagramEngine({
+      nodes: [
+        { id: "n1", kind: "node", x: 0, y: 0, width: 20, height: 20, portIds: ["p1"] },
+        { id: "n2", kind: "node", x: 40, y: 0, width: 20, height: 20 },
+      ],
+      ports: [{ id: "p1", kind: "port", nodeId: "n1", x: 20, y: 10, metadata: { locked: true } }],
+    })
+    engine.dispatch({ type: "groupEntities", id: "g", ids: ["n1", "n2"] })
+    const before = engine.getScene()
+    expect(engine.dispatch({ type: "deleteSelection" }).changed).toBe(false)
+    expect(engine.getScene()).toBe(before)
+    expect(engine.getScene().entities.groupsById.has("g")).toBe(true)
+    expect(engine.getScene().entities.portsById.has("p1")).toBe(true)
+  })
+
   it("applies graph batches atomically with one undo entry and document revision guard", () => {
     const engine = createDiagramEngine()
     const initialRevision = engine.getDocumentRevision()

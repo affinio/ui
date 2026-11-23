@@ -1,6 +1,6 @@
 export type DiagramId = string
 
-export type DiagramEntityKind = "node" | "edge" | "text" | "shape" | "port"
+export type DiagramEntityKind = "node" | "edge" | "text" | "shape" | "port" | "group" | "table"
 
 export type DiagramLayerRole = "background" | "normal" | "foreground"
 
@@ -93,6 +93,41 @@ export type DiagramShape = DiagramEntityBase & Readonly<{
   shape: "rect" | "ellipse" | "line" | string
 }>
 
+export type DiagramTableHorizontalAlignment = "left" | "center" | "right"
+export type DiagramTableVerticalAlignment = "top" | "middle" | "bottom"
+export type DiagramTableLineStyle = "solid" | "dashed" | "dotted"
+export type DiagramTableCell = Readonly<{
+  text: string
+  horizontalAlign?: DiagramTableHorizontalAlignment
+  verticalAlign?: DiagramTableVerticalAlignment
+}>
+export type DiagramTableStroke = Readonly<{ color: string; width: number; style: DiagramTableLineStyle }>
+export type DiagramTableStyle = Readonly<{
+  grid: Readonly<{ visible: boolean; stroke: DiagramTableStroke }>
+  border: Readonly<{ visible: boolean; stroke: DiagramTableStroke; radius: number }>
+  cellPadding?: number
+}>
+export type DiagramTableStyleUpdate = Readonly<{
+  grid?: Readonly<{ visible?: boolean; stroke?: Partial<DiagramTableStroke> }>
+  border?: Readonly<{ visible?: boolean; stroke?: Partial<DiagramTableStroke>; radius?: number }>
+  cellPadding?: number
+}>
+export type DiagramTable = DiagramEntityBase & Readonly<{
+  kind: "table"
+  x: number
+  y: number
+  width: number
+  height: number
+  rowCount: number
+  columnCount: number
+  cells?: ReadonlyArray<ReadonlyArray<DiagramTableCell>>
+  rowHeights?: ReadonlyArray<number>
+  columnWidths?: ReadonlyArray<number>
+  defaultCell?: DiagramTableCell
+  style?: DiagramTableStyle
+}>
+export type DiagramTableCellPosition = Readonly<{ row: number; column: number }>
+
 export type DiagramGroup = DiagramEntityBase & Readonly<{
   kind: "group"
   childIds: ReadonlyArray<DiagramId>
@@ -104,6 +139,8 @@ export type DiagramEntities = Readonly<{
   textsById: ReadonlyMap<DiagramId, DiagramText>
   shapesById: ReadonlyMap<DiagramId, DiagramShape>
   portsById: ReadonlyMap<DiagramId, DiagramPort>
+  groupsById: ReadonlyMap<DiagramId, DiagramGroup>
+  tablesById: ReadonlyMap<DiagramId, DiagramTable>
 }>
 
 export type DiagramOrder = Readonly<{
@@ -111,6 +148,8 @@ export type DiagramOrder = Readonly<{
   edgeIds: ReadonlyArray<DiagramId>
   textIds: ReadonlyArray<DiagramId>
   shapeIds: ReadonlyArray<DiagramId>
+  groupIds: ReadonlyArray<DiagramId>
+  tableIds: ReadonlyArray<DiagramId>
 }>
 
 export type DiagramScene = Readonly<{
@@ -190,6 +229,8 @@ export type DiagramSceneInput = Readonly<{
   texts?: ReadonlyArray<DiagramText>
   shapes?: ReadonlyArray<DiagramShape>
   ports?: ReadonlyArray<DiagramPort>
+  groups?: ReadonlyArray<DiagramGroup>
+  tables?: ReadonlyArray<DiagramTable>
   selection?: Partial<DiagramSelection>
   viewport?: Partial<DiagramViewport>
 }>
@@ -209,6 +250,8 @@ export type SerializedDiagramScene = Readonly<{
   texts: ReadonlyArray<DiagramText>
   shapes: ReadonlyArray<DiagramShape>
   ports: ReadonlyArray<DiagramPort>
+  groups?: ReadonlyArray<DiagramGroup>
+  tables?: ReadonlyArray<DiagramTable>
   selection: DiagramSelection
   viewport: DiagramViewport
 }>
@@ -254,6 +297,17 @@ export type DiagramSubscriber = (scene: DiagramScene, change: DiagramChange) => 
 
 export type DiagramCommand =
   | Readonly<{ type: "createNode"; node: DiagramNode; historyKey?: string }>
+  | Readonly<{ type: "createTable"; table: DiagramTable; historyKey?: string }>
+  | Readonly<{ type: "insertTableRow"; id: DiagramId; index: number; cells?: ReadonlyArray<DiagramTableCell>; historyKey?: string }>
+  | Readonly<{ type: "deleteTableRow"; id: DiagramId; index: number; historyKey?: string }>
+  | Readonly<{ type: "insertTableColumn"; id: DiagramId; index: number; cells?: ReadonlyArray<DiagramTableCell>; historyKey?: string }>
+  | Readonly<{ type: "deleteTableColumn"; id: DiagramId; index: number; historyKey?: string }>
+  | Readonly<{ type: "resizeTableRow"; id: DiagramId; index: number; height: number; historyKey?: string }>
+  | Readonly<{ type: "resizeTableColumn"; id: DiagramId; index: number; width: number; historyKey?: string }>
+  | Readonly<{ type: "updateTableCell"; id: DiagramId; row: number; column: number; cell: Partial<DiagramTableCell>; historyKey?: string }>
+  | Readonly<{ type: "updateTableStyle"; id: DiagramId; style: DiagramTableStyleUpdate; historyKey?: string }>
+  | Readonly<{ type: "groupEntities"; id: DiagramId; ids?: ReadonlyArray<DiagramId>; historyKey?: string }>
+  | Readonly<{ type: "ungroupEntities"; ids: ReadonlyArray<DiagramId>; historyKey?: string }>
   | Readonly<{ type: "createPort"; port: DiagramPort; historyKey?: string }>
   | Readonly<{ type: "deleteEntities"; ids: ReadonlyArray<DiagramId>; historyKey?: string }>
   | Readonly<{ type: "reconnectEdgeEndpoint"; id: DiagramId; endpoint: "source" | "target"; connection: DiagramEdgeEndpoint; historyKey?: string }>

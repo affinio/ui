@@ -1,4 +1,4 @@
-import type { DiagramChange, DiagramEdge, DiagramGeometry, DiagramId, DiagramNode, DiagramPort, DiagramSceneInput, DiagramSelection, DiagramShape, DiagramText, DiagramViewport } from "../types.js"
+import type { DiagramChange, DiagramEdge, DiagramGeometry, DiagramGroup, DiagramId, DiagramNode, DiagramPort, DiagramSceneInput, DiagramSelection, DiagramShape, DiagramTable, DiagramText, DiagramViewport } from "../types.js"
 
 export type MutableEntities = {
   nodesById: Map<DiagramId, DiagramNode>
@@ -6,6 +6,8 @@ export type MutableEntities = {
   textsById: Map<DiagramId, DiagramText>
   shapesById: Map<DiagramId, DiagramShape>
   portsById: Map<DiagramId, DiagramPort>
+  groupsById: Map<DiagramId, DiagramGroup>
+  tablesById: Map<DiagramId, DiagramTable>
 }
 
 export type MutableOrder = {
@@ -13,6 +15,8 @@ export type MutableOrder = {
   edgeIds: DiagramId[]
   textIds: DiagramId[]
   shapeIds: DiagramId[]
+  groupIds: DiagramId[]
+  tableIds: DiagramId[]
 }
 
 export type InternalState = {

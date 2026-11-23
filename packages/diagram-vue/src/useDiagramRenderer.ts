@@ -29,7 +29,7 @@ export function getSvgEntityProps(entity: DiagramRenderEntity): SvgEntityProps {
       r: geometry.bounds.width / 2,
     }
   }
-  if (entity.kind === "shape" || entity.kind === "node") {
+  if (entity.kind === "shape" || entity.kind === "node" || entity.kind === "table") {
     return {
       ...common,
       x: bounds.x,

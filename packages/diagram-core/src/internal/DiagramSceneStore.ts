@@ -60,12 +60,16 @@ export class DiagramSceneStore {
         textsById: this.createReadonlyMap(this.state.entities.textsById, this.snapshot?.entities.textsById, changedIds),
         shapesById: this.createReadonlyMap(this.state.entities.shapesById, this.snapshot?.entities.shapesById, changedIds),
         portsById: this.createReadonlyMap(this.state.entities.portsById, this.snapshot?.entities.portsById, changedIds),
+        groupsById: this.createReadonlyMap(this.state.entities.groupsById, this.snapshot?.entities.groupsById, changedIds),
+        tablesById: this.createReadonlyMap(this.state.entities.tablesById, this.snapshot?.entities.tablesById, changedIds),
       },
       order: {
         nodeIds: [...this.state.order.nodeIds],
         edgeIds: [...this.state.order.edgeIds],
         textIds: [...this.state.order.textIds],
         shapeIds: [...this.state.order.shapeIds],
+        groupIds: [...this.state.order.groupIds],
+        tableIds: [...this.state.order.tableIds],
       },
       selection: {
         ids: [...this.state.selection.ids],
@@ -92,6 +96,8 @@ export function createInternalState(input: DiagramSceneInput): InternalState {
     textsById: toMap(input.texts ?? []),
     shapesById: toMap(input.shapes ?? []),
     portsById: toMap(input.ports ?? []),
+    groupsById: toMap(input.groups ?? []),
+    tablesById: toMap(input.tables ?? []),
   }
   const ids = [
     ...entities.nodesById.keys(),
@@ -99,6 +105,8 @@ export function createInternalState(input: DiagramSceneInput): InternalState {
     ...entities.textsById.keys(),
     ...entities.shapesById.keys(),
     ...entities.portsById.keys(),
+    ...entities.groupsById.keys(),
+    ...entities.tablesById.keys(),
   ]
   return {
     entities,
@@ -107,6 +115,8 @@ export function createInternalState(input: DiagramSceneInput): InternalState {
       edgeIds: [...entities.edgesById.keys()],
       textIds: [...entities.textsById.keys()],
       shapeIds: [...entities.shapesById.keys()],
+      groupIds: [...entities.groupsById.keys()],
+      tableIds: [...entities.tablesById.keys()],
     },
     selection: normalizeSelection(input.selection),
     viewport: { ...DEFAULT_VIEWPORT, ...input.viewport },

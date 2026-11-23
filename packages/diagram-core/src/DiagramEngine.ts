@@ -17,6 +17,11 @@ import type {
   DiagramDiagnostics,
   DiagramEdge,
   DiagramEdgeEndpoint,
+  DiagramGroup,
+  DiagramTable,
+  DiagramTableCell,
+  DiagramTableStyle,
+  DiagramTableStyleUpdate,
   DiagramEntityKind,
   DiagramMetadata,
   DiagramGeometry,
@@ -73,7 +78,7 @@ export class DiagramEngine {
 
   constructor(initialScene: DiagramSceneInput = {}, options: DiagramEngineOptions = {}) {
     this.history = new DiagramHistory(options.history)
-    this.store = new DiagramSceneStore(initialScene)
+    this.store = new DiagramSceneStore(validateSceneInput(initialScene))
     this.state = this.store.state
     this.ensureIndexes()
   }
@@ -167,7 +172,7 @@ export class DiagramEngine {
   }
 
   transact(mutator: (draft: DiagramScene) => DiagramSceneInput): DiagramCommandResult {
-    const next = mutator(this.store.getSnapshot())
+    const next = validateSceneInput(mutator(this.store.getSnapshot()))
     const patch = createReplaceScenePatch(next, serializeScene(this.store.getSnapshot()))
     this.history.clear()
     const result = this.commitPatch(patch, false, null)
@@ -415,6 +420,11 @@ export class DiagramEngine {
 
   canDelete(ids: ReadonlyArray<DiagramId> = this.state.selection.ids): boolean {
     return ids.some((id) => this.hasEntity(id) && !this.isEntityNonDeletable(id) && !this.isEntityLockedOrReadOnly(id))
+      && ids.every((id) => {
+        const group = this.state.entities.groupsById.get(id)
+          ?? [...this.state.entities.groupsById.values()].find((candidate) => candidate.childIds.includes(id))
+        return !group || groupMembers(this.state, group.id).every((childId) => !this.isEntityNonDeletable(childId) && !this.isEntityLockedOrReadOnly(childId))
+      })
   }
 
   canMove(ids: ReadonlyArray<DiagramId> = this.state.selection.ids): boolean {
@@ -422,15 +432,19 @@ export class DiagramEngine {
   }
 
   canResize(ids: ReadonlyArray<DiagramId> = this.state.selection.ids): boolean {
-    return ids.some((id) => !this.isEntityLockedOrReadOnly(id) && (this.state.entities.nodesById.has(id) || this.state.entities.shapesById.has(id) || this.state.entities.textsById.has(id)))
+    return ids.some((id) => {
+      const group = this.state.entities.groupsById.get(id)
+      if (group) return group.childIds.length > 0 && group.childIds.every((childId) => this.isEntityResizable(childId) && !this.isEntityLockedOrReadOnly(childId))
+      return this.isEntityResizable(id) && !this.isEntityLockedOrReadOnly(id)
+    })
   }
 
   canRotate(ids: ReadonlyArray<DiagramId> = this.state.selection.ids): boolean {
-    return this.canResize(ids)
+    return ids.some((id) => !this.isEntityLockedOrReadOnly(id) && (this.state.entities.nodesById.has(id) || this.state.entities.shapesById.has(id) || this.state.entities.textsById.has(id)))
   }
 
   canAlign(ids: ReadonlyArray<DiagramId> = this.state.selection.ids): boolean {
-    return ids.filter((id) => !this.isEntityLockedOrReadOnly(id) && (this.state.entities.nodesById.has(id) || this.state.entities.shapesById.has(id) || this.state.entities.textsById.has(id))).length >= 2
+    return ids.filter((id) => !this.isEntityLockedOrReadOnly(id) && (this.state.entities.nodesById.has(id) || this.state.entities.shapesById.has(id) || this.state.entities.textsById.has(id) || this.state.entities.tablesById.has(id))).length >= 2
   }
 
   canEditText(id: DiagramId | null = this.state.selection.primaryId): boolean {
@@ -438,7 +452,7 @@ export class DiagramEngine {
   }
 
   canPaste(clipboard: DiagramClipboard | null | undefined): boolean {
-    return Boolean(clipboard && (clipboard.nodes.length || clipboard.edges.length || clipboard.texts.length || clipboard.shapes.length || clipboard.ports.length))
+    return Boolean(clipboard && (clipboard.nodes.length || clipboard.edges.length || clipboard.texts.length || clipboard.shapes.length || clipboard.ports.length || clipboard.groups?.length || clipboard.tables?.length))
   }
 
   getDiagnostics(): DiagramDiagnostics {
@@ -505,7 +519,7 @@ export class DiagramEngine {
     return {
       format: "affino-diagram",
       version: 1,
-      content: { nodes: scene.nodes, edges: scene.edges, texts: scene.texts, shapes: scene.shapes, ports: scene.ports },
+      content: { nodes: scene.nodes, edges: scene.edges, texts: scene.texts, shapes: scene.shapes, ports: scene.ports, groups: scene.groups ?? [], tables: scene.tables ?? [] },
       ...(options.includeView === false ? {} : { view: { viewport: scene.viewport, selection: scene.selection } }),
     }
   }
@@ -570,6 +584,9 @@ export class DiagramEngine {
       for (const edgeId of this.edgeIdsByPort.get(id) ?? []) {
         invalidated.add(edgeId)
       }
+      for (const group of this.state.entities.groupsById.values()) {
+        if (group.childIds.includes(id)) invalidated.add(group.id)
+      }
     }
     return invalidated
   }
@@ -625,6 +642,8 @@ export class DiagramEngine {
       ...this.state.entities.textsById.keys(),
       ...this.state.entities.shapesById.keys(),
       ...this.state.entities.portsById.keys(),
+      ...this.state.order.groupIds,
+      ...this.state.order.tableIds,
     ])
     this.portIdsByNode = new Map()
     this.edgeIdsByNode = new Map()
@@ -687,6 +706,28 @@ export class DiagramEngine {
         return createMovePatch(this.state, [command.id], command.delta)
       case "createNode":
         return createCreateEntityPatch(this.state, command.node)
+      case "createTable":
+        return createCreateTablePatch(this.state, command.table)
+      case "insertTableRow":
+        return createTableStructurePatch(this.state, command.id, "row", command.index, "insert", command.cells)
+      case "deleteTableRow":
+        return createTableStructurePatch(this.state, command.id, "row", command.index, "delete")
+      case "insertTableColumn":
+        return createTableStructurePatch(this.state, command.id, "column", command.index, "insert", command.cells)
+      case "deleteTableColumn":
+        return createTableStructurePatch(this.state, command.id, "column", command.index, "delete")
+      case "resizeTableRow":
+        return createResizeTableAxisPatch(this.state, command.id, "row", command.index, command.height)
+      case "resizeTableColumn":
+        return createResizeTableAxisPatch(this.state, command.id, "column", command.index, command.width)
+      case "updateTableCell":
+        return createUpdateTableCellPatch(this.state, command.id, command.row, command.column, command.cell)
+      case "updateTableStyle":
+        return createUpdateTableStylePatch(this.state, command.id, command.style)
+      case "groupEntities":
+        return createGroupEntitiesPatch(this.state, command.id, command.ids ?? this.state.selection.ids)
+      case "ungroupEntities":
+        return createUngroupEntitiesPatch(this.state, command.ids)
       case "createPort":
         return createCreatePortPatch(this.state, command.port)
       case "deleteEntities":
@@ -887,6 +928,8 @@ export class DiagramEngine {
       ...this.state.order.nodeIds,
       ...this.state.order.textIds,
       ...this.state.entities.portsById.keys(),
+      ...this.state.order.groupIds,
+      ...this.state.order.tableIds,
     ]
     const baseOrder = new Map(ids.map((id, index) => [id, index]))
     this.orderedIdsCache = ids.sort((a, b) => {
@@ -919,6 +962,8 @@ export class DiagramEngine {
     if (this.state.entities.textsById.has(id)) return "text"
     if (this.state.entities.shapesById.has(id)) return "shape"
     if (this.state.entities.portsById.has(id)) return "port"
+    if (this.state.entities.groupsById.has(id)) return "group"
+    if (this.state.entities.tablesById.has(id)) return "table"
     return null
   }
 
@@ -928,6 +973,8 @@ export class DiagramEngine {
       ?? this.state.entities.textsById.get(id)?.metadata
       ?? this.state.entities.shapesById.get(id)?.metadata
       ?? this.state.entities.portsById.get(id)?.metadata
+      ?? this.state.entities.groupsById.get(id)?.metadata
+      ?? this.state.entities.tablesById.get(id)?.metadata
   }
 
   private isEntityLockedOrReadOnly(id: DiagramId): boolean {
@@ -941,9 +988,19 @@ export class DiagramEngine {
 
   private isEntityTranslatable(id: DiagramId): boolean {
     if (this.state.entities.portsById.has(id)) return false
+    const group = this.state.entities.groupsById.get(id)
+    if (group) {
+      return group.childIds.length > 0
+        && group.childIds.every((childId) => !this.isEntityLockedOrReadOnly(childId) && (this.isEntityTranslatable(childId) || this.state.entities.edgesById.has(childId)))
+        && group.childIds.some((childId) => this.isEntityTranslatable(childId))
+    }
     const edge = this.state.entities.edgesById.get(id)
     if (edge) return edge.source.kind === "point" || edge.target.kind === "point" || Boolean(edge.points?.length)
-    return this.state.entities.nodesById.has(id) || this.state.entities.textsById.has(id) || this.state.entities.shapesById.has(id)
+    return this.state.entities.nodesById.has(id) || this.state.entities.textsById.has(id) || this.state.entities.shapesById.has(id) || this.state.entities.tablesById.has(id)
+  }
+
+  private isEntityResizable(id: DiagramId): boolean {
+    return this.state.entities.nodesById.has(id) || this.state.entities.shapesById.has(id) || this.state.entities.textsById.has(id) || this.state.entities.edgesById.has(id) || this.state.entities.tablesById.has(id)
   }
 }
 
@@ -985,6 +1042,8 @@ function entityMatchesText(id: DiagramId, state: InternalState, normalizedText: 
   if (text?.toLocaleLowerCase().includes(normalizedText)) {
     return true
   }
+  const tableText = state.entities.tablesById.get(id)?.cells?.flatMap((row) => row.map((cell) => cell.text)).join(" ")
+  if (tableText?.toLocaleLowerCase().includes(normalizedText)) return true
   return searchableMetadataValues(getEntityMetadata(state, id)).some((value) => value.toLocaleLowerCase().includes(normalizedText))
 }
 
@@ -1041,19 +1100,21 @@ export function serializeScene(scene: DiagramScene): SerializedDiagramScene {
     texts: scene.order.textIds.map((id) => scene.entities.textsById.get(id)).filter(isDefined),
     shapes: scene.order.shapeIds.map((id) => scene.entities.shapesById.get(id)).filter(isDefined),
     ports: [...scene.entities.portsById.values()],
+    groups: scene.order.groupIds.map((id) => scene.entities.groupsById.get(id)).filter(isDefined),
+    tables: scene.order.tableIds.map((id) => scene.entities.tablesById.get(id)).filter(isDefined),
     selection: scene.selection,
     viewport: scene.viewport,
   }
 }
 
 export function deserializeScene(scene: SerializedDiagramScene): DiagramSceneInput {
-  return scene
+  return validateSceneInput(scene)
 }
 
 export function deserializeDiagramDocument(input: DiagramDocument | SerializedDiagramScene): DiagramSceneInput {
   if (!input || typeof input !== "object") throw new TypeError("Invalid diagram document")
   if ("format" in input) {
-    if (input.format !== "affino-diagram" || input.version !== 1 || !input.content || ![input.content.nodes, input.content.edges, input.content.texts, input.content.shapes, input.content.ports].every(Array.isArray)) {
+    if (input.format !== "affino-diagram" || input.version !== 1 || !input.content || ![input.content.nodes, input.content.edges, input.content.texts, input.content.shapes, input.content.ports].every(Array.isArray) || (input.content.groups !== undefined && !Array.isArray(input.content.groups)) || (input.content.tables !== undefined && !Array.isArray(input.content.tables))) {
       throw new TypeError("Unsupported or invalid diagram document")
     }
     const view = input.view ?? {}
@@ -1062,15 +1123,72 @@ export function deserializeDiagramDocument(input: DiagramDocument | SerializedDi
   return validateSceneInput(input)
 }
 
+const DEFAULT_TABLE_STYLE: DiagramTableStyle = {
+  grid: { visible: true, stroke: { color: "#D1D5DB", width: 1, style: "solid" } },
+  border: { visible: true, stroke: { color: "#9CA3AF", width: 1, style: "solid" }, radius: 8 },
+  cellPadding: 8,
+}
+
+function normalizeTable(table: DiagramTable): DiagramTable {
+  const defaultCell = normalizeTableCell(table.defaultCell ?? { text: "" })
+  const cells = Array.from({ length: table.rowCount }, (_, row) => Array.from({ length: table.columnCount }, (_, column) => normalizeTableCell(table.cells?.[row]?.[column] ?? defaultCell)))
+  const rowHeights = table.rowHeights ? [...table.rowHeights] : Array(table.rowCount).fill(table.height / table.rowCount) as number[]
+  const columnWidths = table.columnWidths ? [...table.columnWidths] : Array(table.columnCount).fill(table.width / table.columnCount) as number[]
+  return { ...table, cells, rowHeights, columnWidths, defaultCell, style: normalizeTableStyle(table.style) }
+}
+
+function normalizeTableCell(cell: DiagramTableCell): DiagramTableCell { return { text: cell.text, ...(cell.horizontalAlign ? { horizontalAlign: cell.horizontalAlign } : {}), ...(cell.verticalAlign ? { verticalAlign: cell.verticalAlign } : {}) } }
+function normalizeTableStyle(style?: DiagramTableStyle): DiagramTableStyle {
+  return {
+    grid: { ...DEFAULT_TABLE_STYLE.grid, ...style?.grid, stroke: { ...DEFAULT_TABLE_STYLE.grid.stroke, ...style?.grid?.stroke } },
+    border: { ...DEFAULT_TABLE_STYLE.border, ...style?.border, stroke: { ...DEFAULT_TABLE_STYLE.border.stroke, ...style?.border?.stroke } },
+    cellPadding: style?.cellPadding ?? DEFAULT_TABLE_STYLE.cellPadding,
+  }
+}
+
+function validateDiagramTable(source: DiagramTable): void {
+  if (!source || source.kind !== "table" || ![source.x, source.y, source.width, source.height].every(Number.isFinite) || source.width <= 0 || source.height <= 0) throw new TypeError(`Invalid geometry for table ${source?.id ?? ""}`)
+  if (!Number.isInteger(source.rowCount) || source.rowCount < 1 || !Number.isInteger(source.columnCount) || source.columnCount < 1) throw new TypeError(`Invalid dimensions for table ${source.id}: at least one row and column are required`)
+  if (source.cells !== undefined && (!Array.isArray(source.cells) || source.cells.length !== source.rowCount || source.cells.some((row) => !Array.isArray(row) || row.length !== source.columnCount))) throw new TypeError(`Invalid cell matrix for table ${source.id}`)
+  for (const row of source.cells ?? []) for (const cell of row) validateTableCell(cell, source.id)
+  if (source.defaultCell) validateTableCell(source.defaultCell, source.id)
+  if (source.rowHeights && (!validSizes(source.rowHeights, source.rowCount) || !sizesMatch(source.rowHeights, source.height))) throw new TypeError(`Invalid row heights for table ${source.id}`)
+  if (source.columnWidths && (!validSizes(source.columnWidths, source.columnCount) || !sizesMatch(source.columnWidths, source.width))) throw new TypeError(`Invalid column widths for table ${source.id}`)
+  if (source.style && !validTableStyleShape(source.style)) throw new TypeError(`Invalid style for table ${source.id}`)
+  validateDiagramTableStyle(normalizeTableStyle(source.style), source.id)
+}
+
+function validateTableCell(cell: DiagramTableCell, id: DiagramId): void {
+  if (!cell || Object.keys(cell).some((key) => !["text", "horizontalAlign", "verticalAlign"].includes(key)) || typeof cell.text !== "string" || (cell.horizontalAlign !== undefined && !["left", "center", "right"].includes(cell.horizontalAlign)) || (cell.verticalAlign !== undefined && !["top", "middle", "bottom"].includes(cell.verticalAlign))) throw new TypeError(`Invalid cell in table ${id}`)
+}
+function validTableStyleShape(style: unknown): style is DiagramTableStyle {
+  if (!style || typeof style !== "object") return false
+  const value = style as Record<string, unknown>
+  const grid = value.grid as Record<string, unknown> | undefined
+  const border = value.border as Record<string, unknown> | undefined
+  const validStrokeShape = (stroke: unknown) => Boolean(stroke && typeof stroke === "object" && Object.keys(stroke).every((key) => ["color", "width", "style"].includes(key)))
+  return Object.keys(value).every((key) => ["grid", "border", "cellPadding"].includes(key))
+    && Boolean(grid && Object.keys(grid).every((key) => ["visible", "stroke"].includes(key)) && (grid.stroke === undefined || validStrokeShape(grid.stroke)))
+    && Boolean(border && Object.keys(border).every((key) => ["visible", "stroke", "radius"].includes(key)) && (border.stroke === undefined || validStrokeShape(border.stroke)))
+}
+function validateDiagramTableStyle(style: DiagramTableStyle, id: DiagramId): void {
+  const validStroke = (stroke: DiagramTableStyle["grid"]["stroke"]) => typeof stroke.color === "string" && stroke.color.trim().length > 0 && Number.isFinite(stroke.width) && stroke.width >= 0 && ["solid", "dashed", "dotted"].includes(stroke.style)
+  if (typeof style.grid.visible !== "boolean" || typeof style.border.visible !== "boolean" || !validStroke(style.grid.stroke) || !validStroke(style.border.stroke) || !Number.isFinite(style.border.radius) || style.border.radius < 0 || !Number.isFinite(style.cellPadding ?? NaN) || (style.cellPadding ?? -1) < 0) throw new TypeError(`Invalid style for table ${id}`)
+}
+function validSizes(values: ReadonlyArray<number>, expectedLength: number): boolean { return values.length === expectedLength && values.every((value) => Number.isFinite(value) && value > 0) }
+function sizesMatch(values: ReadonlyArray<number>, total: number): boolean { return Math.abs(values.reduce((sum, value) => sum + value, 0) - total) <= Math.max(0.01, total * 1e-6) }
+
 function validateSceneInput(scene: DiagramSceneInput): DiagramSceneInput {
   const nodesInput = scene.nodes ?? []
   const edgesInput = scene.edges ?? []
   const textsInput = scene.texts ?? []
   const shapesInput = scene.shapes ?? []
   const portsInput = scene.ports ?? []
-  if (![nodesInput, edgesInput, textsInput, shapesInput, portsInput].every(Array.isArray)) throw new TypeError("Invalid diagram scene collections")
+  const groupsInput = scene.groups ?? []
+  const tablesInput = scene.tables ?? []
+  if (![nodesInput, edgesInput, textsInput, shapesInput, portsInput, groupsInput, tablesInput].every(Array.isArray)) throw new TypeError("Invalid diagram scene collections")
   const ids = new Set<string>()
-  for (const entity of [...nodesInput, ...edgesInput, ...textsInput, ...shapesInput, ...portsInput]) {
+  for (const entity of [...nodesInput, ...edgesInput, ...textsInput, ...shapesInput, ...portsInput, ...groupsInput, ...tablesInput]) {
     if (!entity || typeof entity.id !== "string" || !entity.id || ids.has(entity.id)) throw new TypeError("Diagram entity IDs must be non-empty and globally unique")
     ids.add(entity.id)
   }
@@ -1081,25 +1199,41 @@ function validateSceneInput(scene: DiagramSceneInput): DiagramSceneInput {
   for (const node of nodesInput) if ((node.portIds ?? []).some((id) => ports.get(id)?.nodeId !== node.id)) throw new TypeError(`Invalid port reference on node ${node.id}`)
   for (const text of textsInput) if (![text.x, text.y, text.width ?? 0, text.height ?? 0, text.fontSize ?? 0, text.rotation ?? 0].every(Number.isFinite)) throw new TypeError(`Invalid geometry for text ${text.id}`)
   for (const shape of shapesInput) if (![shape.x, shape.y, shape.width, shape.height, shape.rotation ?? 0].every(Number.isFinite) || shape.width < 0 || shape.height < 0) throw new TypeError(`Invalid geometry for shape ${shape.id}`)
+  for (const table of tablesInput) validateDiagramTable(table)
   for (const edge of edgesInput) {
     const validEndpoint = (endpoint: DiagramEdgeEndpoint) => endpoint.kind === "point" ? Number.isFinite(endpoint.point.x) && Number.isFinite(endpoint.point.y) : endpoint.kind === "node" ? nodes.has(endpoint.nodeId) : endpoint.kind === "port" && ports.has(endpoint.portId)
     if (!validEndpoint(edge.source) || !validEndpoint(edge.target) || !(edge.points ?? []).every((point) => Number.isFinite(point.x) && Number.isFinite(point.y))) throw new TypeError(`Invalid edge ${edge.id}`)
   }
+  const groupedChildren = new Set<DiagramId>()
+  const groupable = new Set<DiagramId>([...nodesInput, ...edgesInput, ...textsInput, ...shapesInput, ...tablesInput].map((entity) => entity.id))
+  for (const group of groupsInput) {
+    if (group.kind !== "group" || !Array.isArray(group.childIds) || group.childIds.length < 2 || new Set(group.childIds).size !== group.childIds.length) throw new TypeError(`Invalid group ${group.id}: groups require at least two unique, non-nested children`)
+    for (const childId of group.childIds) {
+      if (!groupable.has(childId) || groupedChildren.has(childId)) throw new TypeError(`Invalid group ${group.id}: nested, port, unknown, or already grouped child ${childId}`)
+      groupedChildren.add(childId)
+    }
+  }
   if (scene.viewport && (![scene.viewport.x, scene.viewport.y, scene.viewport.width, scene.viewport.height, scene.viewport.zoom].filter((value) => value !== undefined).every(Number.isFinite) || (scene.viewport.zoom !== undefined && scene.viewport.zoom <= 0))) throw new TypeError("Invalid diagram viewport")
   const selectionIds = scene.selection?.ids ?? []
   if (selectionIds.some((id) => !ids.has(id))) throw new TypeError("Diagram selection contains an unknown entity")
-  return { ...scene, nodes: nodesInput, edges: edgesInput, texts: textsInput, shapes: shapesInput, ports: portsInput }
+  return { ...scene, nodes: nodesInput, edges: edgesInput, texts: textsInput, shapes: shapesInput, ports: portsInput, groups: groupsInput, tables: tablesInput.map(normalizeTable) }
 }
 
 function createMovePatch(state: InternalState, ids: ReadonlyArray<DiagramId>, delta: DiagramPoint): Patch | null {
   if (delta.x === 0 && delta.y === 0) {
     return null
   }
-  const movableIds = ids.filter((id) => !isEntityLockedOrReadOnly(state, id) && (
+  const groupIds = ids.filter((id) => state.entities.groupsById.has(id))
+  const expandedIds = [
+    ...ids.filter((id) => !state.entities.groupsById.has(id)),
+    ...groupIds.filter((id) => !isEntityLockedOrReadOnly(state, id) && isGroupMovable(state, id)).flatMap((id) => groupMembers(state, id)),
+  ]
+  const movableIds = [...new Set(expandedIds)].filter((id) => !isEntityLockedOrReadOnly(state, id) && (
     state.entities.nodesById.has(id)
     || isEdgeTranslatable(state.entities.edgesById.get(id))
     || state.entities.textsById.has(id)
     || state.entities.shapesById.has(id)
+    || state.entities.tablesById.has(id)
   ))
   if (!movableIds.length) {
     return null
@@ -1151,6 +1285,12 @@ function applyMoveDelta(state: InternalState, ids: ReadonlyArray<DiagramId>, del
     const shape = state.entities.shapesById.get(id)
     if (shape) {
       state.entities.shapesById.set(id, { ...shape, x: shape.x + delta.x, y: shape.y + delta.y })
+      changed.add(id)
+      continue
+    }
+    const table = state.entities.tablesById.get(id)
+    if (table) {
+      state.entities.tablesById.set(id, { ...table, x: table.x + delta.x, y: table.y + delta.y })
       changed.add(id)
     }
   }
@@ -1228,6 +1368,85 @@ function createEdgePointsPatch(id: DiagramId, previousPoints: ReadonlyArray<Diag
 }
 
 function createResizePatch(state: InternalState, entries: ReadonlyArray<DiagramResizeEntry>): Patch | null {
+  const groupEntries = entries.filter((entry) => state.entities.groupsById.has(entry.id))
+  if (!groupEntries.length) return createResizePatchForEntities(state, entries)
+  if (groupEntries.some((entry) => {
+    const group = state.entities.groupsById.get(entry.id)!
+    return isEntityLockedOrReadOnly(state, entry.id)
+      || group.childIds.some((id) => isEntityLockedOrReadOnly(state, id) || !isGroupResizableEntity(state, id))
+  })) return null
+
+  const groupedChildren = new Set(groupEntries.flatMap((entry) => groupMembers(state, entry.id)))
+  const regularPatch = createResizePatchForEntities(state, entries.filter((entry) => !state.entities.groupsById.has(entry.id) && !groupedChildren.has(entry.id)))
+  const rectEntries: DiagramResizeEntry[] = []
+  const previousEdges = new Map<DiagramId, DiagramEdge>()
+  const nextEdges = new Map<DiagramId, DiagramEdge>()
+  const entities = snapshotEntities(state)
+  for (const entry of groupEntries) {
+    const geometry = createEntityGeometry(entry.id, entities)
+    if (!geometry) return null
+    const base = geometry.bounds
+    const nextBounds = { x: entry.x ?? base.x, y: entry.y ?? base.y, width: entry.width ?? base.width, height: entry.height ?? base.height }
+    if (![nextBounds.x, nextBounds.y, nextBounds.width, nextBounds.height].every(Number.isFinite) || nextBounds.width < 0 || nextBounds.height < 0) return null
+    const scaleX = base.width === 0 ? 1 : nextBounds.width / base.width
+    const scaleY = base.height === 0 ? 1 : nextBounds.height / base.height
+    const transform = (point: DiagramPoint): DiagramPoint => ({
+      x: nextBounds.x + (point.x - base.x) * scaleX,
+      y: nextBounds.y + (point.y - base.y) * scaleY,
+    })
+    for (const id of groupMembers(state, entry.id)) {
+      const edge = state.entities.edgesById.get(id)
+      if (edge) {
+        const nextEdge: DiagramEdge = {
+          ...edge,
+          source: edge.source.kind === "point" ? { kind: "point", point: transform(edge.source.point) } : edge.source,
+          target: edge.target.kind === "point" ? { kind: "point", point: transform(edge.target.point) } : edge.target,
+          points: edge.points?.map(transform),
+        }
+        previousEdges.set(id, edge)
+        nextEdges.set(id, nextEdge)
+        continue
+      }
+      const childGeometry = createEntityGeometry(id, entities)
+      const childBounds = childGeometry?.unrotatedBounds ?? childGeometry?.bounds
+      if (!childBounds) return null
+      const nextChildBounds = { ...transform({ x: childBounds.x, y: childBounds.y }), width: childBounds.width * scaleX, height: childBounds.height * scaleY }
+      rectEntries.push({ id, ...nextChildBounds })
+    }
+  }
+  const childRectPatch = createResizePatchForEntities(state, rectEntries)
+  const changedEdges = [...nextEdges].filter(([id, next]) => !diagramEdgesEqual(previousEdges.get(id)!, next))
+  const edgePatch = changedEdges.length ? createEntitySnapshotPatch(
+    changedEdges.map(([id]) => id),
+    previousEdges,
+    new Map(changedEdges),
+    (next, id, value) => next.entities.edgesById.set(id, value as DiagramEdge),
+  ) : null
+  const groupPatch = [childRectPatch, edgePatch].filter((patch): patch is Patch => patch !== null).reduce<Patch | null>((current, patch) => current ? composePatches(current, patch) : patch, null)
+  return [regularPatch, groupPatch].filter((patch): patch is Patch => patch !== null).reduce<Patch | null>((current, patch) => current ? composePatches(current, patch) : patch, null)
+}
+
+function createResizePatchForEntities(state: InternalState, entries: ReadonlyArray<DiagramResizeEntry>): Patch | null {
+  const tableEntries = entries.filter((entry) => state.entities.tablesById.has(entry.id))
+  const otherEntries = entries.filter((entry) => !state.entities.tablesById.has(entry.id))
+  const patches: Patch[] = []
+  const otherPatch = createResizePatchForNonTableEntities(state, otherEntries)
+  if (otherPatch) patches.push(otherPatch)
+  const previous = new Map<DiagramId, DiagramTable>()
+  const next = new Map<DiagramId, DiagramTable>()
+  for (const entry of tableEntries) {
+    const table = state.entities.tablesById.get(entry.id)!
+    if (isEntityLockedOrReadOnly(state, entry.id)) continue
+    const resized = resizeTable(table, entry)
+    if (![resized.x, resized.y, resized.width, resized.height].every(Number.isFinite) || resized.width <= 0 || resized.height <= 0) return null
+    previous.set(entry.id, table)
+    next.set(entry.id, resized)
+  }
+  if (next.size) patches.push(createEntitySnapshotPatch([...next.keys()], previous, next, (draft, id, value) => draft.entities.tablesById.set(id, value as DiagramTable)))
+  return patches.reduce<Patch | null>((current, patch) => current ? composePatches(current, patch) : patch, null)
+}
+
+function createResizePatchForNonTableEntities(state: InternalState, entries: ReadonlyArray<DiagramResizeEntry>): Patch | null {
   const previous = new Map<DiagramId, DiagramResizeEntry>()
   const nextEntries: DiagramResizeEntry[] = []
   for (const entry of entries) {
@@ -1376,6 +1595,8 @@ function snapshotEntities(state: InternalState) {
     textsById: state.entities.textsById,
     shapesById: state.entities.shapesById,
     portsById: state.entities.portsById,
+    groupsById: state.entities.groupsById,
+    tablesById: state.entities.tablesById,
   }
 }
 
@@ -1385,17 +1606,20 @@ function normalizeRotation(rotation: number): number {
 }
 
 function createOrderPatch(state: InternalState, ids: ReadonlyArray<DiagramId>, mode: "forward" | "backward" | "front" | "back"): Patch | null {
-  const existingIds = ids.filter((id) => hasEntity(state, id))
+  const expandedIds = expandGroupEntityIds(state, ids, true)
+  const existingIds = expandedIds.filter((id) => hasEntity(state, id))
   if (!existingIds.length) return null
   if (mode === "front" || mode === "back") {
     return createZIndexPatch(state, existingIds, mode)
   }
   const previous = cloneOrder(state.order)
   const next = cloneOrder(state.order)
-  reorderIds(next.nodeIds, ids, mode)
-  reorderIds(next.edgeIds, ids, mode)
-  reorderIds(next.textIds, ids, mode)
-  reorderIds(next.shapeIds, ids, mode)
+  reorderIds(next.nodeIds, expandedIds, mode)
+  reorderIds(next.edgeIds, expandedIds, mode)
+  reorderIds(next.textIds, expandedIds, mode)
+  reorderIds(next.shapeIds, expandedIds, mode)
+  reorderIds(next.groupIds, expandedIds, mode)
+  reorderIds(next.tableIds, expandedIds, mode)
   if (ordersEqual(previous, next)) return null
   return createOrderPatchUnchecked(previous, next)
 }
@@ -1487,13 +1711,13 @@ function createOrderPatchUnchecked(previous: MutableOrder, nextOrder: MutableOrd
     orderChanged: true,
     apply: (state) => {
       state.order = cloneOrder(nextOrder)
-      return new Set([...nextOrder.nodeIds, ...nextOrder.edgeIds, ...nextOrder.textIds, ...nextOrder.shapeIds])
+      return new Set([...nextOrder.nodeIds, ...nextOrder.edgeIds, ...nextOrder.textIds, ...nextOrder.shapeIds, ...nextOrder.groupIds, ...nextOrder.tableIds])
     },
     inverse: {
       orderChanged: true,
       apply: (state) => {
         state.order = cloneOrder(previous)
-        return new Set([...previous.nodeIds, ...previous.edgeIds, ...previous.textIds, ...previous.shapeIds])
+        return new Set([...previous.nodeIds, ...previous.edgeIds, ...previous.textIds, ...previous.shapeIds, ...previous.groupIds, ...previous.tableIds])
       },
       inverse: undefined as unknown as Patch,
     },
@@ -1501,7 +1725,7 @@ function createOrderPatchUnchecked(previous: MutableOrder, nextOrder: MutableOrd
 }
 
 function createLayerPatch(state: InternalState, ids: ReadonlyArray<DiagramId>, layer: string | undefined, layerRole: "background" | "normal" | "foreground" | undefined): Patch | null {
-  const entries = ids.filter((id) => !isEntityLockedOrReadOnly(state, id) && hasEntity(state, id))
+  const entries = expandGroupEntityIds(state, ids, true).filter((id) => !isEntityLockedOrReadOnly(state, id) && hasEntity(state, id))
   if (!entries.length) return null
   const previous = new Map(entries.map((id) => [id, getEntityMetadata(state, id)]))
   return {
@@ -1559,6 +1783,207 @@ function createCreateEntityPatch(state: InternalState, node: import("./types.js"
   }
 }
 
+function createTableSnapshotPatch(id: DiagramId, previous: DiagramTable, next: DiagramTable, orderChanged = false): Patch | null {
+  if (JSON.stringify(previous) === JSON.stringify(next)) return null
+  const apply = (value: DiagramTable): Patch["apply"] => (state) => { state.entities.tablesById.set(id, value); return new Set([id]) }
+  return { orderChanged, apply: apply(next), inverse: { orderChanged, apply: apply(previous), inverse: undefined as unknown as Patch } }
+}
+
+function createCreateTablePatch(state: InternalState, input: DiagramTable): Patch | null {
+  let table: DiagramTable
+  try { validateDiagramTable(input); table = normalizeTable(input) } catch { return null }
+  if (!isUniqueId(state, table.id)) return null
+  return {
+    orderChanged: true,
+    apply: (next) => { next.entities.tablesById.set(table.id, table); next.order.tableIds.push(table.id); next.versions.set(table.id, 0); return new Set([table.id]) },
+    inverse: createDeleteEntitiesPatch([table.id]),
+  }
+}
+
+function createTableStructurePatch(state: InternalState, id: DiagramId, axis: "row" | "column", index: number, operation: "insert" | "delete", suppliedCells?: ReadonlyArray<DiagramTableCell>): Patch | null {
+  const table = state.entities.tablesById.get(id)
+  if (!table || isEntityLockedOrReadOnly(state, id)) return null
+  const count = axis === "row" ? table.rowCount : table.columnCount
+  if (!Number.isInteger(index) || index < 0 || index > (operation === "insert" ? count : count - 1) || (operation === "delete" && count <= 1)) return null
+  const rows = table.cells!.map((row) => [...row])
+  let rowHeights = [...table.rowHeights!]
+  let columnWidths = [...table.columnWidths!]
+  let rowCount = table.rowCount
+  let columnCount = table.columnCount
+  if (axis === "row") {
+    if (operation === "insert") {
+      const cells = suppliedCells ?? Array.from({ length: columnCount }, () => ({ text: "" }))
+      if (cells.length !== columnCount || cells.some((cell) => !isValidCell(cell))) return null
+      rows.splice(index, 0, cells.map(normalizeTableCell))
+      const splitAt = Math.min(index, rowHeights.length - 1)
+      const size = rowHeights[splitAt]! / 2
+      rowHeights[splitAt] = size
+      rowHeights.splice(index, 0, size)
+      rowCount += 1
+    } else {
+      rows.splice(index, 1)
+      const removed = rowHeights.splice(index, 1)[0]!
+      const receiver = index < rowHeights.length ? index : Math.max(0, index - 1)
+      rowHeights[receiver] = rowHeights[receiver]! + removed
+      rowCount -= 1
+    }
+  } else {
+    if (operation === "insert") {
+      const cells = suppliedCells ?? Array.from({ length: rowCount }, () => ({ text: "" }))
+      if (cells.length !== rowCount || cells.some((cell) => !isValidCell(cell))) return null
+      rows.forEach((row, rowIndex) => row.splice(index, 0, normalizeTableCell(cells[rowIndex]!)))
+      const splitAt = Math.min(index, columnWidths.length - 1)
+      const size = columnWidths[splitAt]! / 2
+      columnWidths[splitAt] = size
+      columnWidths.splice(index, 0, size)
+      columnCount += 1
+    } else {
+      rows.forEach((row) => row.splice(index, 1))
+      const removed = columnWidths.splice(index, 1)[0]!
+      const receiver = index < columnWidths.length ? index : Math.max(0, index - 1)
+      columnWidths[receiver] = columnWidths[receiver]! + removed
+      columnCount -= 1
+    }
+  }
+  return createTableSnapshotPatch(id, table, { ...table, rowCount, columnCount, cells: rows, rowHeights, columnWidths })
+}
+
+function isValidCell(cell: DiagramTableCell): boolean {
+  return Boolean(cell && Object.keys(cell).every((key) => ["text", "horizontalAlign", "verticalAlign"].includes(key)) && typeof cell.text === "string" && (cell.horizontalAlign === undefined || ["left", "center", "right"].includes(cell.horizontalAlign)) && (cell.verticalAlign === undefined || ["top", "middle", "bottom"].includes(cell.verticalAlign)))
+}
+
+function createUpdateTableCellPatch(state: InternalState, id: DiagramId, row: number, column: number, update: Partial<DiagramTableCell>): Patch | null {
+  const table = state.entities.tablesById.get(id)
+  if (!table || isEntityLockedOrReadOnly(state, id) || !Number.isInteger(row) || !Number.isInteger(column) || row < 0 || row >= table.rowCount || column < 0 || column >= table.columnCount) return null
+  if (Object.keys(update).some((key) => !["text", "horizontalAlign", "verticalAlign"].includes(key))) return null
+  const cells = table.cells!.map((line) => [...line])
+  const previous = cells[row]![column]!
+  const nextCell = { ...previous, ...update }
+  if (!isValidCell(nextCell)) return null
+  cells[row]![column] = nextCell
+  return createTableSnapshotPatch(id, table, { ...table, cells })
+}
+
+function createResizeTableAxisPatch(state: InternalState, id: DiagramId, axis: "row" | "column", index: number, size: number): Patch | null {
+  const table = state.entities.tablesById.get(id)
+  const count = axis === "row" ? table?.rowCount : table?.columnCount
+  if (!table || isEntityLockedOrReadOnly(state, id) || !Number.isInteger(index) || index < 0 || index >= count! || !Number.isFinite(size) || size <= 0) return null
+  if (axis === "row") {
+    const rowHeights = [...table.rowHeights!]
+    rowHeights[index] = size
+    return createTableSnapshotPatch(id, table, { ...table, rowHeights, height: rowHeights.reduce((sum, value) => sum + value, 0) })
+  }
+  const columnWidths = [...table.columnWidths!]
+  columnWidths[index] = size
+  return createTableSnapshotPatch(id, table, { ...table, columnWidths, width: columnWidths.reduce((sum, value) => sum + value, 0) })
+}
+
+function createUpdateTableStylePatch(state: InternalState, id: DiagramId, update: DiagramTableStyleUpdate): Patch | null {
+  const table = state.entities.tablesById.get(id)
+  if (!table || isEntityLockedOrReadOnly(state, id) || !validTableStyleUpdateShape(update)) return null
+  const baseStyle = normalizeTableStyle(table.style)
+  const style = normalizeTableStyle({
+    ...baseStyle,
+    ...update,
+    grid: { ...baseStyle.grid, ...update.grid, stroke: { ...baseStyle.grid.stroke, ...update.grid?.stroke } },
+    border: { ...baseStyle.border, ...update.border, stroke: { ...baseStyle.border.stroke, ...update.border?.stroke } },
+  })
+  try { validateDiagramTableStyle(style, id) } catch { return null }
+  return createTableSnapshotPatch(id, table, { ...table, style })
+}
+
+function validTableStyleUpdateShape(update: unknown): update is DiagramTableStyleUpdate {
+  if (!update || typeof update !== "object") return false
+  const value = update as Record<string, unknown>
+  const grid = value.grid as Record<string, unknown> | undefined
+  const border = value.border as Record<string, unknown> | undefined
+  const validStroke = (stroke: unknown) => Boolean(stroke && typeof stroke === "object" && Object.keys(stroke).every((key) => ["color", "width", "style"].includes(key)))
+  return Object.keys(value).every((key) => ["grid", "border", "cellPadding"].includes(key))
+    && (value.grid === undefined || Boolean(grid && Object.keys(grid).every((key) => ["visible", "stroke"].includes(key)) && (grid.stroke === undefined || validStroke(grid.stroke))))
+    && (value.border === undefined || Boolean(border && Object.keys(border).every((key) => ["visible", "stroke", "radius"].includes(key)) && (border.stroke === undefined || validStroke(border.stroke))))
+}
+
+function resizeTable(table: DiagramTable, entry: DiagramResizeEntry): DiagramTable {
+  const width = entry.width ?? table.width
+  const height = entry.height ?? table.height
+  const sx = width / table.width
+  const sy = height / table.height
+  return { ...table, x: entry.x ?? table.x, y: entry.y ?? table.y, width, height, columnWidths: table.columnWidths!.map((size) => size * sx), rowHeights: table.rowHeights!.map((size) => size * sy) }
+}
+
+function createGroupEntitiesPatch(state: InternalState, id: DiagramId, ids: ReadonlyArray<DiagramId>): Patch | null {
+  const childIds = [...ids]
+  if (!isUniqueId(state, id) || childIds.length < 2 || new Set(childIds).size !== childIds.length) return null
+  const groupableIds = new Set<DiagramId>([
+    ...state.entities.nodesById.keys(),
+    ...state.entities.edgesById.keys(),
+    ...state.entities.textsById.keys(),
+    ...state.entities.shapesById.keys(),
+    ...state.entities.tablesById.keys(),
+  ])
+  const alreadyGrouped = new Set([...state.entities.groupsById.values()].flatMap((group) => group.childIds))
+  if (childIds.some((childId) => !groupableIds.has(childId) || alreadyGrouped.has(childId))) return null
+
+  const group: DiagramGroup = { id, kind: "group", childIds }
+  const previousSelection = state.selection
+  const nextSelection: DiagramSelection = { ids: [id], primaryId: id }
+  return {
+    orderChanged: true,
+    apply: (next) => {
+      next.entities.groupsById.set(id, group)
+      next.order.groupIds.push(id)
+      next.versions.set(id, 0)
+      next.selection = nextSelection
+      return new Set([id, "selection"])
+    },
+    inverse: {
+      orderChanged: true,
+      apply: (next) => {
+        next.entities.groupsById.delete(id)
+        next.order.groupIds = next.order.groupIds.filter((groupId) => groupId !== id)
+        next.versions.delete(id)
+        next.selection = previousSelection
+        return new Set([id, "selection"])
+      },
+      inverse: undefined as unknown as Patch,
+    },
+  }
+}
+
+function createUngroupEntitiesPatch(state: InternalState, ids: ReadonlyArray<DiagramId>): Patch | null {
+  const groupIds = [...new Set(ids)]
+  if (!groupIds.length || groupIds.some((id) => !state.entities.groupsById.has(id) || isEntityLockedOrReadOnly(state, id))) return null
+  const groups = groupIds.map((id) => state.entities.groupsById.get(id)!)
+  const previousSelection = state.selection
+  const childIds = [...new Set(groups.flatMap((group) => group.childIds))]
+  const nextSelection: DiagramSelection = { ids: childIds, primaryId: childIds[0] ?? null }
+  const positions = new Map(groupIds.map((id) => [id, state.order.groupIds.indexOf(id)]))
+  return {
+    orderChanged: true,
+    apply: (next) => {
+      for (const id of groupIds) next.entities.groupsById.delete(id)
+      next.order.groupIds = next.order.groupIds.filter((id) => !groupIds.includes(id))
+      for (const id of groupIds) next.versions.delete(id)
+      next.selection = nextSelection
+      return new Set([...groupIds, "selection"])
+    },
+    inverse: {
+      orderChanged: true,
+      apply: (next) => {
+        for (const group of groups) {
+          next.entities.groupsById.set(group.id, group)
+          const position = positions.get(group.id) ?? next.order.groupIds.length
+          next.order.groupIds.splice(Math.max(0, Math.min(position, next.order.groupIds.length)), 0, group.id)
+          next.versions.set(group.id, 0)
+        }
+        next.selection = previousSelection
+        return new Set([...groupIds, "selection"])
+      },
+      inverse: undefined as unknown as Patch,
+    },
+  }
+}
+
 function createCreatePortPatch(state: InternalState, port: import("./types.js").DiagramPort): Patch | null {
   const owner = state.entities.nodesById.get(port.nodeId)
   if (!owner || isEntityLockedOrReadOnly(state, owner.id) || !isUniqueId(state, port.id) || !Number.isFinite(port.x) || !Number.isFinite(port.y) || (port.radius !== undefined && (!Number.isFinite(port.radius) || port.radius < 0))) return null
@@ -1606,6 +2031,58 @@ function createReconnectEdgeEndpointPatch(state: InternalState, id: DiagramId, e
 }
 
 function isUniqueId(state: InternalState, id: DiagramId): boolean { return typeof id === "string" && id.length > 0 && !hasEntity(state, id) }
+function groupMembers(state: InternalState, id: DiagramId): ReadonlyArray<DiagramId> { return state.entities.groupsById.get(id)?.childIds ?? [] }
+function expandGroupEntityIds(state: InternalState, ids: ReadonlyArray<DiagramId>, includeGroups: boolean): DiagramId[] {
+  const expanded = new Set<DiagramId>()
+  for (const id of ids) {
+    const group = state.entities.groupsById.get(id)
+    if (!group) { expanded.add(id); continue }
+    if (includeGroups) expanded.add(id)
+    for (const childId of group.childIds) expanded.add(childId)
+  }
+  return [...expanded]
+}
+function isGroupMovable(state: InternalState, id: DiagramId): boolean {
+  const children = groupMembers(state, id)
+  return children.length > 0
+    && children.every((childId) => !isEntityLockedOrReadOnly(state, childId) && (isEntityTranslatable(state.entities, childId) || state.entities.edgesById.has(childId)))
+    && children.some((childId) => isEntityTranslatable(state.entities, childId))
+}
+function isGroupResizableEntity(state: InternalState, id: DiagramId): boolean {
+  return state.entities.nodesById.has(id) || state.entities.shapesById.has(id) || state.entities.textsById.has(id) || state.entities.edgesById.has(id) || state.entities.tablesById.has(id)
+}
+
+function isEntityTranslatable(entities: MutableEntities, id: DiagramId): boolean {
+  if (entities.nodesById.has(id) || entities.textsById.has(id) || entities.shapesById.has(id) || entities.tablesById.has(id)) return true
+  const edge = entities.edgesById.get(id)
+  return Boolean(edge && (edge.source.kind === "point" || edge.target.kind === "point" || edge.points?.length))
+}
+
+function createEntitySnapshotPatch<Entity>(
+  ids: ReadonlyArray<DiagramId>,
+  previous: ReadonlyMap<DiagramId, Entity>,
+  nextValues: ReadonlyMap<DiagramId, Entity>,
+  setValue: (state: InternalState, id: DiagramId, entity: Entity) => void,
+): Patch {
+  const applyValues = (state: InternalState, values: ReadonlyMap<DiagramId, Entity>) => {
+    for (const id of ids) {
+      const value = values.get(id)
+      if (value !== undefined) setValue(state, id, value)
+    }
+    return new Set(ids)
+  }
+  return {
+    apply: (state) => applyValues(state, nextValues),
+    inverse: { apply: (state) => applyValues(state, previous), inverse: undefined as unknown as Patch },
+  }
+}
+
+function diagramEdgesEqual(first: DiagramEdge, second: DiagramEdge): boolean {
+  return JSON.stringify(first.source) === JSON.stringify(second.source)
+    && JSON.stringify(first.target) === JSON.stringify(second.target)
+    && JSON.stringify(first.points ?? []) === JSON.stringify(second.points ?? [])
+}
+
 function isValidEndpoint(state: InternalState, endpoint: DiagramEdgeEndpoint): boolean {
   if (endpoint.kind === "point") return Number.isFinite(endpoint.point.x) && Number.isFinite(endpoint.point.y)
   if (endpoint.kind === "node") return state.entities.nodesById.has(endpoint.nodeId)
@@ -1616,6 +2093,9 @@ function isValidEdge(state: InternalState, edge: DiagramEdge): boolean {
   return isValidEndpoint(state, edge.source) && isValidEndpoint(state, edge.target) && (edge.points ?? []).every((point) => Number.isFinite(point.x) && Number.isFinite(point.y))
 }
 function commandIds(command: DiagramCommand): DiagramId[] {
+  if (command.type === "createTable") return [command.table.id]
+  if (command.type === "groupEntities") return [command.id, ...(command.ids ?? [])]
+  if (command.type === "ungroupEntities") return [...command.ids]
   if ("id" in command) return [command.id]
   if ("ids" in command) return [...command.ids]
   if (command.type === "createEdge") return [command.edge.id]
@@ -1628,10 +2108,15 @@ function commandIds(command: DiagramCommand): DiagramId[] {
 function createDeleteSelectionPatch(state: InternalState): Patch | null {
   const candidates = state.selection.ids.filter((id) => hasEntity(state, id) && !isEntityNonDeletable(state, id) && !isEntityLockedOrReadOnly(state, id))
   const safe = candidates.filter((id) => {
-    const node = state.entities.nodesById.get(id)
-    if (node) {
-      if ([...state.entities.portsById.values()].some((port) => port.nodeId === id && (isEntityNonDeletable(state, port.id) || isEntityLockedOrReadOnly(state, port.id)))) return false
-      if ([...state.entities.edgesById.values()].some((edge) => (endpointDeleted(edge.source, new Set([id])) || endpointDeleted(edge.target, new Set([id]))) && (isEntityNonDeletable(state, edge.id) || isEntityLockedOrReadOnly(state, edge.id)))) return false
+    const group = state.entities.groupsById.get(id)
+    const groupedIds = group ? groupMembers(state, id) : []
+    if (group && groupedIds.some((childId) => isEntityNonDeletable(state, childId) || isEntityLockedOrReadOnly(state, childId))) return false
+    const ownerGroup = [...state.entities.groupsById.values()].find((candidate) => candidate.childIds.includes(id))
+    if (ownerGroup && groupMembers(state, ownerGroup.id).some((childId) => isEntityNonDeletable(state, childId) || isEntityLockedOrReadOnly(state, childId))) return false
+    const nodeIds = new Set([id, ...groupedIds].filter((nodeId) => state.entities.nodesById.has(nodeId)))
+    if (nodeIds.size) {
+      if ([...state.entities.portsById.values()].some((port) => nodeIds.has(port.nodeId) && (isEntityNonDeletable(state, port.id) || isEntityLockedOrReadOnly(state, port.id)))) return false
+      if ([...state.entities.edgesById.values()].some((edge) => (endpointDeleted(edge.source, nodeIds) || endpointDeleted(edge.target, nodeIds)) && (isEntityNonDeletable(state, edge.id) || isEntityLockedOrReadOnly(state, edge.id)))) return false
     }
     return true
   })
@@ -1667,12 +2152,16 @@ function createDeleteEntitiesPatch(ids: ReadonlyArray<DiagramId>): Patch {
           textsById: pick(next.entities.textsById, ids),
           shapesById: pick(next.entities.shapesById, ids),
           portsById: pick(next.entities.portsById, ids),
+          groupsById: pick(next.entities.groupsById, ids),
+          tablesById: pick(next.entities.tablesById, ids),
         },
         order: {
           nodeIds: next.order.nodeIds.filter((id) => ids.includes(id)),
           edgeIds: next.order.edgeIds.filter((id) => ids.includes(id)),
           textIds: next.order.textIds.filter((id) => ids.includes(id)),
           shapeIds: next.order.shapeIds.filter((id) => ids.includes(id)),
+          groupIds: next.order.groupIds.filter((id) => ids.includes(id)),
+          tableIds: next.order.tableIds.filter((id) => ids.includes(id)),
         },
         selection: next.selection,
         viewport: next.viewport,
@@ -1801,6 +2290,8 @@ function createReplaceScenePatch(next: DiagramSceneInput, previous: SerializedDi
         ...replacement.order.textIds,
         ...replacement.order.shapeIds,
         ...replacement.entities.portsById.keys(),
+        ...replacement.order.groupIds,
+        ...replacement.order.tableIds,
       ])
     },
     inverse: {
@@ -1819,6 +2310,8 @@ function createReplaceScenePatch(next: DiagramSceneInput, previous: SerializedDi
           ...replacement.order.textIds,
           ...replacement.order.shapeIds,
           ...replacement.entities.portsById.keys(),
+          ...replacement.order.groupIds,
+          ...replacement.order.tableIds,
         ])
       },
       inverse: undefined as unknown as Patch,
@@ -1828,6 +2321,19 @@ function createReplaceScenePatch(next: DiagramSceneInput, previous: SerializedDi
 
 function expandDeletedIds(state: InternalState, ids: ReadonlyArray<DiagramId>): DiagramId[] {
   const deleted = new Set(ids.filter((id) => !isEntityNonDeletable(state, id) && !isEntityLockedOrReadOnly(state, id)))
+  let groupsChanged = true
+  while (groupsChanged) {
+    groupsChanged = false
+    for (const group of state.entities.groupsById.values()) {
+      if (!deleted.has(group.id) && !group.childIds.some((childId) => deleted.has(childId))) continue
+      for (const id of [group.id, ...group.childIds]) {
+        if (!deleted.has(id)) {
+          deleted.add(id)
+          groupsChanged = true
+        }
+      }
+    }
+  }
   for (const id of [...deleted]) {
     if (state.entities.nodesById.has(id)) {
       for (const port of state.entities.portsById.values()) {
@@ -1881,11 +2387,11 @@ function composePatches(first: Patch, second: Patch): Patch {
 }
 
 function cloneOrder(order: MutableOrder): MutableOrder {
-  return { nodeIds: [...order.nodeIds], edgeIds: [...order.edgeIds], textIds: [...order.textIds], shapeIds: [...order.shapeIds] }
+  return { nodeIds: [...order.nodeIds], edgeIds: [...order.edgeIds], textIds: [...order.textIds], shapeIds: [...order.shapeIds], groupIds: [...order.groupIds], tableIds: [...order.tableIds] }
 }
 
 function ordersEqual(a: MutableOrder, b: MutableOrder): boolean {
-  return sameIds(a.nodeIds, b.nodeIds) && sameIds(a.edgeIds, b.edgeIds) && sameIds(a.textIds, b.textIds) && sameIds(a.shapeIds, b.shapeIds)
+  return sameIds(a.nodeIds, b.nodeIds) && sameIds(a.edgeIds, b.edgeIds) && sameIds(a.textIds, b.textIds) && sameIds(a.shapeIds, b.shapeIds) && sameIds(a.groupIds, b.groupIds) && sameIds(a.tableIds, b.tableIds)
 }
 
 function reorderIds(order: DiagramId[], ids: ReadonlyArray<DiagramId>, mode: "forward" | "backward" | "front" | "back"): void {
@@ -1939,6 +2445,10 @@ function setEntityMetadata(state: InternalState, id: DiagramId, metadata: Readon
   if (shape) { state.entities.shapesById.set(id, { ...shape, metadata }); return }
   const port = state.entities.portsById.get(id)
   if (port) state.entities.portsById.set(id, { ...port, metadata })
+  const group = state.entities.groupsById.get(id)
+  if (group) state.entities.groupsById.set(id, { ...group, metadata })
+  const table = state.entities.tablesById.get(id)
+  if (table) state.entities.tablesById.set(id, { ...table, metadata })
 }
 
 function getEntityMetadata(state: InternalState, id: DiagramId): Readonly<Record<string, unknown>> | undefined {
@@ -1947,6 +2457,8 @@ function getEntityMetadata(state: InternalState, id: DiagramId): Readonly<Record
     ?? state.entities.textsById.get(id)?.metadata
     ?? state.entities.shapesById.get(id)?.metadata
     ?? state.entities.portsById.get(id)?.metadata
+    ?? state.entities.groupsById.get(id)?.metadata
+    ?? state.entities.tablesById.get(id)?.metadata
 }
 
 function zIndex(metadata: Readonly<Record<string, unknown>> | undefined): number {
@@ -1960,11 +2472,13 @@ function allEntityIds(state: InternalState): DiagramId[] {
     ...state.order.nodeIds,
     ...state.order.textIds,
     ...state.entities.portsById.keys(),
+    ...state.entities.groupsById.keys(),
+    ...state.entities.tablesById.keys(),
   ]
 }
 
 function hasEntity(state: InternalState, id: DiagramId): boolean {
-  return state.entities.nodesById.has(id) || state.entities.edgesById.has(id) || state.entities.textsById.has(id) || state.entities.shapesById.has(id) || state.entities.portsById.has(id)
+  return state.entities.nodesById.has(id) || state.entities.edgesById.has(id) || state.entities.textsById.has(id) || state.entities.shapesById.has(id) || state.entities.portsById.has(id) || state.entities.groupsById.has(id) || state.entities.tablesById.has(id)
 }
 
 function isEntityLockedOrReadOnly(state: InternalState, id: DiagramId): boolean {
@@ -2028,6 +2542,18 @@ function restoreSerialized(state: InternalState, scene: SerializedDiagramScene):
     state.versions.set(port.id, 0)
     changed.add(port.id)
   }
+  for (const group of scene.groups ?? []) {
+    state.entities.groupsById.set(group.id, group)
+    pushUnique(state.order.groupIds, group.id)
+    state.versions.set(group.id, 0)
+    changed.add(group.id)
+  }
+  for (const table of scene.tables ?? []) {
+    state.entities.tablesById.set(table.id, table)
+    pushUnique(state.order.tableIds, table.id)
+    state.versions.set(table.id, 0)
+    changed.add(table.id)
+  }
   state.selection = scene.selection
   return changed
 }
@@ -2038,10 +2564,14 @@ function deleteEntity(state: InternalState, id: DiagramId): boolean {
   deleted = state.entities.textsById.delete(id) || deleted
   deleted = state.entities.shapesById.delete(id) || deleted
   deleted = state.entities.portsById.delete(id) || deleted
+  deleted = state.entities.groupsById.delete(id) || deleted
+  deleted = state.entities.tablesById.delete(id) || deleted
   state.order.nodeIds = state.order.nodeIds.filter((value) => value !== id)
   state.order.edgeIds = state.order.edgeIds.filter((value) => value !== id)
   state.order.textIds = state.order.textIds.filter((value) => value !== id)
   state.order.shapeIds = state.order.shapeIds.filter((value) => value !== id)
+  state.order.groupIds = state.order.groupIds.filter((value) => value !== id)
+  state.order.tableIds = state.order.tableIds.filter((value) => value !== id)
   state.versions.delete(id)
   return deleted
 }

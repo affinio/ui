@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest"
-import { effectScope, nextTick, shallowRef } from "vue"
+import { createApp, effectScope, h, nextTick, shallowRef } from "vue"
 import { createDiagramEngine, type DiagramSceneInput } from "@affino/diagram-core"
 import { createDiagramInteractionController } from "@affino/diagram-core"
-import { getDomEntityStyle, getSvgEntityProps, useDiagramEngine, useDiagramPointerController, useDiagramSelection, useDiagramTextEditor, useDiagramViewport, useDiagramVisibleEntities } from ".."
+import { DiagramTableView, getDomEntityStyle, getSvgEntityProps, useDiagramEngine, useDiagramPointerController, useDiagramSelection, useDiagramTable, useDiagramTextEditor, useDiagramViewport, useDiagramVisibleEntities } from ".."
 import { beginDiagramHandleInteraction } from "../../../demo-vue/src/pages/diagramHandleInteractions"
 
 const scene: DiagramSceneInput = {
@@ -27,6 +27,60 @@ const scene: DiagramSceneInput = {
 }
 
 describe("diagram-vue", () => {
+  it("projects and renders an editable SVG table with accessible controls", async () => {
+    const controller = useDiagramEngine({ tables: [{ id: "t1", kind: "table", x: 10, y: 20, width: 120, height: 60, rowCount: 2, columnCount: 2, cells: [[{ text: "A" }, { text: "B" }], [{ text: "C" }, { text: "D" }]] }], viewport: { x: 0, y: 0, width: 300, height: 200, zoom: 1 } })
+    const visible = useDiagramVisibleEntities(controller)
+    expect(visible.projection.value.tables.map((entity) => entity.id)).toEqual(["t1"])
+    expect(visible.projection.value.tables[0]?.geometry.bounds).toEqual({ x: 10, y: 20, width: 120, height: 60 })
+    const table = useDiagramTable(controller, "t1")
+    expect(table.table.value?.cells?.[0]?.[0]?.text).toBe("A")
+
+    const mount = document.createElement("div")
+    document.body.append(mount)
+    const svgPointer = vi.fn()
+    const app = createApp({ render: () => h("svg", { onPointerdown: svgPointer }, [h(DiagramTableView, { controller, id: "t1" })]) })
+    app.mount(mount)
+    const cell = mount.querySelector<SVGRectElement>('[aria-label="Row 1, column 1: A"]')!
+    cell.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }))
+    await nextTick()
+    const editor = mount.querySelector<HTMLInputElement>('[aria-label="Edit row 1, column 1"]')!
+    expect(editor).not.toBeNull()
+    editor.dispatchEvent(new Event("pointerdown", { bubbles: true }))
+    expect(svgPointer).not.toHaveBeenCalled()
+    editor.value = "Edited"
+    editor.dispatchEvent(new Event("input", { bubbles: true }))
+    await nextTick()
+    editor.setSelectionRange(6, 6)
+    editor.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }))
+    await nextTick()
+    expect(controller.scene.value.entities.tablesById.get("t1")?.cells?.[0]?.[0]?.text).toBe("Edited")
+    const nextEditor = mount.querySelector<HTMLInputElement>('[aria-label="Edit row 1, column 2"]')!
+    expect(nextEditor).not.toBeNull()
+    nextEditor.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
+    editor.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))
+    await nextTick()
+    expect(controller.scene.value.entities.tablesById.get("t1")?.cells?.[0]?.[0]?.text).toBe("Edited")
+    controller.dispatch({ type: "setSelection", selection: { ids: ["t1"], primaryId: "t1" } })
+    await nextTick()
+    expect(mount.querySelector('[role="toolbar"][aria-label="Table formatting"]')).not.toBeNull()
+    expect(mount.querySelector('[aria-label="Horizontal text alignment"]')).not.toBeNull()
+    expect(mount.querySelector('[aria-label="Border thickness"]')).not.toBeNull()
+    const gridLines = mount.querySelectorAll("line")
+    expect(gridLines).toHaveLength(2)
+    expect(gridLines[0]?.getAttribute("stroke")).toBe("#D1D5DB")
+    expect(mount.querySelector('[stroke="#9CA3AF"]')?.getAttribute("rx")).toBe("8")
+    table.updateStyle({ grid: { visible: false } })
+    await nextTick()
+    expect(mount.querySelectorAll("line")).toHaveLength(0)
+    mount.querySelector<HTMLButtonElement>('[aria-label="Insert row"]')!.click()
+    expect(controller.scene.value.entities.tablesById.get("t1")?.rowCount).toBe(3)
+    expect(svgPointer).not.toHaveBeenCalled()
+    app.unmount()
+    mount.remove()
+    visible.dispose()
+    controller.dispose()
+  })
+
   it("syncs engine state and disposes subscriptions with Vue scope", () => {
     const engine = createDiagramEngine(scene)
     const scope = effectScope()
