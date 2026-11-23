@@ -1,6 +1,6 @@
 import { createEntityGeometry, inflateRect, rectFromPoints as boundsFromPoints } from "./geometry.js"
 import type { DiagramEngine } from "./DiagramEngine.js"
-import type { DiagramId, DiagramGeometry, DiagramInteractionSnapOptions, DiagramInteractionSnapshot, DiagramInteractionTool, DiagramMarqueeMode, DiagramPointerEvent, DiagramPoint, DiagramRect, DiagramResizeEntry, DiagramResizeHandle, DiagramSnapGuide } from "./types.js"
+import type { DiagramCommand, DiagramId, DiagramGeometry, DiagramInteractionSnapOptions, DiagramInteractionSnapshot, DiagramInteractionTool, DiagramMarqueeMode, DiagramPointerEvent, DiagramPoint, DiagramRect, DiagramResizeEntry, DiagramResizeHandle, DiagramSnapGuide } from "./types.js"
 
 type ScheduleFrame = (callback: () => void) => void
 const AXIS_LOCK_ACTIVATION_TOLERANCE_PX = 4
@@ -30,7 +30,10 @@ export class DiagramInteractionController {
   private edgeEndpointId: DiagramId | null = null
   private edgeEndpointKind: "source" | "target" | null = null
   private edgeEndpointStart: DiagramPoint | null = null
+  private edgeEndpointOppositeStart: DiagramPoint | null = null
+  private edgeEndpointCardinalAngle: 0 | 90 | 180 | 270 | null = null
   private edgeEndpointPreview: DiagramPoint | null = null
+  private edgeWaypointPreview: ReadonlyArray<DiagramPoint> | null = null
   private dragSelectionIds: ReadonlyArray<DiagramId> = Object.freeze([])
   private snapGuides: ReadonlyArray<DiagramSnapGuide> = Object.freeze([])
   private framePending = false
@@ -117,6 +120,7 @@ export class DiagramInteractionController {
     const geometry = this.engine.getGeometrySnapshot(ownerId)
     if (!geometry || geometry.kind !== "edge" || !geometry.path?.length) return false
     const point = endpoint === "source" ? geometry.path[0]! : geometry.path[geometry.path.length - 1]!
+    const oppositePoint = endpoint === "source" ? geometry.path[geometry.path.length - 1]! : geometry.path[0]!
     this.cancel()
     this.tool = "drag-edge-endpoint"
     this.activePointer = event
@@ -127,6 +131,7 @@ export class DiagramInteractionController {
     this.edgeEndpointId = ownerId
     this.edgeEndpointKind = endpoint
     this.edgeEndpointStart = point
+    this.edgeEndpointOppositeStart = oppositePoint
     return true
   }
 
@@ -196,7 +201,19 @@ export class DiagramInteractionController {
     }
     if (this.tool === "drag-edge-endpoint" && this.edgeEndpointId && this.edgeEndpointKind && this.edgeEndpointPreview
       && (this.edgeEndpointPreview.x !== this.edgeEndpointStart?.x || this.edgeEndpointPreview.y !== this.edgeEndpointStart?.y)) {
-      this.engine.dispatch({ type: "moveEdgeEndpoint", id: this.edgeEndpointId, endpoint: this.edgeEndpointKind, point: this.edgeEndpointPreview })
+      const edge = this.engine.getScene().entities.edgesById.get(this.edgeEndpointId)
+      const commands: DiagramCommand[] = [{ type: "moveEdgeEndpoint", id: this.edgeEndpointId, endpoint: this.edgeEndpointKind, point: this.edgeEndpointPreview }]
+      if (edge && this.edgeWaypointPreview) {
+        for (let index = 0; index < this.edgeWaypointPreview.length; index += 1) {
+          const point = this.edgeWaypointPreview[index]!
+          const previous = edge.points?.[index]
+          if (!previous || previous.x !== point.x || previous.y !== point.y) {
+            commands.push({ type: "moveEdgeWaypoint" as const, id: this.edgeEndpointId, index, point })
+          }
+        }
+      }
+      if (commands.length > 1) this.engine.dispatchBatch(commands)
+      else this.engine.dispatch(commands[0]!)
       this.commitCount += 1
     }
     if (this.tool === "marquee" && this.marquee) {
@@ -219,10 +236,11 @@ export class DiagramInteractionController {
   getPreviewGeometry(id: DiagramId): DiagramGeometry | null {
     const geometry = this.engine.getGeometrySnapshot(id)
     if (geometry?.kind === "edge" && geometry.path?.length && this.edgeEndpointId === id && this.edgeEndpointKind && this.edgeEndpointPreview) {
-      const path = geometry.path.map((point, index) => {
-        const isEndpoint = this.edgeEndpointKind === "source" ? index === 0 : index === geometry.path!.length - 1
-        return isEndpoint ? this.edgeEndpointPreview! : point
-      })
+      const path = [
+        this.edgeEndpointKind === "source" ? this.edgeEndpointPreview : geometry.path[0]!,
+        ...(this.edgeWaypointPreview ?? geometry.path.slice(1, -1)),
+        this.edgeEndpointKind === "target" ? this.edgeEndpointPreview : geometry.path[geometry.path.length - 1]!,
+      ]
       const bounds = boundsFromPoints(path)
       return Object.freeze({ ...geometry, path: Object.freeze(path), bounds, hitBounds: inflateRect(bounds, 6) })
     }
@@ -327,17 +345,17 @@ export class DiagramInteractionController {
     if (this.tool === "drag-edge-endpoint") {
       if (!this.edgeEndpointStart) return
       const origin = this.edgeEndpointStart
-      const axisConstraint = this.latestShiftKey ? this.shiftAxis ?? undefined : undefined
-      const desiredPoint = {
-        x: axisConstraint === "y" ? origin.x : this.latestPoint.x,
-        y: axisConstraint === "x" ? origin.y : this.latestPoint.y,
-      }
+      const angle = this.latestShiftKey ? this.edgeEndpointCardinalAngle : null
+      const axisConstraint = angle === null ? undefined : angle === 0 || angle === 180 ? "x" : "y"
+      let desiredPoint = angle === null
+        ? this.latestPoint
+        : projectToCardinal(this.edgeEndpointOppositeStart ?? origin, this.latestPoint, angle)
       if (this.snapOptions.enabled === false) {
         this.edgeEndpointPreview = desiredPoint
       } else {
         const viewport = this.engine.getScene().viewport
         const zoom = viewport.zoom > 0 ? viewport.zoom : 1
-        this.edgeEndpointPreview = this.engine.snapPoint(desiredPoint, {
+        const snapped = this.engine.snapPoint(desiredPoint, {
           radius: (this.snapOptions.tolerancePx ?? 6) / zoom,
           gridSize: this.snapOptions.gridSize,
           axisConstraint,
@@ -345,7 +363,11 @@ export class DiagramInteractionController {
           snapToAlignment: this.snapOptions.snapToAlignment,
           excludeIds: new Set(this.edgeEndpointId ? [this.edgeEndpointId] : []),
         }).point
+        this.edgeEndpointPreview = angle === null || !this.edgeEndpointOppositeStart
+          ? snapped
+          : projectToCardinal(this.edgeEndpointOppositeStart, snapped, angle)
       }
+      this.edgeWaypointPreview = this.createOrthogonalWaypointPreview(this.edgeEndpointPreview)
       return
     }
     if (this.tool === "marquee") {
@@ -411,16 +433,60 @@ export class DiagramInteractionController {
     this.latestShiftKey = shiftKey
     if (!shiftKey) {
       this.shiftAxis = null
+      this.edgeEndpointCardinalAngle = null
       return
     }
-    if (!wasShifted) this.shiftAxis = null
-    if (this.shiftAxis || !this.startPoint || (this.tool !== "drag-selection" && this.tool !== "drag-edge-endpoint")) return
+    if (!wasShifted) {
+      this.shiftAxis = null
+      this.edgeEndpointCardinalAngle = null
+    }
+    if (this.tool === "drag-edge-endpoint") {
+      if (this.edgeEndpointCardinalAngle === null && this.edgeEndpointOppositeStart && this.startPoint && this.isPastAxisActivation(point, this.startPoint)) {
+        this.edgeEndpointCardinalAngle = nearestCardinalAngle(point, this.edgeEndpointOppositeStart)
+      }
+      return
+    }
+    if (this.shiftAxis || !this.startPoint || this.tool !== "drag-selection") return
 
     const delta = { x: point.x - this.startPoint.x, y: point.y - this.startPoint.y }
+    if (!this.isPastAxisActivation(point, this.startPoint)) return
+    this.shiftAxis = Math.abs(delta.x) >= Math.abs(delta.y) ? "x" : "y"
+  }
+
+  private isPastAxisActivation(point: DiagramPoint, origin: DiagramPoint): boolean {
     const viewport = this.engine.getScene().viewport
     const zoom = viewport.zoom > 0 ? viewport.zoom : 1
-    if (Math.hypot(delta.x, delta.y) * zoom < AXIS_LOCK_ACTIVATION_TOLERANCE_PX) return
-    this.shiftAxis = Math.abs(delta.x) >= Math.abs(delta.y) ? "x" : "y"
+    return Math.hypot(point.x - origin.x, point.y - origin.y) * zoom >= AXIS_LOCK_ACTIVATION_TOLERANCE_PX
+  }
+
+  private createOrthogonalWaypointPreview(endpoint: DiagramPoint | null): ReadonlyArray<DiagramPoint> | null {
+    if (!endpoint || !this.edgeEndpointId || !this.edgeEndpointKind) return null
+    const edge = this.engine.getScene().entities.edgesById.get(this.edgeEndpointId)
+    const points = edge?.points
+    if (!edge || !points?.length) return points ?? null
+    const geometry = this.engine.getGeometrySnapshot(this.edgeEndpointId)
+    const path = geometry?.path
+    if (!path?.length || !isOrthogonalPath(path)) return points
+
+    const nextPoints = points.map((point) => ({ x: point.x, y: point.y }))
+    if (this.edgeEndpointKind === "source") {
+      const waypointIndex = 0
+      const routeIndex = 1
+      const inward = findDistinctPoint(path, routeIndex, 1)
+      if (!inward) return nextPoints
+      const segment = segmentAxis(path[routeIndex]!, inward)
+      if (segment === "horizontal") nextPoints[waypointIndex] = { x: endpoint.x, y: inward.y }
+      else if (segment === "vertical") nextPoints[waypointIndex] = { x: inward.x, y: endpoint.y }
+    } else {
+      const waypointIndex = points.length - 1
+      const routeIndex = path.length - 2
+      const inward = findDistinctPoint(path, routeIndex, -1)
+      if (!inward) return nextPoints
+      const segment = segmentAxis(inward, path[routeIndex]!)
+      if (segment === "horizontal") nextPoints[waypointIndex] = { x: endpoint.x, y: inward.y }
+      else if (segment === "vertical") nextPoints[waypointIndex] = { x: inward.x, y: endpoint.y }
+    }
+    return nextPoints
   }
 
   private getMarqueeSelectionIds(rect: DiagramRect): DiagramId[] {
@@ -460,7 +526,10 @@ export class DiagramInteractionController {
     this.edgeEndpointId = null
     this.edgeEndpointKind = null
     this.edgeEndpointStart = null
+    this.edgeEndpointOppositeStart = null
+    this.edgeEndpointCardinalAngle = null
     this.edgeEndpointPreview = null
+    this.edgeWaypointPreview = null
     this.framePending = false
     this.pendingMoveCount = 0
   }
@@ -483,6 +552,56 @@ function rotateDelta(delta: DiagramPoint, rotation: number): DiagramPoint {
   const cos = Math.cos(angle)
   const sin = Math.sin(angle)
   return { x: delta.x * cos - delta.y * sin, y: delta.x * sin + delta.y * cos }
+}
+
+function nearestCardinalAngle(point: DiagramPoint, origin: DiagramPoint): 0 | 90 | 180 | 270 {
+  const degrees = (Math.atan2(point.y - origin.y, point.x - origin.x) * 180 / Math.PI + 360) % 360
+  const candidates = [0, 180, 90, 270] as const
+  let nearest: 0 | 90 | 180 | 270 = candidates[0]
+  let nearestDistance = Number.POSITIVE_INFINITY
+  for (const candidate of candidates) {
+    const difference = Math.abs(degrees - candidate)
+    const distance = Math.min(difference, 360 - difference)
+    if (distance < nearestDistance) {
+      nearest = candidate
+      nearestDistance = distance
+    }
+  }
+  return nearest
+}
+
+function projectToCardinal(origin: DiagramPoint, point: DiagramPoint, angle: 0 | 90 | 180 | 270): DiagramPoint {
+  const distance = Math.hypot(point.x - origin.x, point.y - origin.y)
+  switch (angle) {
+    case 0: return { x: origin.x + distance, y: origin.y }
+    case 90: return { x: origin.x, y: origin.y + distance }
+    case 180: return { x: origin.x - distance, y: origin.y }
+    case 270: return { x: origin.x, y: origin.y - distance }
+  }
+}
+
+function segmentAxis(start: DiagramPoint, end: DiagramPoint): "horizontal" | "vertical" | null {
+  if (Math.abs(start.y - end.y) <= 1e-6) return "horizontal"
+  if (Math.abs(start.x - end.x) <= 1e-6) return "vertical"
+  return null
+}
+
+function isOrthogonalPath(path: ReadonlyArray<DiagramPoint>): boolean {
+  for (let index = 1; index < path.length; index += 1) {
+    if (!segmentAxis(path[index - 1]!, path[index]!)) return false
+  }
+  return true
+}
+
+function findDistinctPoint(path: ReadonlyArray<DiagramPoint>, index: number, step: 1 | -1): DiagramPoint | null {
+  const origin = path[index]
+  if (!origin) return null
+  for (let nextIndex = index + step; nextIndex >= 0 && nextIndex < path.length; nextIndex += step) {
+    const next = path[nextIndex]!
+    if (Math.abs(origin.x - next.x) <= 1e-6 && Math.abs(origin.y - next.y) <= 1e-6) continue
+    if (segmentAxis(origin, next)) return next
+  }
+  return null
 }
 
 function resizeBoundsByHandle(bounds: DiagramRect, handle: DiagramResizeHandle, delta: DiagramPoint, minSize: number, preserveAspectRatio = false, gridSize?: number): DiagramRect {

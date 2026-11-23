@@ -1073,7 +1073,7 @@ describe("DiagramEngine", () => {
     expect(engine.getScene().entities.edgesById.get("edge")?.source).toEqual({ kind: "point", point: { x: -20, y: 25 } })
   })
 
-  it("axis-locks endpoint drags from their original position and tracks Shift changes", () => {
+  it("projects shifted endpoint drags from the stationary endpoint and restores free movement on release", () => {
     const run = (start: DiagramPoint, end: DiagramPoint) => {
       const callbacks: Array<() => void> = []
       const engine = createDiagramEngine({
@@ -1087,15 +1087,19 @@ describe("DiagramEngine", () => {
     }
 
     const horizontal = run({ x: 100, y: 0 }, { x: 120, y: 15 })
-    expect(horizontal.controller.getSnapshot().edgeEndpointPreview?.point).toEqual({ x: 120, y: 0 })
-    expect(horizontal.controller.getPreviewGeometry("edge")?.path?.[0]).toEqual({ x: 120, y: 0 })
+    expect(horizontal.controller.getSnapshot().edgeEndpointPreview?.point.x).toBeCloseTo(200 - Math.hypot(80, 15))
+    expect(horizontal.controller.getSnapshot().edgeEndpointPreview?.point.y).toBe(0)
+    expect(horizontal.controller.getPreviewGeometry("edge")?.path?.[0]).toEqual(horizontal.controller.getSnapshot().edgeEndpointPreview?.point)
+    const horizontalPoint = horizontal.controller.getSnapshot().edgeEndpointPreview!.point
     horizontal.controller.pointerUp({ id: 1, point: { x: 120, y: 15 }, shiftKey: true })
-    expect(horizontal.engine.getScene().entities.edgesById.get("edge")?.source).toEqual({ kind: "point", point: { x: 120, y: 0 } })
+    expect(horizontal.engine.getScene().entities.edgesById.get("edge")?.source).toEqual({ kind: "point", point: horizontalPoint })
 
-    const vertical = run({ x: 100, y: 0 }, { x: 115, y: 20 })
-    expect(vertical.controller.getSnapshot().edgeEndpointPreview?.point).toEqual({ x: 100, y: 20 })
-    vertical.controller.pointerUp({ id: 1, point: { x: 115, y: 20 }, shiftKey: true })
-    expect(vertical.engine.getScene().entities.edgesById.get("edge")?.source).toEqual({ kind: "point", point: { x: 100, y: 20 } })
+    const vertical = run({ x: 100, y: 0 }, { x: 215, y: 40 })
+    expect(vertical.controller.getSnapshot().edgeEndpointPreview?.point.x).toBe(200)
+    expect(vertical.controller.getSnapshot().edgeEndpointPreview?.point.y).toBeCloseTo(Math.hypot(15, 40))
+    const verticalPoint = vertical.controller.getSnapshot().edgeEndpointPreview!.point
+    vertical.controller.pointerUp({ id: 1, point: { x: 215, y: 40 }, shiftKey: true })
+    expect(vertical.engine.getScene().entities.edgesById.get("edge")?.source).toEqual({ kind: "point", point: verticalPoint })
 
     const snappedEngine = createDiagramEngine({
       edges: [{ id: "edge", kind: "edge", source: { kind: "point", point: { x: 100, y: 0 } }, target: { kind: "point", point: { x: 200, y: 0 } } }],
@@ -1105,9 +1109,9 @@ describe("DiagramEngine", () => {
     snapped.beginEdgeEndpointHandle("edge", "source", { id: 1, point: { x: 100, y: 0 } })
     snapped.pointerMove({ id: 1, point: { x: 127, y: 20 }, shiftKey: true })
     snappedCallbacks[0]?.()
-    expect(snapped.getSnapshot().edgeEndpointPreview?.point).toEqual({ x: 130, y: 0 })
+    expect(snapped.getSnapshot().edgeEndpointPreview?.point).toEqual({ x: 120, y: 0 })
     snapped.pointerUp({ id: 1, point: { x: 127, y: 20 }, shiftKey: true })
-    expect(snappedEngine.getScene().entities.edgesById.get("edge")?.source).toEqual({ kind: "point", point: { x: 130, y: 0 } })
+    expect(snappedEngine.getScene().entities.edgesById.get("edge")?.source).toEqual({ kind: "point", point: { x: 120, y: 0 } })
 
     const toggled = run({ x: 100, y: 0 }, { x: 120, y: 15 })
     toggled.controller.pointerMove({ id: 1, point: { x: 120, y: 15 }, shiftKey: false })
@@ -1117,7 +1121,7 @@ describe("DiagramEngine", () => {
     expect(toggled.engine.getScene().entities.edgesById.get("edge")?.source).toEqual({ kind: "point", point: { x: 120, y: 15 } })
   })
 
-  it("keeps the edge endpoint axis latched across 45 degrees and matches the committed route", () => {
+  it("keeps the edge endpoint cardinal angle latched across 45 degrees and matches the committed route", () => {
     const callbacks: Array<() => void> = []
     const engine = createDiagramEngine({
       edges: [{ id: "edge", kind: "edge", source: { kind: "point", point: { x: 100, y: 0 } }, target: { kind: "point", point: { x: 200, y: 0 } }, points: [{ x: 150, y: 20 }] }],
@@ -1130,11 +1134,11 @@ describe("DiagramEngine", () => {
 
     controller.pointerMove({ id: 1, point: { x: 130, y: 31 }, shiftKey: true })
     callbacks.shift()?.()
-    expect(controller.getSnapshot().edgeEndpointPreview?.point).toEqual({ x: 130, y: 0 })
+    expect(controller.getSnapshot().edgeEndpointPreview?.point).toEqual({ x: 120, y: 0 })
     const previewPath = controller.getPreviewGeometry("edge")?.path
     controller.pointerUp({ id: 1, point: { x: 130, y: 31 }, shiftKey: true })
     expect(engine.getGeometrySnapshot("edge")?.path).toEqual(previewPath)
-    expect(engine.getScene().entities.edgesById.get("edge")?.source).toEqual({ kind: "point", point: { x: 130, y: 0 } })
+    expect(engine.getScene().entities.edgesById.get("edge")?.source).toEqual({ kind: "point", point: { x: 120, y: 0 } })
 
     const toggleCallbacks: Array<() => void> = []
     const toggleEngine = createDiagramEngine({ edges: [{ id: "edge", kind: "edge", source: { kind: "point", point: { x: 100, y: 0 } }, target: { kind: "point", point: { x: 200, y: 0 } } }] })
@@ -1142,14 +1146,116 @@ describe("DiagramEngine", () => {
     toggle.beginEdgeEndpointHandle("edge", "source", { id: 2, point: { x: 100, y: 0 } })
     toggle.pointerMove({ id: 2, point: { x: 130, y: 10 }, shiftKey: true })
     toggleCallbacks.shift()?.()
-    toggle.pointerMove({ id: 2, point: { x: 130, y: 31 }, shiftKey: false })
+    toggle.pointerMove({ id: 2, point: { x: 220, y: 100 }, shiftKey: false })
     toggleCallbacks.shift()?.()
-    expect(toggle.getSnapshot().edgeEndpointPreview?.point).toEqual({ x: 130, y: 31 })
-    toggle.pointerMove({ id: 2, point: { x: 130, y: 31 }, shiftKey: true })
+    expect(toggle.getSnapshot().edgeEndpointPreview?.point).toEqual({ x: 220, y: 100 })
+    toggle.pointerMove({ id: 2, point: { x: 220, y: 100 }, shiftKey: true })
     toggleCallbacks.shift()?.()
-    expect(toggle.getSnapshot().edgeEndpointPreview?.point).toEqual({ x: 100, y: 31 })
-    toggle.pointerUp({ id: 2, point: { x: 130, y: 31 }, shiftKey: true })
-    expect(toggleEngine.getScene().entities.edgesById.get("edge")?.source).toEqual({ kind: "point", point: { x: 100, y: 31 } })
+    expect(toggle.getSnapshot().edgeEndpointPreview?.point.x).toBe(200)
+    expect(toggle.getSnapshot().edgeEndpointPreview?.point.y).toBeCloseTo(Math.hypot(20, 100))
+    const relockedPoint = toggle.getSnapshot().edgeEndpointPreview!.point
+    toggle.pointerUp({ id: 2, point: { x: 220, y: 100 }, shiftKey: true })
+    expect(toggleEngine.getScene().entities.edgesById.get("edge")?.source).toEqual({ kind: "point", point: relockedPoint })
+  })
+
+  it("snaps shifted endpoint vectors to all four cardinal angles from either endpoint", () => {
+    const cases = [
+      { endpoint: "target", point: { x: 110, y: 20 }, expected: { x: Math.hypot(110, 20), y: 0 } },
+      { endpoint: "target", point: { x: 20, y: 100 }, expected: { x: 0, y: Math.hypot(20, 100) } },
+      { endpoint: "target", point: { x: -100, y: 20 }, expected: { x: -Math.hypot(100, 20), y: 0 } },
+      { endpoint: "target", point: { x: 20, y: -100 }, expected: { x: 0, y: -Math.hypot(20, 100) } },
+      { endpoint: "source", point: { x: 200, y: 40 }, expected: { x: 100 + Math.hypot(100, 20), y: 20 } },
+      { endpoint: "source", point: { x: 120, y: 120 }, expected: { x: 100, y: 20 + Math.hypot(20, 100) } },
+      { endpoint: "source", point: { x: 0, y: 40 }, expected: { x: 100 - Math.hypot(100, 20), y: 20 } },
+      { endpoint: "source", point: { x: 120, y: -80 }, expected: { x: 100, y: 20 - Math.hypot(20, 100) } },
+    ] as const
+
+    for (const [index, scenario] of cases.entries()) {
+      const frames: Array<() => void> = []
+      const engine = createDiagramEngine({ edges: [{ id: "edge", kind: "edge", source: { kind: "point", point: { x: 0, y: 0 } }, target: { kind: "point", point: { x: 100, y: 20 } } }] })
+      const controller = createDiagramInteractionController(engine, { scheduleFrame: (callback) => frames.push(callback), snap: { enabled: false } })
+      const start = scenario.endpoint === "target" ? { x: 100, y: 20 } : { x: 0, y: 0 }
+      controller.beginEdgeEndpointHandle("edge", scenario.endpoint, { id: index, point: start, shiftKey: true })
+      controller.pointerMove({ id: index, point: scenario.point, shiftKey: true })
+      frames[0]?.()
+      const preview = controller.getSnapshot().edgeEndpointPreview!.point
+      expect(preview.x).toBeCloseTo(scenario.expected.x)
+      expect(preview.y).toBeCloseTo(scenario.expected.y)
+      controller.pointerUp({ id: index, point: scenario.point, shiftKey: true })
+      const committed = engine.getScene().entities.edgesById.get("edge")![scenario.endpoint]
+      expect(committed).toEqual({ kind: "point", point: preview })
+      const path = engine.getGeometrySnapshot("edge")?.path
+      expect(path?.[scenario.endpoint === "source" ? 0 : path.length - 1]).toEqual(preview)
+    }
+  })
+
+  it("latches endpoint cardinal direction through 45 degrees and relatches after Shift is pressed", () => {
+    const frames: Array<() => void> = []
+    const engine = createDiagramEngine({ edges: [{ id: "edge", kind: "edge", source: { kind: "point", point: { x: 0, y: 0 } }, target: { kind: "point", point: { x: 100, y: 20 } } }] })
+    const controller = createDiagramInteractionController(engine, { scheduleFrame: (callback) => frames.push(callback), snap: { enabled: false } })
+    controller.beginEdgeEndpointHandle("edge", "target", { id: 1, point: { x: 100, y: 20 } })
+    controller.pointerMove({ id: 1, point: { x: 130, y: 30 }, shiftKey: true })
+    frames.shift()?.()
+    const firstRadius = Math.hypot(130, 30)
+    expect(controller.getSnapshot().edgeEndpointPreview?.point.x).toBeCloseTo(firstRadius)
+    expect(controller.getSnapshot().edgeEndpointPreview?.point.y).toBe(0)
+
+    controller.pointerMove({ id: 1, point: { x: 90, y: 100 }, shiftKey: true })
+    frames.shift()?.()
+    expect(controller.getSnapshot().edgeEndpointPreview?.point.x).toBeCloseTo(Math.hypot(90, 100))
+    expect(controller.getSnapshot().edgeEndpointPreview?.point.y).toBe(0)
+
+    controller.pointerMove({ id: 1, point: { x: 90, y: 100 }, shiftKey: false })
+    frames.shift()?.()
+    expect(controller.getSnapshot().edgeEndpointPreview?.point).toEqual({ x: 90, y: 100 })
+    controller.pointerMove({ id: 1, point: { x: 90, y: 100 }, shiftKey: true })
+    frames.shift()?.()
+    expect(controller.getSnapshot().edgeEndpointPreview?.point.x).toBe(0)
+    expect(controller.getSnapshot().edgeEndpointPreview?.point.y).toBeCloseTo(Math.hypot(90, 100))
+    const preview = controller.getPreviewGeometry("edge")?.path
+    controller.pointerUp({ id: 1, point: { x: 90, y: 100 }, shiftKey: true })
+    expect(engine.getGeometrySnapshot("edge")?.path).toEqual(preview)
+    expect(engine.getScene().entities.edgesById.get("edge")?.target).toEqual({ kind: "point", point: preview?.[preview.length - 1] })
+  })
+
+  it("keeps cardinal snapping and orthogonal connector routes in preview and committed geometry", () => {
+    const frames: Array<() => void> = []
+    const engine = createDiagramEngine({
+      nodes: [{ id: "port-owner", kind: "node", x: 132, y: 3, width: 10, height: 10 }],
+      ports: [{ id: "snap-port", kind: "port", nodeId: "port-owner", x: 0, y: 0 }],
+      edges: [{ id: "edge", kind: "edge", source: { kind: "point", point: { x: 0, y: 0 } }, target: { kind: "point", point: { x: 100, y: 20 } }, points: [{ x: 0, y: 20 }, { x: 80, y: 20 }] }],
+    })
+    const controller = createDiagramInteractionController(engine, { scheduleFrame: (callback) => frames.push(callback), snap: { tolerancePx: 8, snapToPorts: true, snapToAlignment: false, snapToEqualSpacing: false } })
+    controller.beginEdgeEndpointHandle("edge", "target", { id: 1, point: { x: 100, y: 20 } })
+    controller.pointerMove({ id: 1, point: { x: 130, y: 30 }, shiftKey: true })
+    frames.shift()?.()
+    const preview = controller.getPreviewGeometry("edge")?.path
+    expect(preview?.[preview.length - 1]).toEqual({ x: 132, y: 0 })
+    expect(preview?.[2]).toEqual({ x: 132, y: 20 })
+    for (let index = 1; index < (preview?.length ?? 0); index += 1) {
+      expect(Math.abs(preview![index - 1]!.x - preview![index]!.x) < 1e-6 || Math.abs(preview![index - 1]!.y - preview![index]!.y) < 1e-6).toBe(true)
+    }
+    controller.pointerUp({ id: 1, point: { x: 130, y: 30 }, shiftKey: true })
+    expect(engine.getGeometrySnapshot("edge")?.path).toEqual(preview)
+    expect(engine.getScene().entities.edgesById.get("edge")?.points).toEqual([{ x: 0, y: 20 }, { x: 132, y: 20 }])
+    engine.dispatch({ type: "undo" })
+    expect(engine.getScene().entities.edgesById.get("edge")?.points).toEqual([{ x: 0, y: 20 }, { x: 80, y: 20 }])
+
+    const alignmentFrames: Array<() => void> = []
+    const alignmentEngine = createDiagramEngine({
+      nodes: [{ id: "alignment-node", kind: "node", x: 131, y: -5, width: 10, height: 10 }],
+      edges: [{ id: "edge", kind: "edge", source: { kind: "point", point: { x: 0, y: 0 } }, target: { kind: "point", point: { x: 100, y: 20 } } }],
+    })
+    const alignment = createDiagramInteractionController(alignmentEngine, {
+      scheduleFrame: (callback) => alignmentFrames.push(callback),
+      snap: { tolerancePx: 8, snapToPorts: false, snapToAlignment: true, snapToEqualSpacing: false },
+    })
+    alignment.beginEdgeEndpointHandle("edge", "target", { id: 2, point: { x: 100, y: 20 } })
+    alignment.pointerMove({ id: 2, point: { x: 130, y: 30 }, shiftKey: true })
+    alignmentFrames[0]?.()
+    expect(alignment.getSnapshot().edgeEndpointPreview?.point).toEqual({ x: 136, y: 0 })
+    alignment.pointerUp({ id: 2, point: { x: 130, y: 30 }, shiftKey: true })
+    expect(alignmentEngine.getGeometrySnapshot("edge")?.path?.[1]).toEqual({ x: 136, y: 0 })
   })
 
   it("preserves resize aspect ratio under Shift and grid snapping in preview and commit", () => {

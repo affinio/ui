@@ -1,5 +1,11 @@
 # @affino/diagram-core
 
+## 0.10.2
+
+### Patch Changes
+
+- Shift-constrained endpoint drags now project the vector from the stationary endpoint to the nearest cardinal angle while preserving its length, then retain orthogonal connector routes and cardinal alignment through snapping.
+
 ## 0.10.1
 
 ### Patch Changes
