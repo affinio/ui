@@ -653,12 +653,12 @@ describe("DiagramEngine", () => {
       snap: { tolerancePx: 6, snapToPorts: false, snapToAlignment: false, snapToEqualSpacing: true },
     })
     spacingInteraction.pointerDown({ id: 2, point: { x: 36, y: 5 } })
-    spacingInteraction.pointerMove({ id: 2, point: { x: 35, y: 6 }, shiftKey: true })
+    spacingInteraction.pointerMove({ id: 2, point: { x: 30, y: 10 }, shiftKey: true })
     frames.shift()?.()
     expect(spacingInteraction.getSnapshot().previewDelta).toEqual({ x: -1, y: 0 })
     expect(spacingInteraction.getSnapshot().snapGuides).toHaveLength(2)
     expect(spacingInteraction.getSnapshot().snapGuides.every((guide) => guide.kind === "equal-spacing" && guide.axis === "x")).toBe(true)
-    spacingInteraction.pointerUp({ id: 2, point: { x: 35, y: 6 }, shiftKey: true })
+    spacingInteraction.pointerUp({ id: 2, point: { x: 30, y: 10 }, shiftKey: true })
     expect(spacingEngine.getGeometrySnapshot("spacing-moving")?.bounds.y).toBe(0)
     expect(spacingEngine.getGeometrySnapshot("spacing-moving")?.bounds.x).toBe(30)
 
@@ -679,6 +679,39 @@ describe("DiagramEngine", () => {
     expect(portInteraction.getSnapshot().previewDelta).toEqual({ x: 50, y: 0 })
     portInteraction.pointerUp({ id: 3, point: { x: 48, y: 8 }, shiftKey: true })
     expect(portEngine.getScene().entities.nodesById.get("port-moving")).toMatchObject({ x: 50, y: 0 })
+  })
+
+  it("latches the selection axis across direction changes and chooses again after Shift is pressed", () => {
+    const frames: Array<() => void> = []
+    const engine = createDiagramEngine({ nodes: [{ id: "moving", kind: "node", x: 0, y: 0, width: 20, height: 20 }] })
+    const interaction = createDiagramInteractionController(engine, {
+      scheduleFrame: (callback) => frames.push(callback),
+      snap: { gridSize: 10, snapToPorts: false, snapToAlignment: false, snapToEqualSpacing: false },
+    })
+    interaction.pointerDown({ id: 1, point: { x: 10, y: 10 } })
+    interaction.pointerMove({ id: 1, point: { x: 40, y: 20 }, shiftKey: true })
+    frames.shift()?.()
+    expect(interaction.getSnapshot().previewDelta).toEqual({ x: 30, y: 0 })
+
+    interaction.pointerMove({ id: 1, point: { x: 40, y: 41 }, shiftKey: true })
+    frames.shift()?.()
+    expect(interaction.getSnapshot().previewDelta).toEqual({ x: 30, y: 0 })
+    const horizontalPreview = interaction.getPreviewGeometry("moving")!.bounds
+
+    interaction.pointerMove({ id: 1, point: { x: 40, y: 41 }, shiftKey: false })
+    frames.shift()?.()
+    expect(interaction.getSnapshot().previewDelta).toEqual({ x: 30, y: 30 })
+    interaction.pointerMove({ id: 1, point: { x: 40, y: 41 }, shiftKey: true })
+    frames.shift()?.()
+    expect(interaction.getSnapshot().previewDelta).toEqual({ x: 0, y: 30 })
+    interaction.pointerMove({ id: 1, point: { x: 40, y: 20 }, shiftKey: true })
+    frames.shift()?.()
+    expect(interaction.getSnapshot().previewDelta).toEqual({ x: 0, y: 10 })
+    const preview = interaction.getPreviewGeometry("moving")!.bounds
+    interaction.pointerUp({ id: 1, point: { x: 40, y: 20 }, shiftKey: true })
+    expect(engine.getGeometrySnapshot("moving")!.bounds).toEqual(preview)
+    expect(preview.y).toBe(10)
+    expect(horizontalPreview.x).toBe(30)
   })
 
   it("keeps Shift-click additive selection and releases the axis lock when Shift is lifted", () => {
@@ -1082,6 +1115,41 @@ describe("DiagramEngine", () => {
     expect(toggled.controller.getSnapshot().edgeEndpointPreview?.point).toEqual({ x: 120, y: 15 })
     toggled.controller.pointerUp({ id: 1, point: { x: 120, y: 15 }, shiftKey: false })
     expect(toggled.engine.getScene().entities.edgesById.get("edge")?.source).toEqual({ kind: "point", point: { x: 120, y: 15 } })
+  })
+
+  it("keeps the edge endpoint axis latched across 45 degrees and matches the committed route", () => {
+    const callbacks: Array<() => void> = []
+    const engine = createDiagramEngine({
+      edges: [{ id: "edge", kind: "edge", source: { kind: "point", point: { x: 100, y: 0 } }, target: { kind: "point", point: { x: 200, y: 0 } }, points: [{ x: 150, y: 20 }] }],
+    })
+    const controller = createDiagramInteractionController(engine, { scheduleFrame: (callback) => callbacks.push(callback), snap: { gridSize: 10 } })
+    controller.beginEdgeEndpointHandle("edge", "source", { id: 1, point: { x: 100, y: 0 } })
+    controller.pointerMove({ id: 1, point: { x: 130, y: 10 }, shiftKey: true })
+    callbacks.shift()?.()
+    expect(controller.getSnapshot().edgeEndpointPreview?.point).toEqual({ x: 130, y: 0 })
+
+    controller.pointerMove({ id: 1, point: { x: 130, y: 31 }, shiftKey: true })
+    callbacks.shift()?.()
+    expect(controller.getSnapshot().edgeEndpointPreview?.point).toEqual({ x: 130, y: 0 })
+    const previewPath = controller.getPreviewGeometry("edge")?.path
+    controller.pointerUp({ id: 1, point: { x: 130, y: 31 }, shiftKey: true })
+    expect(engine.getGeometrySnapshot("edge")?.path).toEqual(previewPath)
+    expect(engine.getScene().entities.edgesById.get("edge")?.source).toEqual({ kind: "point", point: { x: 130, y: 0 } })
+
+    const toggleCallbacks: Array<() => void> = []
+    const toggleEngine = createDiagramEngine({ edges: [{ id: "edge", kind: "edge", source: { kind: "point", point: { x: 100, y: 0 } }, target: { kind: "point", point: { x: 200, y: 0 } } }] })
+    const toggle = createDiagramInteractionController(toggleEngine, { scheduleFrame: (callback) => toggleCallbacks.push(callback), snap: { enabled: false } })
+    toggle.beginEdgeEndpointHandle("edge", "source", { id: 2, point: { x: 100, y: 0 } })
+    toggle.pointerMove({ id: 2, point: { x: 130, y: 10 }, shiftKey: true })
+    toggleCallbacks.shift()?.()
+    toggle.pointerMove({ id: 2, point: { x: 130, y: 31 }, shiftKey: false })
+    toggleCallbacks.shift()?.()
+    expect(toggle.getSnapshot().edgeEndpointPreview?.point).toEqual({ x: 130, y: 31 })
+    toggle.pointerMove({ id: 2, point: { x: 130, y: 31 }, shiftKey: true })
+    toggleCallbacks.shift()?.()
+    expect(toggle.getSnapshot().edgeEndpointPreview?.point).toEqual({ x: 100, y: 31 })
+    toggle.pointerUp({ id: 2, point: { x: 130, y: 31 }, shiftKey: true })
+    expect(toggleEngine.getScene().entities.edgesById.get("edge")?.source).toEqual({ kind: "point", point: { x: 100, y: 31 } })
   })
 
   it("preserves resize aspect ratio under Shift and grid snapping in preview and commit", () => {

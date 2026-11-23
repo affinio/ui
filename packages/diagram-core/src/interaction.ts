@@ -3,6 +3,7 @@ import type { DiagramEngine } from "./DiagramEngine.js"
 import type { DiagramId, DiagramGeometry, DiagramInteractionSnapOptions, DiagramInteractionSnapshot, DiagramInteractionTool, DiagramMarqueeMode, DiagramPointerEvent, DiagramPoint, DiagramRect, DiagramResizeEntry, DiagramResizeHandle, DiagramSnapGuide } from "./types.js"
 
 type ScheduleFrame = (callback: () => void) => void
+const AXIS_LOCK_ACTIVATION_TOLERANCE_PX = 4
 
 export type DiagramInteractionOptions = Readonly<{
   scheduleFrame?: ScheduleFrame
@@ -16,6 +17,7 @@ export class DiagramInteractionController {
   private startPoint: DiagramPoint | null = null
   private latestPoint: DiagramPoint | null = null
   private latestShiftKey = false
+  private shiftAxis: "x" | "y" | null = null
   private previewDelta: DiagramPoint | null = null
   private marquee: DiagramRect | null = null
   private resizeOwnerId: DiagramId | null = null
@@ -57,6 +59,7 @@ export class DiagramInteractionController {
     this.startPoint = event.point
     this.latestPoint = event.point
     this.latestShiftKey = event.shiftKey === true
+    this.shiftAxis = null
     this.previewDelta = null
     this.marquee = null
     this.snapGuides = Object.freeze([])
@@ -102,6 +105,7 @@ export class DiagramInteractionController {
     this.startPoint = event.point
     this.latestPoint = event.point
     this.latestShiftKey = event.shiftKey === true
+    this.shiftAxis = null
     this.resizeOwnerId = ownerId
     this.resizeHandle = handle
     this.resizeStartBounds = geometry.unrotatedBounds ?? geometry.bounds
@@ -119,6 +123,7 @@ export class DiagramInteractionController {
     this.startPoint = event.point
     this.latestPoint = event.point
     this.latestShiftKey = event.shiftKey === true
+    this.shiftAxis = null
     this.edgeEndpointId = ownerId
     this.edgeEndpointKind = endpoint
     this.edgeEndpointStart = point
@@ -143,6 +148,7 @@ export class DiagramInteractionController {
     this.startPoint = event.point
     this.latestPoint = event.point
     this.latestShiftKey = event.shiftKey === true
+    this.shiftAxis = null
     this.resizeSelectionIds = ids
     this.resizeHandle = handle
     this.resizeStartBounds = bounds
@@ -155,7 +161,7 @@ export class DiagramInteractionController {
       return
     }
     this.latestPoint = event.point
-    this.latestShiftKey = event.shiftKey === true
+    this.updateShiftAxis(event.shiftKey === true, event.point)
     this.pendingMoveCount += 1
     if (!this.framePending) {
       this.framePending = true
@@ -172,7 +178,7 @@ export class DiagramInteractionController {
       return
     }
     this.latestPoint = event.point
-    this.latestShiftKey = event.shiftKey === true
+    this.updateShiftAxis(event.shiftKey === true, event.point)
     this.flushPointerMove()
     if (this.tool === "drag-selection" && this.previewDelta) {
       const selection = this.engine.getScene().selection
@@ -287,9 +293,7 @@ export class DiagramInteractionController {
     }
     const delta = { x: this.latestPoint.x - this.startPoint.x, y: this.latestPoint.y - this.startPoint.y }
     if (this.tool === "drag-selection" || this.tool === "pan") {
-      const axisConstraint = this.tool === "drag-selection" && this.latestShiftKey
-        ? Math.abs(delta.x) >= Math.abs(delta.y) ? "x" : "y"
-        : undefined
+      const axisConstraint = this.tool === "drag-selection" && this.latestShiftKey ? this.shiftAxis ?? undefined : undefined
       const constrainedDelta = axisConstraint === "x"
         ? { x: delta.x, y: 0 }
         : axisConstraint === "y"
@@ -323,9 +327,7 @@ export class DiagramInteractionController {
     if (this.tool === "drag-edge-endpoint") {
       if (!this.edgeEndpointStart) return
       const origin = this.edgeEndpointStart
-      const axisConstraint = this.latestShiftKey
-        ? Math.abs(delta.x) >= Math.abs(delta.y) ? "x" : "y"
-        : undefined
+      const axisConstraint = this.latestShiftKey ? this.shiftAxis ?? undefined : undefined
       const desiredPoint = {
         x: axisConstraint === "y" ? origin.x : this.latestPoint.x,
         y: axisConstraint === "x" ? origin.y : this.latestPoint.y,
@@ -404,6 +406,23 @@ export class DiagramInteractionController {
     return !this.latestShiftKey || this.snapOptions.enabled === false ? undefined : this.snapOptions.gridSize
   }
 
+  private updateShiftAxis(shiftKey: boolean, point: DiagramPoint): void {
+    const wasShifted = this.latestShiftKey
+    this.latestShiftKey = shiftKey
+    if (!shiftKey) {
+      this.shiftAxis = null
+      return
+    }
+    if (!wasShifted) this.shiftAxis = null
+    if (this.shiftAxis || !this.startPoint || (this.tool !== "drag-selection" && this.tool !== "drag-edge-endpoint")) return
+
+    const delta = { x: point.x - this.startPoint.x, y: point.y - this.startPoint.y }
+    const viewport = this.engine.getScene().viewport
+    const zoom = viewport.zoom > 0 ? viewport.zoom : 1
+    if (Math.hypot(delta.x, delta.y) * zoom < AXIS_LOCK_ACTIVATION_TOLERANCE_PX) return
+    this.shiftAxis = Math.abs(delta.x) >= Math.abs(delta.y) ? "x" : "y"
+  }
+
   private getMarqueeSelectionIds(rect: DiagramRect): DiagramId[] {
     const visible = new Set(this.engine.queryVisible(rect))
     const scene = this.engine.getScene()
@@ -426,6 +445,7 @@ export class DiagramInteractionController {
     this.startPoint = null
     this.latestPoint = null
     this.latestShiftKey = false
+    this.shiftAxis = null
     this.previewDelta = null
     this.marquee = null
     this.resizeOwnerId = null

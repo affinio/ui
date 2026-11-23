@@ -1,5 +1,11 @@
 # @affino/diagram-core
 
+## 0.10.1
+
+### Patch Changes
+
+- Latched the Shift axis for selection and edge endpoint drags after a 4-screen-pixel activation threshold, keeping the axis stable until Shift is released.
+
 ## 0.10.0
 
 ### Minor Changes
