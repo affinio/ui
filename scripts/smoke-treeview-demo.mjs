@@ -267,7 +267,13 @@ try {
     throw new Error(`edge auto-scroll check did not start a native drag: ${dragStartsBeforeEdge} -> ${dragStartsAfterEdge}`)
   }
   if (!(dragEdgeScrollTop > 0)) {
-    throw new Error(`dragging near the viewport edge did not autoscroll: ${dragEdgeScrollTop}`)
+    const scrollMetrics = await viewport.evaluate((element) => ({
+      scrollTop: element.scrollTop,
+      scrollHeight: element.scrollHeight,
+      clientHeight: element.clientHeight,
+    }))
+    const dragDiagnostics = await page.locator(".treeview-intents").innerText()
+    throw new Error(`dragging near the viewport edge did not autoscroll: ${JSON.stringify({ dragEdgeScrollTop, scrollMetrics, dragDiagnostics })}`)
   }
   const interactionScreenshot = await captureScreenshot(page, "treeview-interaction-stress")
 
