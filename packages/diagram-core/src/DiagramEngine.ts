@@ -1,4 +1,4 @@
-import { createEntityGeometry, distance, rectContainsPoint, rectIntersects } from "./geometry.js"
+import { createEntityGeometry, distance, inflateRect, rectContainsPoint, rectIntersects } from "./geometry.js"
 import { DiagramClipboardService } from "./internal/DiagramClipboardService.js"
 import { DiagramGeometryService } from "./internal/DiagramGeometryService.js"
 import { DiagramHistory } from "./internal/DiagramHistory.js"
@@ -12,6 +12,8 @@ import type {
   DiagramClipboard,
   DiagramCommand,
   DiagramCommandResult,
+  DiagramBatchOptions,
+  DiagramBatchResult,
   DiagramDiagnostics,
   DiagramEdge,
   DiagramEdgeEndpoint,
@@ -36,9 +38,12 @@ import type {
   DiagramKeyboardOptions,
   DiagramSnapContext,
   DiagramSnapResult,
+  DiagramTranslationSnapResult,
+  DiagramSnapGuide,
   DiagramSubscriber,
   DiagramViewport,
   SerializedDiagramScene,
+  DiagramDocument,
 } from "./types.js"
 
 export class DiagramEngine {
@@ -58,10 +63,13 @@ export class DiagramEngine {
   private orderedIdsRevision = -1
   private orderedIdsCache: DiagramId[] = []
   private dependencyIndexReady = false
+  private dependencyIndexRebuildCount = 0
   private dependencyEntityIds = new Set<DiagramId>()
   private portIdsByNode = new Map<DiagramId, Set<DiagramId>>()
   private edgeIdsByNode = new Map<DiagramId, Set<DiagramId>>()
   private edgeIdsByPort = new Map<DiagramId, Set<DiagramId>>()
+  private dependencyEdgeEndpoints = new Map<DiagramId, readonly [DiagramEdgeEndpoint, DiagramEdgeEndpoint]>()
+  private dependencyPortOwners = new Map<DiagramId, DiagramId>()
 
   constructor(initialScene: DiagramSceneInput = {}, options: DiagramEngineOptions = {}) {
     this.history = new DiagramHistory(options.history)
@@ -80,6 +88,10 @@ export class DiagramEngine {
 
   getEntityVersion(id: DiagramId): number {
     return this.state.versions.get(id) ?? 0
+  }
+
+  getDocumentRevision(): number {
+    return this.state.documentRevision
   }
 
   getGeometryReadCount(): number {
@@ -112,6 +124,46 @@ export class DiagramEngine {
     result = { changed: transaction.changedIds.size > 0, revision: this.state.revision }
     this.lastCommandMs = now() - startedAt
     return result
+  }
+
+  dispatchBatch(commands: ReadonlyArray<DiagramCommand>, options: DiagramBatchOptions = {}): DiagramBatchResult {
+    const failure = (reason: "revision-mismatch" | "invalid-command" | "unsupported-command", index: number | null, ids: DiagramId[] = []): DiagramBatchResult => ({
+      ok: false, changed: false, revision: this.state.revision, documentRevision: this.state.documentRevision,
+      failedCommandIndex: index, reason, affectedIds: [...new Set(ids)],
+    })
+    if (options.expectedRevision !== undefined && options.expectedRevision !== this.state.documentRevision) {
+      return failure("revision-mismatch", null)
+    }
+    const draft = new DiagramEngine(serializeScene(this.store.getSnapshot()))
+    draft.state.revision = this.state.revision
+    draft.state.documentRevision = this.state.documentRevision
+    draft.state.orderRevision = this.state.orderRevision
+    const patches: Patch[] = []
+    const affected = new Set<DiagramId>()
+    for (let index = 0; index < commands.length; index += 1) {
+      const command = commands[index]!
+      if (command.type === "undo" || command.type === "redo") return failure("unsupported-command", index)
+      const patch = draft.createPatch(command)
+      if (!patch) {
+        if (isBatchNoOp(draft.state, command)) continue
+        const ids = commandIds(command)
+        const missing = ids.filter((id) => !draft.hasEntity(id))
+        return failure("invalid-command", index, missing.length ? missing : ids)
+      }
+      const changed = draft.commitPatch(patch, false, null).changedIds
+      if (changed.size) {
+        patches.push(patch)
+        for (const id of changed) affected.add(id)
+      }
+    }
+    if (!patches.length) return { ok: true, changed: false, revision: this.state.revision, documentRevision: this.state.documentRevision, failedCommandIndex: null, reason: null, affectedIds: [] }
+    let combined = patches[0]!
+    for (let index = 1; index < patches.length; index += 1) combined = composePatches(combined, patches[index]!)
+    let inverse = patches[patches.length - 1]!.inverse
+    for (let index = patches.length - 2; index >= 0; index -= 1) inverse = composePatches(inverse, patches[index]!.inverse)
+    combined.inverse = inverse
+    const changed = this.commitPatch(combined, true, null).changedIds
+    return { ok: true, changed: changed.size > 0, revision: this.state.revision, documentRevision: this.state.documentRevision, failedCommandIndex: null, reason: null, affectedIds: [...affected] }
   }
 
   transact(mutator: (draft: DiagramScene) => DiagramSceneInput): DiagramCommandResult {
@@ -257,14 +309,14 @@ export class DiagramEngine {
     if (custom) {
       return { point: custom, snapped: true, source: "custom" }
     }
-    const port = this.nearestPort(point, context.radius ?? 12, context.excludeIds ?? new Set())
+    const port = context.snapToPorts === false ? null : this.nearestPort(point, context.radius ?? 12, context.excludeIds ?? new Set())
     if (port) {
       const geometry = this.getGeometry(port.id)
       if (geometry?.point) {
         return { point: geometry.point, snapped: true, source: "port" }
       }
     }
-    const aligned = this.snapToAlignment(point, context.radius ?? 6, context.excludeIds)
+    const aligned = context.snapToAlignment === false ? null : this.snapToAlignment(point, context.radius ?? 6, context.excludeIds)
     if (aligned) {
       return { point: aligned, snapped: true, source: "alignment" }
     }
@@ -284,15 +336,66 @@ export class DiagramEngine {
     return { point, snapped: false, source: null }
   }
 
-  snapTranslation(selection: DiagramSelection, delta: DiagramPoint, context: DiagramSnapContext = {}): DiagramSnapResult {
+  snapTranslation(selection: DiagramSelection, delta: DiagramPoint, context: DiagramSnapContext = {}): DiagramTranslationSnapResult {
     const primaryId = selection.primaryId ?? selection.ids[0]
     const geometry = primaryId ? this.getGeometry(primaryId) : null
     const origin = geometry ? { x: geometry.bounds.x, y: geometry.bounds.y } : { x: 0, y: 0 }
-    const snapped = this.snapPoint({ x: origin.x + delta.x, y: origin.y + delta.y }, context)
+    const radius = context.radius ?? 6
+    const excludeIds = new Set([...(context.excludeIds ?? []), ...selection.ids])
+    const proposed = { x: origin.x + delta.x, y: origin.y + delta.y }
+    const guides: DiagramSnapGuide[] = []
+    let point = proposed
+    let source: DiagramSnapResult["source"] = null
+    let prioritySnap = false
+    const portSnap = context.snapToPorts === false && !context.custom
+      ? { point, snapped: false, source: null as DiagramSnapResult["source"] }
+      : this.snapPoint(point, { ...context, gridSize: undefined, radius, excludeIds, snapToAlignment: false })
+    if (portSnap.source === "port" || portSnap.source === "custom") {
+      point = portSnap.point
+      source = portSnap.source
+      prioritySnap = true
+    }
+    if (!prioritySnap && context.snapToAlignment !== false && geometry) {
+      const aligned = this.findTranslationAlignment(geometry.bounds, point, radius, excludeIds)
+      if (aligned) {
+        point = { x: point.x + aligned.dx, y: point.y + aligned.dy }
+        guides.push(...aligned.guides)
+        source ??= "alignment"
+      }
+    }
+    if (!prioritySnap && context.snapToEqualSpacing && geometry) {
+      const alignedAxes = new Set(guides.filter((guide) => guide.kind === "alignment").map((guide) => guide.axis))
+      const spaced = this.findEqualSpacing(geometry.bounds, point, radius, excludeIds, alignedAxes)
+      if (spaced) {
+        point = { x: point.x + spaced.dx, y: point.y + spaced.dy }
+        guides.push(...spaced.guides)
+        source ??= "equal-spacing"
+      }
+    }
+    if (!prioritySnap && context.gridSize && context.gridSize > 0) {
+      const snappedAxes = new Set(guides.map((guide) => guide.axis))
+      let gridChanged = false
+      if (!snappedAxes.has("x")) {
+        const x = Math.round(point.x / context.gridSize) * context.gridSize
+        gridChanged ||= x !== point.x
+        point = { ...point, x }
+      }
+      if (!snappedAxes.has("y")) {
+        const y = Math.round(point.y / context.gridSize) * context.gridSize
+        gridChanged ||= y !== point.y
+        point = { ...point, y }
+      }
+      if (gridChanged) source ??= "grid"
+    }
     return {
-      point: { x: snapped.point.x - origin.x, y: snapped.point.y - origin.y },
-      snapped: snapped.snapped,
-      source: snapped.source,
+      point: { x: point.x - origin.x, y: point.y - origin.y },
+      snapped: source !== null,
+      source,
+      guides: Object.freeze(guides.map((guide) => Object.freeze({
+        ...guide,
+        start: Object.freeze({ ...guide.start }),
+        end: Object.freeze({ ...guide.end }),
+      }))),
     }
   }
 
@@ -309,7 +412,7 @@ export class DiagramEngine {
   }
 
   canMove(ids: ReadonlyArray<DiagramId> = this.state.selection.ids): boolean {
-    return ids.some((id) => this.hasEntity(id) && !this.isEntityLockedOrReadOnly(id))
+    return ids.some((id) => this.isEntityTranslatable(id) && !this.isEntityLockedOrReadOnly(id))
   }
 
   canResize(ids: ReadonlyArray<DiagramId> = this.state.selection.ids): boolean {
@@ -339,6 +442,9 @@ export class DiagramEngine {
       entityQueryCount: this.entityQueryCount,
       hitTestCount: this.hitTestCount,
       geometryRecomputeCount: this.geometryService.getReadCount(),
+      spatialIndexRebuildCount: this.spatialIndex.getRebuildCount(),
+      spatialIndexUpdateCount: this.spatialIndex.getUpdateCount(),
+      dependencyIndexRebuildCount: this.dependencyIndexRebuildCount,
       lastCommandMs: this.lastCommandMs,
       undoDepth: this.history.undoDepth(),
       redoDepth: this.history.redoDepth(),
@@ -388,6 +494,16 @@ export class DiagramEngine {
     return serializeScene(this.store.getSnapshot())
   }
 
+  serializeDocument(options: { includeView?: boolean } = {}): DiagramDocument {
+    const scene = this.serialize()
+    return {
+      format: "affino-diagram",
+      version: 1,
+      content: { nodes: scene.nodes, edges: scene.edges, texts: scene.texts, shapes: scene.shapes, ports: scene.ports },
+      ...(options.includeView === false ? {} : { view: { viewport: scene.viewport, selection: scene.selection } }),
+    }
+  }
+
   private undo(): DiagramCommandResult {
     const entry = this.history.popUndo()
     if (!entry) {
@@ -419,6 +535,8 @@ export class DiagramEngine {
       this.state.versions.set(id, (this.state.versions.get(id) ?? 0) + 1)
     }
     this.state.revision += 1
+    if (patch.documentChanged !== false) this.state.documentRevision += 1
+    if (patch.orderChanged === true) this.state.orderRevision += 1
     this.geometryService.invalidate(invalidatedIds)
     const invalidatedGeometryIds = [...invalidatedIds]
     this.spatialIndex.update(
@@ -451,17 +569,50 @@ export class DiagramEngine {
   }
 
   private ensureDependencyIndex(changedIds: ReadonlySet<DiagramId>): void {
-    let rebuild = !this.dependencyIndexReady
-    for (const id of changedIds) {
-      const exists = this.hasEntity(id)
-      if (this.dependencyEntityIds.has(id) !== exists || this.state.entities.edgesById.has(id) || this.state.entities.portsById.has(id)) {
-        rebuild = true
-        break
+    if (this.dependencyIndexReady) {
+      const structuralChange = [...changedIds].some((id) => this.dependencyEntityIds.has(id) !== this.hasEntity(id))
+      if (structuralChange) {
+        this.dependencyIndexReady = false
+      } else {
+      for (const id of changedIds) {
+        const oldEdge = this.dependencyEdgeEndpoints.get(id)
+        const edge = this.state.entities.edgesById.get(id)
+        if (oldEdge && (!edge || oldEdge[0] !== edge.source && JSON.stringify(oldEdge[0]) !== JSON.stringify(edge.source) || oldEdge[1] !== edge.target && JSON.stringify(oldEdge[1]) !== JSON.stringify(edge.target))) {
+          this.removeEdgeDependencies(id, oldEdge)
+          this.dependencyEdgeEndpoints.delete(id)
+        }
+        if (edge && !this.dependencyEdgeEndpoints.has(id)) {
+          const endpoints = [edge.source, edge.target] as const
+          this.addEdgeDependencies(id, endpoints)
+          this.dependencyEdgeEndpoints.set(id, endpoints)
+        }
+        const oldOwner = this.dependencyPortOwners.get(id)
+        const port = this.state.entities.portsById.get(id)
+        if (oldOwner !== port?.nodeId) {
+          const attachedEdges = [...(this.edgeIdsByPort.get(id) ?? [])]
+          for (const edgeId of attachedEdges) {
+            const endpoints = this.dependencyEdgeEndpoints.get(edgeId)
+            if (endpoints) this.removeEdgeDependencies(edgeId, endpoints)
+          }
+          if (oldOwner) removeDependency(this.portIdsByNode, oldOwner, id)
+          if (!port) this.dependencyPortOwners.delete(id)
+          else {
+            this.dependencyPortOwners.set(id, port.nodeId)
+            addDependency(this.portIdsByNode, port.nodeId, id)
+          }
+          for (const edgeId of attachedEdges) {
+            const endpoints = this.dependencyEdgeEndpoints.get(edgeId)
+            if (endpoints) this.addEdgeDependencies(edgeId, endpoints)
+          }
+        }
+        const exists = this.hasEntity(id)
+        if (exists) this.dependencyEntityIds.add(id)
+        else this.dependencyEntityIds.delete(id)
+      }
+      return
       }
     }
-    if (!rebuild) {
-      return
-    }
+    this.dependencyIndexRebuildCount += 1
     this.dependencyEntityIds = new Set([
       ...this.state.entities.nodesById.keys(),
       ...this.state.entities.edgesById.keys(),
@@ -472,27 +623,44 @@ export class DiagramEngine {
     this.portIdsByNode = new Map()
     this.edgeIdsByNode = new Map()
     this.edgeIdsByPort = new Map()
+    this.dependencyEdgeEndpoints.clear()
+    this.dependencyPortOwners.clear()
     for (const port of this.state.entities.portsById.values()) {
+      this.dependencyPortOwners.set(port.id, port.nodeId)
       addDependency(this.portIdsByNode, port.nodeId, port.id)
     }
     for (const edge of this.state.entities.edgesById.values()) {
-      for (const endpoint of [edge.source, edge.target]) {
-        if (endpoint.kind === "node") {
-          addDependency(this.edgeIdsByNode, endpoint.nodeId, edge.id)
-        } else if (endpoint.kind === "port") {
-          addDependency(this.edgeIdsByPort, endpoint.portId, edge.id)
-          const port = this.state.entities.portsById.get(endpoint.portId)
-          if (port) {
-            addDependency(this.edgeIdsByNode, port.nodeId, edge.id)
-          }
-        }
-      }
+      const endpoints = [edge.source, edge.target] as const
+      this.dependencyEdgeEndpoints.set(edge.id, endpoints)
+      this.addEdgeDependencies(edge.id, endpoints)
     }
     this.dependencyIndexReady = true
   }
 
+  private addEdgeDependencies(id: DiagramId, endpoints: readonly [DiagramEdgeEndpoint, DiagramEdgeEndpoint]): void {
+    for (const endpoint of endpoints) {
+      if (endpoint.kind === "node") addDependency(this.edgeIdsByNode, endpoint.nodeId, id)
+      else if (endpoint.kind === "port") {
+        addDependency(this.edgeIdsByPort, endpoint.portId, id)
+        const owner = this.dependencyPortOwners.get(endpoint.portId)
+        if (owner) addDependency(this.edgeIdsByNode, owner, id)
+      }
+    }
+  }
+
+  private removeEdgeDependencies(id: DiagramId, endpoints: readonly [DiagramEdgeEndpoint, DiagramEdgeEndpoint]): void {
+    for (const endpoint of endpoints) {
+      if (endpoint.kind === "node") removeDependency(this.edgeIdsByNode, endpoint.nodeId, id)
+      else if (endpoint.kind === "port") {
+        removeDependency(this.edgeIdsByPort, endpoint.portId, id)
+        const owner = this.dependencyPortOwners.get(endpoint.portId)
+        if (owner) removeDependency(this.edgeIdsByNode, owner, id)
+      }
+    }
+  }
+
   private getGeometry(id: DiagramId): DiagramGeometry | null {
-    return this.geometryService.get(id, this.store.getSnapshot().entities, this.state.versions.get(id) ?? 0)
+    return this.geometryService.get(id, this.state.entities, this.state.versions.get(id) ?? 0)
   }
 
   private rebuildIndexGeometries(): ReadonlyArray<DiagramGeometry> {
@@ -511,6 +679,14 @@ export class DiagramEngine {
         return createMovePatch(this.state, command.ids, command.delta)
       case "moveNode":
         return createMovePatch(this.state, [command.id], command.delta)
+      case "createNode":
+        return createCreateEntityPatch(this.state, command.node)
+      case "createPort":
+        return createCreatePortPatch(this.state, command.port)
+      case "deleteEntities":
+        return createDeleteEntitiesCommandPatch(this.state, command.ids)
+      case "reconnectEdgeEndpoint":
+        return createReconnectEdgeEndpointPatch(this.state, command.id, command.endpoint, command.connection)
       case "moveEdgeEndpoint":
         return createMoveEdgeEndpointPatch(this.state, command.id, command.endpoint, command.point)
       case "insertEdgeWaypoint":
@@ -526,6 +702,7 @@ export class DiagramEngine {
       case "duplicateSelection":
         return this.clipboardService.createPastePatch(this.state, this.clipboardService.exportSubgraph(this.state, this.state.selection.ids, normalizeSelection), command.offset ?? { x: 24, y: 24 }, createDeleteEntitiesPatch, normalizeSelection)
       case "pasteClipboard":
+        try { validateSceneInput(command.clipboard) } catch { return null }
         return this.clipboardService.createPastePatch(this.state, command.clipboard, command.offset ?? { x: 24, y: 24 }, createDeleteEntitiesPatch, normalizeSelection)
       case "resizeEntities":
         return createResizePatch(this.state, command.entries)
@@ -578,8 +755,110 @@ export class DiagramEngine {
     return null
   }
 
+  private findTranslationAlignment(
+    sourceBounds: DiagramRect,
+    targetOrigin: DiagramPoint,
+    radius: number,
+    excludeIds: ReadonlySet<DiagramId>,
+  ): { dx: number; dy: number; guides: DiagramSnapGuide[] } | null {
+    const moving = { ...sourceBounds, x: targetOrigin.x, y: targetOrigin.y }
+    let bestX: { delta: number; coordinate: number; start: number; end: number; startIsMoving: boolean; endIsMoving: boolean } | null = null
+    let bestY: { delta: number; coordinate: number; start: number; end: number; startIsMoving: boolean; endIsMoving: boolean } | null = null
+    const searchBounds = inflateRect(moving, radius)
+    for (const fixedId of this.queryEntities({ bounds: searchBounds, kinds: ["node", "shape", "text"] })) {
+      if (excludeIds.has(fixedId)) continue
+      const fixed = this.getGeometry(fixedId)?.bounds
+      if (!fixed) continue
+      const movingX = [moving.x, moving.x + moving.width / 2, moving.x + moving.width]
+      const fixedX = [fixed.x, fixed.x + fixed.width / 2, fixed.x + fixed.width]
+      for (const [index, value] of movingX.entries()) {
+        for (const coordinate of fixedX) {
+          const delta = coordinate - value
+          if (Math.abs(delta) <= radius && (!bestX || Math.abs(delta) < Math.abs(bestX.delta))) {
+            bestX = { delta, coordinate, start: Math.min(moving.y, fixed.y), end: Math.max(moving.y + moving.height, fixed.y + fixed.height), startIsMoving: moving.y <= fixed.y, endIsMoving: moving.y + moving.height >= fixed.y + fixed.height }
+          }
+        }
+      }
+      const movingY = [moving.y, moving.y + moving.height / 2, moving.y + moving.height]
+      const fixedY = [fixed.y, fixed.y + fixed.height / 2, fixed.y + fixed.height]
+      for (const value of movingY) {
+        for (const coordinate of fixedY) {
+          const delta = coordinate - value
+          if (Math.abs(delta) <= radius && (!bestY || Math.abs(delta) < Math.abs(bestY.delta))) {
+            bestY = { delta, coordinate, start: Math.min(moving.x, fixed.x), end: Math.max(moving.x + moving.width, fixed.x + fixed.width), startIsMoving: moving.x <= fixed.x, endIsMoving: moving.x + moving.width >= fixed.x + fixed.width }
+          }
+        }
+      }
+    }
+    if (!bestX && !bestY) return null
+    const dx = bestX?.delta ?? 0
+    const dy = bestY?.delta ?? 0
+    const guides: DiagramSnapGuide[] = []
+    if (bestX) guides.push({ kind: "alignment", axis: "x", start: { x: bestX.coordinate, y: bestX.start + (bestX.startIsMoving ? dy : 0) }, end: { x: bestX.coordinate, y: bestX.end + (bestX.endIsMoving ? dy : 0) } })
+    if (bestY) guides.push({ kind: "alignment", axis: "y", start: { x: bestY.start + (bestY.startIsMoving ? dx : 0), y: bestY.coordinate }, end: { x: bestY.end + (bestY.endIsMoving ? dx : 0), y: bestY.coordinate } })
+    return { dx, dy, guides }
+  }
+
+  private findEqualSpacing(
+    sourceBounds: DiagramRect,
+    targetOrigin: DiagramPoint,
+    radius: number,
+    excludeIds: ReadonlySet<DiagramId>,
+    excludeAxes: ReadonlySet<"x" | "y">,
+  ): { dx: number; dy: number; guides: DiagramSnapGuide[] } | null {
+    const moving = { ...sourceBounds, x: targetOrigin.x, y: targetOrigin.y }
+    const reach = Math.max(128, radius * 16, sourceBounds.width * 8, sourceBounds.height * 8)
+    const fixed = this.queryEntities({
+      bounds: { x: moving.x - reach, y: moving.y - reach, width: moving.width + reach * 2, height: moving.height + reach * 2 },
+      kinds: ["node", "shape", "text"],
+    })
+      .filter((id) => !excludeIds.has(id))
+      .map((id) => this.getGeometry(id)?.bounds)
+      .filter((bounds): bounds is DiagramRect => Boolean(bounds))
+    let best: { axis: "x" | "y"; delta: number; before: DiagramRect; after: DiagramRect } | null = null
+    if (!excludeAxes.has("x")) {
+      const horizontal = fixed.filter((rect) => rangesOverlap(rect.y, rect.y + rect.height, moving.y, moving.y + moving.height))
+      const before = horizontal.filter((rect) => rect.x + rect.width <= moving.x).sort((a, b) => b.x + b.width - (a.x + a.width))[0]
+      const after = horizontal.filter((rect) => rect.x >= moving.x + moving.width).sort((a, b) => a.x - b.x)[0]
+      if (before && after) {
+        const delta = ((after.x - moving.x - moving.width) - (moving.x - before.x - before.width)) / 2
+        if (Math.abs(delta) <= radius) best = { axis: "x", delta, before, after }
+      }
+    }
+    if (!excludeAxes.has("y")) {
+      const vertical = fixed.filter((rect) => rangesOverlap(rect.x, rect.x + rect.width, moving.x, moving.x + moving.width))
+      const before = vertical.filter((rect) => rect.y + rect.height <= moving.y).sort((a, b) => b.y + b.height - (a.y + a.height))[0]
+      const after = vertical.filter((rect) => rect.y >= moving.y + moving.height).sort((a, b) => a.y - b.y)[0]
+      if (before && after) {
+        const delta = ((after.y - moving.y - moving.height) - (moving.y - before.y - before.height)) / 2
+        if (Math.abs(delta) <= radius && (!best || Math.abs(delta) < Math.abs(best.delta))) best = { axis: "y", delta, before, after }
+      }
+    }
+    if (!best) return null
+    if (best.axis === "x") {
+      const centerY = moving.y + moving.height / 2
+      return {
+        dx: best.delta,
+        dy: 0,
+        guides: [
+          { kind: "equal-spacing", axis: "x", start: { x: best.before.x + best.before.width, y: centerY }, end: { x: moving.x + best.delta, y: centerY } },
+          { kind: "equal-spacing", axis: "x", start: { x: moving.x + moving.width + best.delta, y: centerY }, end: { x: best.after.x, y: centerY } },
+        ],
+      }
+    }
+    const centerX = moving.x + moving.width / 2
+    return {
+      dx: 0,
+      dy: best.delta,
+      guides: [
+        { kind: "equal-spacing", axis: "y", start: { x: centerX, y: best.before.y + best.before.height }, end: { x: centerX, y: moving.y + best.delta } },
+        { kind: "equal-spacing", axis: "y", start: { x: centerX, y: moving.y + moving.height + best.delta }, end: { x: centerX, y: best.after.y } },
+      ],
+    }
+  }
+
   private createOrderedIds(): DiagramId[] {
-    if (this.orderedIdsRevision === this.state.revision) {
+    if (this.orderedIdsRevision === this.state.orderRevision) {
       return this.orderedIdsCache
     }
     const ids = [
@@ -598,14 +877,14 @@ export class DiagramEngine {
       const zDelta = zIndex(this.getEntityMetadata(a)) - zIndex(this.getEntityMetadata(b))
       return zDelta || ((baseOrder.get(a) ?? 0) - (baseOrder.get(b) ?? 0))
     })
-    this.orderedIdsRevision = this.state.revision
+    this.orderedIdsRevision = this.state.orderRevision
     return this.orderedIdsCache
   }
 
   private createOrderIndex(): Map<DiagramId, number> {
-    if (this.orderIndexRevision !== this.state.revision) {
+    if (this.orderIndexRevision !== this.state.orderRevision) {
       this.orderIndexCache = new Map(this.createOrderedIds().map((id, index) => [id, index]))
-      this.orderIndexRevision = this.state.revision
+      this.orderIndexRevision = this.state.orderRevision
     }
     return this.orderIndexCache
   }
@@ -639,6 +918,23 @@ export class DiagramEngine {
   private isEntityNonDeletable(id: DiagramId): boolean {
     return this.getEntityMetadata(id)?.nonDeletable === true
   }
+
+  private isEntityTranslatable(id: DiagramId): boolean {
+    if (this.state.entities.portsById.has(id)) return false
+    const edge = this.state.entities.edgesById.get(id)
+    if (edge) return edge.source.kind === "point" || edge.target.kind === "point" || Boolean(edge.points?.length)
+    return this.state.entities.nodesById.has(id) || this.state.entities.textsById.has(id) || this.state.entities.shapesById.has(id)
+  }
+}
+
+function isBatchNoOp(state: InternalState, command: DiagramCommand): boolean {
+  if (command.type === "updateEntities" && command.updates.every((update) => {
+    if (!hasEntity(state, update.id)) return false
+    const current = getEntityMetadata(state, update.id) ?? {}
+    return update.metadata === undefined || Object.entries(update.metadata).every(([key, value]) => Object.is(current[key], value))
+  })) return true
+  if (command.type === "setSelection" && command.selection.ids.length === state.selection.ids.length && command.selection.ids.every((id, index) => id === state.selection.ids[index]) && (command.selection.primaryId ?? null) === state.selection.primaryId) return true
+  return false
 }
 
 function geometryMatchesBounds(candidate: DiagramRect, bounds: DiagramRect, mode: "intersects" | "contains"): boolean {
@@ -650,6 +946,10 @@ function rectContainsRect(container: DiagramRect, candidate: DiagramRect): boole
     && candidate.y >= container.y
     && candidate.x + candidate.width <= container.x + container.width
     && candidate.y + candidate.height <= container.y + container.height
+}
+
+function rangesOverlap(aStart: number, aEnd: number, bStart: number, bEnd: number): boolean {
+  return aStart <= bEnd && aEnd >= bStart
 }
 
 function normalizeSearchText(value: string | undefined): string {
@@ -729,72 +1029,116 @@ export function deserializeScene(scene: SerializedDiagramScene): DiagramSceneInp
   return scene
 }
 
+export function deserializeDiagramDocument(input: DiagramDocument | SerializedDiagramScene): DiagramSceneInput {
+  if (!input || typeof input !== "object") throw new TypeError("Invalid diagram document")
+  if ("format" in input) {
+    if (input.format !== "affino-diagram" || input.version !== 1 || !input.content || ![input.content.nodes, input.content.edges, input.content.texts, input.content.shapes, input.content.ports].every(Array.isArray)) {
+      throw new TypeError("Unsupported or invalid diagram document")
+    }
+    const view = input.view ?? {}
+    return validateSceneInput({ ...input.content, ...(view.selection ? { selection: view.selection } : {}), ...(view.viewport ? { viewport: view.viewport } : {}) })
+  }
+  return validateSceneInput(input)
+}
+
+function validateSceneInput(scene: DiagramSceneInput): DiagramSceneInput {
+  const nodesInput = scene.nodes ?? []
+  const edgesInput = scene.edges ?? []
+  const textsInput = scene.texts ?? []
+  const shapesInput = scene.shapes ?? []
+  const portsInput = scene.ports ?? []
+  if (![nodesInput, edgesInput, textsInput, shapesInput, portsInput].every(Array.isArray)) throw new TypeError("Invalid diagram scene collections")
+  const ids = new Set<string>()
+  for (const entity of [...nodesInput, ...edgesInput, ...textsInput, ...shapesInput, ...portsInput]) {
+    if (!entity || typeof entity.id !== "string" || !entity.id || ids.has(entity.id)) throw new TypeError("Diagram entity IDs must be non-empty and globally unique")
+    ids.add(entity.id)
+  }
+  const nodes = new Set(nodesInput.map((node) => node.id))
+  const ports = new Map(portsInput.map((port) => [port.id, port]))
+  for (const node of nodesInput) if (![node.x, node.y, node.width, node.height, node.rotation ?? 0].every(Number.isFinite) || node.width < 0 || node.height < 0) throw new TypeError(`Invalid geometry for node ${node.id}`)
+  for (const port of portsInput) if (!nodes.has(port.nodeId) || ![port.x, port.y, port.radius ?? 0].every(Number.isFinite)) throw new TypeError(`Invalid port ${port.id}`)
+  for (const node of nodesInput) if ((node.portIds ?? []).some((id) => ports.get(id)?.nodeId !== node.id)) throw new TypeError(`Invalid port reference on node ${node.id}`)
+  for (const text of textsInput) if (![text.x, text.y, text.width ?? 0, text.height ?? 0, text.fontSize ?? 0, text.rotation ?? 0].every(Number.isFinite)) throw new TypeError(`Invalid geometry for text ${text.id}`)
+  for (const shape of shapesInput) if (![shape.x, shape.y, shape.width, shape.height, shape.rotation ?? 0].every(Number.isFinite) || shape.width < 0 || shape.height < 0) throw new TypeError(`Invalid geometry for shape ${shape.id}`)
+  for (const edge of edgesInput) {
+    const validEndpoint = (endpoint: DiagramEdgeEndpoint) => endpoint.kind === "point" ? Number.isFinite(endpoint.point.x) && Number.isFinite(endpoint.point.y) : endpoint.kind === "node" ? nodes.has(endpoint.nodeId) : endpoint.kind === "port" && ports.has(endpoint.portId)
+    if (!validEndpoint(edge.source) || !validEndpoint(edge.target) || !(edge.points ?? []).every((point) => Number.isFinite(point.x) && Number.isFinite(point.y))) throw new TypeError(`Invalid edge ${edge.id}`)
+  }
+  if (scene.viewport && (![scene.viewport.x, scene.viewport.y, scene.viewport.width, scene.viewport.height, scene.viewport.zoom].filter((value) => value !== undefined).every(Number.isFinite) || (scene.viewport.zoom !== undefined && scene.viewport.zoom <= 0))) throw new TypeError("Invalid diagram viewport")
+  const selectionIds = scene.selection?.ids ?? []
+  if (selectionIds.some((id) => !ids.has(id))) throw new TypeError("Diagram selection contains an unknown entity")
+  return { ...scene, nodes: nodesInput, edges: edgesInput, texts: textsInput, shapes: shapesInput, ports: portsInput }
+}
+
 function createMovePatch(state: InternalState, ids: ReadonlyArray<DiagramId>, delta: DiagramPoint): Patch | null {
   if (delta.x === 0 && delta.y === 0) {
     return null
   }
-  const movableIds = ids.filter((id) => !isEntityLockedOrReadOnly(state, id) && (state.entities.nodesById.has(id) || state.entities.textsById.has(id) || state.entities.shapesById.has(id)))
+  const movableIds = ids.filter((id) => !isEntityLockedOrReadOnly(state, id) && (
+    state.entities.nodesById.has(id)
+    || isEdgeTranslatable(state.entities.edgesById.get(id))
+    || state.entities.textsById.has(id)
+    || state.entities.shapesById.has(id)
+  ))
   if (!movableIds.length) {
     return null
   }
   return {
-    apply: (next) => {
-      const changed = new Set<DiagramId>()
-      for (const id of movableIds) {
-        const node = next.entities.nodesById.get(id)
-        if (node) {
-          next.entities.nodesById.set(id, { ...node, x: node.x + delta.x, y: node.y + delta.y })
-          changed.add(id)
-          continue
-        }
-        const text = next.entities.textsById.get(id)
-        if (text) {
-          next.entities.textsById.set(id, { ...text, x: text.x + delta.x, y: text.y + delta.y })
-          changed.add(id)
-          continue
-        }
-        const shape = next.entities.shapesById.get(id)
-        if (shape) {
-          next.entities.shapesById.set(id, { ...shape, x: shape.x + delta.x, y: shape.y + delta.y })
-          changed.add(id)
-        }
-      }
-      return changed
-    },
+    apply: (next) => applyMoveDelta(next, movableIds, delta),
     inverse: createMovePatchUnchecked(movableIds, { x: -delta.x, y: -delta.y }),
   }
 }
 
+function isEdgeTranslatable(edge: DiagramEdge | undefined): boolean {
+  return Boolean(edge && (edge.source.kind === "point" || edge.target.kind === "point" || edge.points?.length))
+}
+
 function createMovePatchUnchecked(ids: ReadonlyArray<DiagramId>, delta: DiagramPoint): Patch {
   return {
-    apply: (next) => {
-      const changed = new Set<DiagramId>()
-      for (const id of ids) {
-        const node = next.entities.nodesById.get(id)
-        if (node) {
-          next.entities.nodesById.set(id, { ...node, x: node.x + delta.x, y: node.y + delta.y })
-          changed.add(id)
-        }
-        const text = next.entities.textsById.get(id)
-        if (text) {
-          next.entities.textsById.set(id, { ...text, x: text.x + delta.x, y: text.y + delta.y })
-          changed.add(id)
-        }
-        const shape = next.entities.shapesById.get(id)
-        if (shape) {
-          next.entities.shapesById.set(id, { ...shape, x: shape.x + delta.x, y: shape.y + delta.y })
-          changed.add(id)
-        }
-      }
-      return changed
-    },
+    apply: (next) => applyMoveDelta(next, ids, delta),
     inverse: undefined as unknown as Patch,
   }
 }
 
+function applyMoveDelta(state: InternalState, ids: ReadonlyArray<DiagramId>, delta: DiagramPoint): Set<DiagramId> {
+  const changed = new Set<DiagramId>()
+  const translate = (point: DiagramPoint): DiagramPoint => ({ x: point.x + delta.x, y: point.y + delta.y })
+  for (const id of ids) {
+    const node = state.entities.nodesById.get(id)
+    if (node) {
+      state.entities.nodesById.set(id, { ...node, x: node.x + delta.x, y: node.y + delta.y })
+      changed.add(id)
+      continue
+    }
+    const edge = state.entities.edgesById.get(id)
+    if (edge) {
+      state.entities.edgesById.set(id, {
+        ...edge,
+        source: edge.source.kind === "point" ? { kind: "point", point: translate(edge.source.point) } : edge.source,
+        target: edge.target.kind === "point" ? { kind: "point", point: translate(edge.target.point) } : edge.target,
+        points: edge.points?.map(translate),
+      })
+      changed.add(id)
+      continue
+    }
+    const text = state.entities.textsById.get(id)
+    if (text) {
+      state.entities.textsById.set(id, { ...text, x: text.x + delta.x, y: text.y + delta.y })
+      changed.add(id)
+      continue
+    }
+    const shape = state.entities.shapesById.get(id)
+    if (shape) {
+      state.entities.shapesById.set(id, { ...shape, x: shape.x + delta.x, y: shape.y + delta.y })
+      changed.add(id)
+    }
+  }
+  return changed
+}
+
 function createMoveEdgeEndpointPatch(state: InternalState, id: DiagramId, endpoint: "source" | "target", point: DiagramPoint): Patch | null {
   const edge = state.entities.edgesById.get(id)
-  if (!edge) {
+  if (!edge || isEntityLockedOrReadOnly(state, id) || !Number.isFinite(point.x) || !Number.isFinite(point.y)) {
     return null
   }
   const previous = edge[endpoint]
@@ -1101,11 +1445,13 @@ function metadataEqual(
 
 function createMetadataSnapshotPatch(ids: ReadonlyArray<DiagramId>, previous: ReadonlyMap<DiagramId, Readonly<Record<string, unknown>> | undefined>, nextMetadata: ReadonlyMap<DiagramId, Readonly<Record<string, unknown>> | undefined>): Patch {
   return {
+    orderChanged: true,
     apply: (state) => {
       for (const id of ids) setEntityMetadata(state, id, nextMetadata.get(id))
       return new Set(ids)
     },
     inverse: {
+      orderChanged: true,
       apply: (state) => {
         for (const id of ids) setEntityMetadata(state, id, previous.get(id))
         return new Set(ids)
@@ -1117,11 +1463,13 @@ function createMetadataSnapshotPatch(ids: ReadonlyArray<DiagramId>, previous: Re
 
 function createOrderPatchUnchecked(previous: MutableOrder, nextOrder: MutableOrder): Patch {
   return {
+    orderChanged: true,
     apply: (state) => {
       state.order = cloneOrder(nextOrder)
       return new Set([...nextOrder.nodeIds, ...nextOrder.edgeIds, ...nextOrder.textIds, ...nextOrder.shapeIds])
     },
     inverse: {
+      orderChanged: true,
       apply: (state) => {
         state.order = cloneOrder(previous)
         return new Set([...previous.nodeIds, ...previous.edgeIds, ...previous.textIds, ...previous.shapeIds])
@@ -1166,10 +1514,11 @@ function createKeyboardPatch(state: InternalState, command: DiagramKeyboardComma
 }
 
 function createCreateEdgePatch(state: InternalState, edge: DiagramEdge): Patch | null {
-  if (state.entities.edgesById.has(edge.id)) {
+  if (!isUniqueId(state, edge.id) || !isValidEdge(state, edge)) {
     return null
   }
   return {
+    orderChanged: true,
     apply: (next) => {
       next.entities.edgesById.set(edge.id, edge)
       next.order.edgeIds.push(edge.id)
@@ -1180,15 +1529,116 @@ function createCreateEdgePatch(state: InternalState, edge: DiagramEdge): Patch |
   }
 }
 
+function createCreateEntityPatch(state: InternalState, node: import("./types.js").DiagramNode): Patch | null {
+  if (!isUniqueId(state, node.id) || Boolean(node.portIds?.length) || ![node.x, node.y, node.width, node.height, node.rotation ?? 0].every(Number.isFinite) || node.width < 0 || node.height < 0) return null
+  return {
+    orderChanged: true,
+    apply: (next) => { next.entities.nodesById.set(node.id, node); next.order.nodeIds.push(node.id); next.versions.set(node.id, 0); return new Set([node.id]) },
+    inverse: createDeleteEntitiesPatch([node.id]),
+  }
+}
+
+function createCreatePortPatch(state: InternalState, port: import("./types.js").DiagramPort): Patch | null {
+  const owner = state.entities.nodesById.get(port.nodeId)
+  if (!owner || isEntityLockedOrReadOnly(state, owner.id) || !isUniqueId(state, port.id) || !Number.isFinite(port.x) || !Number.isFinite(port.y) || (port.radius !== undefined && (!Number.isFinite(port.radius) || port.radius < 0))) return null
+  const previousPorts = [...(owner.portIds ?? [])]
+  return {
+    orderChanged: true,
+    apply: (next) => {
+      next.entities.portsById.set(port.id, port)
+      next.entities.nodesById.set(owner.id, { ...next.entities.nodesById.get(owner.id)!, portIds: [...new Set([...previousPorts, port.id])] })
+      next.versions.set(port.id, 0)
+      return new Set([port.id, owner.id])
+    },
+    inverse: {
+      orderChanged: true,
+      apply: (next) => { next.entities.portsById.delete(port.id); next.entities.nodesById.set(owner.id, { ...next.entities.nodesById.get(owner.id)!, portIds: previousPorts }); return new Set([port.id, owner.id]) },
+      inverse: undefined as unknown as Patch,
+    },
+  }
+}
+
+function createDeleteEntitiesCommandPatch(state: InternalState, ids: ReadonlyArray<DiagramId>): Patch | null {
+  if (!ids.length || ids.some((id) => !hasEntity(state, id))) return null
+  const cascade = expandDeletedIds(state, ids)
+  const deleting = new Set(cascade)
+  for (const id of deleting) {
+    if (state.entities.nodesById.has(id)) {
+      for (const port of state.entities.portsById.values()) if (port.nodeId === id && !deleting.has(port.id)) return null
+      for (const edge of state.entities.edgesById.values()) if (endpointDeleted(edge.source, deleting) || endpointDeleted(edge.target, deleting)) if (!deleting.has(edge.id)) return null
+    }
+  }
+  if (cascade.length !== new Set(cascade).size || cascade.some((id) => isEntityNonDeletable(state, id) || isEntityLockedOrReadOnly(state, id))) return null
+  if (ids.some((id) => isEntityNonDeletable(state, id) || isEntityLockedOrReadOnly(state, id))) return null
+  return createDeleteEntitiesPatch(cascade)
+}
+
+function createReconnectEdgeEndpointPatch(state: InternalState, id: DiagramId, endpoint: "source" | "target", connection: DiagramEdgeEndpoint): Patch | null {
+  const edge = state.entities.edgesById.get(id)
+  if (!edge || isEntityLockedOrReadOnly(state, id) || !isValidEndpoint(state, connection)) return null
+  const previous = edge[endpoint]
+  if (JSON.stringify(previous) === JSON.stringify(connection)) return null
+  return {
+    apply: (next) => { const current = next.entities.edgesById.get(id); if (!current) return new Set(); next.entities.edgesById.set(id, { ...current, [endpoint]: connection }); return new Set([id]) },
+    inverse: { apply: (next) => { const current = next.entities.edgesById.get(id); if (!current) return new Set(); next.entities.edgesById.set(id, { ...current, [endpoint]: previous }); return new Set([id]) }, inverse: undefined as unknown as Patch },
+  }
+}
+
+function isUniqueId(state: InternalState, id: DiagramId): boolean { return typeof id === "string" && id.length > 0 && !hasEntity(state, id) }
+function isValidEndpoint(state: InternalState, endpoint: DiagramEdgeEndpoint): boolean {
+  if (endpoint.kind === "point") return Number.isFinite(endpoint.point.x) && Number.isFinite(endpoint.point.y)
+  if (endpoint.kind === "node") return state.entities.nodesById.has(endpoint.nodeId)
+  const port = state.entities.portsById.get(endpoint.portId)
+  return Boolean(port && state.entities.nodesById.has(port.nodeId))
+}
+function isValidEdge(state: InternalState, edge: DiagramEdge): boolean {
+  return isValidEndpoint(state, edge.source) && isValidEndpoint(state, edge.target) && (edge.points ?? []).every((point) => Number.isFinite(point.x) && Number.isFinite(point.y))
+}
+function commandIds(command: DiagramCommand): DiagramId[] {
+  if ("id" in command) return [command.id]
+  if ("ids" in command) return [...command.ids]
+  if (command.type === "createEdge") return [command.edge.id]
+  if (command.type === "createNode") return [command.node.id]
+  if (command.type === "createPort") return [command.port.id, command.port.nodeId]
+  if (command.type === "updateEntities") return command.updates.map((update) => update.id)
+  return []
+}
+
 function createDeleteSelectionPatch(state: InternalState): Patch | null {
-  return createDeleteEntitiesPatch(expandDeletedIds(state, state.selection.ids))
+  const candidates = state.selection.ids.filter((id) => hasEntity(state, id) && !isEntityNonDeletable(state, id) && !isEntityLockedOrReadOnly(state, id))
+  const safe = candidates.filter((id) => {
+    const node = state.entities.nodesById.get(id)
+    if (node) {
+      if ([...state.entities.portsById.values()].some((port) => port.nodeId === id && (isEntityNonDeletable(state, port.id) || isEntityLockedOrReadOnly(state, port.id)))) return false
+      if ([...state.entities.edgesById.values()].some((edge) => (endpointDeleted(edge.source, new Set([id])) || endpointDeleted(edge.target, new Set([id]))) && (isEntityNonDeletable(state, edge.id) || isEntityLockedOrReadOnly(state, edge.id)))) return false
+    }
+    return true
+  })
+  const deleted = expandDeletedIds(state, safe)
+  return deleted.length ? createDeleteEntitiesPatch(deleted) : null
 }
 
 function createDeleteEntitiesPatch(ids: ReadonlyArray<DiagramId>): Patch {
   let deleted: SerializedDiagramScene | null = null
+  let deletedOrder: MutableOrder | null = null
+  let deletedPortOrder: DiagramId[] | null = null
+  let deletedPortOwners = new Map<DiagramId, import("./types.js").DiagramNode>()
   const patch: Patch = {
+    orderChanged: true,
     apply: (next) => {
       const changed = new Set<DiagramId>()
+      deletedOrder = cloneOrder(next.order)
+      deletedPortOrder = [...next.entities.portsById.keys()]
+      deletedPortOwners = new Map()
+      for (const id of ids) {
+        const port = next.entities.portsById.get(id)
+        const owner = port && next.entities.nodesById.get(port.nodeId)
+        if (port && owner) {
+          deletedPortOwners.set(owner.id, owner)
+          next.entities.nodesById.set(owner.id, { ...owner, portIds: (owner.portIds ?? []).filter((portId) => portId !== id) })
+          changed.add(owner.id)
+        }
+      }
       deleted = serializeScene({
         entities: {
           nodesById: pick(next.entities.nodesById, ids),
@@ -1216,11 +1666,19 @@ function createDeleteEntitiesPatch(ids: ReadonlyArray<DiagramId>): Patch {
       return changed
     },
     inverse: {
+      orderChanged: true,
       apply: (next) => {
         if (!deleted) {
           return new Set()
         }
-        return restoreSerialized(next, deleted)
+        const restored = restoreSerialized(next, deleted)
+        for (const [id, node] of deletedPortOwners) {
+          next.entities.nodesById.set(id, node)
+          restored.add(id)
+        }
+        if (deletedOrder) next.order = cloneOrder(deletedOrder)
+        if (deletedPortOrder) next.entities.portsById = new Map(deletedPortOrder.flatMap((id) => { const port = next.entities.portsById.get(id); return port ? [[id, port] as const] : [] }))
+        return restored
       },
       inverse: undefined as unknown as Patch,
     },
@@ -1234,6 +1692,7 @@ function createSelectionPatch(previous: DiagramSelection, selection: DiagramSele
     return null
   }
   return {
+    documentChanged: false,
     apply: (next) => {
       next.selection = nextSelection
       return new Set([...previous.ids, ...nextSelection.ids, "selection"])
@@ -1288,6 +1747,7 @@ function createViewportPatch(previous: DiagramViewport, viewport: Partial<Diagra
     return null
   }
   return {
+    documentChanged: false,
     apply: (next) => {
       next.viewport = nextViewport
       return new Set(["viewport"])
@@ -1304,6 +1764,7 @@ function createViewportPatch(previous: DiagramViewport, viewport: Partial<Diagra
 
 function createReplaceScenePatch(next: DiagramSceneInput, previous: SerializedDiagramScene): Patch {
   return {
+    orderChanged: true,
     apply: (state) => {
       const previousIds = allEntityIds(state)
       const replacement = createInternalState(next)
@@ -1349,7 +1810,7 @@ function expandDeletedIds(state: InternalState, ids: ReadonlyArray<DiagramId>): 
   for (const id of [...deleted]) {
     if (state.entities.nodesById.has(id)) {
       for (const port of state.entities.portsById.values()) {
-        if (port.nodeId === id) {
+        if (port.nodeId === id && !isEntityNonDeletable(state, port.id) && !isEntityLockedOrReadOnly(state, port.id)) {
           deleted.add(port.id)
         }
       }
@@ -1359,7 +1820,7 @@ function expandDeletedIds(state: InternalState, ids: ReadonlyArray<DiagramId>): 
     if (deleted.has(edge.id)) {
       continue
     }
-    if (endpointDeleted(edge.source, deleted) || endpointDeleted(edge.target, deleted)) {
+    if ((endpointDeleted(edge.source, deleted) || endpointDeleted(edge.target, deleted)) && !isEntityNonDeletable(state, edge.id) && !isEntityLockedOrReadOnly(state, edge.id)) {
       deleted.add(edge.id)
     }
   }
@@ -1382,6 +1843,8 @@ function composePatches(first: Patch, second: Patch): Patch {
     ...(second.steps ?? [second]),
   ]
   return {
+    documentChanged: first.documentChanged !== false || second.documentChanged !== false,
+    orderChanged: first.orderChanged === true || second.orderChanged === true,
     apply: (state) => {
       const changed = new Set<DiagramId>()
       for (const step of steps) {
@@ -1569,6 +2032,13 @@ function addDependency(index: Map<DiagramId, Set<DiagramId>>, ownerId: DiagramId
     index.set(ownerId, dependents)
   }
   dependents.add(dependentId)
+}
+
+function removeDependency(index: Map<DiagramId, Set<DiagramId>>, ownerId: DiagramId, dependentId: DiagramId): void {
+  const dependents = index.get(ownerId)
+  if (!dependents) return
+  dependents.delete(dependentId)
+  if (!dependents.size) index.delete(ownerId)
 }
 
 function hitDistanceForGeometry(geometry: DiagramGeometry, point: DiagramPoint, radius: number): number | null {

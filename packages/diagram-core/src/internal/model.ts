@@ -21,6 +21,8 @@ export type InternalState = {
   selection: DiagramSelection
   viewport: DiagramViewport
   revision: number
+  documentRevision: number
+  orderRevision: number
   versions: Map<DiagramId, number>
 }
 
@@ -28,6 +30,8 @@ export type Patch = {
   apply: (state: InternalState) => Set<DiagramId>
   inverse: Patch
   steps?: ReadonlyArray<Patch>
+  documentChanged?: boolean
+  orderChanged?: boolean
 }
 
 export type HistoryEntry = {

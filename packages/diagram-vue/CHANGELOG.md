@@ -1,5 +1,11 @@
 # @affino/diagram-vue
 
+## 0.6.0
+
+### Minor Changes
+
+- Exposed drag snap guides through the public pointer interaction snapshot and added snapping options to `useDiagramPointerController()`.
+
 ## 0.5.0
 
 ### Minor Changes

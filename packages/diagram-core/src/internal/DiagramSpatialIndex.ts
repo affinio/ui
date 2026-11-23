@@ -6,6 +6,11 @@ export class DiagramSpatialIndex {
   private hitBoundsIndex = new UniformGridIndex()
   private portIndex = new UniformGridIndex(128)
   private dirty = true
+  private rebuildCount = 0
+  private updateCount = 0
+
+  getRebuildCount(): number { return this.rebuildCount }
+  getUpdateCount(): number { return this.updateCount }
 
   markDirty(): void {
     this.dirty = true
@@ -19,6 +24,7 @@ export class DiagramSpatialIndex {
     this.visualBoundsIndex.rebuild(geometries)
     this.hitBoundsIndex.rebuild(geometries, true)
     this.portIndex.rebuild(geometries.filter((geometry) => geometry.kind === "port"), true)
+    this.rebuildCount += 1
     this.dirty = false
   }
 
@@ -27,12 +33,14 @@ export class DiagramSpatialIndex {
       this.visualBoundsIndex.rebuild(geometries)
       this.hitBoundsIndex.rebuild(geometries, true)
       this.portIndex.rebuild(geometries.filter((geometry) => geometry.kind === "port"), true)
+      this.rebuildCount += 1
       this.dirty = false
       return
     }
     this.visualBoundsIndex.update(geometries, false, removedIds)
     this.hitBoundsIndex.update(geometries, true, removedIds)
     this.portIndex.update(geometries.filter((geometry) => geometry.kind === "port"), true, removedIds)
+    this.updateCount += 1
   }
 
   queryVisible(bounds: DiagramRect): DiagramId[] {

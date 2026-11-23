@@ -90,6 +90,8 @@ For DOM overlays call `getDomEntityStyle(entity, viewport.viewport.value)`; text
 
 Preview geometry remains transient until pointerup. Start endpoint gestures with `interaction.beginEdgeEndpointHandle(handle.ownerId, "source" | "target", event)` and render `interaction.getPreviewGeometry(edgeId)` while the gesture is active. Entity IDs are opaque strings and may contain `:`. Use `handle.ownerId`, never parse `handle.id`. Escape/pointercancel cancels without history; pointerup commits one undo operation.
 
+`useDiagramPointerController()` accepts `snap` options for grid spacing, port snapping, alignment, equal spacing, and screen pixel tolerance. Its `state.value.snapGuides` contains world-space line segments for currently active alignment and equal-spacing matches and clears when the gesture ends.
+
 ### Migration from 0.1.0
 
 - Replace `viewBox.width = viewport.width / viewport.zoom` and the corresponding height formula with raw world `viewport.width` and `viewport.height`.

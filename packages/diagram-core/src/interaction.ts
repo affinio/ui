@@ -1,12 +1,13 @@
 import { createEntityGeometry, inflateRect, rectFromPoints as boundsFromPoints } from "./geometry.js"
 import type { DiagramEngine } from "./DiagramEngine.js"
-import type { DiagramId, DiagramGeometry, DiagramInteractionSnapshot, DiagramInteractionTool, DiagramMarqueeMode, DiagramPointerEvent, DiagramPoint, DiagramRect, DiagramResizeEntry, DiagramResizeHandle } from "./types.js"
+import type { DiagramId, DiagramGeometry, DiagramInteractionSnapOptions, DiagramInteractionSnapshot, DiagramInteractionTool, DiagramMarqueeMode, DiagramPointerEvent, DiagramPoint, DiagramRect, DiagramResizeEntry, DiagramResizeHandle, DiagramSnapGuide } from "./types.js"
 
 type ScheduleFrame = (callback: () => void) => void
 
 export type DiagramInteractionOptions = Readonly<{
   scheduleFrame?: ScheduleFrame
   marqueeMode?: DiagramMarqueeMode
+  snap?: DiagramInteractionSnapOptions
 }>
 
 export class DiagramInteractionController {
@@ -27,6 +28,8 @@ export class DiagramInteractionController {
   private edgeEndpointKind: "source" | "target" | null = null
   private edgeEndpointStart: DiagramPoint | null = null
   private edgeEndpointPreview: DiagramPoint | null = null
+  private dragSelectionIds: ReadonlyArray<DiagramId> = Object.freeze([])
+  private snapGuides: ReadonlyArray<DiagramSnapGuide> = Object.freeze([])
   private framePending = false
   private pendingMoveCount = 0
   private commitCount = 0
@@ -34,10 +37,12 @@ export class DiagramInteractionController {
   private gestureHistoryId = 0
   private readonly scheduleFrame: ScheduleFrame
   private readonly marqueeMode: DiagramMarqueeMode
+  private readonly snapOptions: DiagramInteractionSnapOptions
 
   constructor(private readonly engine: DiagramEngine, options: DiagramInteractionOptions = {}) {
     this.scheduleFrame = options.scheduleFrame ?? defaultScheduleFrame
     this.marqueeMode = options.marqueeMode ?? "contain"
+    this.snapOptions = options.snap ?? {}
   }
 
   setTool(tool: DiagramInteractionTool): void {
@@ -52,16 +57,31 @@ export class DiagramInteractionController {
     this.latestPoint = event.point
     this.previewDelta = null
     this.marquee = null
+    this.snapGuides = Object.freeze([])
     if (this.tool === "select") {
       const hit = this.engine.hitTest(event.point, { radius: 2 })
       if (hit) {
+        let targetId = hit.id
+        if (hit.kind === "port") {
+          const port = this.engine.getScene().entities.portsById.get(hit.id)
+          targetId = port?.nodeId ?? ""
+          if (!targetId || !this.engine.canMove([targetId])) {
+            this.tool = "select"
+            return
+          }
+        }
         const selection = this.engine.getScene().selection
         if (event.shiftKey) {
-          this.engine.dispatch({ type: "setSelection", selection: { ids: [hit.id], primaryId: hit.id }, mode: "toggle" })
-        } else if (!selection.ids.includes(hit.id)) {
-          this.engine.dispatch({ type: "setSelection", selection: { ids: [hit.id], primaryId: hit.id } })
+          this.engine.dispatch({ type: "setSelection", selection: { ids: [targetId], primaryId: targetId }, mode: "toggle" })
+        } else if (!selection.ids.includes(targetId)) {
+          this.engine.dispatch({ type: "setSelection", selection: { ids: [targetId], primaryId: targetId } })
         }
-        this.tool = "drag-selection"
+        const nextSelection = this.engine.getScene().selection
+        this.dragSelectionIds = Object.freeze(nextSelection.ids.filter((id) => {
+          const geometry = this.engine.getGeometrySnapshot(id)
+          return geometry && geometry.kind !== "port" && this.engine.canMove([id])
+        }))
+        this.tool = this.dragSelectionIds.length && nextSelection.ids.includes(targetId) ? "drag-selection" : "select"
       } else {
         this.engine.dispatch({ type: "setSelection", selection: { ids: [], primaryId: null } })
         this.tool = "marquee"
@@ -149,7 +169,7 @@ export class DiagramInteractionController {
     this.flushPointerMove()
     if (this.tool === "drag-selection" && this.previewDelta) {
       const selection = this.engine.getScene().selection
-      this.engine.dispatch({ type: "moveEntities", ids: selection.ids, delta: this.previewDelta, historyKey: `drag:${selection.primaryId ?? "selection"}:${++this.gestureHistoryId}` })
+      this.engine.dispatch({ type: "moveEntities", ids: this.dragSelectionIds, delta: this.previewDelta, historyKey: `drag:${selection.primaryId ?? "selection"}:${++this.gestureHistoryId}` })
       this.commitCount += 1
     }
     if (this.tool === "pan" && this.previewDelta) {
@@ -172,7 +192,7 @@ export class DiagramInteractionController {
       this.commitCount += 1
     }
     this.clearGesture()
-    if (this.tool === "drag-selection" || this.tool === "marquee" || this.tool === "resize-selection") {
+    if (this.tool === "drag-selection" || this.tool === "marquee" || this.tool === "resize-selection" || this.tool === "drag-edge-endpoint") {
       this.tool = "select"
     }
   }
@@ -193,9 +213,31 @@ export class DiagramInteractionController {
       const bounds = boundsFromPoints(path)
       return Object.freeze({ ...geometry, path: Object.freeze(path), bounds, hitBounds: inflateRect(bounds, 6) })
     }
-    if (!geometry || this.tool !== "drag-selection" || !this.previewDelta || !this.engine.getScene().selection.ids.includes(id)) {
-      return geometry
+    if (!geometry || this.tool !== "drag-selection" || !this.previewDelta) return geometry
+    const scene = this.engine.getScene()
+    const edge = scene.entities.edgesById.get(id)
+    if (geometry.kind === "edge" && edge) {
+      const delta = this.previewDelta
+      const moved = new Set(this.dragSelectionIds)
+      const endpointMoves = (endpoint: typeof edge.source): boolean => endpoint.kind === "point"
+        ? moved.has(id)
+        : endpoint.kind === "node"
+          ? moved.has(endpoint.nodeId)
+          : moved.has(scene.entities.portsById.get(endpoint.portId)?.nodeId ?? "")
+      const path = geometry.path?.map((point, index) => {
+        const isSource = index === 0
+        const isTarget = index === (geometry.path?.length ?? 0) - 1
+        const move = isSource ? endpointMoves(edge.source) : isTarget ? endpointMoves(edge.target) : moved.has(id)
+        return move ? { x: point.x + delta.x, y: point.y + delta.y } : point
+      })
+      if (path?.length) {
+        const changed = path.some((point, index) => point !== geometry.path?.[index])
+        if (!changed) return geometry
+        const bounds = boundsFromPoints(path)
+        return Object.freeze({ ...geometry, path: Object.freeze(path), bounds, hitBounds: inflateRect(bounds, 6) })
+      }
     }
+    if (!this.dragSelectionIds.includes(id)) return geometry
     const move = (point: DiagramPoint): DiagramPoint => ({ x: point.x + this.previewDelta!.x, y: point.y + this.previewDelta!.y })
     return Object.freeze({
       ...geometry,
@@ -218,6 +260,7 @@ export class DiagramInteractionController {
       edgeEndpointPreview: this.edgeEndpointId && this.edgeEndpointKind && this.edgeEndpointPreview
         ? { id: this.edgeEndpointId, endpoint: this.edgeEndpointKind, point: this.edgeEndpointPreview }
         : null,
+      snapGuides: this.snapGuides,
       marquee: this.marquee,
     }
   }
@@ -237,7 +280,23 @@ export class DiagramInteractionController {
     }
     const delta = { x: this.latestPoint.x - this.startPoint.x, y: this.latestPoint.y - this.startPoint.y }
     if (this.tool === "drag-selection" || this.tool === "pan") {
-      this.previewDelta = delta
+      if (this.tool === "drag-selection" && this.snapOptions.enabled !== false) {
+        const viewport = this.engine.getScene().viewport
+        const zoom = viewport.zoom > 0 ? viewport.zoom : 1
+        const selection = this.engine.getScene().selection
+        const snapped = this.engine.snapTranslation({ ...selection, ids: this.dragSelectionIds, primaryId: this.dragSelectionIds.includes(selection.primaryId ?? "") ? selection.primaryId : this.dragSelectionIds[0] ?? null }, delta, {
+          radius: (this.snapOptions.tolerancePx ?? 6) / zoom,
+          gridSize: this.snapOptions.gridSize,
+          snapToPorts: this.snapOptions.snapToPorts,
+          snapToAlignment: this.snapOptions.snapToAlignment,
+          snapToEqualSpacing: this.snapOptions.snapToEqualSpacing ?? true,
+        })
+        this.previewDelta = snapped.point
+        this.snapGuides = snapped.guides
+      } else {
+        this.previewDelta = delta
+        this.snapGuides = Object.freeze([])
+      }
       return
     }
     if (this.tool === "resize-selection") {
@@ -346,6 +405,8 @@ export class DiagramInteractionController {
     this.resizeStartRotation = 0
     this.resizePreview = null
     this.resizePreviewEntries = Object.freeze([])
+    this.dragSelectionIds = Object.freeze([])
+    this.snapGuides = Object.freeze([])
     this.edgeEndpointId = null
     this.edgeEndpointKind = null
     this.edgeEndpointStart = null

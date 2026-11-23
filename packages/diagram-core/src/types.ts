@@ -160,6 +160,9 @@ export type DiagramDiagnostics = Readonly<{
   entityQueryCount: number
   hitTestCount: number
   geometryRecomputeCount: number
+  spatialIndexRebuildCount: number
+  spatialIndexUpdateCount: number
+  dependencyIndexRebuildCount: number
   lastCommandMs: number
   undoDepth: number
   redoDepth: number
@@ -210,6 +213,13 @@ export type SerializedDiagramScene = Readonly<{
   viewport: DiagramViewport
 }>
 
+export type DiagramDocument = Readonly<{
+  format: "affino-diagram"
+  version: 1
+  content: Readonly<Omit<SerializedDiagramScene, "selection" | "viewport">>
+  view?: Readonly<{ viewport?: DiagramViewport; selection?: DiagramSelection }>
+}>
+
 export type DiagramGeometry = Readonly<{
   id: DiagramId
   kind: DiagramEntityKind
@@ -235,6 +245,7 @@ export type DiagramHit = Readonly<{
 
 export type DiagramChange = Readonly<{
   revision: number
+  documentRevision: number
   changedIds: ReadonlySet<DiagramId>
   invalidatedIds: ReadonlySet<DiagramId>
 }>
@@ -242,6 +253,10 @@ export type DiagramChange = Readonly<{
 export type DiagramSubscriber = (scene: DiagramScene, change: DiagramChange) => void
 
 export type DiagramCommand =
+  | Readonly<{ type: "createNode"; node: DiagramNode; historyKey?: string }>
+  | Readonly<{ type: "createPort"; port: DiagramPort; historyKey?: string }>
+  | Readonly<{ type: "deleteEntities"; ids: ReadonlyArray<DiagramId>; historyKey?: string }>
+  | Readonly<{ type: "reconnectEdgeEndpoint"; id: DiagramId; endpoint: "source" | "target"; connection: DiagramEdgeEndpoint; historyKey?: string }>
   | Readonly<{ type: "updateEntities"; updates: ReadonlyArray<DiagramEntityUpdate>; historyKey?: string }>
   | Readonly<{ type: "moveEntities"; ids: ReadonlyArray<DiagramId>; delta: DiagramPoint; historyKey?: string }>
   | Readonly<{ type: "moveNode"; id: DiagramId; delta: DiagramPoint; historyKey?: string }>
@@ -280,6 +295,18 @@ export type DiagramCommandResult = Readonly<{
   revision: number
 }>
 
+export type DiagramBatchFailureReason = "revision-mismatch" | "invalid-command" | "unsupported-command"
+export type DiagramBatchResult = Readonly<{
+  ok: boolean
+  changed: boolean
+  revision: number
+  documentRevision: number
+  failedCommandIndex: number | null
+  reason: DiagramBatchFailureReason | null
+  affectedIds: ReadonlyArray<DiagramId>
+}>
+export type DiagramBatchOptions = Readonly<{ expectedRevision?: number }>
+
 export type DiagramInteractionTool = "pan" | "select" | "marquee" | "drag-selection" | "resize-selection" | "drag-edge-endpoint" | "connect-edge" | "edit-text"
 
 export type DiagramResizeHandle = "nw" | "ne" | "se" | "sw"
@@ -299,6 +326,7 @@ export type DiagramInteractionSnapshot = Readonly<{
   resizePreview: DiagramResizeEntry | null
   resizePreviewEntries: ReadonlyArray<DiagramResizeEntry>
   edgeEndpointPreview: DiagramEdgeEndpointPreview | null
+  snapGuides: ReadonlyArray<DiagramSnapGuide>
   marquee: DiagramRect | null
 }>
 
@@ -311,6 +339,9 @@ export type DiagramEdgeEndpointPreview = Readonly<{
 export type DiagramSnapContext = Readonly<{
   gridSize?: number
   radius?: number
+  snapToPorts?: boolean
+  snapToAlignment?: boolean
+  snapToEqualSpacing?: boolean
   excludeIds?: ReadonlySet<DiagramId>
   angleConstraint?: number
   custom?: (point: DiagramPoint) => DiagramPoint | null
@@ -319,5 +350,27 @@ export type DiagramSnapContext = Readonly<{
 export type DiagramSnapResult = Readonly<{
   point: DiagramPoint
   snapped: boolean
-  source: "grid" | "port" | "alignment" | "angle" | "custom" | null
+  source: "grid" | "port" | "alignment" | "equal-spacing" | "angle" | "custom" | null
+}>
+
+export type DiagramTranslationSnapResult = DiagramSnapResult & Readonly<{
+  guides: ReadonlyArray<DiagramSnapGuide>
+}>
+
+export type DiagramSnapGuide = Readonly<{
+  kind: "alignment" | "equal-spacing"
+  axis: "x" | "y"
+  start: DiagramPoint
+  end: DiagramPoint
+}>
+
+export type DiagramInteractionSnapOptions = Readonly<{
+  enabled?: boolean
+  /** Pointer tolerance in screen pixels. Converted to world units using the current zoom. */
+  tolerancePx?: number
+  /** Grid spacing in world units. Omit to disable grid snapping. */
+  gridSize?: number
+  snapToPorts?: boolean
+  snapToAlignment?: boolean
+  snapToEqualSpacing?: boolean
 }>

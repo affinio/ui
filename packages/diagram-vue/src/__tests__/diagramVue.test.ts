@@ -278,6 +278,34 @@ describe("diagram-vue", () => {
     expect(controller.scene.value.entities.nodesById.get("n1")?.x).toBe(10)
   })
 
+  it("publishes snap guides from the public pointer interaction snapshot", () => {
+    const callbacks: Array<(time: number) => void> = []
+    vi.stubGlobal("requestAnimationFrame", (callback: (time: number) => void) => callbacks.push(callback))
+    try {
+      const diagram = useDiagramEngine({
+        nodes: [
+          { id: "moving", kind: "node", x: 0, y: 0, width: 10, height: 10 },
+          { id: "fixed", kind: "node", x: 50, y: 0, width: 10, height: 10 },
+        ],
+      })
+      const pointer = useDiagramPointerController(diagram, { snap: { tolerancePx: 2, snapToPorts: false, snapToEqualSpacing: false } })
+      const props = pointer.getSvgPointerProps()
+      props.onPointerdown({ pointerId: 1, clientX: 5, clientY: 5, shiftKey: false } as PointerEvent)
+      props.onPointermove({ pointerId: 1, clientX: 44, clientY: 5, shiftKey: false } as PointerEvent)
+      callbacks[0]!(0)
+      expect(pointer.state.value.snapGuides).toEqual([
+        { kind: "alignment", axis: "x", start: { x: 50, y: 0 }, end: { x: 50, y: 10 } },
+        { kind: "alignment", axis: "y", start: { x: 40, y: 0 }, end: { x: 60, y: 0 } },
+      ])
+      props.onPointermove({ pointerId: 1, clientX: 90, clientY: 25, shiftKey: false } as PointerEvent)
+      callbacks[1]!(1)
+      expect(pointer.state.value.snapGuides).toEqual([])
+      props.onPointercancel()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it("ignores hidden zero-size measurements and converts CSS pixels to world extent", () => {
     const controller = useDiagramEngine({ ...scene, viewport: { x: 20, y: 10, width: 260, height: 160, zoom: 2.5 } })
     let callback!: (entries: ReadonlyArray<{ contentRect: { width: number; height: number } }>) => void

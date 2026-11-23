@@ -1,5 +1,21 @@
 # @affino/diagram-core
 
+## 0.8.0
+
+### Minor Changes
+
+- Added atomic `dispatchBatch()` with document revision guards and structured failure results, plus public node/port creation, ID deletion, and edge endpoint reconnection commands.
+- Added versioned `DiagramDocument` serialization while retaining legacy scene serialization and `transact()` history-reset behavior.
+- Preserved render and port ordering across delete undo, and incrementally maintain endpoint dependency indexes.
+- Kept viewport and selection changes outside the document revision guard and separated render-order cache invalidation from ordinary interaction changes.
+
+## 0.7.0
+
+### Minor Changes
+
+- Made selection dragging resolve port hits to movable owner nodes and added undoable translation for free and attached edge routes.
+- Added configurable drag snapping with zoom-scaled tolerance and typed alignment/equal-spacing guide segments in interaction snapshots.
+
 ## 0.6.0
 
 ### Minor Changes

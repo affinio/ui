@@ -11,6 +11,7 @@ export class DiagramSceneStore {
   private subscribers = new Set<DiagramSubscriber>()
   private lastChange: DiagramChange = {
     revision: 0,
+    documentRevision: 0,
     changedIds: createReadonlySet([]),
     invalidatedIds: createReadonlySet([]),
   }
@@ -32,6 +33,7 @@ export class DiagramSceneStore {
     this.snapshot = this.createSnapshot(changedIds)
     this.lastChange = {
       revision: this.state.revision,
+      documentRevision: this.state.documentRevision,
       changedIds: createReadonlySet(changedIds),
       invalidatedIds: createReadonlySet(invalidatedIds),
     }
@@ -109,6 +111,8 @@ export function createInternalState(input: DiagramSceneInput): InternalState {
     selection: normalizeSelection(input.selection),
     viewport: { ...DEFAULT_VIEWPORT, ...input.viewport },
     revision: 0,
+    documentRevision: 0,
+    orderRevision: 0,
     versions: new Map(ids.map((id) => [id, 0])),
   }
 }

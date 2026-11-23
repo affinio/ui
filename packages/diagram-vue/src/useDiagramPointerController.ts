@@ -1,6 +1,6 @@
 import { getCurrentScope, onScopeDispose, shallowRef } from "vue"
 import type { ShallowRef } from "vue"
-import { createDiagramInteractionController, type DiagramInteractionController, type DiagramInteractionSnapshot, type DiagramInteractionTool, type DiagramPoint } from "@affino/diagram-core"
+import { createDiagramInteractionController, type DiagramInteractionController, type DiagramInteractionSnapOptions, type DiagramInteractionSnapshot, type DiagramInteractionTool, type DiagramPoint } from "@affino/diagram-core"
 import type { DiagramEngineController } from "./useDiagramEngine.js"
 
 export type DiagramPointerController = Readonly<{
@@ -20,11 +20,13 @@ export type DiagramPointerControllerOptions = Readonly<{
   toWorldPoint?: (event: PointerEvent) => DiagramPoint
   setPointerCapture?: (event: PointerEvent) => void
   releasePointerCapture?: (event: PointerEvent) => void
+  snap?: DiagramInteractionSnapOptions
 }>
 
 export function useDiagramPointerController(controller: DiagramEngineController, options: DiagramPointerControllerOptions = {}): DiagramPointerController {
   let refresh = () => {}
   const interaction = createDiagramInteractionController(controller.engine, {
+    snap: options.snap,
     scheduleFrame: (callback) => {
       const schedule = typeof globalThis.requestAnimationFrame === "function"
         ? globalThis.requestAnimationFrame.bind(globalThis)
@@ -99,6 +101,7 @@ function sameSnapshot(previous: DiagramInteractionSnapshot, next: DiagramInterac
     && previous.resizePreview === next.resizePreview
     && previous.resizePreviewEntries === next.resizePreviewEntries
     && previous.edgeEndpointPreview === next.edgeEndpointPreview
+    && previous.snapGuides === next.snapGuides
     && previous.marquee === next.marquee
 }
 

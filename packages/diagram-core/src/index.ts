@@ -1,4 +1,4 @@
-export { DiagramEngine, createDiagramEngine, deserializeScene, serializeScene } from "./DiagramEngine.js"
+export { DiagramEngine, createDiagramEngine, deserializeScene, deserializeDiagramDocument, serializeScene } from "./DiagramEngine.js"
 export { DiagramInteractionController, createDiagramInteractionController } from "./interaction.js"
 export { UniformGridIndex } from "./spatialIndex.js"
 export { screenToWorld, worldToScreen, zoomViewportAt, zoomViewportCentered } from "./viewport.js"
