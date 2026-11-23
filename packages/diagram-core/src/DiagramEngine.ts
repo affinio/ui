@@ -14,6 +14,7 @@ import type {
   DiagramCommandResult,
   DiagramBatchOptions,
   DiagramBatchResult,
+  DiagramBatchPreviewResult,
   DiagramDiagnostics,
   DiagramEdge,
   DiagramEdgeEndpoint,
@@ -46,6 +47,9 @@ import type {
   DiagramKeyboardCommand,
   DiagramKeyboardOptions,
   DiagramSnapContext,
+  DiagramSnapOptions,
+  DiagramSnapCandidate,
+  DiagramSnapKind,
   DiagramSnapResult,
   DiagramTranslationSnapResult,
   DiagramSnapGuide,
@@ -53,6 +57,7 @@ import type {
   DiagramViewport,
   SerializedDiagramScene,
   DiagramDocument,
+  DiagramValidationIssue,
 } from "./types.js"
 
 type DiagramFlipSnapshot = DiagramNode | DiagramEdge | DiagramText | DiagramShape | DiagramTable
@@ -69,6 +74,8 @@ export class DiagramEngine {
   private visibleQueryCount = 0
   private entityQueryCount = 0
   private hitTestCount = 0
+  private snapCandidateQueryCount = 0
+  private snapCandidateCount = 0
   private lastCommandMs = 0
   private orderIndexRevision = -1
   private orderIndexCache = new Map<DiagramId, number>()
@@ -82,6 +89,7 @@ export class DiagramEngine {
   private edgeIdsByPort = new Map<DiagramId, Set<DiagramId>>()
   private dependencyEdgeEndpoints = new Map<DiagramId, readonly [DiagramEdgeEndpoint, DiagramEdgeEndpoint]>()
   private dependencyPortOwners = new Map<DiagramId, DiagramId>()
+  private batchReceipts = new Map<string, Readonly<{ fingerprint: string; result: DiagramBatchResult }>>()
 
   constructor(initialScene: DiagramSceneInput = {}, options: DiagramEngineOptions = {}) {
     this.history = new DiagramHistory(options.history)
@@ -139,18 +147,72 @@ export class DiagramEngine {
   }
 
   dispatchBatch(commands: ReadonlyArray<DiagramCommand>, options: DiagramBatchOptions = {}): DiagramBatchResult {
-    const failure = (reason: "revision-mismatch" | "invalid-command" | "unsupported-command", index: number | null, ids: DiagramId[] = []): DiagramBatchResult => ({
+    const failure = (reason: "revision-mismatch" | "invalid-command" | "unsupported-command" | "operation-id-conflict", index: number | null, ids: DiagramId[] = []): DiagramBatchResult => ({
       ok: false, changed: false, revision: this.state.revision, documentRevision: this.state.documentRevision,
       failedCommandIndex: index, reason, affectedIds: [...new Set(ids)],
     })
+    const operationId = options.operationId
+    let fingerprint = ""
+    if (operationId) {
+      if (!operationId.trim()) return failure("invalid-command", null)
+      try { fingerprint = JSON.stringify({ commands, expectedRevision: options.expectedRevision }) }
+      catch { return failure("invalid-command", null) }
+      const previous = this.batchReceipts.get(operationId)
+      if (previous) return previous.fingerprint === fingerprint ? previous.result : { ...failure("operation-id-conflict", null), affectedIds: [] }
+    }
+    const finish = (result: DiagramBatchResult): DiagramBatchResult => {
+      if (operationId) {
+        this.batchReceipts.set(operationId, { fingerprint, result })
+        if (this.batchReceipts.size > 1024) this.batchReceipts.delete(this.batchReceipts.keys().next().value!)
+      }
+      return result
+    }
     if (options.expectedRevision !== undefined && options.expectedRevision !== this.state.documentRevision) {
-      return failure("revision-mismatch", null)
+      return finish(failure("revision-mismatch", null))
     }
     const draft = new DiagramEngine(serializeScene(this.store.getSnapshot()))
     draft.state.revision = this.state.revision
     draft.state.documentRevision = this.state.documentRevision
     draft.state.orderRevision = this.state.orderRevision
     const patches: Patch[] = []
+    const affected = new Set<DiagramId>()
+    for (let index = 0; index < commands.length; index += 1) {
+      const command = commands[index]!
+      if (command.type === "undo" || command.type === "redo") return finish(failure("unsupported-command", index))
+      const patch = draft.createPatch(command)
+      if (!patch) {
+        if (isBatchNoOp(draft.state, command)) continue
+        const ids = commandIds(command)
+        const missing = ids.filter((id) => !draft.hasEntity(id))
+        return finish(failure("invalid-command", index, missing.length ? missing : ids))
+      }
+      const changed = draft.commitPatch(patch, false, null).changedIds
+      if (changed.size) {
+        patches.push(patch)
+        for (const id of changed) affected.add(id)
+      }
+    }
+    if (!patches.length) return finish({ ok: true, changed: false, revision: this.state.revision, documentRevision: this.state.documentRevision, failedCommandIndex: null, reason: null, affectedIds: [] })
+    let combined = patches[0]!
+    for (let index = 1; index < patches.length; index += 1) combined = composePatches(combined, patches[index]!)
+    let inverse = patches[patches.length - 1]!.inverse
+    for (let index = patches.length - 2; index >= 0; index -= 1) inverse = composePatches(inverse, patches[index]!.inverse)
+    combined.inverse = inverse
+    const changed = this.commitPatch(combined, true, null).changedIds
+    return finish({ ok: true, changed: changed.size > 0, revision: this.state.revision, documentRevision: this.state.documentRevision, failedCommandIndex: null, reason: null, affectedIds: [...affected] })
+  }
+
+  /** Applies a batch to an isolated draft and returns its candidate scene without publishing or changing history. */
+  previewBatch(commands: ReadonlyArray<DiagramCommand>, options: DiagramBatchOptions = {}): DiagramBatchPreviewResult {
+    const failure = (reason: "revision-mismatch" | "invalid-command" | "unsupported-command", index: number | null, ids: DiagramId[] = []): DiagramBatchPreviewResult => ({
+      ok: false, changed: false, revision: this.state.revision, documentRevision: this.state.documentRevision,
+      failedCommandIndex: index, reason, affectedIds: [...new Set(ids)],
+    })
+    if (options.expectedRevision !== undefined && options.expectedRevision !== this.state.documentRevision) return failure("revision-mismatch", null)
+    const draft = new DiagramEngine(serializeScene(this.store.getSnapshot()))
+    draft.state.revision = this.state.revision
+    draft.state.documentRevision = this.state.documentRevision
+    draft.state.orderRevision = this.state.orderRevision
     const affected = new Set<DiagramId>()
     for (let index = 0; index < commands.length; index += 1) {
       const command = commands[index]!
@@ -162,20 +224,18 @@ export class DiagramEngine {
         const missing = ids.filter((id) => !draft.hasEntity(id))
         return failure("invalid-command", index, missing.length ? missing : ids)
       }
-      const changed = draft.commitPatch(patch, false, null).changedIds
-      if (changed.size) {
-        patches.push(patch)
-        for (const id of changed) affected.add(id)
-      }
+      for (const id of draft.commitPatch(patch, false, null).changedIds) affected.add(id)
     }
-    if (!patches.length) return { ok: true, changed: false, revision: this.state.revision, documentRevision: this.state.documentRevision, failedCommandIndex: null, reason: null, affectedIds: [] }
-    let combined = patches[0]!
-    for (let index = 1; index < patches.length; index += 1) combined = composePatches(combined, patches[index]!)
-    let inverse = patches[patches.length - 1]!.inverse
-    for (let index = patches.length - 2; index >= 0; index -= 1) inverse = composePatches(inverse, patches[index]!.inverse)
-    combined.inverse = inverse
-    const changed = this.commitPatch(combined, true, null).changedIds
-    return { ok: true, changed: changed.size > 0, revision: this.state.revision, documentRevision: this.state.documentRevision, failedCommandIndex: null, reason: null, affectedIds: [...affected] }
+    return {
+      ok: true,
+      changed: affected.size > 0,
+      revision: this.state.revision,
+      documentRevision: this.state.documentRevision,
+      failedCommandIndex: null,
+      reason: null,
+      affectedIds: [...affected],
+      scene: draft.serialize(),
+    }
   }
 
   transact(mutator: (draft: DiagramScene) => DiagramSceneInput): DiagramCommandResult {
@@ -291,7 +351,7 @@ export class DiagramEngine {
         continue
       }
       const portDistance = distance(point, geometry.point)
-      if (portDistance <= radius && (!best || portDistance < best.distance)) {
+      if (portDistance <= radius && (!best || portDistance < best.distance || (portDistance === best.distance && id.localeCompare(best.id) < 0))) {
         best = { id, kind: "port", distance: portDistance }
       }
     }
@@ -309,7 +369,7 @@ export class DiagramEngine {
         continue
       }
       const portDistance = distance(point, geometry.point)
-      if (portDistance <= radius && (!best || portDistance < best.distance)) {
+      if (portDistance <= radius && (!best || portDistance < best.distance || (portDistance === best.distance && id.localeCompare(best.id) < 0))) {
         best = { id, kind: "port", distance: portDistance }
       }
     }
@@ -318,14 +378,36 @@ export class DiagramEngine {
 
   snapPoint(point: DiagramPoint, context: DiagramSnapContext = {}): DiagramSnapResult {
     const custom = context.custom?.(point)
-    if (custom) {
-      return { point: constrainSnapPoint(custom, point, context.axisConstraint), snapped: true, source: "custom" }
+    if (custom) return { point: constrainSnapPoint(custom, point, context.axisConstraint), snapped: true, source: "custom" }
+    if (context.kinds || context.tolerancePx !== undefined || context.angleIncrement !== undefined || (context.angleConstraint !== undefined && context.origin !== undefined) || context.additionalAngles || context.ortho) {
+      const zoom = this.state.viewport.zoom > 0 ? this.state.viewport.zoom : 1
+      const candidates = this.getSnapCandidates(point, {
+        tolerancePx: context.tolerancePx ?? (context.radius ?? 6) * zoom,
+        gridSize: context.gridSize,
+        kinds: context.kinds,
+        excludeIds: context.excludeIds,
+        origin: context.origin,
+        angleIncrement: context.angleIncrement ?? context.angleConstraint,
+        additionalAngles: context.additionalAngles,
+        ortho: context.ortho,
+      })
+      const candidate = candidates.map((entry) => {
+        const adjustedPoint = constrainSnapPoint(entry.point, point, context.axisConstraint)
+        return { entry, adjustedPoint, distancePx: distance(adjustedPoint, point) * zoom }
+      }).find(({ distancePx }) => distancePx <= (context.tolerancePx ?? (context.radius ?? 6) * zoom))
+      return candidate
+        ? { point: candidate.adjustedPoint, snapped: true, source: candidate.entry.kind, targetId: candidate.entry.targetId, candidate: { ...candidate.entry, point: candidate.adjustedPoint, distancePx: candidate.distancePx }, candidates }
+        : context.origin && (context.ortho || (Number.isFinite(context.angleIncrement) && context.angleIncrement! > 0) || context.additionalAngles?.some(Number.isFinite))
+          ? { point: constrainSnapPoint(constrainAngleFromOrigin(point, context.origin, context.ortho ? 90 : context.angleIncrement ?? 360, context.additionalAngles), context.origin, context.axisConstraint), snapped: true, source: "angle", candidates }
+          : { point, snapped: false, source: null, candidates }
     }
     const port = context.snapToPorts === false ? null : this.nearestPort(point, context.radius ?? 12, context.excludeIds ?? new Set())
     if (port) {
       const geometry = this.getGeometry(port.id)
       if (geometry?.point) {
-        return { point: constrainSnapPoint(geometry.point, point, context.axisConstraint), snapped: true, source: "port" }
+        const snappedPoint = constrainSnapPoint(geometry.point, point, context.axisConstraint)
+        const candidate = { kind: "port" as const, point: snappedPoint, targetId: port.id, distancePx: distance(point, snappedPoint) * (this.state.viewport.zoom || 1) }
+        return { point: snappedPoint, snapped: true, source: "port", targetId: port.id }
       }
     }
     const aligned = context.snapToAlignment === false ? null : this.snapToAlignment(point, context.radius ?? 6, context.excludeIds, context.axisConstraint)
@@ -336,16 +418,109 @@ export class DiagramEngine {
       return { point: constrainSnapPoint(constrainAngle(point, context.angleConstraint), point, context.axisConstraint), snapped: true, source: "angle" }
     }
     if (context.gridSize && context.gridSize > 0) {
-      return {
-        point: {
+      const gridPoint = {
           x: context.axisConstraint === "y" ? point.x : Math.round(point.x / context.gridSize) * context.gridSize,
           y: context.axisConstraint === "x" ? point.y : Math.round(point.y / context.gridSize) * context.gridSize,
-        },
+        }
+      return {
+        point: gridPoint,
         snapped: true,
         source: "grid",
       }
     }
     return { point, snapped: false, source: null }
+  }
+
+  /** Returns deterministic, read-only snap candidates within a screen-space tolerance. */
+  getSnapCandidates(point: DiagramPoint, options: DiagramSnapOptions = {}): ReadonlyArray<DiagramSnapCandidate> {
+    this.snapCandidateQueryCount += 1
+    if (![point.x, point.y].every(Number.isFinite)) return Object.freeze([])
+    const zoom = this.state.viewport.zoom > 0 ? this.state.viewport.zoom : 1
+    const tolerancePx = options.tolerancePx ?? 6
+    if (!Number.isFinite(tolerancePx) || tolerancePx < 0) return Object.freeze([])
+    const radius = tolerancePx / zoom
+    const enabled = new Set(options.kinds ?? ["port", "endpoint", "midpoint", "center", "intersection", "perpendicular", "nearest", "alignment", "equal-spacing", ...(options.gridSize ? ["grid" as const] : [])])
+    const excluded = options.excludeIds ?? new Set<DiagramId>()
+    const found: DiagramSnapCandidate[] = []
+    const add = (kind: DiagramSnapKind, candidatePoint: DiagramPoint, targetId?: DiagramId) => {
+      const candidateDistance = distance(point, candidatePoint) * zoom
+      if (candidateDistance <= tolerancePx) found.push({ kind, point: candidatePoint, ...(targetId ? { targetId } : {}), distancePx: candidateDistance })
+    }
+    const searchBounds = { x: point.x - radius, y: point.y - radius, width: radius * 2, height: radius * 2 }
+    this.ensureIndexes()
+    const nearby = this.spatialIndex.queryHit(searchBounds).filter((id) => !excluded.has(id)).sort((a, b) => a.localeCompare(b))
+    const paths: Array<{ id: DiagramId; points: ReadonlyArray<DiagramPoint> }> = []
+    const eligibleCenter = new Set<DiagramEntityKind>(["node", "shape", "table", "group"])
+    for (const id of nearby) {
+      const geometry = this.getGeometry(id)
+      if (!geometry) continue
+      if (enabled.has("port") && geometry.kind === "port" && geometry.point) add("port", geometry.point, id)
+      if (enabled.has("center") && eligibleCenter.has(geometry.kind)) add("center", { x: geometry.bounds.x + geometry.bounds.width / 2, y: geometry.bounds.y + geometry.bounds.height / 2 }, id)
+      let points = geometry.kind === "edge" ? geometry.path : undefined
+      if (geometry.kind === "shape") {
+        const shape = this.state.entities.shapesById.get(id)
+        if (shape?.shape === "line") points = [{ x: shape.x, y: shape.y }, { x: shape.x + shape.width, y: shape.y + shape.height }]
+        else if (shape?.shape === "rect") points = geometry.corners ? [...geometry.corners, geometry.corners[0]!] : [
+          { x: shape.x, y: shape.y }, { x: shape.x + shape.width, y: shape.y },
+          { x: shape.x + shape.width, y: shape.y + shape.height }, { x: shape.x, y: shape.y + shape.height },
+          { x: shape.x, y: shape.y },
+        ]
+        else if (shape?.shape === "ellipse") {
+          const center = { x: shape.x + shape.width / 2, y: shape.y + shape.height / 2 }
+          points = Array.from({ length: 33 }, (_, index) => {
+            const angle = index * Math.PI * 2 / 32
+            return { x: center.x + Math.cos(angle) * shape.width / 2, y: center.y + Math.sin(angle) * shape.height / 2 }
+          }).map((shapePoint) => geometry.rotation ? rotatePoint(shapePoint, { x: shape.x + shape.width / 2, y: shape.y + shape.height / 2 }, geometry.rotation) : shapePoint)
+        }
+      }
+      if (points?.length) {
+        paths.push({ id, points })
+        if (enabled.has("endpoint")) {
+          add("endpoint", points[0]!, id)
+          add("endpoint", points[points.length - 1]!, id)
+        }
+        if (enabled.has("midpoint")) for (let index = 1; index < points.length; index += 1) add("midpoint", midpoint(points[index - 1]!, points[index]!), id)
+        if (enabled.has("nearest") || enabled.has("perpendicular")) for (let index = 1; index < points.length; index += 1) {
+          const nearest = closestPointOnSegment(point, points[index - 1]!, points[index]!)
+          if (enabled.has("nearest")) add("nearest", nearest, id)
+          if (enabled.has("perpendicular") && options.origin) add("perpendicular", closestPointOnSegment(options.origin, points[index - 1]!, points[index]!), id)
+        }
+      }
+    }
+    if (enabled.has("intersection")) {
+      for (let leftIndex = 0; leftIndex < paths.length; leftIndex += 1) for (let rightIndex = leftIndex + 1; rightIndex < paths.length; rightIndex += 1) {
+        const left = paths[leftIndex]!
+        const right = paths[rightIndex]!
+        if (left.id === right.id) continue
+        for (let i = 1; i < left.points.length; i += 1) for (let j = 1; j < right.points.length; j += 1) {
+          const intersection = segmentIntersection(left.points[i - 1]!, left.points[i]!, right.points[j - 1]!, right.points[j]!)
+          if (intersection) add("intersection", intersection, [left.id, right.id].sort().join("|"))
+        }
+      }
+    }
+    if (enabled.has("alignment")) {
+      const aligned = this.snapToAlignment(point, radius, excluded)
+      if (aligned) add("alignment", aligned)
+    }
+    if (enabled.has("equal-spacing")) {
+      const bounds = nearby.map((id) => this.getGeometry(id)).filter((geometry): geometry is DiagramGeometry => Boolean(geometry && ["node", "shape", "table"].includes(geometry.kind))).map((geometry) => geometry.bounds)
+      for (let i = 0; i < bounds.length; i += 1) for (let j = i + 1; j < bounds.length; j += 1) {
+        const a = bounds[i]!, b = bounds[j]!
+        if (rangesOverlap(a.y, a.y + a.height, b.y, b.y + b.height)) {
+          const [left, right] = a.x <= b.x ? [a, b] : [b, a]
+          add("equal-spacing", { x: (left.x + left.width + right.x) / 2, y: point.y })
+        }
+        if (rangesOverlap(a.x, a.x + a.width, b.x, b.x + b.width)) {
+          const [top, bottom] = a.y <= b.y ? [a, b] : [b, a]
+          add("equal-spacing", { x: point.x, y: (top.y + top.height + bottom.y) / 2 })
+        }
+      }
+    }
+    if (enabled.has("grid") && options.gridSize && Number.isFinite(options.gridSize) && options.gridSize > 0) add("grid", { x: Math.round(point.x / options.gridSize) * options.gridSize, y: Math.round(point.y / options.gridSize) * options.gridSize })
+    const priority: DiagramSnapKind[] = ["port", "endpoint", "intersection", "midpoint", "center", "perpendicular", "nearest", "alignment", "equal-spacing", "grid"]
+    found.sort((a, b) => (priority.indexOf(a.kind) - priority.indexOf(b.kind)) || a.distancePx - b.distancePx || (a.targetId ?? "").localeCompare(b.targetId ?? "") || a.point.x - b.point.x || a.point.y - b.point.y)
+    this.snapCandidateCount += found.length
+    return Object.freeze(found.map((candidate) => Object.freeze({ ...candidate, point: Object.freeze({ ...candidate.point }) })))
   }
 
   snapTranslation(selection: DiagramSelection, delta: DiagramPoint, context: DiagramSnapContext = {}): DiagramTranslationSnapResult {
@@ -363,34 +538,54 @@ export class DiagramEngine {
     let point = proposed
     let source: DiagramSnapResult["source"] = null
     let prioritySnap = false
-    const portSnap = context.snapToPorts === false && !context.custom
+    let selectedCandidate: DiagramSnapCandidate | undefined
+    const pointKinds = context.kinds?.filter((kind) => !["alignment", "equal-spacing", "grid"].includes(kind))
+    if (pointKinds?.length) {
+      const zoom = this.state.viewport.zoom > 0 ? this.state.viewport.zoom : 1
+      const tolerancePx = context.tolerancePx ?? radius * zoom
+      const candidate = this.getSnapCandidates(point, { tolerancePx, kinds: pointKinds, excludeIds, origin: context.origin }).map((entry) => {
+        const adjustedPoint = constrainSnapPoint(entry.point, point, context.axisConstraint)
+        return { entry, adjustedPoint, distancePx: distance(adjustedPoint, point) * zoom }
+      }).find((entry) => entry.distancePx <= tolerancePx)
+      if (candidate) {
+        point = candidate.adjustedPoint
+        source = candidate.entry.kind
+        selectedCandidate = { ...candidate.entry, point, distancePx: candidate.distancePx }
+        prioritySnap = true
+      }
+    }
+    const portSnap = (context.snapToPorts === false || (context.kinds !== undefined && !context.kinds.includes("port"))) && !context.custom
       ? { point, snapped: false, source: null as DiagramSnapResult["source"] }
-      : this.snapPoint(point, { ...context, gridSize: undefined, radius, excludeIds, snapToAlignment: false })
+      : prioritySnap ? { point, snapped: true, source } : this.snapPoint(point, { ...context, gridSize: undefined, radius, excludeIds, snapToAlignment: false })
     if (portSnap.source === "port" || portSnap.source === "custom") {
       point = constrainSnapPoint(portSnap.point, origin, context.axisConstraint)
       source = portSnap.source
+      if (portSnap.source === "port" && portSnap.targetId) selectedCandidate = { kind: "port", point, targetId: portSnap.targetId, distancePx: distance(proposed, point) * (this.state.viewport.zoom || 1) }
       prioritySnap = true
     }
-    if (!prioritySnap && context.snapToAlignment !== false && geometry) {
+    if (!prioritySnap && context.snapToAlignment !== false && (!context.kinds || context.kinds.includes("alignment")) && geometry) {
       const aligned = this.findTranslationAlignment(geometry.bounds, point, radius, excludeIds, context.axisConstraint)
       if (aligned) {
         point = { x: point.x + aligned.dx, y: point.y + aligned.dy }
         guides.push(...aligned.guides)
         source ??= "alignment"
+      selectedCandidate ??= { kind: "alignment", point, distancePx: Math.hypot(aligned.dx, aligned.dy) * (this.state.viewport.zoom || 1) }
       }
     }
-    if (!prioritySnap && context.snapToEqualSpacing && geometry) {
+    if (!prioritySnap && context.snapToEqualSpacing && (!context.kinds || context.kinds.includes("equal-spacing")) && geometry) {
       const alignedAxes = new Set(guides.filter((guide) => guide.kind === "alignment").map((guide) => guide.axis))
       if (context.axisConstraint === "x") alignedAxes.add("y")
       if (context.axisConstraint === "y") alignedAxes.add("x")
       const spaced = this.findEqualSpacing(geometry.bounds, point, radius, excludeIds, alignedAxes)
       if (spaced) {
+        const before = point
         point = { x: point.x + spaced.dx, y: point.y + spaced.dy }
         guides.push(...spaced.guides)
         source ??= "equal-spacing"
+        selectedCandidate ??= { kind: "equal-spacing", point, distancePx: Math.hypot(point.x - before.x, point.y - before.y) * (this.state.viewport.zoom || 1) }
       }
     }
-    if (!prioritySnap && context.gridSize && context.gridSize > 0) {
+    if (!prioritySnap && (!context.kinds || context.kinds.includes("grid")) && context.gridSize && context.gridSize > 0) {
       const snappedAxes = new Set(guides.map((guide) => guide.axis))
       let gridChanged = false
       if (!snappedAxes.has("x") && context.axisConstraint !== "y") {
@@ -403,12 +598,16 @@ export class DiagramEngine {
         gridChanged ||= y !== point.y
         point = { ...point, y }
       }
-      if (gridChanged) source ??= "grid"
+      if (gridChanged) {
+        source ??= "grid"
+        selectedCandidate ??= { kind: "grid", point, distancePx: Math.hypot(point.x - proposed.x, point.y - proposed.y) * (this.state.viewport.zoom || 1) }
+      }
     }
     return {
       point: { x: point.x - origin.x, y: point.y - origin.y },
       snapped: source !== null,
       source,
+      ...(selectedCandidate && (context.includeCandidates || context.kinds !== undefined || context.tolerancePx !== undefined) ? { candidate: selectedCandidate, targetId: selectedCandidate.targetId } : {}),
       guides: Object.freeze(guides.map((guide) => Object.freeze({
         ...guide,
         start: Object.freeze({ ...guide.start }),
@@ -472,6 +671,8 @@ export class DiagramEngine {
       visibleQueryCount: this.visibleQueryCount,
       entityQueryCount: this.entityQueryCount,
       hitTestCount: this.hitTestCount,
+      snapCandidateQueryCount: this.snapCandidateQueryCount,
+      snapCandidateCount: this.snapCandidateCount,
       geometryRecomputeCount: this.geometryService.getReadCount(),
       spatialIndexRebuildCount: this.spatialIndex.getRebuildCount(),
       spatialIndexUpdateCount: this.spatialIndex.getUpdateCount(),
@@ -717,6 +918,8 @@ export class DiagramEngine {
         return createMovePatch(this.state, [command.id], command.delta)
       case "createNode":
         return createCreateEntityPatch(this.state, command.node)
+      case "createShape":
+        return createCreateShapePatch(this.state, command.shape)
       case "createTable":
         return createCreateTablePatch(this.state, command.table)
       case "insertTableRow":
@@ -1195,6 +1398,25 @@ function validateDiagramTableStyle(style: DiagramTableStyle, id: DiagramId): voi
 }
 function validSizes(values: ReadonlyArray<number>, expectedLength: number): boolean { return values.length === expectedLength && values.every((value) => Number.isFinite(value) && value > 0) }
 function sizesMatch(values: ReadonlyArray<number>, total: number): boolean { return Math.abs(values.reduce((sum, value) => sum + value, 0) - total) <= Math.max(0.01, total * 1e-6) }
+
+export function validateDiagramScene(scene: DiagramSceneInput): ReadonlyArray<DiagramValidationIssue> {
+  try {
+    validateSceneInput(scene)
+    return Object.freeze([])
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    const entityMatch = message.match(/(?:geometry for (?:node|text|shape|table)|port |edge |group |table |node )(.+?)(?::|$)/i)
+    const code = message.includes("globally unique") ? "duplicate-id"
+      : message.includes("Invalid geometry") ? "invalid-geometry"
+        : message.includes("Invalid port") || message.includes("port reference") ? "invalid-port-reference"
+          : message.includes("Invalid edge") ? "invalid-edge-reference"
+            : message.includes("Invalid group") ? "invalid-group"
+              : message.includes("viewport") ? "invalid-viewport"
+                : message.includes("table") ? "invalid-table"
+                  : "invalid-scene"
+    return Object.freeze([{ code, severity: "error" as const, entityIds: Object.freeze(entityMatch ? [entityMatch[1]!.trim()] : []), message }])
+  }
+}
 
 function validateSceneInput(scene: DiagramSceneInput): DiagramSceneInput {
   const nodesInput = scene.nodes ?? []
@@ -1958,6 +2180,15 @@ function createCreateEntityPatch(state: InternalState, node: import("./types.js"
   }
 }
 
+function createCreateShapePatch(state: InternalState, shape: DiagramShape): Patch | null {
+  if (!isUniqueId(state, shape.id) || ![shape.x, shape.y, shape.width, shape.height, shape.rotation ?? 0].every(Number.isFinite) || shape.width < 0 || shape.height < 0) return null
+  return {
+    orderChanged: true,
+    apply: (next) => { next.entities.shapesById.set(shape.id, shape); next.order.shapeIds.push(shape.id); next.versions.set(shape.id, 0); return new Set([shape.id]) },
+    inverse: createDeleteEntitiesPatch([shape.id]),
+  }
+}
+
 function createTableSnapshotPatch(id: DiagramId, previous: DiagramTable, next: DiagramTable, orderChanged = false): Patch | null {
   if (JSON.stringify(previous) === JSON.stringify(next)) return null
   const apply = (value: DiagramTable): Patch["apply"] => (state) => { state.entities.tablesById.set(id, value); return new Set([id]) }
@@ -2289,6 +2520,7 @@ function commandIds(command: DiagramCommand): DiagramId[] {
   if ("ids" in command) return [...(command.ids ?? [])]
   if (command.type === "createEdge") return [command.edge.id]
   if (command.type === "createNode") return [command.node.id]
+  if (command.type === "createShape") return [command.shape.id]
   if (command.type === "createPort") return [command.port.id, command.port.nodeId]
   if (command.type === "updateEntities") return command.updates.map((update) => update.id)
   return []
@@ -2833,6 +3065,48 @@ function distanceToSegment(point: DiagramPoint, start: DiagramPoint, end: Diagra
   }
   const t = Math.max(0, Math.min(1, ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared))
   return distance(point, { x: start.x + t * dx, y: start.y + t * dy })
+}
+
+function closestPointOnSegment(point: DiagramPoint, start: DiagramPoint, end: DiagramPoint): DiagramPoint {
+  const dx = end.x - start.x
+  const dy = end.y - start.y
+  const lengthSquared = dx * dx + dy * dy
+  if (lengthSquared === 0) return start
+  const t = Math.max(0, Math.min(1, ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared))
+  return { x: start.x + t * dx, y: start.y + t * dy }
+}
+
+function midpoint(a: DiagramPoint, b: DiagramPoint): DiagramPoint {
+  return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
+}
+
+function segmentIntersection(a: DiagramPoint, b: DiagramPoint, c: DiagramPoint, d: DiagramPoint): DiagramPoint | null {
+  const rx = b.x - a.x
+  const ry = b.y - a.y
+  const sx = d.x - c.x
+  const sy = d.y - c.y
+  const denominator = rx * sy - ry * sx
+  if (Math.abs(denominator) < 1e-10) return null
+  const qpx = c.x - a.x
+  const qpy = c.y - a.y
+  const t = (qpx * sy - qpy * sx) / denominator
+  const u = (qpx * ry - qpy * rx) / denominator
+  return t >= 0 && t <= 1 && u >= 0 && u <= 1 ? { x: a.x + t * rx, y: a.y + t * ry } : null
+}
+
+function constrainAngleFromOrigin(point: DiagramPoint, origin: DiagramPoint, increment: number, additionalAngles: ReadonlyArray<number> = []): DiagramPoint {
+  const dx = point.x - origin.x
+  const dy = point.y - origin.y
+  const radius = Math.hypot(dx, dy)
+  if (radius === 0) return point
+  const angle = Math.atan2(dy, dx) * 180 / Math.PI
+  const candidates = [...(Number.isFinite(increment) && increment > 0 && increment < 360 ? [Math.round(angle / increment) * increment] : []), ...additionalAngles.filter(Number.isFinite)]
+  if (!candidates.length) return point
+  let bestAngle = candidates[0]!
+  const difference = (value: number) => Math.abs(((value - angle + 540) % 360) - 180)
+  for (const candidate of candidates.slice(1)) if (difference(candidate) < difference(bestAngle)) bestAngle = candidate
+  const radians = bestAngle * Math.PI / 180
+  return { x: origin.x + Math.cos(radians) * radius, y: origin.y + Math.sin(radians) * radius }
 }
 
 function rectPoint(rect: DiagramRect, point: DiagramPoint): DiagramPoint {

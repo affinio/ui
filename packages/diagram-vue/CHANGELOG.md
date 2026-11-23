@@ -1,5 +1,13 @@
 # @affino/diagram-vue
 
+## 0.14.0
+
+### Minor Changes
+
+- Exposed typed snap markers, constraint state, numeric input, line and connector creation, and preview geometry through `useDiagramPointerController()`.
+- Added zero-based `v-model:active-cell`, accessible selected-cell state, arrow-key event isolation, and screen-sized row/column resize handles with cancelable previews.
+- Updated the `@affino/diagram-core` workspace dependency to 0.15.0.
+
 ## 0.13.0
 
 ### Minor Changes

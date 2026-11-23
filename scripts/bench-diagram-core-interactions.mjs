@@ -20,6 +20,7 @@ function run(count) {
   const workloads = {}
   const runSamples = (name, action) => {
     const values = []
+    for (let index = 0; index < 5; index += 1) action(index)
     for (let index = 0; index < samples; index += 1) {
       const started = performance.now(); action(index); values.push(performance.now() - started)
     }
@@ -31,10 +32,11 @@ function run(count) {
   runSamples('selection', (i) => engine.dispatch({ type: 'setSelection', selection: { ids: [`node-${i % 2}`], primaryId: `node-${i % 2}` } }))
   runSamples('alignment', (i) => engine.snapTranslation({ ids: ['node-0'], primaryId: 'node-0' }, { x: 18 + i % 3, y: 20 }, { radius: 6 }))
   runSamples('equalSpacing', (i) => engine.snapTranslation({ ids: ['node-0'], primaryId: 'node-0' }, { x: 200 + i % 3, y: 0 }, { radius: 6, snapToEqualSpacing: true }))
+  runSamples('snapCandidateSearch', (i) => engine.getSnapCandidates({ x: 12 + i % 4, y: 14 }, { tolerancePx: 8, gridSize: 16, kinds: ['port', 'endpoint', 'midpoint', 'center', 'intersection', 'perpendicular', 'nearest', 'grid'], origin: { x: 0, y: 0 } }))
   return { entityCount: count, nodeCount: fixture.nodes.length, edgeCount: fixture.edges.length, portCount: fixture.ports.length, workloads, diagnostics: engine.getDiagnostics() }
 }
 function createFixture(count) {
-  const nodeCount = Math.max(3, Math.floor(count * 0.45)), edgeCount = Math.floor(count * 0.25), portCount = Math.max(nodeCount, count - Math.floor(count * 0.4))
+  const nodeCount = Math.max(3, Math.floor(count * 0.4)), edgeCount = Math.floor(count * 0.25), portCount = Math.floor(count * 0.15)
   const nodes = Array.from({ length: nodeCount }, (_, i) => ({ id: `node-${i}`, kind: 'node', x: i % 100 * 140, y: Math.floor(i / 100) * 100, width: 96, height: 56 }))
   const ports = Array.from({ length: portCount }, (_, i) => ({ id: `port-${i}`, kind: 'port', nodeId: `node-${i % nodeCount}`, x: 96, y: 28 }))
   const edges = Array.from({ length: edgeCount }, (_, i) => ({ id: `edge-${i}`, kind: 'edge', source: { kind: 'port', portId: `port-${i % portCount}` }, target: { kind: 'port', portId: `port-${(i + 1) % portCount}` } }))

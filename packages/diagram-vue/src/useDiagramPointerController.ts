@@ -1,12 +1,20 @@
 import { getCurrentScope, onScopeDispose, shallowRef } from "vue"
 import type { ShallowRef } from "vue"
-import { createDiagramInteractionController, type DiagramInteractionController, type DiagramInteractionSnapOptions, type DiagramInteractionSnapshot, type DiagramInteractionTool, type DiagramPoint, type DiagramViewportConstraints } from "@affino/diagram-core"
+import { createDiagramInteractionController, type DiagramDynamicInputState, type DiagramInteractionController, type DiagramInteractionSnapOptions, type DiagramInteractionSnapshot, type DiagramInteractionTool, type DiagramPoint, type DiagramPointerEvent, type DiagramOrthogonalRouteOptions, type DiagramViewportConstraints, type DiagramId, type DiagramTableResizeAxis } from "@affino/diagram-core"
 import type { DiagramEngineController } from "./useDiagramEngine.js"
 
 export type DiagramPointerController = Readonly<{
   interaction: DiagramInteractionController
   state: ShallowRef<DiagramInteractionSnapshot>
+  getPreviewGeometry: (id: string) => ReturnType<DiagramInteractionController["getPreviewGeometry"]>
   setTool: (tool: DiagramInteractionTool) => void
+  setDynamicInput: (values: Partial<DiagramDynamicInputState>) => boolean
+  confirmDynamicInput: () => boolean
+  cancelDynamicInput: () => void
+  beginEdgeCreation: (id: string, event: PointerEvent, routeOptions?: DiagramOrthogonalRouteOptions) => boolean
+  beginLineCreation: (id: string, event: PointerEvent) => boolean
+  beginTableResizeHandle: (id: DiagramId, axis: DiagramTableResizeAxis, index: number, event: PointerEvent) => boolean
+  cancel: () => void
   getSvgPointerProps: () => {
     onPointerdown: (event: PointerEvent) => void
     onPointermove: (event: PointerEvent) => void
@@ -57,8 +65,47 @@ export function useDiagramPointerController(controller: DiagramEngineController,
   const api: DiagramPointerController = {
     interaction,
     state,
+    getPreviewGeometry: (id) => interaction.getPreviewGeometry(id),
     setTool: (tool) => {
       interaction.setTool(tool)
+      refresh()
+    },
+    setDynamicInput: (values) => {
+      const accepted = interaction.setDynamicInput(values)
+      refresh()
+      return accepted
+    },
+    confirmDynamicInput: () => {
+      const accepted = interaction.confirmDynamicInput()
+      refresh()
+      return accepted
+    },
+    cancelDynamicInput: () => {
+      interaction.cancelDynamicInput()
+      refresh()
+    },
+    beginEdgeCreation: (id, event, routeOptions) => {
+      options.setPointerCapture?.(event)
+      const pointerEvent: DiagramPointerEvent = toEvent(event)
+      const accepted = interaction.beginEdgeCreation(id, pointerEvent, routeOptions)
+      refresh()
+      return accepted
+    },
+    beginLineCreation: (id, event) => {
+      options.setPointerCapture?.(event)
+      const accepted = interaction.beginLineCreation(id, toEvent(event))
+      refresh()
+      return accepted
+    },
+    beginTableResizeHandle: (id, axis, index, event) => {
+      if (options.setPointerCapture) options.setPointerCapture(event)
+      else (event.currentTarget as Element | null)?.setPointerCapture?.(event.pointerId)
+      const accepted = interaction.beginTableResizeHandle(id, axis, index, toEvent(event))
+      refresh()
+      return accepted
+    },
+    cancel: () => {
+      interaction.cancel()
       refresh()
     },
     getSvgPointerProps: () => ({
@@ -102,8 +149,16 @@ function sameSnapshot(previous: DiagramInteractionSnapshot, next: DiagramInterac
     && previous.previewDelta === next.previewDelta
     && previous.resizePreview === next.resizePreview
     && previous.resizePreviewEntries === next.resizePreviewEntries
+    && previous.tableResizePreview === next.tableResizePreview
     && previous.edgeEndpointPreview === next.edgeEndpointPreview
     && previous.snapGuides === next.snapGuides
+    && previous.snapResult === next.snapResult
+    && previous.snapMarkers === next.snapMarkers
+    && previous.constraint === next.constraint
+    && previous.dynamicInput === next.dynamicInput
+    && previous.edgeCreationPreview === next.edgeCreationPreview
+    && previous.shapeCreationPreview === next.shapeCreationPreview
+    && previous.shapeCreationPreview === next.shapeCreationPreview
     && previous.marquee === next.marquee
 }
 

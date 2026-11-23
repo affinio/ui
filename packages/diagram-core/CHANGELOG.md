@@ -1,5 +1,13 @@
 # @affino/diagram-core
 
+## 0.15.0
+
+### Minor Changes
+
+- Added indexed, screen-tolerance snap candidates, deterministic tie-breaking, origin-based angle constraints, grid/orthogonal constraints, and richer interaction diagnostics.
+- Added `previewBatch()`, in-memory batch operation ID idempotency, structured scene validation, transient numeric input, undoable line-shape creation, orthogonal connector routing helpers, and opt-in endpoint reattachment.
+- Added frame-batched transient row/column resize previews through `DiagramInteractionController`; pointer-up reuses the existing undoable table resize commands.
+
 ## 0.14.0
 
 ### Minor Changes

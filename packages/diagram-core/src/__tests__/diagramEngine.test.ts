@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { clampViewportToBounds, createDiagramEngine, createDiagramInteractionController, deserializeDiagramDocument, deserializeScene, getDiagramTableCellAt, screenToWorld, serializeScene, worldToScreen, zoomViewportAt } from ".."
+import { clampViewportToBounds, createDiagramEngine, createDiagramInteractionController, deserializeDiagramDocument, deserializeScene, getDiagramTableCellAt, routeOrthogonalConnector, screenToWorld, serializeScene, validateDiagramScene, worldToScreen, zoomViewportAt } from ".."
 import type { DiagramPoint, DiagramSceneInput } from ".."
 
 const scene: DiagramSceneInput = {
@@ -124,6 +124,55 @@ describe("DiagramEngine", () => {
     engine.dispatch({ type: "resizeTableColumn", id: "t", index: 1, width: 70 })
     expect(engine.getScene().entities.tablesById.get("t")).toMatchObject({ width: 120, columnWidths: [50, 70] })
     expect(engine.dispatch({ type: "resizeTableColumn", id: "t", index: 4, width: 100 }).changed).toBe(false)
+  })
+
+  it("previews a rotated table row resize and commits exactly once on pointer up", () => {
+    const engine = createDiagramEngine({
+      tables: [{ id: "rotated-table", kind: "table", x: 10, y: 20, width: 100, height: 40, rowCount: 2, columnCount: 2, rotation: 90 }],
+      viewport: { x: 0, y: 0, width: 300, height: 200, zoom: 0.5 },
+    })
+    const frames: Array<() => void> = []
+    const interaction = createDiagramInteractionController(engine, { scheduleFrame: (callback) => frames.push(callback) })
+    const revision = engine.getDocumentRevision()
+    const undoDepth = engine.getDiagnostics().undoDepth
+    expect(interaction.beginTableResizeHandle("rotated-table", "row", 0, { id: 41, point: { x: 100, y: 100 } })).toBe(true)
+    interaction.pointerMove({ id: 41, point: { x: 90, y: 100 } })
+    frames.shift()?.()
+    expect(interaction.getSnapshot().tableResizePreview).toMatchObject({ axis: "row", index: 0, size: 30, width: 100, height: 50 })
+    expect(engine.getScene().entities.tablesById.get("rotated-table")?.rowHeights).toEqual([20, 20])
+    expect(engine.getDocumentRevision()).toBe(revision)
+    expect(engine.getDiagnostics().undoDepth).toBe(undoDepth)
+    interaction.pointerUp({ id: 41, point: { x: 90, y: 100 } })
+    expect(engine.getScene().entities.tablesById.get("rotated-table")).toMatchObject({ height: 50, rowHeights: [30, 20], rotation: 90 })
+    expect(engine.getDiagnostics().undoDepth).toBe(undoDepth + 1)
+    expect(engine.getGeometrySnapshot("rotated-table")?.unrotatedBounds).toMatchObject({ width: 100, height: 50 })
+    expect(engine.getGeometrySnapshot("rotated-table")?.bounds).toMatchObject({ width: 50, height: 100 })
+    engine.dispatch({ type: "undo" })
+    expect(engine.getScene().entities.tablesById.get("rotated-table")?.rowHeights).toEqual([20, 20])
+    engine.dispatch({ type: "redo" })
+    expect(engine.getScene().entities.tablesById.get("rotated-table")?.rowHeights).toEqual([30, 20])
+    engine.dispatch({ type: "resizeTableColumn", id: "rotated-table", index: 0, width: 70 })
+    expect(engine.getScene().entities.tablesById.get("rotated-table")).toMatchObject({ width: 120, columnWidths: [70, 50] })
+    engine.dispatch({ type: "undo" })
+    expect(engine.getScene().entities.tablesById.get("rotated-table")).toMatchObject({ width: 100, columnWidths: [50, 50] })
+    engine.dispatch({ type: "redo" })
+    expect(engine.getScene().entities.tablesById.get("rotated-table")).toMatchObject({ width: 120, columnWidths: [70, 50] })
+  })
+
+  it("cancels transient table axis resize without changing scene or history", () => {
+    const engine = createDiagramEngine({ tables: [{ id: "cancel-table", kind: "table", x: 0, y: 0, width: 100, height: 40, rowCount: 2, columnCount: 2 }] })
+    const frames: Array<() => void> = []
+    const interaction = createDiagramInteractionController(engine, { scheduleFrame: (callback) => frames.push(callback) })
+    const before = engine.serialize()
+    const undoDepth = engine.getDiagnostics().undoDepth
+    interaction.beginTableResizeHandle("cancel-table", "column", 0, { id: 42, point: { x: 50, y: 20 } })
+    interaction.pointerMove({ id: 42, point: { x: 80, y: 20 } })
+    frames.shift()?.()
+    expect(interaction.getSnapshot().tableResizePreview?.columnWidths).toEqual([80, 50])
+    interaction.cancel()
+    expect(interaction.getSnapshot().tableResizePreview).toBeNull()
+    expect(engine.serialize()).toEqual(before)
+    expect(engine.getDiagnostics().undoDepth).toBe(undoDepth)
   })
 
   it("applies table construction and edits atomically in one batch history entry", () => {
@@ -341,6 +390,43 @@ describe("DiagramEngine", () => {
     expect(engine.getScene().entities.nodesById.has("n1")).toBe(false)
     engine.dispatch({ type: "redo" })
     expect(engine.getScene().entities.edgesById.has("e1")).toBe(true)
+  })
+
+  it("previews command batches without publishing or changing revisions and history", () => {
+    const engine = createDiagramEngine()
+    let publications = 0
+    const subscription = engine.subscribe(() => { publications += 1 })
+    const publicationCount = publications
+    const revision = engine.getDocumentRevision()
+    const undoDepth = engine.getDiagnostics().undoDepth
+    const commands = [
+      { type: "createNode", node: { id: "preview-node", kind: "node", x: 0, y: 0, width: 20, height: 20 } },
+      { type: "createPort", port: { id: "preview-port", kind: "port", nodeId: "preview-node", x: 20, y: 10 } },
+    ] as const
+    const preview = engine.previewBatch(commands, { expectedRevision: revision })
+    expect(preview).toMatchObject({ ok: true, changed: true, documentRevision: revision, affectedIds: ["preview-node", "preview-port"] })
+    expect(preview.scene?.nodes).toHaveLength(1)
+    expect(preview.scene?.ports).toHaveLength(1)
+    expect(engine.getScene().entities.nodesById.size).toBe(0)
+    expect(engine.getDocumentRevision()).toBe(revision)
+    expect(engine.getDiagnostics().undoDepth).toBe(undoDepth)
+    expect(publications).toBe(publicationCount)
+    const rejected = engine.previewBatch([...commands, { type: "createPort", port: { id: "bad", kind: "port", nodeId: "missing", x: 0, y: 0 } } as const])
+    expect(rejected).toMatchObject({ ok: false, failedCommandIndex: 2, reason: "invalid-command" })
+    expect(publications).toBe(publicationCount)
+    subscription.unsubscribe()
+  })
+
+  it("makes caller-identified batches idempotent and rejects reused IDs with different content", () => {
+    const engine = createDiagramEngine()
+    const commands = [{ type: "createNode", node: { id: "once", kind: "node", x: 0, y: 0, width: 20, height: 20 } }] as const
+    const first = engine.dispatchBatch(commands, { operationId: "request-42" })
+    const duplicate = engine.dispatchBatch(commands, { operationId: "request-42" })
+    expect(duplicate).toEqual(first)
+    expect(engine.getDiagnostics().undoDepth).toBe(1)
+    const conflict = engine.dispatchBatch([{ type: "createNode", node: { id: "other", kind: "node", x: 0, y: 0, width: 20, height: 20 } }], { operationId: "request-42" })
+    expect(conflict).toMatchObject({ ok: false, reason: "operation-id-conflict" })
+    expect(engine.getScene().entities.nodesById.has("other")).toBe(false)
   })
 
   it("rejects a batch without publishing or changing redo, and does not conflict on viewport changes", () => {
@@ -1364,6 +1450,8 @@ describe("DiagramEngine", () => {
     callbacks[0]()
 
     expect(controller.getSnapshot().resizePreview).toEqual({ id: "n1", width: 130, height: 80 })
+    expect(controller.getPreviewGeometry("n1")?.bounds).toEqual({ x: 0, y: 0, width: 130, height: 80 })
+    expect(controller.getPreviewGeometry("p1")?.point).toEqual({ x: 130, y: 40 })
     expect(engine.getScene().entities.nodesById.get("n1")).toMatchObject({ width: 100, height: 60 })
 
     controller.pointerUp({ id: 1, point: { x: 130, y: 80 } })
@@ -1685,6 +1773,7 @@ describe("DiagramEngine", () => {
       { id: "n1", x: 0, y: 0, width: 120, height: 60 },
       { id: "n2", x: 240, y: 60, width: 120, height: 60 },
     ])
+    expect(controller.getPreviewGeometry("n2")?.bounds).toEqual({ x: 240, y: 60, width: 120, height: 60 })
     expect(engine.getScene().entities.nodesById.get("n2")).toMatchObject({ x: 200, y: 50, width: 100, height: 50 })
 
     controller.pointerUp({ id: 1, point: { x: 360, y: 120 } })
@@ -2043,5 +2132,173 @@ describe("DiagramEngine", () => {
     expect(engine.snapPoint({ x: 50, y: 100 }, { radius: 3, excludeIds: new Set(["n1"]) }).snapped).toBe(false)
     expect(engine.snapPoint({ x: 10, y: 7 }, { angleConstraint: 45 }).source).toBe("angle")
     expect(engine.snapPoint({ x: 13, y: 17 }, { gridSize: 10 })).toEqual({ point: { x: 10, y: 20 }, snapped: true, source: "grid" })
+  })
+
+  it("returns deterministic indexed snap candidates with screen tolerance and segment geometry", () => {
+    const engine = createDiagramEngine({
+      nodes: [{ id: "center-node", kind: "node", x: 45, y: -5, width: 10, height: 10 }],
+      edges: [
+        { id: "horizontal", kind: "edge", source: { kind: "point", point: { x: 0, y: 0 } }, target: { kind: "point", point: { x: 100, y: 0 } } },
+        { id: "vertical", kind: "edge", source: { kind: "point", point: { x: 50, y: -50 } }, target: { kind: "point", point: { x: 50, y: 50 } } },
+      ],
+      viewport: { x: 0, y: 0, width: 200, height: 100, zoom: 2 },
+    })
+    const point = { x: 50.5, y: 1 }
+    const options = { tolerancePx: 10, kinds: ["endpoint", "midpoint", "center", "intersection", "nearest", "perpendicular"] as const, origin: { x: 50, y: 40 } }
+    const candidates = engine.getSnapCandidates(point, options)
+    expect(candidates).toEqual(engine.getSnapCandidates(point, options))
+    expect(candidates[0]).toMatchObject({ kind: "intersection", targetId: "horizontal|vertical", point: { x: 50, y: 0 } })
+    expect(candidates.some((candidate) => candidate.kind === "midpoint" && candidate.targetId === "horizontal")).toBe(true)
+    expect(candidates.some((candidate) => candidate.kind === "center" && candidate.targetId === "center-node")).toBe(true)
+    expect(candidates.some((candidate) => candidate.kind === "nearest" && candidate.targetId === "horizontal")).toBe(true)
+    expect(candidates.some((candidate) => candidate.kind === "perpendicular" && candidate.targetId === "horizontal")).toBe(true)
+    expect(candidates.every((candidate) => candidate.distancePx <= 10)).toBe(true)
+    const snapped = engine.snapPoint(point, { tolerancePx: 10, kinds: ["intersection"] })
+    expect(snapped).toMatchObject({ point: { x: 50, y: 0 }, source: "intersection", targetId: "horizontal|vertical" })
+    expect(engine.getSnapCandidates({ x: 10.5, y: 11 }, { tolerancePx: 10, gridSize: 10, kinds: ["grid"] })[0]).toMatchObject({ kind: "grid", point: { x: 10, y: 10 } })
+  })
+
+  it("constrains angular snapping relative to a caller origin", () => {
+    const engine = createDiagramEngine({ viewport: { x: 0, y: 0, width: 100, height: 100, zoom: 1 } })
+    const result = engine.snapPoint({ x: 30, y: 40 }, { kinds: [], origin: { x: 10, y: 10 }, angleIncrement: 90 })
+    expect(result.source).toBe("angle")
+    expect(result.point.x).toBeCloseTo(10)
+    expect(result.point.y).toBeCloseTo(10 + Math.hypot(20, 30))
+  })
+
+  it("returns structured scene validation issues without throwing", () => {
+    expect(validateDiagramScene({ nodes: [{ id: "bad-node", kind: "node", x: Number.NaN, y: 0, width: 20, height: 20 }] })).toMatchObject([
+      { code: "invalid-geometry", severity: "error", entityIds: ["bad-node"] },
+    ])
+    expect(validateDiagramScene({ nodes: [{ id: "ok", kind: "node", x: 0, y: 0, width: 20, height: 20 }] })).toEqual([])
+  })
+
+  it("creates validated line shapes through the undoable command API", () => {
+    const engine = createDiagramEngine()
+    const line = { id: "line", kind: "shape" as const, shape: "line", x: 5, y: 8, width: 30, height: 12 }
+    expect(engine.dispatch({ type: "createShape", shape: line }).changed).toBe(true)
+    expect(engine.getScene().entities.shapesById.get("line")).toEqual(line)
+    expect(engine.dispatch({ type: "undo" }).changed).toBe(true)
+    expect(engine.getScene().entities.shapesById.has("line")).toBe(false)
+    expect(engine.dispatch({ type: "redo" }).changed).toBe(true)
+    expect(engine.getScene().entities.shapesById.get("line")).toEqual(line)
+    expect(engine.dispatch({ type: "createShape", shape: { ...line, id: "bad", x: Number.NaN } }).changed).toBe(false)
+  })
+
+  it("applies configured grid snapping to resize preview and commit", () => {
+    const engine = createDiagramEngine({ shapes: [{ id: "shape", kind: "shape", shape: "rect", x: 0, y: 0, width: 100, height: 50 }] })
+    const frames: Array<() => void> = []
+    const interaction = createDiagramInteractionController(engine, { scheduleFrame: (callback) => frames.push(callback), snap: { gridSize: 10 } })
+    interaction.beginResizeHandle("shape", "se", { id: 1, point: { x: 100, y: 50 } })
+    interaction.pointerMove({ id: 1, point: { x: 127, y: 72 } })
+    frames.shift()?.()
+    expect(interaction.getSnapshot().resizePreview).toMatchObject({ width: 130, height: 70 })
+    interaction.pointerUp({ id: 1, point: { x: 127, y: 72 } })
+    expect(engine.getScene().entities.shapesById.get("shape")).toMatchObject({ width: 130, height: 70 })
+  })
+
+  it("applies polar constraints to selection preview and commit and cancels numeric input cleanly", () => {
+    const engine = createDiagramEngine({ nodes: [{ id: "n", kind: "node", x: 0, y: 0, width: 20, height: 20 }] })
+    const frames: Array<() => void> = []
+    const interaction = createDiagramInteractionController(engine, { scheduleFrame: (callback) => frames.push(callback), snap: { enabled: false, angleIncrement: 45 } })
+    interaction.pointerDown({ id: 1, point: { x: 10, y: 10 } })
+    const revision = engine.getDocumentRevision()
+    const undoDepth = engine.getDiagnostics().undoDepth
+    interaction.pointerMove({ id: 1, point: { x: 50, y: 30 } })
+    frames.shift()?.()
+    expect(interaction.getSnapshot().constraint).toMatchObject({ kind: "angle", angle: 45 })
+    expect(interaction.getSnapshot().previewDelta?.x).toBeCloseTo(interaction.getSnapshot().previewDelta?.y ?? 0)
+    interaction.setDynamicInput({ dx: 100, dy: 0 })
+    interaction.cancelDynamicInput()
+    expect(engine.getDocumentRevision()).toBe(revision)
+    expect(engine.getScene().entities.nodesById.get("n")?.x).toBe(0)
+    expect(engine.getDiagnostics().undoDepth).toBe(undoDepth)
+  })
+
+  it("creates orthogonal connectors with stable local routes and snaps endpoint ports", () => {
+    const route = routeOrthogonalConnector({ x: 0, y: 0 }, { x: 100, y: 40 }, { terminalLead: 12 })
+    expect(route.firstAxis).toBe("horizontal")
+    expect(route.path).toEqual([{ x: 0, y: 0 }, { x: 12, y: 0 }, { x: 88, y: 0 }, { x: 88, y: 40 }, { x: 100, y: 40 }])
+    expect(route.diagnostics).toEqual([])
+    const engine = createDiagramEngine({
+      nodes: [
+        { id: "a", kind: "node", x: 0, y: 0, width: 20, height: 20, portIds: ["pa"] },
+        { id: "b", kind: "node", x: 100, y: 0, width: 20, height: 20, portIds: ["pb"] },
+      ],
+      ports: [
+        { id: "pa", kind: "port", nodeId: "a", x: 20, y: 10 },
+        { id: "pb", kind: "port", nodeId: "b", x: 0, y: 10 },
+      ],
+    })
+    const frames: Array<() => void> = []
+    const interaction = createDiagramInteractionController(engine, {
+      scheduleFrame: (callback) => frames.push(callback),
+      snap: { tolerancePx: 8, kinds: ["port"], snapToPorts: true },
+    })
+    expect(interaction.beginEdgeCreation("a", { id: 1, point: { x: 20, y: 10 } })).toBe(false)
+    expect(interaction.beginEdgeCreation("invalid-route", { id: 1, point: { x: 20, y: 10 } }, { terminalLead: -1 })).toBe(false)
+    expect(interaction.beginEdgeCreation("new-edge", { id: 1, point: { x: 20, y: 10 } }, { terminalLead: 8 })).toBe(true)
+    interaction.pointerMove({ id: 1, point: { x: 100, y: 10 } })
+    frames.shift()?.()
+    const preview = interaction.getSnapshot().edgeCreationPreview!
+    expect(preview.source).toEqual({ kind: "port", portId: "pa" })
+    expect(preview.target).toEqual({ kind: "port", portId: "pb" })
+    interaction.pointerUp({ id: 1, point: { x: 100, y: 10 } })
+    expect(engine.getScene().entities.edgesById.get("new-edge")).toMatchObject({ source: preview.source, target: preview.target, points: preview.points })
+    expect(engine.canUndo()).toBe(true)
+  })
+
+  it("previews and commits a snapped free line as one undoable shape command", () => {
+    const engine = createDiagramEngine({ viewport: { x: 0, y: 0, width: 200, height: 100, zoom: 1 } })
+    const frames: Array<() => void> = []
+    const interaction = createDiagramInteractionController(engine, { scheduleFrame: (callback) => frames.push(callback), snap: { enabled: false, angleIncrement: 90 } })
+    expect(interaction.beginLineCreation("line", { id: 1, point: { x: 10, y: 10 } })).toBe(true)
+    interaction.pointerMove({ id: 1, point: { x: 40, y: 20 } })
+    frames.shift()?.()
+    const preview = interaction.getSnapshot().shapeCreationPreview
+    expect(preview).toMatchObject({ id: "line", shape: "line", height: 0, flipY: false })
+    expect(preview?.width).toBeCloseTo(Math.hypot(30, 10))
+    expect(engine.getScene().entities.shapesById.size).toBe(0)
+    interaction.pointerUp({ id: 1, point: { x: 40, y: 20 } })
+    expect(engine.getScene().entities.shapesById.get("line")).toEqual(preview)
+    expect(engine.canUndo()).toBe(true)
+    engine.dispatch({ type: "undo" })
+    expect(engine.getScene().entities.shapesById.has("line")).toBe(false)
+  })
+
+  it("reattaches an endpoint to a snapped port only in explicit connector mode", () => {
+    const engine = createDiagramEngine({
+      nodes: [{ id: "owner", kind: "node", x: 140, y: -10, width: 20, height: 20, portIds: ["port"] }],
+      ports: [{ id: "port", kind: "port", nodeId: "owner", x: 10, y: 10 }],
+      edges: [{ id: "edge", kind: "edge", source: { kind: "point", point: { x: 0, y: 0 } }, target: { kind: "point", point: { x: 100, y: 0 } } }],
+    })
+    const frames: Array<() => void> = []
+    const interaction = createDiagramInteractionController(engine, { scheduleFrame: (callback) => frames.push(callback), snap: { kinds: ["port"], endpointMode: "reattach", tolerancePx: 8 } })
+    expect(interaction.beginEdgeEndpointHandle("edge", "target", { id: 1, point: { x: 100, y: 0 } })).toBe(true)
+    interaction.pointerMove({ id: 1, point: { x: 150, y: 0 } })
+    frames.shift()?.()
+    expect(interaction.getSnapshot().edgeEndpointPreview?.connection).toEqual({ kind: "port", portId: "port" })
+    interaction.pointerUp({ id: 1, point: { x: 150, y: 0 } })
+    expect(engine.getScene().entities.edgesById.get("edge")?.target).toEqual({ kind: "port", portId: "port" })
+    engine.dispatch({ type: "undo" })
+    expect(engine.getScene().entities.edgesById.get("edge")?.target).toEqual({ kind: "point", point: { x: 100, y: 0 } })
+  })
+
+  it("supports finite dynamic input and confirms one undoable drag", () => {
+    const engine = createDiagramEngine({ nodes: [{ id: "n", kind: "node", x: 0, y: 0, width: 20, height: 20 }] })
+    const frames: Array<() => void> = []
+    const interaction = createDiagramInteractionController(engine, { scheduleFrame: (callback) => frames.push(callback), snap: { enabled: false } })
+    interaction.pointerDown({ id: 1, point: { x: 10, y: 10 } })
+    const historyDepth = engine.getDiagnostics().undoDepth
+    expect(interaction.getSnapshot().tool).toBe("drag-selection")
+    expect(interaction.setDynamicInput({ dx: 35, dy: 15 })).toBe(true)
+    expect(interaction.getSnapshot().dynamicInput).toMatchObject({ x: 45, y: 25, dx: 35, dy: 15 })
+    expect(interaction.getPreviewGeometry("n")?.bounds).toMatchObject({ x: 35, y: 15 })
+    expect(interaction.setDynamicInput({ x: Number.NaN })).toBe(false)
+    expect(interaction.confirmDynamicInput()).toBe(true)
+    expect(engine.getScene().entities.nodesById.get("n")).toMatchObject({ x: 35, y: 15 })
+    expect(engine.getDiagnostics().undoDepth).toBe(historyDepth + 1)
+    engine.dispatch({ type: "undo" })
+    expect(engine.getScene().entities.nodesById.get("n")).toMatchObject({ x: 0, y: 0 })
   })
 })

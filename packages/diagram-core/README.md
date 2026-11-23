@@ -33,6 +33,12 @@ const boundedEngine = createDiagramEngine({}, { history: { maxEntries: 200 } })
 
 `updateEntities` applies metadata updates to existing entities in one undoable command. Metadata is merged by key, so omitted keys remain unchanged. The command does not remove metadata keys; assigning `undefined` stores an `undefined` value. Unknown IDs are ignored, and updates with no effective changes create no history entry. Use `setEntityMetadata` to replace the complete metadata object.
 
+Shapes can also be created through an undoable command. A `line` shape stores its endpoints as `(x, y)` and `(x + width, y + height)`; negative direction is represented by `flipX`/`flipY` while width and height remain non-negative.
+
+```ts
+engine.dispatch({ type: "createShape", shape: { id: "guide", kind: "shape", shape: "line", x: 0, y: 0, width: 100, height: 40 } })
+```
+
 ### Groups
 
 Groups are structural scene entities with stable IDs and ordered `childIds`. Group only existing, ungrouped nodes, edges, texts, shapes, or tables; ports cannot be direct children because they follow their owning node. Nested groups are rejected with a `TypeError` during scene construction, `transact()`, and deserialization.
@@ -67,9 +73,13 @@ Row/column indexes are zero-based. Insert accepts indexes `0..count`; delete and
 
 Cell edits are dispatched as one `updateTableCell` command. The Vue adapter keeps keystrokes in a local active editor and commits once on Enter, blur, or cell navigation; Escape discards the draft.
 
+Vue table row and column boundary gestures use `DiagramInteractionController.beginTableResizeHandle(id, axis, index, pointer)`. The index identifies the row/column on the leading side of a boundary. `getSnapshot().tableResizePreview` exposes transient sizes and outer bounds without changing serialization, revision, or history. Pointer-up applies one existing `resizeTableRow`/`resizeTableColumn` command; cancel drops the preview. Pointer deltas are mapped into table-local axes, including rotated tables. Active-cell position (`DiagramTableCellPosition`) is adapter UI state and is intentionally absent from Core scene/document serialization.
+
 ### Atomic graph edits and documents
 
 `dispatchBatch()` applies commands against a draft in order and publishes one change and one undo entry only after every command succeeds. Set `expectedRevision` to `getDocumentRevision()` to reject stale document edits. Viewport and selection changes do not advance that revision. A rejected result contains `failedCommandIndex`, `reason`, and known `affectedIds`; the scene, subscribers, and undo/redo stacks remain untouched.
+
+`previewBatch()` runs the same command validation on an isolated draft and returns its candidate serialized scene without publishing or changing history. `dispatchBatch()` also accepts a caller-supplied `operationId`: duplicate IDs with the same serialized request return the original result; reuse with different commands is rejected. Receipts are held in memory per engine instance (up to 1,024 IDs), so applications that need durable idempotency should persist their own audit record.
 
 ```ts
 const result = engine.dispatchBatch([
@@ -82,6 +92,35 @@ if (!result.ok) console.error(result.reason, result.failedCommandIndex, result.a
 const savedDocument = engine.serializeDocument({ includeView: false })
 const sceneInput = deserializeDiagramDocument(savedDocument)
 ```
+
+## Engineering snaps and connectors
+
+`getSnapCandidates()` is a read-only indexed query. Its `tolerancePx` is screen pixels and is converted with the current viewport zoom. Candidate order is stable: port, endpoint, intersection, midpoint, center, perpendicular, nearest, alignment, equal spacing, grid; ties use screen distance, target ID, then coordinates. `excludeIds` filters self-snaps. Text bounds are not snap geometry. In the current generic model, endpoint/midpoint/nearest/perpendicular/intersection candidates come from edge paths and visible line/rectangle/ellipse outlines; table cell grid lines are not electrical anchors.
+
+```ts
+const candidates = engine.getSnapCandidates({ x: 315, y: 142 }, {
+  tolerancePx: 8,
+  kinds: ["port", "endpoint", "midpoint", "intersection", "perpendicular", "nearest", "grid"],
+  gridSize: 8,
+  origin: { x: 280, y: 120 },
+  excludeIds: new Set(["moving-edge"]),
+})
+const resolved = engine.snapPoint({ x: 315, y: 142 }, { tolerancePx: 8, kinds: ["port", "nearest"], origin: { x: 280, y: 120 } })
+```
+
+Legacy `radius` in `snapPoint()` remains in world units. New callers should use `tolerancePx`. Use `origin` for polar constraints; angular projection preserves vector length from that origin. `ortho` is a 90-degree angular constraint. Selection movement and endpoint edits apply configured grid/object snaps and angle constraints to transient previews, then commit those resolved coordinates.
+
+`routeOrthogonalConnector(source, target, { terminalLead, firstAxis })` returns stable waypoints plus diagnostics when terminal leads overlap. It creates a local orthogonal route only; it does not promise obstacle avoidance. `beginEdgeCreation(id, pointer, routeOptions)` provides a frame-batched route preview and commits one `createEdge` command. `beginLineCreation(id, pointer)` provides a snapped transient line-shape preview and commits one `createShape` command. Ports are retained as endpoint references when snapped for connectors. Endpoint reattachment during endpoint dragging is opt-in with `snap.endpointMode: "reattach"`; the default keeps the existing free-point editing contract.
+
+Dynamic input is renderer-neutral and operates on the active gesture preview:
+
+```ts
+interaction.setDynamicInput({ length: 120, angle: 30 }) // length is world units, angle is degrees
+interaction.confirmDynamicInput() // commits through the active gesture's normal command
+interaction.cancelDynamicInput() // discards preview and creates no history
+```
+
+The interaction snapshot exposes `snapResult`, `snapMarkers`, `snapGuides`, `constraint`, `dynamicInput`, `edgeCreationPreview`, endpoint preview, movement delta, and resize entries. `validateDiagramScene(input)` returns structured validation issues; `previewBatch()` returns the valid draft scene and known changed IDs for AI or other programmatic clients.
 
 The versioned document stores diagram content separately from optional viewport and selection state. `serialize()` and `deserializeScene()` keep their existing legacy scene contract; `transact()` continues replacing the scene and resetting history.
 
@@ -139,7 +178,9 @@ interaction.beginResizeHandle("n1", "se", pointerEvent)
 interaction.beginResizeSelectionHandle("se", pointerEvent)
 const preview = interaction.getSnapshot().resizePreview
 const entries = interaction.getSnapshot().resizePreviewEntries
-// Render previews when present, then pointer up commits one resizeEntities history entry.
+interaction.beginTableResizeHandle("notes", "column", 0, pointerEvent)
+const tablePreview = interaction.getSnapshot().tableResizePreview
+// Pointer-up commits the selected command once; cancel discards either preview.
 ```
 
 `resizePreview` is intentionally transient: it lets SVG render live dimensions without mutating serialized scene state on every pointer move. Drag deltas are mapped through entity rotation and the opposite rotated corner stays anchored, so handles follow the local resize axes exposed by rotated geometry. Multi-selection resize uses group bounds and emits one preview entry per resizable selected entity.
@@ -156,7 +197,7 @@ Holding Shift during a selection drag constrains the group to the dominant axis 
 
 ```ts
 const interaction = createDiagramInteractionController(engine, {
-  snap: { gridSize: 16, tolerancePx: 8, snapToPorts: true, snapToAlignment: true, snapToEqualSpacing: true },
+  snap: { gridSize: 16, tolerancePx: 8, snapToPorts: true, snapToAlignment: true, snapToEqualSpacing: true, angleIncrement: 45 },
 })
 ```
 

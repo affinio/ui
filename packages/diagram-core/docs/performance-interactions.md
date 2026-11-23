@@ -6,7 +6,19 @@ Reproduce with `pnpm --filter @affino/diagram-core build` followed by:
 BENCH_DIAGRAM_ENTITY_COUNTS=1000,5000,10000 BENCH_DIAGRAM_SAMPLES=40 node scripts/bench-diagram-core-interactions.mjs
 ```
 
-The fixture is deterministic and contains nodes, edges, ports, texts, and shapes. The benchmark reports p50/p95 milliseconds and engine counters. Samples are single-process wall-clock readings; compare only on the same host and runtime.
+The fixture is deterministic and contains exactly the requested total entities (40% nodes, 25% edges, 15% ports, 15% texts, 5% shapes). Each workload receives five warmups and then the configured measured samples. The benchmark reports p50/p95 milliseconds and engine counters. Samples are single-process wall-clock readings; compare only on the same host and runtime.
+
+The workloads cover dependent-edge node drag, waypoint edit/undo, pan/zoom, selection, alignment, equal spacing, and indexed `snapCandidateSearch`. Reproduce the recorded run with `BENCH_DIAGRAM_ENTITY_COUNTS=100,1000,10000 BENCH_DIAGRAM_SAMPLES=40 node scripts/bench-diagram-core-interactions.mjs` after building Core. Each operation uses five warmups and forty measured iterations.
+
+| Entities | Drag node + edges p50 / p95 ms | Waypoint edit + undo p50 / p95 ms | Pan/zoom p50 / p95 ms | Selection p50 / p95 ms | Alignment p50 / p95 ms | Equal spacing p50 / p95 ms | Snap query p50 / p95 ms |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 100 | 0.0767 / 0.2934 | 0.0416 / 0.1254 | 0.0252 / 0.0701 | 0.0424 / 0.1038 | 0.0110 / 0.0364 | 0.0346 / 0.0520 | 0.0105 / 0.0198 |
+| 1k | 0.0720 / 0.1205 | 0.0439 / 0.0540 | 0.0373 / 0.0558 | 0.0603 / 0.0792 | 0.0047 / 0.0072 | 0.0318 / 0.0478 | 0.0089 / 0.0176 |
+| 10k | 0.4870 / 1.0079 | 0.1127 / 0.1983 | 0.2298 / 0.3621 | 0.2845 / 0.4353 | 0.0053 / 0.0059 | 0.0929 / 0.1548 | 0.0060 / 0.0535 |
+
+The run counted one spatial and dependency index rebuild (fixture initialization), 267 spatial index updates, and 45 snap candidate queries returning 111 candidates per scene. Candidate search stayed indexed; measured p95 variance at 10k reflects local runtime/GC noise.
+
+The 2026-11-23 run used Node in the repository workspace; wall-clock figures are host-specific. The returned candidate count is accumulated across the five warmups and forty measured calls.
 
 ## Verification of 1d97269
 

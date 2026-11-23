@@ -34,6 +34,7 @@ Core group rotation publishes updated member geometry and selection bounds throu
 
 ```vue
 <script setup lang="ts">
+import { screenToWorld } from "@affino/diagram-core"
 import { getSvgEntityProps, useDiagramEngine, useDiagramPointerController, useDiagramTextEditor, useDiagramVisibleEntities } from "@affino/diagram-vue"
 
 const diagram = useDiagramEngine(initialScene)
@@ -57,6 +58,23 @@ const textEditor = useDiagramTextEditor(diagram)
 </template>
 ```
 
+`pointer.state.value` mirrors Core snap markers, guides, active angle/axis constraint, numeric input, and connector preview. Use `pointer.getPreviewGeometry(id)` inside a computed render projection (read `pointer.state.value` in the same computed to track preview updates). Core owns snap selection and geometry; Vue only forwards pointer events and exposes the typed state.
+
+For a free line shape, call `pointer.beginLineCreation(id, event)`; render `pointer.state.value.shapeCreationPreview` transiently, then let the same controller commit the shape on pointerup. Connector creation uses `beginEdgeCreation()` and exposes endpoint references plus route waypoints in `edgeCreationPreview`.
+
+```ts
+const pointer = useDiagramPointerController(diagram, {
+  toWorldPoint: (event) => screenToWorld(diagram.scene.value.viewport, { x: event.clientX, y: event.clientY }),
+  snap: { gridSize: 8, tolerancePx: 8, kinds: ["port", "endpoint", "midpoint", "nearest", "grid"], angleIncrement: 45 },
+})
+
+function onConnectPointerDown(event: PointerEvent) {
+  pointer.beginEdgeCreation("edge-12", event, { terminalLead: 12 })
+}
+pointer.setDynamicInput({ length: 120, angle: 30 })
+pointer.confirmDynamicInput()
+```
+
 ### Visual table component
 
 Create table data through Core, then render `DiagramTableView` inside the diagram SVG. The component reads the same reactive scene as other projections and sends cell/style/row/column changes through undoable Core commands; it has no duplicate application-owned table model. Pass the optional pointer controller to project frame-batched drag and resize previews, including multi-selection and grouped-table resize. Preview geometry is transient: serialization, revision, and history remain unchanged until pointer-up, while pointer cancel returns to the committed scene.
@@ -64,6 +82,8 @@ Create table data through Core, then render `DiagramTableView` inside the diagra
 ```vue
 <script setup lang="ts">
 import { DiagramTableView, useDiagramEngine, useDiagramPointerController } from "@affino/diagram-vue"
+import { ref } from "vue"
+import type { DiagramTableCellPosition } from "@affino/diagram-core"
 
 const diagram = useDiagramEngine({
   tables: [{ id: "notes", kind: "table", x: 40, y: 40, width: 320, height: 120, rowCount: 2, columnCount: 2,
@@ -71,16 +91,21 @@ const diagram = useDiagramEngine({
   viewport: { x: 0, y: 0, width: 900, height: 600, zoom: 1 },
 })
 const pointer = useDiagramPointerController(diagram)
+const activeCell = ref<DiagramTableCellPosition | null>(null)
 </script>
 
 <template>
   <svg :viewBox="`${diagram.scene.value.viewport.x} ${diagram.scene.value.viewport.y} ${diagram.scene.value.viewport.width} ${diagram.scene.value.viewport.height}`">
-    <DiagramTableView :controller="diagram" :pointer="pointer" id="notes" :show-toolbar="false" />
+    <DiagramTableView v-model:active-cell="activeCell" :controller="diagram" :pointer="pointer" id="notes" :show-toolbar="false" />
   </svg>
 </template>
 ```
 
 Double-click a cell or focus it and press Enter/F2 to edit. Typing a printable key starts editing with that character replacing the previous cell text; IME composition and Ctrl/Meta/Alt shortcuts do not trigger replacement. Enter commits and returns focus to the cell; Escape discards; blur commits; Up/Down move to the adjacent cell, and Left/Right move when the text caret is at the corresponding edge. Keyboard-focused cells use a subtle `--affino-focus-ring-color`/`--affino-accent` ring that adapts to the active theme and does not alter grid strokes. While selected, the accessible table toolbar exposes row/column insertion and deletion, row/column sizes, cell alignment, grid visibility/color/width/style, and outer border visibility/color/width/style/radius. Set `showToolbar` to `false` to hide only that built-in toolbar and expose commands in an external inspector through `useDiagramTable(diagram, id)`; cell editing and diagram interactions remain enabled. Toolbar/editor pointer events stop at the controls; the table surface continues to bubble pointer gestures to the diagram controller.
+
+`activeCell` is zero-based UI state and is never serialized or added to history. Without a supplied value, the first cell (`{ row: 0, column: 0 }`) is active; focus, click, and keyboard navigation emit `update:activeCell`, and row/column deletion clamps it to valid indexes. The active cell exposes `aria-selected`, a roving tabindex, a theme-aware fill through `--affino-diagram-table-active-cell`, and a focus ring without changing grid strokes.
+
+Cell arrow navigation prevents default and stops bubbling to the diagram editor. While editing, Up/Down move between cells and Left/Right move only when the text caret reaches its corresponding edge; Enter/F2, Escape, printable-key replacement, and IME handling retain their existing behavior. Selected tables with a pointer controller expose screen-sized row/column resize handles. Drag previews are frame-batched and work with table rotation; pointer-up dispatches one existing Core resize command/history entry, while pointer cancel or Escape discards the preview. Resizing changes the selected row/column and matching outer table dimension; other row/column sizes remain unchanged.
 
 ## Viewport resize
 

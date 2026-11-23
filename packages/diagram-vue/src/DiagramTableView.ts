@@ -1,6 +1,6 @@
 import { computed, defineComponent, h, nextTick, ref, watch } from "vue"
 import type { PropType, VNodeChild } from "vue"
-import type { DiagramTable, DiagramTableCell, DiagramTableHorizontalAlignment, DiagramTableStyle, DiagramTableVerticalAlignment } from "@affino/diagram-core"
+import type { DiagramTable, DiagramTableCell, DiagramTableCellPosition, DiagramTableHorizontalAlignment, DiagramTableStyle, DiagramTableVerticalAlignment } from "@affino/diagram-core"
 import { rectFromPoints, rotatePoint } from "@affino/diagram-core"
 import type { DiagramEngineController } from "./useDiagramEngine.js"
 import type { DiagramPointerController } from "./useDiagramPointerController.js"
@@ -16,9 +16,12 @@ export const DiagramTableView = defineComponent({
     pointer: { type: Object as PropType<DiagramPointerController>, required: false },
     /** Hides only the built-in formatting toolbar; defaults to visible. */
     showToolbar: { type: Boolean, default: true },
+    /** Zero-based interface state. Defaults to the first cell and is never serialized. */
+    activeCell: { type: Object as PropType<DiagramTableCellPosition | null>, default: undefined },
     id: { type: String, required: true },
   },
-  setup(props) {
+  emits: { "update:activeCell": (_cell: DiagramTableCellPosition) => true },
+  setup(props, { emit }) {
     const model = useDiagramTable(props.controller, props.id)
     const selected = computed(() => props.controller.scene.value.selection.ids.includes(props.id))
     const pointerSnapshot = computed(() => props.pointer?.state.value ?? null)
@@ -27,6 +30,14 @@ export const DiagramTableView = defineComponent({
       const pointer = props.pointer
       const interaction = pointerSnapshot.value
       if (!table || !pointer || !interaction?.active) return table
+      const tableResizePreview = interaction.tableResizePreview
+      if (tableResizePreview?.id === table.id) return {
+        ...table,
+        width: tableResizePreview.width,
+        height: tableResizePreview.height,
+        columnWidths: [...tableResizePreview.columnWidths],
+        rowHeights: [...tableResizePreview.rowHeights],
+      }
       const geometry = pointer.interaction.getPreviewGeometry(props.id)
       if (!geometry || geometry.kind !== "table") return table
       const bounds = geometry.unrotatedBounds ?? geometry.bounds
@@ -42,10 +53,26 @@ export const DiagramTableView = defineComponent({
         rowHeights: table.rowHeights?.map((size) => size * scaleY),
       }
     })
-    const selectedCell = ref({ row: 0, column: 0 })
+    const selectedCell = ref<DiagramTableCellPosition>(props.activeCell ?? { row: 0, column: 0 })
     const editing = ref<{ row: number; column: number; text: string } | null>(null)
     const input = ref<HTMLInputElement | null>(null)
     const tableRoot = ref<SVGGElement | null>(null)
+    const clampCell = (cell: DiagramTableCellPosition, table: DiagramTable | null): DiagramTableCellPosition => table
+      ? { row: Math.max(0, Math.min(table.rowCount - 1, Math.trunc(cell.row))), column: Math.max(0, Math.min(table.columnCount - 1, Math.trunc(cell.column))) }
+      : { row: 0, column: 0 }
+    const setActiveCell = (cell: DiagramTableCellPosition, table = model.table.value) => {
+      const next = clampCell(cell, table)
+      selectedCell.value = next
+      emit("update:activeCell", next)
+    }
+    watch(() => props.activeCell, (cell) => {
+      const next = clampCell(cell ?? { row: 0, column: 0 }, model.table.value)
+      if (next.row !== selectedCell.value.row || next.column !== selectedCell.value.column) setActiveCell(next)
+    })
+    watch(() => model.table.value && [model.table.value.rowCount, model.table.value.columnCount], () => {
+      const next = clampCell(selectedCell.value, model.table.value)
+      if (next.row !== selectedCell.value.row || next.column !== selectedCell.value.column) setActiveCell(next)
+    })
     watch(editing, (value) => { if (value) void nextTick(() => input.value?.focus()) })
     const focusCell = (row: number, column: number) => { void nextTick(() => tableRoot.value?.querySelector<SVGRectElement>(`[data-table-row="${row}"][data-table-column="${column}"]`)?.focus()) }
 
@@ -60,7 +87,7 @@ export const DiagramTableView = defineComponent({
     }
     const cancelEdit = () => { const edit = editing.value; editing.value = null; if (edit) focusCell(edit.row, edit.column) }
     const beginEdit = (table: DiagramTable, row: number, column: number, initialText?: string) => {
-      selectedCell.value = { row, column }
+      setActiveCell({ row, column }, table)
       editing.value = { row, column, text: initialText ?? currentCell(table, row, column).text }
     }
     const navigateEdit = (table: DiagramTable, rowDelta: number, columnDelta: number, expected?: { row: number; column: number; text: string }) => {
@@ -108,8 +135,31 @@ export const DiagramTableView = defineComponent({
           const anchor = cell.horizontalAlign === "center" ? "middle" : cell.horizontalAlign === "right" ? "end" : "start"
           const textX = anchor === "start" ? x + padding : anchor === "end" ? x + width - padding : x + width / 2
           const textY = cell.verticalAlign === "top" ? y + padding : cell.verticalAlign === "bottom" ? y + height - padding : y + height / 2
-          children.push(h("rect", { class: "affino-diagram-table-cell", x, y, width, height, fill: active && selected.value ? "var(--affino-diagram-table-cell-active, rgba(59, 130, 246, 0.08))" : "transparent", stroke: active && selected.value ? "var(--affino-accent, #3b82f6)" : "transparent", "stroke-width": active && selected.value ? 1 : 0, role: "gridcell", tabindex: selected.value && active ? 0 : -1, "data-table-row": row, "data-table-column": column, "aria-label": `Row ${row + 1}, column ${column + 1}: ${cell.text}`, onClick: (event: Event) => { event.stopPropagation(); selectedCell.value = { row, column } }, onDblclick: (event: Event) => { event.stopPropagation(); beginEdit(table, row, column) }, onKeydown: (event: KeyboardEvent) => onCellKey(event, table, row, column, beginEdit, selectedCell) }))
+          children.push(h("rect", { class: "affino-diagram-table-cell", x, y, width, height, fill: active && selected.value ? "var(--affino-diagram-table-active-cell, color-mix(in srgb, var(--affino-accent, #3b82f6) 14%, transparent))" : "transparent", stroke: active && selected.value ? "var(--affino-focus-ring-color, var(--affino-accent, #3b82f6))" : "transparent", "stroke-width": active && selected.value ? 2 : 0, role: "gridcell", tabindex: active ? 0 : -1, "aria-selected": active ? "true" : "false", "data-table-row": row, "data-table-column": column, "aria-label": `Row ${row + 1}, column ${column + 1}: ${cell.text}`, onFocus: () => setActiveCell({ row, column }, table), onClick: (event: Event) => { event.stopPropagation(); setActiveCell({ row, column }, table) }, onDblclick: (event: Event) => { event.stopPropagation(); beginEdit(table, row, column) }, onKeydown: (event: KeyboardEvent) => onCellKey(event, table, row, column, beginEdit, setActiveCell) }))
           if (!isEditing) children.push(h("text", { x: textX, y: textY, "text-anchor": anchor, "dominant-baseline": cell.verticalAlign === "top" ? "hanging" : cell.verticalAlign === "bottom" ? "auto" : "middle", fill: "var(--affino-diagram-table-text, currentColor)", "font-size": 14, "pointer-events": "none" }, cell.text))
+        }
+      }
+      if (selected.value && props.pointer) {
+        const zoom = props.controller.scene.value.viewport.zoom || 1
+        const hitSize = 12 / zoom
+        const startTableResize = (event: PointerEvent, axis: "row" | "column", index: number) => {
+          event.preventDefault()
+          event.stopPropagation()
+          props.pointer?.beginTableResizeHandle(props.id, axis, index, event)
+        }
+        const cancelTableResize = (event: KeyboardEvent) => {
+          if (event.key !== "Escape") return
+          event.preventDefault()
+          event.stopPropagation()
+          props.pointer?.cancel()
+        }
+        for (let column = 1; column < table.columnCount; column += 1) {
+          const x = columnOffsets[column]!
+          children.push(h("rect", { x: x - hitSize / 2, y: table.y, width: hitSize, height: table.height, fill: "transparent", cursor: "col-resize", role: "separator", "aria-orientation": "vertical", "aria-label": `Resize column ${column}`, tabindex: 0, "data-table-resize": "column", "data-table-boundary": column, onPointerdown: (event: PointerEvent) => startTableResize(event, "column", column - 1), onKeydown: cancelTableResize }))
+        }
+        for (let row = 1; row < table.rowCount; row += 1) {
+          const y = rowOffsets[row]!
+          children.push(h("rect", { x: table.x, y: y - hitSize / 2, width: table.width, height: hitSize, fill: "transparent", cursor: "row-resize", role: "separator", "aria-orientation": "horizontal", "aria-label": `Resize row ${row}`, tabindex: 0, "data-table-resize": "row", "data-table-boundary": row, onPointerdown: (event: PointerEvent) => startTableResize(event, "row", row - 1), onKeydown: cancelTableResize }))
         }
       }
       if (style.border.visible) children.push(h("rect", { x: table.x + style.border.stroke.width / 2, y: table.y + style.border.stroke.width / 2, width: Math.max(0, table.width - style.border.stroke.width), height: Math.max(0, table.height - style.border.stroke.width), rx: style.border.radius, fill: "none", stroke: style.border.stroke.color, "stroke-width": style.border.stroke.width, "stroke-dasharray": dash(style.border.stroke.style), "vector-effect": "non-scaling-stroke", "pointer-events": "none" }))
@@ -169,13 +219,14 @@ function toolbar(table: DiagramTable, style: DiagramTableStyle, cell: { row: num
   return h("foreignObject", { x: table.x, y: table.y - 42, width: 660, height: 40 }, [h("div", { role: "toolbar", "aria-label": "Table formatting", onPointerdown: (event: Event) => event.stopPropagation(), onClick: (event: Event) => event.stopPropagation(), style: toolbarStyle }, controls)])
 }
 
-function onCellKey(event: KeyboardEvent, table: DiagramTable, row: number, column: number, beginEdit: (table: DiagramTable, row: number, column: number, initialText?: string) => void, selectedCell: { value: { row: number; column: number } }): void {
+function onCellKey(event: KeyboardEvent, table: DiagramTable, row: number, column: number, beginEdit: (table: DiagramTable, row: number, column: number, initialText?: string) => void, setActiveCell: (cell: DiagramTableCellPosition, table?: DiagramTable) => void): void {
   const delta = event.key === "ArrowUp" ? [-1, 0] : event.key === "ArrowDown" ? [1, 0] : event.key === "ArrowLeft" ? [0, -1] : event.key === "ArrowRight" ? [0, 1] : null
   if (delta) {
     event.preventDefault()
+    event.stopPropagation()
     const nextRow = Math.max(0, Math.min(table.rowCount - 1, row + delta[0]!))
     const nextColumn = Math.max(0, Math.min(table.columnCount - 1, column + delta[1]!))
-    selectedCell.value = { row: nextRow, column: nextColumn }
+    setActiveCell({ row: nextRow, column: nextColumn }, table)
     const grid = (event.currentTarget as Element | null)?.closest("[role=grid]")
     void nextTick(() => grid?.querySelector<SVGRectElement>(`[data-table-row="${nextRow}"][data-table-column="${nextColumn}"]`)?.focus())
     return

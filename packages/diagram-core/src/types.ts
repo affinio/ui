@@ -218,6 +218,8 @@ export type DiagramDiagnostics = Readonly<{
   visibleQueryCount: number
   entityQueryCount: number
   hitTestCount: number
+  snapCandidateQueryCount: number
+  snapCandidateCount: number
   geometryRecomputeCount: number
   spatialIndexRebuildCount: number
   spatialIndexUpdateCount: number
@@ -319,6 +321,7 @@ export type DiagramSubscriber = (scene: DiagramScene, change: DiagramChange) => 
 
 export type DiagramCommand =
   | Readonly<{ type: "createNode"; node: DiagramNode; historyKey?: string }>
+  | Readonly<{ type: "createShape"; shape: DiagramShape; historyKey?: string }>
   | Readonly<{ type: "createTable"; table: DiagramTable; historyKey?: string }>
   | Readonly<{ type: "insertTableRow"; id: DiagramId; index: number; cells?: ReadonlyArray<DiagramTableCell>; historyKey?: string }>
   | Readonly<{ type: "deleteTableRow"; id: DiagramId; index: number; historyKey?: string }>
@@ -372,7 +375,7 @@ export type DiagramCommandResult = Readonly<{
   revision: number
 }>
 
-export type DiagramBatchFailureReason = "revision-mismatch" | "invalid-command" | "unsupported-command"
+export type DiagramBatchFailureReason = "revision-mismatch" | "invalid-command" | "unsupported-command" | "operation-id-conflict"
 export type DiagramBatchResult = Readonly<{
   ok: boolean
   changed: boolean
@@ -382,9 +385,11 @@ export type DiagramBatchResult = Readonly<{
   reason: DiagramBatchFailureReason | null
   affectedIds: ReadonlyArray<DiagramId>
 }>
-export type DiagramBatchOptions = Readonly<{ expectedRevision?: number }>
+export type DiagramBatchOptions = Readonly<{ expectedRevision?: number; operationId?: string }>
+export type DiagramBatchPreviewResult = DiagramBatchResult & Readonly<{ scene?: SerializedDiagramScene }>
+export type DiagramValidationIssue = Readonly<{ code: string; severity: "error" | "warning"; entityIds: ReadonlyArray<DiagramId>; message: string }>
 
-export type DiagramInteractionTool = "pan" | "select" | "marquee" | "drag-selection" | "resize-selection" | "drag-edge-endpoint" | "connect-edge" | "edit-text"
+export type DiagramInteractionTool = "pan" | "select" | "marquee" | "drag-selection" | "resize-selection" | "resize-table-axis" | "drag-edge-endpoint" | "connect-edge" | "draw-line" | "edit-text"
 
 export type DiagramResizeHandle = "nw" | "ne" | "se" | "sw"
 
@@ -392,6 +397,18 @@ export type DiagramPointerEvent = Readonly<{
   id: number
   point: DiagramPoint
   shiftKey?: boolean
+}>
+
+export type DiagramTableResizeAxis = "row" | "column"
+export type DiagramTableResizePreview = Readonly<{
+  id: DiagramId
+  axis: DiagramTableResizeAxis
+  index: number
+  size: number
+  width: number
+  height: number
+  rowHeights: ReadonlyArray<number>
+  columnWidths: ReadonlyArray<number>
 }>
 
 export type DiagramMarqueeMode = "intersect" | "contain"
@@ -402,20 +419,53 @@ export type DiagramInteractionSnapshot = Readonly<{
   previewDelta: DiagramPoint | null
   resizePreview: DiagramResizeEntry | null
   resizePreviewEntries: ReadonlyArray<DiagramResizeEntry>
+  tableResizePreview: DiagramTableResizePreview | null
   edgeEndpointPreview: DiagramEdgeEndpointPreview | null
   snapGuides: ReadonlyArray<DiagramSnapGuide>
+  snapResult: DiagramSnapResult | null
+  snapMarkers: ReadonlyArray<DiagramSnapCandidate>
+  constraint: Readonly<{ kind: "axis" | "angle" | "ortho"; axis?: "x" | "y"; angle?: number }> | null
+  dynamicInput: DiagramDynamicInputState | null
+  edgeCreationPreview: DiagramEdgeCreationPreview | null
+  shapeCreationPreview: DiagramShape | null
   marquee: DiagramRect | null
+}>
+
+export type DiagramDynamicInputState = Readonly<{ x: number; y: number; dx: number; dy: number; length: number; angle: number }>
+export type DiagramEdgeCreationPreview = Readonly<{
+  id: DiagramId
+  source: DiagramEdgeEndpoint
+  target: DiagramEdgeEndpoint
+  points: ReadonlyArray<DiagramPoint>
+  path: ReadonlyArray<DiagramPoint>
+}>
+export type DiagramOrthogonalRouteOptions = Readonly<{ terminalLead?: number; firstAxis?: "horizontal" | "vertical" }>
+export type DiagramOrthogonalRouteResult = Readonly<{
+  points: ReadonlyArray<DiagramPoint>
+  path: ReadonlyArray<DiagramPoint>
+  firstAxis: "horizontal" | "vertical"
+  diagnostics: ReadonlyArray<Readonly<{ code: "terminal-leads-overlap"; message: string }>>
 }>
 
 export type DiagramEdgeEndpointPreview = Readonly<{
   id: DiagramId
   endpoint: "source" | "target"
   point: DiagramPoint
+  connection?: DiagramEdgeEndpoint
 }>
 
 export type DiagramSnapContext = Readonly<{
   gridSize?: number
   radius?: number
+  /** Screen-space snap radius; takes precedence over legacy world-unit radius. */
+  tolerancePx?: number
+  kinds?: ReadonlyArray<DiagramSnapKind>
+  origin?: DiagramPoint
+  angleIncrement?: number
+  additionalAngles?: ReadonlyArray<number>
+  ortho?: boolean
+  /** Internal/adaptor opt-in for candidate diagnostics while preserving legacy result shapes. */
+  includeCandidates?: boolean
   /** Restrict point or translation snapping to this movement axis. */
   axisConstraint?: "x" | "y"
   snapToPorts?: boolean
@@ -429,7 +479,30 @@ export type DiagramSnapContext = Readonly<{
 export type DiagramSnapResult = Readonly<{
   point: DiagramPoint
   snapped: boolean
-  source: "grid" | "port" | "alignment" | "equal-spacing" | "angle" | "custom" | null
+  source: DiagramSnapKind | "angle" | "custom" | null
+  targetId?: DiagramId
+  candidate?: DiagramSnapCandidate
+  candidates?: ReadonlyArray<DiagramSnapCandidate>
+}>
+
+export type DiagramSnapKind = "grid" | "port" | "endpoint" | "midpoint" | "center" | "intersection" | "perpendicular" | "nearest" | "alignment" | "equal-spacing"
+
+export type DiagramSnapCandidate = Readonly<{
+  kind: DiagramSnapKind
+  point: DiagramPoint
+  targetId?: DiagramId
+  distancePx: number
+}>
+
+export type DiagramSnapOptions = Readonly<{
+  tolerancePx?: number
+  gridSize?: number
+  kinds?: ReadonlyArray<DiagramSnapKind>
+  excludeIds?: ReadonlySet<DiagramId>
+  origin?: DiagramPoint
+  angleIncrement?: number
+  additionalAngles?: ReadonlyArray<number>
+  ortho?: boolean
 }>
 
 export type DiagramTranslationSnapResult = DiagramSnapResult & Readonly<{
@@ -452,4 +525,10 @@ export type DiagramInteractionSnapOptions = Readonly<{
   snapToPorts?: boolean
   snapToAlignment?: boolean
   snapToEqualSpacing?: boolean
+  kinds?: ReadonlyArray<DiagramSnapKind>
+  angleIncrement?: number
+  additionalAngles?: ReadonlyArray<number>
+  ortho?: boolean
+  /** Endpoint drags reattach only when explicitly enabled; default keeps legacy free-point behavior. */
+  endpointMode?: "free" | "reattach"
 }>

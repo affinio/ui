@@ -193,6 +193,110 @@ describe("diagram-vue", () => {
     controller.dispose()
   })
 
+  it("publishes the active cell, clamps it after row deletion, and stops arrow bubbling", async () => {
+    const controller = useDiagramEngine({
+      tables: [{ id: "active-table", kind: "table", x: 0, y: 0, width: 120, height: 80, rowCount: 2, columnCount: 2, cells: [[{ text: "A", horizontalAlign: "right" }, { text: "B" }], [{ text: "C" }, { text: "D" }]] }],
+      selection: { ids: ["active-table"], primaryId: "active-table" },
+    })
+    const activeCell = shallowRef({ row: 0, column: 0 })
+    const bubbledKey = vi.fn()
+    const mount = document.createElement("div")
+    document.body.append(mount)
+    const app = createApp({ render: () => h("svg", { onKeydown: bubbledKey }, [h(DiagramTableView, {
+      controller, id: "active-table", activeCell: activeCell.value,
+      "onUpdate:activeCell": (cell: { row: number; column: number }) => { activeCell.value = cell },
+    })]) })
+    app.mount(mount)
+    const cell = (row: number, column: number) => mount.querySelector<SVGRectElement>(`[data-table-row="${row}"][data-table-column="${column}"]`)!
+    expect(cell(0, 0).getAttribute("aria-selected")).toBe("true")
+    expect(cell(0, 0).getAttribute("fill")).toContain("--affino-diagram-table-active-cell")
+    expect(cell(0, 0).getAttribute("stroke")).toContain("--affino-focus-ring-color")
+    expect(cell(0, 1).getAttribute("tabindex")).toBe("-1")
+
+    cell(1, 1).dispatchEvent(new MouseEvent("click", { bubbles: true }))
+    await nextTick()
+    expect(activeCell.value).toEqual({ row: 1, column: 1 })
+    expect(cell(1, 1).getAttribute("aria-selected")).toBe("true")
+    cell(1, 1).dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true, cancelable: true }))
+    await nextTick()
+    expect(activeCell.value).toEqual({ row: 0, column: 1 })
+    expect(document.activeElement).toBe(cell(0, 1))
+    expect(bubbledKey).not.toHaveBeenCalled()
+    expect(controller.scene.value.entities.tablesById.get("active-table")?.x).toBe(0)
+    expect(controller.engine.getDiagnostics().undoDepth).toBe(0)
+
+    activeCell.value = { row: 1, column: 1 }
+    await nextTick()
+    const tableApi = useDiagramTable(controller, "active-table")
+    expect(tableApi.table.value?.cells?.[0]?.[0]?.horizontalAlign).toBe("right")
+    tableApi.deleteRow(1)
+    await nextTick()
+    expect(activeCell.value).toEqual({ row: 0, column: 1 })
+    expect(controller.engine.serialize().tables?.[0]?.cells?.[0]?.[0]?.horizontalAlign).toBe("right")
+    tableApi.deleteColumn(1)
+    await nextTick()
+    expect(activeCell.value).toEqual({ row: 0, column: 0 })
+    app.unmount()
+    mount.remove()
+    controller.dispose()
+  })
+
+  it("renders screen-sized table resize handles and commits one preview transaction", async () => {
+    const frames: Array<FrameRequestCallback> = []
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { frames.push(callback); return frames.length })
+    const controller = useDiagramEngine({
+      tables: [{ id: "resizable-table", kind: "table", x: 0, y: 0, width: 100, height: 40, rowCount: 2, columnCount: 2, rotation: 90 }],
+      selection: { ids: ["resizable-table"], primaryId: "resizable-table" },
+      viewport: { x: 0, y: 0, width: 300, height: 200, zoom: 0.5 },
+    })
+    const pointer = useDiagramPointerController(controller, { snap: { enabled: false }, toWorldPoint: (event) => ({ x: event.clientX, y: event.clientY }) })
+    const mount = document.createElement("div")
+    document.body.append(mount)
+    const app = createApp({ render: () => h("svg", [h(DiagramTableView, { controller, pointer, id: "resizable-table", showToolbar: false })]) })
+    app.mount(mount)
+    const handle = (axis: string) => mount.querySelector<SVGRectElement>(`[data-table-resize="${axis}"]`)!
+    const columnHandle = handle("column")
+    expect(Number(columnHandle.getAttribute("width"))).toBe(24)
+    const event = (pointerId: number, x: number, y: number) => Object.assign(new Event("pointerdown", { bubbles: true, cancelable: true }), { pointerId, clientX: x, clientY: y, shiftKey: false }) as PointerEvent
+    const revision = controller.engine.getDocumentRevision()
+    const undoDepth = controller.engine.getDiagnostics().undoDepth
+    columnHandle.dispatchEvent(event(51, 50, 20))
+    pointer.getSvgPointerProps().onPointermove(Object.assign(new Event("pointermove"), { pointerId: 51, clientX: 50, clientY: 30, shiftKey: false }) as PointerEvent)
+    frames.shift()?.(0)
+    await nextTick()
+    expect(pointer.state.value.tableResizePreview).toMatchObject({ axis: "column", size: 60, width: 110 })
+    expect(controller.engine.getDocumentRevision()).toBe(revision)
+    expect(controller.engine.getDiagnostics().undoDepth).toBe(undoDepth)
+    pointer.getSvgPointerProps().onPointerup(Object.assign(new Event("pointerup"), { pointerId: 51, clientX: 50, clientY: 30, shiftKey: false }) as PointerEvent)
+    await nextTick()
+    expect(controller.scene.value.entities.tablesById.get("resizable-table")).toMatchObject({ width: 110, columnWidths: [60, 50], rotation: 90 })
+    expect(controller.engine.getDiagnostics().undoDepth).toBe(undoDepth + 1)
+
+    const rowHandle = handle("row")
+    rowHandle.dispatchEvent(event(52, 50, 20))
+    pointer.getSvgPointerProps().onPointermove(Object.assign(new Event("pointermove"), { pointerId: 52, clientX: 50, clientY: 35, shiftKey: false }) as PointerEvent)
+    frames.shift()?.(0)
+    await nextTick()
+    pointer.getSvgPointerProps().onPointercancel()
+    await nextTick()
+    expect(pointer.state.value.tableResizePreview).toBeNull()
+    expect(controller.scene.value.entities.tablesById.get("resizable-table")?.rowHeights).toEqual([20, 20])
+
+    rowHandle.dispatchEvent(event(53, 50, 20))
+    pointer.getSvgPointerProps().onPointermove(Object.assign(new Event("pointermove"), { pointerId: 53, clientX: 50, clientY: 35, shiftKey: false }) as PointerEvent)
+    frames.shift()?.(0)
+    await nextTick()
+    rowHandle.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }))
+    await nextTick()
+    expect(pointer.state.value.tableResizePreview).toBeNull()
+    expect(controller.engine.getDiagnostics().undoDepth).toBe(undoDepth + 1)
+    app.unmount()
+    mount.remove()
+    pointer.dispose()
+    controller.dispose()
+    vi.unstubAllGlobals()
+  })
+
   it("hides only the formatting toolbar when showToolbar is false", async () => {
     const controller = useDiagramEngine({ tables: [{ id: "hidden-toolbar", kind: "table", x: 0, y: 0, width: 100, height: 40, rowCount: 1, columnCount: 1, cells: [[{ text: "Value" }]] }] })
     const mount = document.createElement("div")
@@ -590,6 +694,37 @@ describe("diagram-vue", () => {
     expect(pointer.state.value.active).toBe(false)
     expect(controller.scene.value.entities.nodesById.get("n1")?.x).toBe(10)
     expect(controller.scene.value.entities.nodesById.get("n1")?.y).toBe(0)
+  })
+
+  it("reactively exposes connector and numeric-input previews through the Vue pointer API", () => {
+    const callbacks: Array<FrameRequestCallback> = []
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { callbacks.push(callback); return callbacks.length })
+    const diagram = useDiagramEngine({ viewport: { x: 0, y: 0, width: 300, height: 200, zoom: 1 } })
+    const pointer = useDiagramPointerController(diagram, { snap: { enabled: false }, toWorldPoint: (event) => ({ x: event.clientX, y: event.clientY }) })
+    const event = (x: number, y: number) => ({ pointerId: 1, clientX: x, clientY: y, shiftKey: false }) as PointerEvent
+    expect(pointer.beginEdgeCreation("edge", event(10, 10), { terminalLead: 8 })).toBe(true)
+    pointer.getSvgPointerProps().onPointermove(event(100, 50))
+    callbacks.shift()?.(0)
+    const preview = pointer.state.value.edgeCreationPreview!
+    expect(preview.path[0]).toEqual({ x: 10, y: 10 })
+    expect(preview.path[preview.path.length - 1]).toEqual({ x: 100, y: 50 })
+    expect(diagram.scene.value.entities.edgesById.size).toBe(0)
+    expect(pointer.state.value.dynamicInput).toMatchObject({ x: 100, y: 50, dx: 90, dy: 40 })
+    expect(pointer.setDynamicInput({ dx: 70, dy: 30 })).toBe(true)
+    expect(pointer.state.value.dynamicInput).toMatchObject({ x: 80, y: 40, dx: 70, dy: 30 })
+    const committingPreview = pointer.state.value.edgeCreationPreview!
+    expect(pointer.confirmDynamicInput()).toBe(true)
+    expect(diagram.scene.value.entities.edgesById.get("edge")).toMatchObject({ points: committingPreview.points })
+    expect(diagram.engine.canUndo()).toBe(true)
+    expect(pointer.beginLineCreation("line", event(5, 5))).toBe(true)
+    pointer.getSvgPointerProps().onPointermove(event(25, 5))
+    callbacks.shift()?.(1)
+    expect(pointer.state.value.shapeCreationPreview).toMatchObject({ id: "line", shape: "line", width: 20, height: 0 })
+    pointer.getSvgPointerProps().onPointerup(event(25, 5))
+    expect(diagram.scene.value.entities.shapesById.get("line")).toMatchObject({ shape: "line", width: 20, height: 0 })
+    pointer.dispose()
+    diagram.dispose()
+    vi.unstubAllGlobals()
   })
 
   it("publishes snap guides from the public pointer interaction snapshot", () => {

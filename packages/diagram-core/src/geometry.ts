@@ -1,4 +1,4 @@
-import type { DiagramEdge, DiagramEdgeEndpoint, DiagramEntities, DiagramGeometry, DiagramId, DiagramPoint, DiagramPort, DiagramRect, DiagramTable, DiagramTableCellPosition } from "./types.js"
+import type { DiagramEdge, DiagramEdgeEndpoint, DiagramEntities, DiagramGeometry, DiagramId, DiagramOrthogonalRouteOptions, DiagramOrthogonalRouteResult, DiagramPoint, DiagramPort, DiagramRect, DiagramTable, DiagramTableCellPosition } from "./types.js"
 
 export function rectIntersects(a: DiagramRect, b: DiagramRect): boolean {
   return a.x <= b.x + b.width && a.x + a.width >= b.x && a.y <= b.y + b.height && a.y + a.height >= b.y
@@ -43,6 +43,31 @@ export function rectCenter(rect: DiagramRect): DiagramPoint {
 
 export function distance(a: DiagramPoint, b: DiagramPoint): number {
   return Math.hypot(a.x - b.x, a.y - b.y)
+}
+
+/** Builds a stable orthogonal route with terminal leads. This is a local router, not a collision-avoidance solver. */
+export function routeOrthogonalConnector(source: DiagramPoint, target: DiagramPoint, options: DiagramOrthogonalRouteOptions = {}): DiagramOrthogonalRouteResult {
+  const terminalLead = options.terminalLead ?? 12
+  if (![source.x, source.y, target.x, target.y, terminalLead].every(Number.isFinite) || terminalLead < 0) throw new RangeError("Connector points and terminal lead must be finite; lead must be non-negative")
+  const dx = target.x - source.x
+  const dy = target.y - source.y
+  const firstAxis = options.firstAxis ?? (Math.abs(dx) >= Math.abs(dy) ? "horizontal" : "vertical")
+  const leadSource = firstAxis === "horizontal"
+    ? { x: source.x + Math.sign(dx || 1) * terminalLead, y: source.y }
+    : { x: source.x, y: source.y + Math.sign(dy || 1) * terminalLead }
+  const leadTarget = firstAxis === "horizontal"
+    ? { x: target.x - Math.sign(dx || 1) * terminalLead, y: target.y }
+    : { x: target.x, y: target.y - Math.sign(dy || 1) * terminalLead }
+  const elbow = firstAxis === "horizontal" ? { x: leadTarget.x, y: leadSource.y } : { x: leadSource.x, y: leadTarget.y }
+  const path = dedupeAdjacentPoints([source, leadSource, elbow, leadTarget, target])
+  const diagnostics = Math.abs(firstAxis === "horizontal" ? dx : dy) < terminalLead * 2
+    ? [{ code: "terminal-leads-overlap" as const, message: "Terminal leads overlap on the selected first route axis; the local orthogonal route may contain a short or reversed segment." }]
+    : []
+  return { points: path.slice(1, -1), path, firstAxis, diagnostics }
+}
+
+function dedupeAdjacentPoints(points: ReadonlyArray<DiagramPoint>): DiagramPoint[] {
+  return points.filter((point, index) => index === 0 || point.x !== points[index - 1]?.x || point.y !== points[index - 1]?.y)
 }
 
 /** Returns the zero-based table cell at a world-space point, or null when outside the table. */
