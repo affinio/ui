@@ -310,17 +310,23 @@ const runDragAutoScroll = (): void => {
   if (!viewport || !pointer || draggedValues.length === 0) return
 
   const rect = viewport.getBoundingClientRect()
-  if (pointer.x < rect.left || pointer.x > rect.right || pointer.y < rect.top || pointer.y > rect.bottom) return
+  if (pointer.x < rect.left || pointer.x > rect.right) return
+  // Native drag events may report a point just outside the viewport while the
+  // dragged row or its preview is crossing the edge. Keep the edge intent in
+  // that case instead of dropping the animation loop before it can scroll.
+  const pointerY = Math.max(rect.top, Math.min(rect.bottom, pointer.y))
   const edgeSize = 48
   let velocity = 0
-  if (pointer.y < rect.top + edgeSize) {
-    velocity = -Math.max(2, Math.ceil(((rect.top + edgeSize - pointer.y) / edgeSize) * 24))
-  } else if (pointer.y > rect.bottom - edgeSize) {
-    velocity = Math.max(2, Math.ceil(((pointer.y - (rect.bottom - edgeSize)) / edgeSize) * 24))
+  if (pointerY < rect.top + edgeSize) {
+    velocity = -Math.max(2, Math.ceil(((rect.top + edgeSize - pointerY) / edgeSize) * 24))
+  } else if (pointerY > rect.bottom - edgeSize) {
+    velocity = Math.max(2, Math.ceil(((pointerY - (rect.bottom - edgeSize)) / edgeSize) * 24))
   }
   if (velocity === 0) return
 
-  const maxScrollTop = Math.max(0, viewport.scrollHeight - viewport.clientHeight)
+  // The virtual controller owns the logical content size; relying on the DOM
+  // scrollHeight can under-report it while the spacer is being updated.
+  const maxScrollTop = Math.max(0, treeview.totalHeight.value - viewport.clientHeight)
   const nextScrollTop = Math.max(0, Math.min(maxScrollTop, viewport.scrollTop + velocity))
   if (nextScrollTop === viewport.scrollTop) return
   viewport.scrollTop = nextScrollTop
