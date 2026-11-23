@@ -2,6 +2,7 @@ import { computed, defineComponent, h, nextTick, ref, watch } from "vue"
 import type { PropType, VNodeChild } from "vue"
 import type { DiagramTable, DiagramTableCell, DiagramTableHorizontalAlignment, DiagramTableStyle, DiagramTableVerticalAlignment } from "@affino/diagram-core"
 import type { DiagramEngineController } from "./useDiagramEngine.js"
+import type { DiagramPointerController } from "./useDiagramPointerController.js"
 import { useDiagramTable } from "./useDiagramTable.js"
 
 /** SVG-native table renderer with one accessible foreignObject editor and toolbar while selected. */
@@ -9,11 +10,36 @@ export const DiagramTableView = defineComponent({
   name: "DiagramTableView",
   props: {
     controller: { type: Object as PropType<DiagramEngineController>, required: true },
+    /** Optional pointer controller used to project transient movement and resize previews. */
+    pointer: { type: Object as PropType<DiagramPointerController>, required: false },
+    /** Hides only the built-in formatting toolbar; defaults to visible. */
+    showToolbar: { type: Boolean, default: true },
     id: { type: String, required: true },
   },
   setup(props) {
     const model = useDiagramTable(props.controller, props.id)
     const selected = computed(() => props.controller.scene.value.selection.ids.includes(props.id))
+    const pointerSnapshot = computed(() => props.pointer?.state.value ?? null)
+    const projectedTable = computed(() => {
+      const table = model.table.value
+      const pointer = props.pointer
+      const interaction = pointerSnapshot.value
+      if (!table || !pointer || !interaction?.active) return table
+      const geometry = pointer.interaction.getPreviewGeometry(props.id)
+      if (!geometry || geometry.kind !== "table") return table
+      const bounds = geometry.unrotatedBounds ?? geometry.bounds
+      const scaleX = table.width === 0 ? 1 : bounds.width / table.width
+      const scaleY = table.height === 0 ? 1 : bounds.height / table.height
+      return {
+        ...table,
+        x: bounds.x,
+        y: bounds.y,
+        width: bounds.width,
+        height: bounds.height,
+        columnWidths: table.columnWidths?.map((size) => size * scaleX),
+        rowHeights: table.rowHeights?.map((size) => size * scaleY),
+      }
+    })
     const selectedCell = ref({ row: 0, column: 0 })
     const editing = ref<{ row: number; column: number; text: string } | null>(null)
     const input = ref<HTMLInputElement | null>(null)
@@ -55,7 +81,7 @@ export const DiagramTableView = defineComponent({
     ])
 
     return () => {
-      const table = model.table.value
+      const table = projectedTable.value
       if (!table) return null
       const style = table.style ?? defaultStyle
       const columnOffsets = offsets(table.columnWidths ?? [], table.x)
@@ -108,7 +134,7 @@ export const DiagramTableView = defineComponent({
           style: { boxSizing: "border-box", width: "100%", height: "100%", border: "2px solid var(--affino-accent, #3b82f6)", borderRadius: "2px", padding: `${padding}px`, background: "var(--affino-surface, #fff)", color: "var(--affino-text, #111827)", font: "inherit", outline: "none" },
         })]))
       }
-      if (selected.value) children.push(toolbar(table, style, selectedCell.value, model, button, select, checkbox, numberInput, stopToolbarEvent))
+      if (selected.value && props.showToolbar) children.push(toolbar(table, style, selectedCell.value, model, button, select, checkbox, numberInput, stopToolbarEvent))
       return h("g", { ref: tableRoot, "data-diagram-id": table.id, "data-diagram-kind": "table", role: "grid", "aria-label": `Table ${table.id}`, "aria-rowcount": table.rowCount, "aria-colcount": table.columnCount, "data-selected": selected.value || undefined }, children)
     }
   },

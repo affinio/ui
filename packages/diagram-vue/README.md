@@ -55,27 +55,28 @@ const textEditor = useDiagramTextEditor(diagram)
 
 ### Visual table component
 
-Create table data through Core, then render `DiagramTableView` inside the diagram SVG. The component reads the same reactive scene as other projections and sends cell/style/row/column changes through undoable Core commands; it has no duplicate application-owned table model.
+Create table data through Core, then render `DiagramTableView` inside the diagram SVG. The component reads the same reactive scene as other projections and sends cell/style/row/column changes through undoable Core commands; it has no duplicate application-owned table model. Pass the optional pointer controller to project frame-batched drag and resize previews, including multi-selection and grouped-table resize. Preview geometry is transient: serialization, revision, and history remain unchanged until pointer-up, while pointer cancel returns to the committed scene.
 
 ```vue
 <script setup lang="ts">
-import { DiagramTableView, useDiagramEngine } from "@affino/diagram-vue"
+import { DiagramTableView, useDiagramEngine, useDiagramPointerController } from "@affino/diagram-vue"
 
 const diagram = useDiagramEngine({
   tables: [{ id: "notes", kind: "table", x: 40, y: 40, width: 320, height: 120, rowCount: 2, columnCount: 2,
     cells: [[{ text: "Item", horizontalAlign: "center" }, { text: "Value" }], [{ text: "Relay" }, { text: "R1" }]] }],
   viewport: { x: 0, y: 0, width: 900, height: 600, zoom: 1 },
 })
+const pointer = useDiagramPointerController(diagram)
 </script>
 
 <template>
   <svg :viewBox="`${diagram.scene.value.viewport.x} ${diagram.scene.value.viewport.y} ${diagram.scene.value.viewport.width} ${diagram.scene.value.viewport.height}`">
-    <DiagramTableView :controller="diagram" id="notes" />
+    <DiagramTableView :controller="diagram" :pointer="pointer" id="notes" :show-toolbar="false" />
   </svg>
 </template>
 ```
 
-Double-click a cell or focus it and press Enter/F2 to edit. Enter commits and returns focus to the cell; Escape discards; blur commits; Up/Down move to the adjacent cell, and Left/Right move when the text caret is at the corresponding edge. While selected, the accessible table toolbar exposes row/column insertion and deletion, row/column sizes, cell alignment, grid visibility/color/width/style, and outer border visibility/color/width/style/radius. Toolbar/editor pointer events stop at the controls; the table surface continues to bubble pointer gestures to the diagram controller.
+Double-click a cell or focus it and press Enter/F2 to edit. Enter commits and returns focus to the cell; Escape discards; blur commits; Up/Down move to the adjacent cell, and Left/Right move when the text caret is at the corresponding edge. While selected, the accessible table toolbar exposes row/column insertion and deletion, row/column sizes, cell alignment, grid visibility/color/width/style, and outer border visibility/color/width/style/radius. Set `showToolbar` to `false` to hide only that built-in toolbar and expose commands in an external inspector through `useDiagramTable(diagram, id)`; cell editing and diagram interactions remain enabled. Toolbar/editor pointer events stop at the controls; the table surface continues to bubble pointer gestures to the diagram controller.
 
 ## Viewport resize
 

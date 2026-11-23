@@ -153,11 +153,38 @@ describe("DiagramEngine", () => {
     controller.pointerMove({ id: 4, point: { x: 150, y: 100 } })
     callbacks.shift()?.()
     expect(controller.getSnapshot().resizePreview).toMatchObject({ id: "t", width: 150, height: 100 })
+    expect(controller.getPreviewGeometry("t")?.bounds).toEqual({ x: 0, y: 0, width: 150, height: 100 })
     expect(engine.getScene().entities.tablesById.get("t")).toMatchObject({ width: 100, height: 50 })
     controller.pointerUp({ id: 4, point: { x: 150, y: 100 } })
     expect(engine.getScene().entities.tablesById.get("t")).toMatchObject({ width: 150, height: 100, rowHeights: [40, 60], columnWidths: [60, 90] })
     engine.dispatch({ type: "undo" })
     expect(engine.getScene().entities.tablesById.get("t")).toMatchObject({ width: 100, height: 50, rowHeights: [20, 30], columnWidths: [40, 60] })
+  })
+
+  it("projects group resize previews to member table geometry without changing committed state", () => {
+    const callbacks: Array<() => void> = []
+    const engine = createDiagramEngine({
+      tables: [
+        { id: "a", kind: "table", x: 0, y: 0, width: 100, height: 50, rowCount: 1, columnCount: 1 },
+        { id: "b", kind: "table", x: 150, y: 0, width: 50, height: 50, rowCount: 1, columnCount: 1 },
+      ],
+    })
+    engine.dispatch({ type: "groupEntities", id: "g", ids: ["a", "b"] })
+    const controller = createDiagramInteractionController(engine, { scheduleFrame: (callback) => callbacks.push(callback), snap: { enabled: false } })
+    expect(controller.beginResizeHandle("g", "se", { id: 5, point: { x: 200, y: 50 } })).toBe(true)
+    const serialized = engine.serialize()
+    const revision = engine.getDocumentRevision()
+    const undoDepth = engine.getDiagnostics().undoDepth
+    controller.pointerMove({ id: 5, point: { x: 240, y: 100 } })
+    callbacks.shift()?.()
+    expect(controller.getPreviewGeometry("a")?.bounds).toEqual({ x: 0, y: 0, width: 120, height: 100 })
+    expect(controller.getPreviewGeometry("b")?.bounds).toEqual({ x: 180, y: 0, width: 60, height: 100 })
+    expect(engine.serialize()).toEqual(serialized)
+    expect(engine.getDocumentRevision()).toBe(revision)
+    expect(engine.getDiagnostics().undoDepth).toBe(undoDepth)
+    controller.cancel()
+    expect(controller.getPreviewGeometry("a")?.bounds).toEqual({ x: 0, y: 0, width: 100, height: 50 })
+    expect(engine.serialize()).toEqual(serialized)
   })
 
   it("integrates table hit testing, selection, movement, resize, clipboard, duplicate, and delete", () => {

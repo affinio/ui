@@ -27,6 +27,72 @@ const scene: DiagramSceneInput = {
 }
 
 describe("diagram-vue", () => {
+  it("renders pointer move and resize previews without mutating the committed table scene", async () => {
+    const frames: Array<FrameRequestCallback> = []
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { frames.push(callback); return frames.length })
+    const controller = useDiagramEngine({
+      tables: [{ id: "t", kind: "table", x: 10, y: 20, width: 120, height: 60, rowCount: 2, columnCount: 2 }],
+      selection: { ids: ["t"], primaryId: "t" },
+      viewport: { x: 0, y: 0, width: 300, height: 200, zoom: 1 },
+    })
+    const pointer = useDiagramPointerController(controller, { snap: { enabled: false }, toWorldPoint: (event) => ({ x: event.clientX, y: event.clientY }) })
+    const mount = document.createElement("div")
+    document.body.append(mount)
+    const app = createApp({ render: () => h("svg", [h(DiagramTableView, { controller, pointer, id: "t" })]) })
+    app.mount(mount)
+    const props = pointer.getSvgPointerProps()
+    const event = (pointerId: number, x: number, y: number) => ({ pointerId, clientX: x, clientY: y, shiftKey: false }) as PointerEvent
+    const tableRoot = () => mount.querySelector<SVGGElement>('[data-diagram-id="t"]')!
+    const outerRect = () => tableRoot().querySelector<SVGRectElement>(":scope > rect")!
+    const serialized = controller.engine.serialize()
+    const revision = controller.engine.getDocumentRevision()
+    const undoDepth = controller.engine.getDiagnostics().undoDepth
+
+    props.onPointerdown(event(1, 20, 30))
+    props.onPointermove(event(1, 40, 50))
+    frames.shift()?.(0)
+    await nextTick()
+    expect(outerRect().getAttribute("x")).toBe("30")
+    expect(outerRect().getAttribute("y")).toBe("40")
+    expect(controller.engine.getScene().entities.tablesById.get("t")).toMatchObject({ x: 10, y: 20 })
+    expect(controller.engine.getDocumentRevision()).toBe(revision)
+    expect(controller.engine.getDiagnostics().undoDepth).toBe(undoDepth)
+    props.onPointercancel()
+    await nextTick()
+    expect(outerRect().getAttribute("x")).toBe("10")
+    expect(controller.engine.serialize()).toEqual(serialized)
+
+    props.onPointerdown(event(2, 20, 30))
+    props.onPointermove(event(2, 40, 50))
+    frames.shift()?.(0)
+    await nextTick()
+    props.onPointerup(event(2, 40, 50))
+    await nextTick()
+    expect(controller.engine.getScene().entities.tablesById.get("t")).toMatchObject({ x: 30, y: 40 })
+    expect(outerRect().getAttribute("x")).toBe("30")
+
+    expect(pointer.interaction.beginResizeHandle("t", "se", { id: 3, point: { x: 150, y: 100 } })).toBe(true)
+    props.onPointermove(event(3, 180, 130))
+    frames.shift()?.(0)
+    await nextTick()
+    expect(pointer.state.value).toMatchObject({ tool: "resize-selection", active: true, resizePreviewEntries: [{ id: "t", width: 150, height: 90 }] })
+    expect(pointer.interaction.getPreviewGeometry("t")?.bounds.width).toBe(150)
+    expect(outerRect().getAttribute("width")).toBe("150")
+    expect(outerRect().getAttribute("height")).toBe("90")
+    expect(controller.engine.getScene().entities.tablesById.get("t")).toMatchObject({ width: 120, height: 60 })
+    props.onPointerup(event(3, 180, 130))
+    await nextTick()
+    expect(controller.engine.getScene().entities.tablesById.get("t")).toMatchObject({ width: 150, height: 90 })
+    expect(outerRect().getAttribute("width")).toBe("150")
+    expect(outerRect().getAttribute("height")).toBe("90")
+    expect(tableRoot().querySelectorAll("line")).toHaveLength(2)
+    app.unmount()
+    pointer.dispose()
+    controller.dispose()
+    mount.remove()
+    vi.unstubAllGlobals()
+  })
+
   it("projects and renders an editable SVG table with accessible controls", async () => {
     const controller = useDiagramEngine({ tables: [{ id: "t1", kind: "table", x: 10, y: 20, width: 120, height: 60, rowCount: 2, columnCount: 2, cells: [[{ text: "A" }, { text: "B" }], [{ text: "C" }, { text: "D" }]] }], viewport: { x: 0, y: 0, width: 300, height: 200, zoom: 1 } })
     const visible = useDiagramVisibleEntities(controller)
@@ -78,6 +144,22 @@ describe("diagram-vue", () => {
     app.unmount()
     mount.remove()
     visible.dispose()
+    controller.dispose()
+  })
+
+  it("hides only the formatting toolbar when showToolbar is false", async () => {
+    const controller = useDiagramEngine({ tables: [{ id: "hidden-toolbar", kind: "table", x: 0, y: 0, width: 100, height: 40, rowCount: 1, columnCount: 1, cells: [[{ text: "Value" }]] }] })
+    const mount = document.createElement("div")
+    document.body.append(mount)
+    const app = createApp({ render: () => h("svg", [h(DiagramTableView, { controller, id: "hidden-toolbar", showToolbar: false })]) })
+    app.mount(mount)
+    expect(mount.querySelector('[role="toolbar"][aria-label="Table formatting"]')).toBeNull()
+    const cell = mount.querySelector<SVGRectElement>('[data-table-row="0"][data-table-column="0"]')!
+    cell.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }))
+    await nextTick()
+    expect(mount.querySelector<HTMLInputElement>('[aria-label="Edit row 1, column 1"]')).not.toBeNull()
+    app.unmount()
+    mount.remove()
     controller.dispose()
   })
 

@@ -1,5 +1,11 @@
 # @affino/diagram-core
 
+## 0.11.1
+
+### Patch Changes
+
+- Exposed renderer-ready table geometry during active resize previews, including member tables resized through a Core group.
+
 ## 0.11.0
 
 ### Minor Changes

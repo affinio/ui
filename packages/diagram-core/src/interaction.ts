@@ -234,9 +234,33 @@ export class DiagramInteractionController {
     this.tool = "select"
   }
 
-  /** Returns the renderer-ready geometry for the active move preview. */
+  /** Returns renderer-ready geometry for active move and table resize previews. */
   getPreviewGeometry(id: DiagramId): DiagramGeometry | null {
     const geometry = this.engine.getGeometrySnapshot(id)
+    if (geometry?.kind === "table") {
+      const directEntry = this.resizePreviewEntries.find((entry) => entry.id === id)
+      if (directEntry) return resizePreviewGeometry(geometry, directEntry)
+      if (this.tool === "resize-selection") {
+        const scene = this.engine.getScene()
+        const ownerGroup = [...scene.entities.groupsById.values()].find((group) => group.childIds.includes(id))
+        const groupEntry = ownerGroup ? this.resizePreviewEntries.find((entry) => entry.id === ownerGroup.id) : undefined
+        const groupGeometry = ownerGroup && groupEntry ? this.engine.getGeometrySnapshot(ownerGroup.id) : null
+        if (ownerGroup && groupEntry && groupGeometry) {
+          const from = groupGeometry.bounds
+          const to = { x: groupEntry.x ?? from.x, y: groupEntry.y ?? from.y, width: groupEntry.width ?? from.width, height: groupEntry.height ?? from.height }
+          const scaleX = from.width === 0 ? 1 : to.width / from.width
+          const scaleY = from.height === 0 ? 1 : to.height / from.height
+          const tableBounds = geometry.unrotatedBounds ?? geometry.bounds
+          return resizePreviewGeometry(geometry, {
+            id,
+            x: to.x + (tableBounds.x - from.x) * scaleX,
+            y: to.y + (tableBounds.y - from.y) * scaleY,
+            width: tableBounds.width * scaleX,
+            height: tableBounds.height * scaleY,
+          })
+        }
+      }
+    }
     if (geometry?.kind === "edge" && geometry.path?.length && this.edgeEndpointId === id && this.edgeEndpointKind && this.edgeEndpointPreview) {
       const path = [
         this.edgeEndpointKind === "source" ? this.edgeEndpointPreview : geometry.path[0]!,
@@ -555,6 +579,17 @@ export class DiagramInteractionController {
     this.framePending = false
     this.pendingMoveCount = 0
   }
+}
+
+function resizePreviewGeometry(geometry: DiagramGeometry, entry: DiagramResizeEntry): DiagramGeometry {
+  const previous = geometry.unrotatedBounds ?? geometry.bounds
+  const bounds = {
+    x: entry.x ?? previous.x,
+    y: entry.y ?? previous.y,
+    width: entry.width ?? previous.width,
+    height: entry.height ?? previous.height,
+  }
+  return Object.freeze({ ...geometry, bounds, unrotatedBounds: bounds, hitBounds: inflateRect(bounds, 3), rotation: 0 })
 }
 
 export function createDiagramInteractionController(engine: DiagramEngine, options: DiagramInteractionOptions = {}): DiagramInteractionController {

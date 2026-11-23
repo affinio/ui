@@ -1,5 +1,13 @@
 # @affino/diagram-vue
 
+## 0.10.0
+
+### Minor Changes
+
+- `DiagramTableView` accepts an optional `DiagramPointerController` and renders live table movement and resize previews, including multi-selection and Core group resize. Previews do not change the committed scene until pointer-up.
+- Added `showToolbar?: boolean` to `DiagramTableView` (default `true`) so applications can place table commands in an external inspector while retaining cell editing.
+- Updated the `@affino/diagram-core` workspace dependency for table resize preview projection.
+
 ## 0.9.0
 
 ### Minor Changes
