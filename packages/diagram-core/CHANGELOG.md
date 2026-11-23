@@ -1,5 +1,17 @@
 # @affino/diagram-core
 
+## 0.14.0
+
+### Minor Changes
+
+- Added world-space viewport constraints and `clampViewportToBounds()`. Pan previews and commits use the same clamped camera, and oversized viewports center the constrained page bounds.
+
+## 0.13.0
+
+### Minor Changes
+
+- Extended `canRotate()` and `rotateEntities` to rotate selected groups around their shared bounds center. Group rotation preserves member IDs and relative layout, updates member orientations and edge routes, and participates in undo/redo and serialization. Added rotation support for tables, one of the existing groupable entity kinds.
+
 ## 0.12.0
 
 ### Minor Changes

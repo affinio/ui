@@ -1,4 +1,4 @@
-import { createEntityGeometry, distance, inflateRect, rectContainsPoint, rectIntersects } from "./geometry.js"
+import { createEntityGeometry, distance, inflateRect, rectContainsPoint, rectIntersects, rotatePoint } from "./geometry.js"
 import { DiagramClipboardService } from "./internal/DiagramClipboardService.js"
 import { DiagramGeometryService } from "./internal/DiagramGeometryService.js"
 import { DiagramHistory } from "./internal/DiagramHistory.js"
@@ -56,6 +56,7 @@ import type {
 } from "./types.js"
 
 type DiagramFlipSnapshot = DiagramNode | DiagramEdge | DiagramText | DiagramShape | DiagramTable
+type DiagramRotationSnapshot = DiagramNode | DiagramEdge | DiagramText | DiagramShape | DiagramTable | DiagramGroup
 
 export class DiagramEngine {
   private store: DiagramSceneStore
@@ -446,7 +447,11 @@ export class DiagramEngine {
   }
 
   canRotate(ids: ReadonlyArray<DiagramId> = this.state.selection.ids): boolean {
-    return ids.some((id) => !this.isEntityLockedOrReadOnly(id) && (this.state.entities.nodesById.has(id) || this.state.entities.shapesById.has(id) || this.state.entities.textsById.has(id)))
+    return ids.some((id) => {
+      if (this.isEntityLockedOrReadOnly(id)) return false
+      if (this.state.entities.groupsById.has(id)) return isGroupRotatable(this.state, id)
+      return this.state.entities.nodesById.has(id) || this.state.entities.shapesById.has(id) || this.state.entities.textsById.has(id) || this.state.entities.tablesById.has(id)
+    })
   }
 
   canAlign(ids: ReadonlyArray<DiagramId> = this.state.selection.ids): boolean {
@@ -1155,7 +1160,7 @@ function normalizeTableStyle(style?: DiagramTableStyle): DiagramTableStyle {
 }
 
 function validateDiagramTable(source: DiagramTable): void {
-  if (!source || source.kind !== "table" || ![source.x, source.y, source.width, source.height].every(Number.isFinite) || source.width <= 0 || source.height <= 0 || !validFlipFlags(source)) throw new TypeError(`Invalid geometry for table ${source?.id ?? ""}`)
+  if (!source || source.kind !== "table" || ![source.x, source.y, source.width, source.height, source.rotation ?? 0].every(Number.isFinite) || source.width <= 0 || source.height <= 0 || !validFlipFlags(source)) throw new TypeError(`Invalid geometry for table ${source?.id ?? ""}`)
   if (!Number.isInteger(source.rowCount) || source.rowCount < 1 || !Number.isInteger(source.columnCount) || source.columnCount < 1) throw new TypeError(`Invalid dimensions for table ${source.id}: at least one row and column are required`)
   if (source.cells !== undefined && (!Array.isArray(source.cells) || source.cells.length !== source.rowCount || source.cells.some((row) => !Array.isArray(row) || row.length !== source.columnCount))) throw new TypeError(`Invalid cell matrix for table ${source.id}`)
   for (const row of source.cells ?? []) for (const cell of row) validateTableCell(cell, source.id)
@@ -1220,7 +1225,7 @@ function validateSceneInput(scene: DiagramSceneInput): DiagramSceneInput {
   const groupedChildren = new Set<DiagramId>()
   const groupable = new Set<DiagramId>([...nodesInput, ...edgesInput, ...textsInput, ...shapesInput, ...tablesInput].map((entity) => entity.id))
   for (const group of groupsInput) {
-    if (group.kind !== "group" || !Array.isArray(group.childIds) || group.childIds.length < 2 || new Set(group.childIds).size !== group.childIds.length) throw new TypeError(`Invalid group ${group.id}: groups require at least two unique, non-nested children`)
+    if (group.kind !== "group" || !Array.isArray(group.childIds) || group.childIds.length < 2 || new Set(group.childIds).size !== group.childIds.length || !Number.isFinite(group.rotation ?? 0)) throw new TypeError(`Invalid group ${group.id}: groups require at least two unique, non-nested children and finite rotation`)
     for (const childId of group.childIds) {
       if (!groupable.has(childId) || groupedChildren.has(childId)) throw new TypeError(`Invalid group ${group.id}: nested, port, unknown, or already grouped child ${childId}`)
       groupedChildren.add(childId)
@@ -1537,40 +1542,103 @@ function definedRectPatch(entry: DiagramResizeEntry): Partial<DiagramResizeEntry
 
 
 function createRotatePatch(state: InternalState, entries: ReadonlyArray<DiagramRotateEntry>): Patch | null {
-  const previous: DiagramRotateEntry[] = []
-  const nextEntries: DiagramRotateEntry[] = []
+  const previous = new Map<DiagramId, DiagramRotationSnapshot>()
+  const next = new Map<DiagramId, DiagramRotationSnapshot>()
+  const groupChildren = new Set<DiagramId>()
   for (const entry of entries) {
-    if (isEntityLockedOrReadOnly(state, entry.id)) continue
-    const entity = state.entities.nodesById.get(entry.id) ?? state.entities.shapesById.get(entry.id) ?? state.entities.textsById.get(entry.id)
-    if (!entity) continue
-    previous.push({ id: entry.id, rotation: entity.rotation ?? 0 })
-    nextEntries.push({ id: entry.id, rotation: normalizeRotation(entry.rotation) })
+    const group = state.entities.groupsById.get(entry.id)
+    if (!group || !Number.isFinite(entry.rotation) || !isGroupRotatable(state, entry.id)) continue
+    const targetRotation = normalizeRotation(entry.rotation)
+    const delta = normalizeRotation(targetRotation - (group.rotation ?? 0))
+    if (delta === 0) continue
+    const groupGeometry = createEntityGeometry(group.id, snapshotEntities(state))
+    if (!groupGeometry) continue
+    const center = { x: groupGeometry.bounds.x + groupGeometry.bounds.width / 2, y: groupGeometry.bounds.y + groupGeometry.bounds.height / 2 }
+    previous.set(group.id, group)
+    next.set(group.id, { ...group, rotation: targetRotation })
+    for (const childId of group.childIds) {
+      groupChildren.add(childId)
+      const entity = getDiagramRotationSnapshot(state, childId)
+      const geometry = entity ? createEntityGeometry(childId, snapshotEntities(state)) : null
+      if (!entity || !geometry) continue
+      const rotated = rotateGroupChild(entity, geometry, center, delta)
+      if (!rotated) continue
+      previous.set(childId, entity)
+      next.set(childId, rotated)
+    }
   }
-  if (!nextEntries.length) return null
-  return createRotatePatchUnchecked(nextEntries, previous)
+  for (const entry of entries) {
+    if (groupChildren.has(entry.id) || state.entities.groupsById.has(entry.id) || !Number.isFinite(entry.rotation) || isEntityLockedOrReadOnly(state, entry.id)) continue
+    const entity = getDiagramRotationSnapshot(state, entry.id)
+    if (!entity || entity.kind === "edge" || entity.kind === "group") continue
+    const rotation = normalizeRotation(entry.rotation)
+    if ((entity.rotation ?? 0) === rotation) continue
+    previous.set(entry.id, { ...entity, rotation: entity.rotation ?? 0 })
+    next.set(entry.id, { ...entity, rotation })
+  }
+  if (!next.size) return null
+  return createRotatePatchUnchecked([...next.values()], [...previous.values()])
 }
 
-function createRotatePatchUnchecked(entries: ReadonlyArray<DiagramRotateEntry>, inverseEntries: ReadonlyArray<DiagramRotateEntry>): Patch {
+function createRotatePatchUnchecked(entries: ReadonlyArray<DiagramRotationSnapshot>, inverseEntries: ReadonlyArray<DiagramRotationSnapshot>): Patch {
   return {
-    apply: (state) => applyRotateEntries(state, entries),
+    apply: (state) => applyRotationSnapshots(state, entries),
     inverse: {
-      apply: (state) => applyRotateEntries(state, inverseEntries),
+      apply: (state) => applyRotationSnapshots(state, inverseEntries),
       inverse: undefined as unknown as Patch,
     },
   }
 }
 
-function applyRotateEntries(state: InternalState, entries: ReadonlyArray<DiagramRotateEntry>): Set<DiagramId> {
+function applyRotationSnapshots(state: InternalState, entries: ReadonlyArray<DiagramRotationSnapshot>): Set<DiagramId> {
   const changed = new Set<DiagramId>()
-  for (const entry of entries) {
-    const node = state.entities.nodesById.get(entry.id)
-    if (node) { state.entities.nodesById.set(entry.id, { ...node, rotation: entry.rotation }); changed.add(entry.id); continue }
-    const shape = state.entities.shapesById.get(entry.id)
-    if (shape) { state.entities.shapesById.set(entry.id, { ...shape, rotation: entry.rotation }); changed.add(entry.id); continue }
-    const text = state.entities.textsById.get(entry.id)
-    if (text) { state.entities.textsById.set(entry.id, { ...text, rotation: entry.rotation }); changed.add(entry.id) }
+  for (const entity of entries) {
+    if (entity.kind === "node") state.entities.nodesById.set(entity.id, entity)
+    else if (entity.kind === "edge") state.entities.edgesById.set(entity.id, entity)
+    else if (entity.kind === "text") state.entities.textsById.set(entity.id, entity)
+    else if (entity.kind === "shape") state.entities.shapesById.set(entity.id, entity)
+    else if (entity.kind === "table") state.entities.tablesById.set(entity.id, entity)
+    else if (entity.kind === "group") state.entities.groupsById.set(entity.id, entity)
+    changed.add(entity.id)
   }
   return changed
+}
+
+function getDiagramRotationSnapshot(state: InternalState, id: DiagramId): DiagramRotationSnapshot | null {
+  return state.entities.nodesById.get(id)
+    ?? state.entities.edgesById.get(id)
+    ?? state.entities.textsById.get(id)
+    ?? state.entities.shapesById.get(id)
+    ?? state.entities.tablesById.get(id)
+    ?? state.entities.groupsById.get(id)
+    ?? null
+}
+
+function rotateGroupChild(entity: DiagramRotationSnapshot, geometry: DiagramGeometry, center: DiagramPoint, delta: number): DiagramRotationSnapshot | null {
+  if (entity.kind === "edge") {
+    const hasPointGeometry = entity.source.kind === "point" || entity.target.kind === "point" || Boolean(entity.points?.length)
+    if (!hasPointGeometry) return null
+    const rotate = (point: DiagramPoint) => cleanRotatedPoint(rotatePoint(point, center, delta))
+    const endpoint = (value: DiagramEdgeEndpoint): DiagramEdgeEndpoint => value.kind === "point" ? { kind: "point", point: rotate(value.point) } : value
+    return { ...entity, source: endpoint(entity.source), target: endpoint(entity.target), points: entity.points?.map(rotate) }
+  }
+  if (entity.kind === "group") return null
+  const bounds = geometry.unrotatedBounds ?? geometry.bounds
+  const currentCenter = { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 }
+  const nextCenter = cleanRotatedPoint(rotatePoint(currentCenter, center, delta))
+  const x = cleanRotatedValue(nextCenter.x - bounds.width / 2)
+  const y = cleanRotatedValue(nextCenter.y - bounds.height / 2)
+  const rotation = normalizeRotation((entity.rotation ?? 0) + delta)
+  return { ...entity, x, y, rotation }
+}
+
+function cleanRotatedPoint(point: DiagramPoint): DiagramPoint {
+  return { x: cleanRotatedValue(point.x), y: cleanRotatedValue(point.y) }
+}
+
+function cleanRotatedValue(value: number): number {
+  const nearestInteger = Math.round(value)
+  return Math.abs(value - nearestInteger) < 1e-10 ? nearestInteger : value
 }
 
 function createAlignPatch(state: InternalState, ids: ReadonlyArray<DiagramId>, edge: DiagramAlignEdge): Patch | null {
@@ -2154,6 +2222,20 @@ function isGroupMovable(state: InternalState, id: DiagramId): boolean {
   return children.length > 0
     && children.every((childId) => !isEntityLockedOrReadOnly(state, childId) && (isEntityTranslatable(state.entities, childId) || state.entities.edgesById.has(childId)))
     && children.some((childId) => isEntityTranslatable(state.entities, childId))
+}
+function isGroupRotatable(state: InternalState, id: DiagramId): boolean {
+  const children = groupMembers(state, id)
+  const supported = (childId: DiagramId) => state.entities.nodesById.has(childId)
+    || state.entities.shapesById.has(childId)
+    || state.entities.textsById.has(childId)
+    || state.entities.tablesById.has(childId)
+    || state.entities.edgesById.has(childId)
+  const hasRotatableGeometry = (childId: DiagramId) => !state.entities.edgesById.has(childId)
+    || isEdgeTranslatable(state.entities.edgesById.get(childId))
+  return !isEntityLockedOrReadOnly(state, id)
+    && children.length > 0
+    && children.every((childId) => supported(childId) && !isEntityLockedOrReadOnly(state, childId))
+    && children.some(hasRotatableGeometry)
 }
 function isGroupResizableEntity(state: InternalState, id: DiagramId): boolean {
   return state.entities.nodesById.has(id) || state.entities.shapesById.has(id) || state.entities.textsById.has(id) || state.entities.edgesById.has(id) || state.entities.tablesById.has(id)

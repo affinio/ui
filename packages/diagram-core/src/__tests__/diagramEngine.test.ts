@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { createDiagramEngine, createDiagramInteractionController, deserializeDiagramDocument, deserializeScene, getDiagramTableCellAt, screenToWorld, serializeScene, worldToScreen, zoomViewportAt } from ".."
+import { clampViewportToBounds, createDiagramEngine, createDiagramInteractionController, deserializeDiagramDocument, deserializeScene, getDiagramTableCellAt, screenToWorld, serializeScene, worldToScreen, zoomViewportAt } from ".."
 import type { DiagramPoint, DiagramSceneInput } from ".."
 
 const scene: DiagramSceneInput = {
@@ -457,6 +457,38 @@ describe("DiagramEngine", () => {
     const zoomed = zoomViewportAt(viewport, 1, { x: 155, y: 90 })
     expect(screenToWorld(zoomed, { x: 155, y: 90 })).toEqual(screenToWorld(viewport, { x: 155, y: 90 }))
     expect(worldToScreen(viewport, world)).toEqual({ x: 155, y: 102.5 })
+  })
+
+  it("clamps viewport to all world bounds, keeps zoom results bounded, and centers oversized views", () => {
+    const constraints = { bounds: { x: 10, y: 20, width: 100, height: 80 }, margin: 5 }
+    const base = { x: 50, y: 50, width: 40, height: 30, zoom: 1 }
+    expect(clampViewportToBounds({ ...base, x: -500 }, constraints).x).toBe(5)
+    expect(clampViewportToBounds({ ...base, x: 500 }, constraints).x).toBe(75)
+    expect(clampViewportToBounds({ ...base, y: -500 }, constraints).y).toBe(15)
+    expect(clampViewportToBounds({ ...base, y: 500 }, constraints).y).toBe(75)
+    const zoomed = zoomViewportAt({ ...base, x: 500, y: 500 }, 2, { x: 0, y: 0 })
+    expect(clampViewportToBounds(zoomed, constraints)).toMatchObject({ x: 75, y: 75, zoom: 2 })
+    expect(clampViewportToBounds({ ...base, width: 200, height: 180 }, constraints)).toMatchObject({ x: -40, y: -30 })
+  })
+
+  it("uses the same bounded pan delta for preview and viewport commit", () => {
+    const constraints = { bounds: { x: 0, y: 0, width: 100, height: 80 }, margin: 10 }
+    const runPan = (pointerDelta: DiagramPoint, expected: DiagramPoint) => {
+      const callbacks: Array<() => void> = []
+      const engine = createDiagramEngine({ viewport: { x: 0, y: 0, width: 40, height: 30, zoom: 1 } })
+      const controller = createDiagramInteractionController(engine, { scheduleFrame: (callback) => callbacks.push(callback), viewportConstraints: constraints })
+      controller.setTool("pan")
+      controller.pointerDown({ id: 1, point: { x: 0, y: 0 } })
+      controller.pointerMove({ id: 1, point: pointerDelta })
+      callbacks.shift()?.()
+      const previewDelta = controller.getSnapshot().previewDelta!
+      const current = engine.getScene().viewport
+      expect({ x: current.x - previewDelta.x, y: current.y - previewDelta.y }).toEqual(expected)
+      controller.pointerUp({ id: 1, point: pointerDelta })
+      expect(engine.getScene().viewport).toMatchObject(expected)
+    }
+    runPan({ x: 100, y: 100 }, { x: -10, y: -10 })
+    runPan({ x: -100, y: -100 }, { x: 70, y: 60 })
   })
 
   it("preserves CSS size when fitting at common zoom levels", () => {
@@ -1833,6 +1865,82 @@ describe("DiagramEngine", () => {
     engine.dispatch({ type: "alignEntities", ids: ["n1", "n2"], edge: "bottom" })
     expect(engine.getScene().entities.nodesById.get("n1")?.y).toBe(80)
     expect(engine.getScene().entities.nodesById.get("n2")?.y).toBe(80)
+  })
+
+  it("rotates a selected group around its shared bounds center and supports both quarter-turn directions", () => {
+    const createEngine = () => {
+      const engine = createDiagramEngine({
+        nodes: [{ id: "n", kind: "node", x: 0, y: 0, width: 20, height: 10 }],
+        shapes: [{ id: "s", kind: "shape", shape: "rect", x: 30, y: 0, width: 10, height: 20 }],
+      })
+      engine.dispatch({ type: "groupEntities", id: "g", ids: ["n", "s"] })
+      return engine
+    }
+    const clockwise = createEngine()
+    expect(clockwise.canRotate()).toBe(true)
+    const ids = [clockwise.getScene().entities.nodesById.get("n")?.id, clockwise.getScene().entities.shapesById.get("s")?.id]
+    clockwise.dispatch({ type: "rotateEntities", entries: [{ id: "g", rotation: 90 }] })
+    expect(clockwise.getScene().entities.nodesById.get("n")).toMatchObject({ x: 15, y: -5, rotation: 90 })
+    expect(clockwise.getScene().entities.shapesById.get("s")).toMatchObject({ x: 15, y: 15, rotation: 90 })
+    expect(clockwise.getGeometrySnapshot("g")?.bounds).toEqual({ x: 10, y: -10, width: 20, height: 40 })
+    clockwise.dispatch({ type: "undo" })
+    expect(clockwise.getScene().entities.nodesById.get("n")).toMatchObject({ x: 0, y: 0 })
+    expect(clockwise.getScene().entities.nodesById.get("n")?.rotation).toBeUndefined()
+    expect(clockwise.getScene().entities.shapesById.get("s")).toMatchObject({ x: 30, y: 0 })
+    expect(clockwise.getScene().entities.shapesById.get("s")?.rotation).toBeUndefined()
+    clockwise.dispatch({ type: "redo" })
+    expect(clockwise.getScene().entities.nodesById.get("n")).toMatchObject({ x: 15, y: -5, rotation: 90 })
+    expect([clockwise.getScene().entities.nodesById.get("n")?.id, clockwise.getScene().entities.shapesById.get("s")?.id]).toEqual(ids)
+
+    const counterClockwise = createEngine()
+    counterClockwise.dispatch({ type: "rotateEntities", entries: [{ id: "g", rotation: -90 }] })
+    expect(counterClockwise.getScene().entities.nodesById.get("n")).toMatchObject({ x: 5, y: 15, rotation: 270 })
+    expect(counterClockwise.getScene().entities.shapesById.get("s")).toMatchObject({ x: 15, y: -15, rotation: 270 })
+  })
+
+  it("rotates mixed groupable entities and preserves connections, serialization, and IDs through undo/redo", () => {
+    const engine = createDiagramEngine({
+      nodes: [{ id: "node", kind: "node", x: 0, y: 0, width: 10, height: 10, portIds: ["port"] }],
+      ports: [{ id: "port", kind: "port", nodeId: "node", x: 0, y: 0 }],
+      shapes: [{ id: "shape", kind: "shape", shape: "line", x: 20, y: 0, width: 10, height: 10 }],
+      texts: [{ id: "text", kind: "text", x: 0, y: 20, width: 10, height: 10, text: "T" }],
+      tables: [{ id: "table", kind: "table", x: 20, y: 20, width: 10, height: 10, rowCount: 1, columnCount: 1 }],
+      edges: [{ id: "edge", kind: "edge", source: { kind: "port", portId: "port" }, target: { kind: "point", point: { x: 25, y: 25 } }, points: [{ x: 15, y: 15 }] }],
+      groups: [{ id: "group", kind: "group", childIds: ["node", "shape", "text", "table", "edge"] }],
+      selection: { ids: ["group"], primaryId: "group" },
+    })
+    expect(engine.canRotate()).toBe(true)
+    const idOrder = ["node", "shape", "text", "table", "edge", "port"]
+    engine.dispatch({ type: "rotateEntities", entries: [{ id: "group", rotation: 90 }] })
+    expect(engine.getScene().entities.nodesById.get("node")).toMatchObject({ x: 20, y: 0, rotation: 90 })
+    expect(engine.getScene().entities.shapesById.get("shape")).toMatchObject({ x: 20, y: 20, rotation: 90 })
+    expect(engine.getScene().entities.textsById.get("text")).toMatchObject({ x: 0, y: 0, rotation: 90 })
+    expect(engine.getScene().entities.tablesById.get("table")).toMatchObject({ x: 0, y: 20, rotation: 90 })
+    expect(engine.getGeometrySnapshot("port")?.point?.x).toBeCloseTo(30)
+    expect(engine.getGeometrySnapshot("port")?.point?.y).toBeCloseTo(0)
+    expect(engine.getScene().entities.edgesById.get("edge")?.source).toEqual({ kind: "port", portId: "port" })
+    const edgePath = engine.getGeometrySnapshot("edge")?.path
+    expect(edgePath?.[0]?.x).toBeCloseTo(30)
+    expect(edgePath?.[0]?.y).toBeCloseTo(0)
+    expect(edgePath?.[1]).toEqual({ x: 15, y: 15 })
+    expect(edgePath?.[2]).toEqual({ x: 5, y: 25 })
+    expect(engine.getGeometrySnapshot("table")?.rotation).toBe(90)
+    const restored = createDiagramEngine(deserializeScene(engine.serialize()))
+    expect(restored.getScene().entities.groupsById.get("group")?.rotation).toBe(90)
+    expect(restored.getScene().entities.tablesById.get("table")?.rotation).toBe(90)
+    engine.dispatch({ type: "undo" })
+    expect(engine.getScene().entities.groupsById.get("group")?.rotation).toBeUndefined()
+    expect(engine.getScene().entities.edgesById.get("edge")?.points).toEqual([{ x: 15, y: 15 }])
+    engine.dispatch({ type: "redo" })
+    expect([
+      engine.getScene().entities.nodesById.get("node")?.id,
+      engine.getScene().entities.shapesById.get("shape")?.id,
+      engine.getScene().entities.textsById.get("text")?.id,
+      engine.getScene().entities.tablesById.get("table")?.id,
+      engine.getScene().entities.edgesById.get("edge")?.id,
+      engine.getScene().entities.portsById.get("port")?.id,
+    ]).toEqual(idOrder)
+    expect(engine.getGeometrySnapshot("group")?.bounds).toEqual(restored.getGeometrySnapshot("group")?.bounds)
   })
 
   it("reflects a node around its own center and preserves attached ports and edge identity", () => {

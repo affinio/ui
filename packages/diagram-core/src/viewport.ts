@@ -1,4 +1,35 @@
-import type { DiagramPoint, DiagramViewport } from "./types.js"
+import type { DiagramPoint, DiagramViewport, DiagramViewportConstraints } from "./types.js"
+
+/**
+ * Clamps a visible viewport to world bounds expanded by `margin`. If the visible
+ * world extent is larger than the expanded bounds on an axis, centers the bounds
+ * on that axis instead of allowing the page to drift to one side.
+ */
+export function clampViewportToBounds(viewport: DiagramViewport, constraints: DiagramViewportConstraints): DiagramViewport {
+  const { bounds } = constraints
+  const margin = constraints.margin ?? 0
+  if (![bounds.x, bounds.y, bounds.width, bounds.height, margin].every(Number.isFinite) || bounds.width < 0 || bounds.height < 0 || margin < 0) {
+    throw new RangeError("Viewport bounds must be finite with non-negative size, and margin must be finite and non-negative")
+  }
+  if (![viewport.x, viewport.y, viewport.width, viewport.height, viewport.zoom].every(Number.isFinite) || viewport.width < 0 || viewport.height < 0 || viewport.zoom <= 0) {
+    throw new RangeError("Viewport geometry must be finite with non-negative size and positive zoom")
+  }
+  const left = bounds.x - margin
+  const top = bounds.y - margin
+  const right = bounds.x + bounds.width + margin
+  const bottom = bounds.y + bounds.height + margin
+  return {
+    ...viewport,
+    x: clampViewportAxis(viewport.x, viewport.width, left, right),
+    y: clampViewportAxis(viewport.y, viewport.height, top, bottom),
+  }
+}
+
+function clampViewportAxis(origin: number, visibleSize: number, min: number, max: number): number {
+  const extent = max - min
+  if (visibleSize >= extent) return min + (extent - visibleSize) / 2
+  return Math.min(max - visibleSize, Math.max(min, origin))
+}
 
 /** Viewport width/height are visible world units; zoom is CSS pixels per world unit. */
 export function screenToWorld(viewport: DiagramViewport, point: DiagramPoint): DiagramPoint {

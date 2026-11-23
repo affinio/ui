@@ -1,6 +1,7 @@
 import { createEntityGeometry, inflateRect, rectFromPoints as boundsFromPoints } from "./geometry.js"
+import { clampViewportToBounds } from "./viewport.js"
 import type { DiagramEngine } from "./DiagramEngine.js"
-import type { DiagramCommand, DiagramId, DiagramGeometry, DiagramInteractionSnapOptions, DiagramInteractionSnapshot, DiagramInteractionTool, DiagramMarqueeMode, DiagramPointerEvent, DiagramPoint, DiagramRect, DiagramResizeEntry, DiagramResizeHandle, DiagramSnapGuide } from "./types.js"
+import type { DiagramCommand, DiagramId, DiagramGeometry, DiagramInteractionSnapOptions, DiagramInteractionSnapshot, DiagramInteractionTool, DiagramMarqueeMode, DiagramPointerEvent, DiagramPoint, DiagramRect, DiagramResizeEntry, DiagramResizeHandle, DiagramSnapGuide, DiagramViewportConstraints } from "./types.js"
 
 type ScheduleFrame = (callback: () => void) => void
 const AXIS_LOCK_ACTIVATION_TOLERANCE_PX = 4
@@ -9,6 +10,7 @@ export type DiagramInteractionOptions = Readonly<{
   scheduleFrame?: ScheduleFrame
   marqueeMode?: DiagramMarqueeMode
   snap?: DiagramInteractionSnapOptions
+  viewportConstraints?: DiagramViewportConstraints
 }>
 
 export class DiagramInteractionController {
@@ -44,11 +46,13 @@ export class DiagramInteractionController {
   private readonly scheduleFrame: ScheduleFrame
   private readonly marqueeMode: DiagramMarqueeMode
   private readonly snapOptions: DiagramInteractionSnapOptions
+  private readonly viewportConstraints: DiagramViewportConstraints | undefined
 
   constructor(private readonly engine: DiagramEngine, options: DiagramInteractionOptions = {}) {
     this.scheduleFrame = options.scheduleFrame ?? defaultScheduleFrame
     this.marqueeMode = options.marqueeMode ?? "contain"
     this.snapOptions = options.snap ?? {}
+    this.viewportConstraints = options.viewportConstraints
   }
 
   setTool(tool: DiagramInteractionTool): void {
@@ -194,7 +198,9 @@ export class DiagramInteractionController {
     }
     if (this.tool === "pan" && this.previewDelta) {
       const viewport = this.engine.getScene().viewport
-      this.engine.dispatch({ type: "setViewport", viewport: { x: viewport.x - this.previewDelta.x, y: viewport.y - this.previewDelta.y }, historyKey: `pan:${++this.gestureHistoryId}` })
+      const nextViewport = { ...viewport, x: viewport.x - this.previewDelta.x, y: viewport.y - this.previewDelta.y }
+      const committedViewport = this.viewportConstraints ? clampViewportToBounds(nextViewport, this.viewportConstraints) : nextViewport
+      this.engine.dispatch({ type: "setViewport", viewport: committedViewport, historyKey: `pan:${++this.gestureHistoryId}` })
       this.commitCount += 1
     }
     if (this.tool === "resize-selection" && this.resizePreviewEntries.length) {
@@ -337,6 +343,12 @@ export class DiagramInteractionController {
     }
     const delta = { x: this.latestPoint.x - this.startPoint.x, y: this.latestPoint.y - this.startPoint.y }
     if (this.tool === "drag-selection" || this.tool === "pan") {
+      if (this.tool === "pan" && this.viewportConstraints) {
+        const viewport = this.engine.getScene().viewport
+        const constrainedViewport = clampViewportToBounds({ ...viewport, x: viewport.x - delta.x, y: viewport.y - delta.y }, this.viewportConstraints)
+        this.previewDelta = { x: viewport.x - constrainedViewport.x, y: viewport.y - constrainedViewport.y }
+        return
+      }
       const axisConstraint = this.tool === "drag-selection" && this.latestShiftKey ? this.shiftAxis ?? undefined : undefined
       const constrainedDelta = axisConstraint === "x"
         ? { x: delta.x, y: 0 }

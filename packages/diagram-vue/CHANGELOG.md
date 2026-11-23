@@ -1,5 +1,19 @@
 # @affino/diagram-vue
 
+## 0.13.0
+
+### Minor Changes
+
+- Added optional viewport constraints to `useDiagramPointerController()` and `useDiagramViewport()`. Pan gestures and programmatic viewport updates are clamped consistently when configured.
+- Updated the `@affino/diagram-core` workspace dependency to 0.14.0.
+
+## 0.12.0
+
+### Minor Changes
+
+- Group rotation updates Vue selection bounds and toolbar capability checks through the existing reactive scene controller; table views render their Core rotation.
+- Updated the `@affino/diagram-core` workspace dependency to 0.13.0.
+
 ## 0.11.1
 
 ### Patch Changes

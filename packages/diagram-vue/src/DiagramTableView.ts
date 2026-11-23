@@ -1,6 +1,7 @@
 import { computed, defineComponent, h, nextTick, ref, watch } from "vue"
 import type { PropType, VNodeChild } from "vue"
 import type { DiagramTable, DiagramTableCell, DiagramTableHorizontalAlignment, DiagramTableStyle, DiagramTableVerticalAlignment } from "@affino/diagram-core"
+import { rectFromPoints, rotatePoint } from "@affino/diagram-core"
 import type { DiagramEngineController } from "./useDiagramEngine.js"
 import type { DiagramPointerController } from "./useDiagramPointerController.js"
 import { svgTransform } from "./useDiagramRenderer.js"
@@ -112,7 +113,7 @@ export const DiagramTableView = defineComponent({
         }
       }
       if (style.border.visible) children.push(h("rect", { x: table.x + style.border.stroke.width / 2, y: table.y + style.border.stroke.width / 2, width: Math.max(0, table.width - style.border.stroke.width), height: Math.max(0, table.height - style.border.stroke.width), rx: style.border.radius, fill: "none", stroke: style.border.stroke.color, "stroke-width": style.border.stroke.width, "stroke-dasharray": dash(style.border.stroke.style), "vector-effect": "non-scaling-stroke", "pointer-events": "none" }))
-      const tableTransform = svgTransform(0, table.flipX === true, table.flipY === true, table)
+      const tableTransform = svgTransform(table.rotation ?? 0, table.flipX === true, table.flipY === true, table)
       const visualChildren = children.splice(0, children.length)
       children.push(h("style", tableCellFocusStyles), h("g", { transform: tableTransform }, visualChildren))
       const activeEdit = editing.value
@@ -121,9 +122,8 @@ export const DiagramTableView = defineComponent({
         const cellY = rowOffsets[activeEdit.row]!
         const width = table.columnWidths![activeEdit.column]!
         const height = table.rowHeights![activeEdit.row]!
-        const x = table.flipX ? table.x + table.width - (cellX - table.x) - width : cellX
-        const y = table.flipY ? table.y + table.height - (cellY - table.y) - height : cellY
-        children.push(h("foreignObject", { x, y, width, height }, [h("input", {
+        const editorBounds = projectTableCellBounds(table, { x: cellX, y: cellY, width, height })
+        children.push(h("foreignObject", editorBounds, [h("input", {
           ref: input, value: activeEdit.text, "aria-label": `Edit row ${activeEdit.row + 1}, column ${activeEdit.column + 1}`,
           onPointerdown: stopToolbarEvent, onClick: stopToolbarEvent,
           onInput: (event: Event) => { if (editing.value) editing.value = { ...editing.value, text: (event.target as HTMLInputElement).value } },
@@ -196,6 +196,19 @@ function isPrintableCellInput(event: KeyboardEvent): boolean {
     && Array.from(event.key).length === 1
 }
 function currentCellValue(table: DiagramTable, cell: { row: number; column: number }): DiagramTableCell { return table.cells?.[cell.row]?.[cell.column] ?? table.defaultCell ?? { text: "" } }
+function projectTableCellBounds(table: DiagramTable, cell: { x: number; y: number; width: number; height: number }): { x: number; y: number; width: number; height: number } {
+  const center = { x: table.x + table.width / 2, y: table.y + table.height / 2 }
+  const project = (point: { x: number; y: number }) => {
+    const local = { x: center.x + (point.x - center.x) * (table.flipX ? -1 : 1), y: center.y + (point.y - center.y) * (table.flipY ? -1 : 1) }
+    return rotatePoint(local, center, table.rotation ?? 0)
+  }
+  return rectFromPoints([
+    project({ x: cell.x, y: cell.y }),
+    project({ x: cell.x + cell.width, y: cell.y }),
+    project({ x: cell.x + cell.width, y: cell.y + cell.height }),
+    project({ x: cell.x, y: cell.y + cell.height }),
+  ])
+}
 function offsets(sizes: ReadonlyArray<number>, start: number): number[] { const result = [start]; for (const size of sizes) result.push(result[result.length - 1]! + size); return result }
 function dash(style: DiagramTableStyle["grid"]["stroke"]["style"]): string | undefined { return style === "dashed" ? "6 4" : style === "dotted" ? "1 3" : undefined }
 function colorInputValue(color: string): string { return /^#[0-9a-f]{6}$/i.test(color) ? color : "#64748b" }

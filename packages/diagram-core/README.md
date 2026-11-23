@@ -46,6 +46,8 @@ engine.dispatch({ type: "ungroupEntities", ids: ["g1"] })
 
 Group and ungroup commands participate in undo/redo. `serialize()`, `DiagramSceneInput`, and `DiagramDocument` preserve groups and their members. Copy, paste, and duplicate remap group and member IDs together; edges between copied nodes retain their remapped port references. Deleting a group deletes its members and dependent ports/edges. Ungrouping removes only the group and keeps child IDs and geometry.
 
+`engine.canRotate()` returns true for a selected group when all children are rotatable and unlocked. `rotateEntities` accepts the group ID with an absolute target angle in degrees; Core rotates every child around the current shared bounds center and stores that target in `DiagramGroup.rotation`. Nodes, shapes, text, and tables update their position and orientation; tables expose the same optional `rotation` field. Edge waypoints and free endpoints rotate while node/port endpoint references stay attached and follow rotated owners. Undo/redo restores group and member state without changing IDs. All current groupable kinds (node, edge, text, shape, table) participate; ports follow nodes and remain invalid direct group children.
+
 ### Visual tables
 
 `DiagramTable` is a plain text table object, not a spreadsheet. It stores a stable ID, world bounds, cells, row/column sizes, per-cell alignment, and table-level grid/border styles. Missing cell content defaults to empty text; omitted row and column sizes are initialized evenly. Tables are included in scene/document serialization, render order, hit testing, selection, move/resize, z-order, history, batch commands, copy/paste, duplicate, and delete.
@@ -116,6 +118,7 @@ engine.dispatch({ type: "removeEdgeWaypoint", id: "e1", index: 0 })
 engine.dispatch({ type: "bringForward", ids: ["n1"] })
 engine.dispatch({ type: "setLayer", ids: ["n1"], layer: "equipment", layerRole: "normal" })
 engine.dispatch({ type: "rotateEntities", entries: [{ id: "n1", rotation: 90 }] }) // geometry exposes rotated bounds/corners
+engine.dispatch({ type: "rotateEntities", entries: [{ id: "g1", rotation: 90 }] }) // rotates the group around its shared bounds center
 engine.dispatch({ type: "flipEntities", axis: "horizontal" }) // uses current selection; horizontal mirrors left/right
 engine.dispatch({ type: "flipEntities", ids: ["n1", "n2"], axis: "vertical" }) // vertical mirrors top/bottom around shared bounds center
 engine.dispatch({ type: "alignEntities", ids: ["n1", "n2"], edge: "left" })
@@ -225,4 +228,16 @@ Use `pnpm --filter @affino/diagram-core bench` after building to refresh `artifa
 - Use `screenToWorld`, `worldToScreen`, `zoomViewportAt`, and `zoomViewportCentered` for camera math. Fit preserves the CSS stage-size invariant.
 - Empty or degenerate bounds are clamped to finite values.
 
-Persist `viewport` with the scene. Restore it before attaching the adapter; a resize only updates world extent and never changes `x`, `y`, or `zoom`.
+Use `clampViewportToBounds(viewport, constraints)` after zooming or restoring a saved camera when the document has a finite page. Bounds and the optional margin are in world units. The viewport origin is clamped on each axis; when its visible world extent is larger than the page plus margins, that axis is centered on the page.
+
+```ts
+import { clampViewportToBounds, zoomViewportAt } from "@affino/diagram-core"
+
+const page = { bounds: { x: 0, y: 0, width: 794, height: 1123 }, margin: 80 }
+const zoomed = zoomViewportAt(engine.getScene().viewport, 1.5, { x: 400, y: 300 })
+const bounded = clampViewportToBounds(zoomed, page)
+```
+
+Pass the same `viewportConstraints` to `createDiagramInteractionController()` to constrain pan preview and commit with one effective delta.
+
+Persist `viewport` with the scene. Restore it before attaching the adapter; without viewport constraints, a resize only updates world extent and never changes `x`, `y`, or `zoom`.

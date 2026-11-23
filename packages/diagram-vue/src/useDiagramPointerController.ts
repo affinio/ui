@@ -1,6 +1,6 @@
 import { getCurrentScope, onScopeDispose, shallowRef } from "vue"
 import type { ShallowRef } from "vue"
-import { createDiagramInteractionController, type DiagramInteractionController, type DiagramInteractionSnapOptions, type DiagramInteractionSnapshot, type DiagramInteractionTool, type DiagramPoint } from "@affino/diagram-core"
+import { createDiagramInteractionController, type DiagramInteractionController, type DiagramInteractionSnapOptions, type DiagramInteractionSnapshot, type DiagramInteractionTool, type DiagramPoint, type DiagramViewportConstraints } from "@affino/diagram-core"
 import type { DiagramEngineController } from "./useDiagramEngine.js"
 
 export type DiagramPointerController = Readonly<{
@@ -21,12 +21,14 @@ export type DiagramPointerControllerOptions = Readonly<{
   setPointerCapture?: (event: PointerEvent) => void
   releasePointerCapture?: (event: PointerEvent) => void
   snap?: DiagramInteractionSnapOptions
+  viewportConstraints?: DiagramViewportConstraints
 }>
 
 export function useDiagramPointerController(controller: DiagramEngineController, options: DiagramPointerControllerOptions = {}): DiagramPointerController {
   let refresh = () => {}
   const interaction = createDiagramInteractionController(controller.engine, {
     snap: options.snap,
+    viewportConstraints: options.viewportConstraints,
     scheduleFrame: (callback) => {
       const schedule = typeof globalThis.requestAnimationFrame === "function"
         ? globalThis.requestAnimationFrame.bind(globalThis)

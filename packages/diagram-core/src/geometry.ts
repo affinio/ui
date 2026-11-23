@@ -103,7 +103,7 @@ export function createEntityGeometry(id: DiagramId, entities: DiagramEntities): 
     return { id, kind: "group", bounds, unrotatedBounds: bounds, rotation: 0, hitBounds: inflateRect(bounds, 6) }
   }
   const table = entities.tablesById.get(id)
-  if (table) return rectGeometry(id, "table", { x: table.x, y: table.y, width: table.width, height: table.height }, 0, 3, table.flipX, table.flipY)
+  if (table) return rectGeometry(id, "table", { x: table.x, y: table.y, width: table.width, height: table.height }, table.rotation ?? 0, 3, table.flipX, table.flipY)
   return null
 }
 

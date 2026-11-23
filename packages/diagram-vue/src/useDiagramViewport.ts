@@ -1,7 +1,8 @@
 import { getCurrentScope, isRef, onScopeDispose, shallowRef, watch } from "vue"
 import type { Ref, ShallowRef } from "vue"
 import type { DiagramEngineController } from "./useDiagramEngine.js"
-import type { DiagramViewport } from "@affino/diagram-core"
+import { clampViewportToBounds } from "@affino/diagram-core"
+import type { DiagramViewport, DiagramViewportConstraints } from "@affino/diagram-core"
 
 export type DiagramViewportController = Readonly<{
   viewport: ShallowRef<DiagramViewport>
@@ -20,6 +21,7 @@ type ResizeObserverCtor = new (callback: (entries: ReadonlyArray<{ contentRect: 
 export type DiagramViewportOptions = Readonly<{
   element?: Ref<Element | null> | Element | null
   resizeObserver?: ResizeObserverCtor
+  viewportConstraints?: DiagramViewportConstraints
 }>
 
 export function useDiagramViewport(controller: DiagramEngineController, options: DiagramViewportOptions = {}): DiagramViewportController {
@@ -34,6 +36,11 @@ export function useDiagramViewport(controller: DiagramEngineController, options:
 
   const setViewport = (next: Partial<DiagramViewport>) => {
     if (disposed) {
+      return
+    }
+    if (options.viewportConstraints) {
+      const constrained = clampViewportToBounds({ ...controller.scene.value.viewport, ...next }, options.viewportConstraints)
+      controller.dispatch({ type: "setViewport", viewport: constrained })
       return
     }
     controller.dispatch({ type: "setViewport", viewport: next })
@@ -87,6 +94,8 @@ export function useDiagramViewport(controller: DiagramEngineController, options:
       attachViewportElement(initialElement)
     }
   }
+
+  if (options.viewportConstraints) setViewport(controller.scene.value.viewport)
 
   return { viewport, setViewport, attachViewportElement, dispose }
 }

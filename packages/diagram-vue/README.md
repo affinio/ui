@@ -30,6 +30,8 @@ Render static diagram text as SVG `<text>`/`<tspan>` elements in world space. Us
 
 Core `flipEntities` commands are reflected by `getSvgEntityProps()` and `getDomEntityStyle()` through the geometry's `flipX`/`flipY` flags. The built-in table view mirrors its cell layout and keeps toolbar and active input controls readable.
 
+Core group rotation publishes updated member geometry and selection bounds through the existing scene controller. `getSvgEntityProps()` and `DiagramTableView` apply the resulting rotation, so Vue toolbar capability checks based on `engine.canRotate(selection.ids)` and group selection overlays react to the command.
+
 ```vue
 <script setup lang="ts">
 import { getSvgEntityProps, useDiagramEngine, useDiagramPointerController, useDiagramTextEditor, useDiagramVisibleEntities } from "@affino/diagram-vue"
@@ -90,10 +92,13 @@ import { useDiagramEngine, useDiagramViewport } from "@affino/diagram-vue"
 
 const stage = shallowRef<HTMLElement | null>(null)
 const diagram = useDiagramEngine(initialScene)
-const viewport = useDiagramViewport(diagram, { element: stage })
+const pageConstraints = { bounds: { x: 0, y: 0, width: 794, height: 1123 }, margin: 80 }
+const viewport = useDiagramViewport(diagram, { element: stage, viewportConstraints: pageConstraints })
 
 viewport.setViewport({ x: 120, y: 40, zoom: 1.25 })
 ```
+
+Pass the same `viewportConstraints` to `useDiagramPointerController()` to constrain pan gesture preview and commit. `useDiagramViewport()` clamps restored state, programmatic `setViewport()` calls, and resize updates only when this option is provided; without it, the existing unbounded behavior is preserved. Bounds and margin use world units, and a visible world area larger than the page plus margin centers the page on that axis.
 
 ## Projection contract
 

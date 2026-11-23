@@ -35,6 +35,12 @@ export type DiagramViewport = Readonly<{
   zoom: number
 }>
 
+/** World-space rectangle allowed for the visible viewport, expanded by an optional world-unit margin. */
+export type DiagramViewportConstraints = Readonly<{
+  bounds: DiagramRect
+  margin?: number
+}>
+
 export type DiagramSelection = Readonly<{
   ids: ReadonlyArray<DiagramId>
   primaryId: DiagramId | null
@@ -134,6 +140,7 @@ export type DiagramTable = DiagramEntityBase & Readonly<{
   columnWidths?: ReadonlyArray<number>
   defaultCell?: DiagramTableCell
   style?: DiagramTableStyle
+  rotation?: number
   flipX?: boolean
   flipY?: boolean
 }>
@@ -142,6 +149,8 @@ export type DiagramTableCellPosition = Readonly<{ row: number; column: number }>
 export type DiagramGroup = DiagramEntityBase & Readonly<{
   kind: "group"
   childIds: ReadonlyArray<DiagramId>
+  /** Absolute group rotation in degrees; children are transformed when it changes. */
+  rotation?: number
 }>
 
 export type DiagramEntities = Readonly<{

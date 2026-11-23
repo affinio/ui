@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
-import { createApp, effectScope, h, nextTick, shallowRef } from "vue"
+import { computed, createApp, effectScope, h, nextTick, shallowRef } from "vue"
 import { createDiagramEngine, type DiagramSceneInput } from "@affino/diagram-core"
 import { createDiagramInteractionController } from "@affino/diagram-core"
 import { DiagramTableView, getDomEntityStyle, getSvgEntityProps, useDiagramEngine, useDiagramPointerController, useDiagramSelection, useDiagramTable, useDiagramTextEditor, useDiagramViewport, useDiagramVisibleEntities } from ".."
@@ -399,6 +399,44 @@ describe("diagram-vue", () => {
     controller.dispose()
   })
 
+  it("clamps restored and programmatically set viewport state when constraints are configured", () => {
+    const controller = useDiagramEngine({ viewport: { x: -100, y: 500, width: 40, height: 30, zoom: 1 } })
+    const viewport = useDiagramViewport(controller, { viewportConstraints: { bounds: { x: 10, y: 20, width: 100, height: 80 }, margin: 5 } })
+    expect(viewport.viewport.value).toMatchObject({ x: 5, y: 75, width: 40, height: 30, zoom: 1 })
+    viewport.setViewport({ x: 500, y: -100, zoom: 2 })
+    expect(viewport.viewport.value).toMatchObject({ x: 75, y: 15, width: 40, height: 30, zoom: 2 })
+    expect(controller.engine.getDocumentRevision()).toBe(0)
+    viewport.dispose()
+    controller.dispose()
+  })
+
+  it("applies configured viewport constraints to pan preview and commit", () => {
+    const frames: Array<FrameRequestCallback> = []
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { frames.push(callback); return frames.length })
+    const controller = useDiagramEngine({ viewport: { x: 0, y: 0, width: 40, height: 30, zoom: 1 } })
+    const pointer = useDiagramPointerController(controller, {
+      viewportConstraints: { bounds: { x: 0, y: 0, width: 100, height: 80 }, margin: 10 },
+      toWorldPoint: (event) => ({ x: event.clientX, y: event.clientY }),
+    })
+    try {
+      pointer.setTool("pan")
+      const props = pointer.getSvgPointerProps()
+      const event = (x: number, y: number) => ({ pointerId: 1, clientX: x, clientY: y, shiftKey: false }) as PointerEvent
+      props.onPointerdown(event(0, 0))
+      props.onPointermove(event(100, 100))
+      frames.shift()?.(0)
+      expect(pointer.state.value.previewDelta).toEqual({ x: 10, y: 10 })
+      expect(controller.scene.value.viewport).toMatchObject({ x: 0, y: 0 })
+      props.onPointerup(event(100, 100))
+      expect(controller.scene.value.viewport).toMatchObject({ x: -10, y: -10 })
+      expect(controller.engine.getDocumentRevision()).toBe(0)
+    } finally {
+      pointer.dispose()
+      controller.dispose()
+      vi.unstubAllGlobals()
+    }
+  })
+
   it("exposes one group resize handle set for multi-selection", () => {
     const controller = useDiagramEngine({
       nodes: [
@@ -412,6 +450,54 @@ describe("diagram-vue", () => {
 
     expect(visible.projection.value.activeHandles.map((handle) => handle.id)).toEqual(["__selection__:nw", "__selection__:ne", "__selection__:se", "__selection__:sw"])
     expect(visible.projection.value.activeHandles[2]?.point).toEqual({ x: 280, y: 120 })
+  })
+
+  it("updates Vue rotate availability and group selection geometry after core rotation", async () => {
+    const controller = useDiagramEngine({
+      shapes: [
+        { id: "a", kind: "shape", shape: "rect", x: 0, y: 0, width: 20, height: 10 },
+        { id: "b", kind: "shape", shape: "rect", x: 30, y: 0, width: 10, height: 20 },
+      ],
+      groups: [{ id: "g", kind: "group", childIds: ["a", "b"] }],
+      viewport: { x: -20, y: -20, width: 100, height: 100, zoom: 1 },
+    })
+    const selection = useDiagramSelection(controller)
+    const visible = useDiagramVisibleEntities(controller)
+    const canRotate = computed(() => controller.engine.canRotate(selection.selection.value.ids))
+    expect(canRotate.value).toBe(false)
+    selection.setSelection(["g"], "g")
+    await nextTick()
+    expect(canRotate.value).toBe(true)
+    expect(visible.projection.value.overlayAnchors.find((anchor) => anchor.id === "g")?.rect).toEqual({ x: -6, y: -6, width: 52, height: 32 })
+    controller.dispatch({ type: "rotateEntities", entries: [{ id: "g", rotation: 90 }] })
+    await nextTick()
+    expect(canRotate.value).toBe(true)
+    expect(visible.projection.value.overlayAnchors.find((anchor) => anchor.id === "g")?.rect).toEqual({ x: 4, y: -16, width: 32, height: 52 })
+    expect(visible.projection.value.activeHandles.map((handle) => handle.point)).toEqual([
+      { x: 10, y: -10 }, { x: 30, y: -10 }, { x: 30, y: 30 }, { x: 10, y: 30 },
+    ])
+    visible.dispose()
+    controller.dispose()
+  })
+
+  it("renders a table rotated by a selected Core group", async () => {
+    const controller = useDiagramEngine({
+      tables: [{ id: "table", kind: "table", x: 0, y: 0, width: 20, height: 10, rowCount: 1, columnCount: 1 }],
+      shapes: [{ id: "shape", kind: "shape", shape: "rect", x: 30, y: 0, width: 10, height: 20 }],
+      groups: [{ id: "group", kind: "group", childIds: ["table", "shape"] }],
+      selection: { ids: ["group"], primaryId: "group" },
+    })
+    const mount = document.createElement("div")
+    document.body.append(mount)
+    const app = createApp({ render: () => h("svg", [h(DiagramTableView, { controller, id: "table", showToolbar: false })]) })
+    app.mount(mount)
+    controller.dispatch({ type: "rotateEntities", entries: [{ id: "group", rotation: 90 }] })
+    await nextTick()
+    expect(controller.scene.value.entities.tablesById.get("table")).toMatchObject({ x: 15, y: -5, rotation: 90 })
+    expect(mount.querySelector('[data-diagram-id="table"] > g')?.getAttribute("transform")).toBe("rotate(90 25 0)")
+    app.unmount()
+    mount.remove()
+    controller.dispose()
   })
 
   it("exposes source and target handles for selected edges", () => {
