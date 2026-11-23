@@ -1,5 +1,11 @@
 # @affino/diagram-core
 
+## 0.12.0
+
+### Minor Changes
+
+- Added the undoable `flipEntities` command for horizontal and vertical reflection of selected entities or explicit IDs. Flip state is typed and serialized for nodes, shapes, text, and tables; edge free endpoints and route waypoints reflect around the shared bounds center while node/port endpoint references remain intact.
+
 ## 0.11.1
 
 ### Patch Changes

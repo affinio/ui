@@ -17,6 +17,9 @@ export type DiagramPoint = Readonly<{
   y: number
 }>
 
+/** Horizontal reflects X (left/right); vertical reflects Y (top/bottom). */
+export type DiagramFlipAxis = "horizontal" | "vertical"
+
 export type DiagramRect = Readonly<{
   x: number
   y: number
@@ -49,6 +52,8 @@ export type DiagramNode = DiagramEntityBase & Readonly<{
   width: number
   height: number
   rotation?: number
+  flipX?: boolean
+  flipY?: boolean
   portIds?: ReadonlyArray<DiagramId>
 }>
 
@@ -81,6 +86,8 @@ export type DiagramText = DiagramEntityBase & Readonly<{
   height?: number
   fontSize?: number
   rotation?: number
+  flipX?: boolean
+  flipY?: boolean
 }>
 
 export type DiagramShape = DiagramEntityBase & Readonly<{
@@ -90,6 +97,8 @@ export type DiagramShape = DiagramEntityBase & Readonly<{
   width: number
   height: number
   rotation?: number
+  flipX?: boolean
+  flipY?: boolean
   shape: "rect" | "ellipse" | "line" | string
 }>
 
@@ -125,6 +134,8 @@ export type DiagramTable = DiagramEntityBase & Readonly<{
   columnWidths?: ReadonlyArray<number>
   defaultCell?: DiagramTableCell
   style?: DiagramTableStyle
+  flipX?: boolean
+  flipY?: boolean
 }>
 export type DiagramTableCellPosition = Readonly<{ row: number; column: number }>
 
@@ -271,6 +282,8 @@ export type DiagramGeometry = Readonly<{
   unrotatedBounds?: DiagramRect
   corners?: ReadonlyArray<DiagramPoint>
   rotation?: number
+  flipX?: boolean
+  flipY?: boolean
   path?: ReadonlyArray<DiagramPoint>
   point?: DiagramPoint
 }>
@@ -324,6 +337,7 @@ export type DiagramCommand =
   | Readonly<{ type: "pasteClipboard"; clipboard: DiagramClipboard; offset?: DiagramPoint; historyKey?: string }>
   | Readonly<{ type: "resizeEntities"; entries: ReadonlyArray<DiagramResizeEntry>; historyKey?: string }>
   | Readonly<{ type: "rotateEntities"; entries: ReadonlyArray<DiagramRotateEntry>; historyKey?: string }>
+  | Readonly<{ type: "flipEntities"; ids?: ReadonlyArray<DiagramId>; axis: DiagramFlipAxis; historyKey?: string }>
   | Readonly<{ type: "alignEntities"; ids: ReadonlyArray<DiagramId>; edge: DiagramAlignEdge; historyKey?: string }>
   | Readonly<{ type: "bringForward"; ids: ReadonlyArray<DiagramId>; historyKey?: string }>
   | Readonly<{ type: "sendBackward"; ids: ReadonlyArray<DiagramId>; historyKey?: string }>

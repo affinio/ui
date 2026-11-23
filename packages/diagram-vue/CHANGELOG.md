@@ -1,5 +1,12 @@
 # @affino/diagram-vue
 
+## 0.11.0
+
+### Minor Changes
+
+- Included Core flip transforms in SVG/DOM render props and reflected `DiagramTableView` content with its table geometry.
+- Updated the `@affino/diagram-core` workspace dependency to 0.12.0.
+
 ## 0.10.0
 
 ### Minor Changes

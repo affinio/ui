@@ -3,6 +3,7 @@ import type { PropType, VNodeChild } from "vue"
 import type { DiagramTable, DiagramTableCell, DiagramTableHorizontalAlignment, DiagramTableStyle, DiagramTableVerticalAlignment } from "@affino/diagram-core"
 import type { DiagramEngineController } from "./useDiagramEngine.js"
 import type { DiagramPointerController } from "./useDiagramPointerController.js"
+import { svgTransform } from "./useDiagramRenderer.js"
 import { useDiagramTable } from "./useDiagramTable.js"
 
 /** SVG-native table renderer with one accessible foreignObject editor and toolbar while selected. */
@@ -111,12 +112,17 @@ export const DiagramTableView = defineComponent({
         }
       }
       if (style.border.visible) children.push(h("rect", { x: table.x + style.border.stroke.width / 2, y: table.y + style.border.stroke.width / 2, width: Math.max(0, table.width - style.border.stroke.width), height: Math.max(0, table.height - style.border.stroke.width), rx: style.border.radius, fill: "none", stroke: style.border.stroke.color, "stroke-width": style.border.stroke.width, "stroke-dasharray": dash(style.border.stroke.style), "vector-effect": "non-scaling-stroke", "pointer-events": "none" }))
+      const tableTransform = svgTransform(0, table.flipX === true, table.flipY === true, table)
+      const visualChildren = children.splice(0, children.length)
+      children.push(h("g", { transform: tableTransform }, visualChildren))
       const activeEdit = editing.value
       if (activeEdit) {
-        const x = columnOffsets[activeEdit.column]!
-        const y = rowOffsets[activeEdit.row]!
+        const cellX = columnOffsets[activeEdit.column]!
+        const cellY = rowOffsets[activeEdit.row]!
         const width = table.columnWidths![activeEdit.column]!
         const height = table.rowHeights![activeEdit.row]!
+        const x = table.flipX ? table.x + table.width - (cellX - table.x) - width : cellX
+        const y = table.flipY ? table.y + table.height - (cellY - table.y) - height : cellY
         children.push(h("foreignObject", { x, y, width, height }, [h("input", {
           ref: input, value: activeEdit.text, "aria-label": `Edit row ${activeEdit.row + 1}, column ${activeEdit.column + 1}`,
           onPointerdown: stopToolbarEvent, onClick: stopToolbarEvent,

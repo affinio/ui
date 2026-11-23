@@ -1835,6 +1835,80 @@ describe("DiagramEngine", () => {
     expect(engine.getScene().entities.nodesById.get("n2")?.y).toBe(80)
   })
 
+  it("reflects a node around its own center and preserves attached ports and edge identity", () => {
+    const engine = createDiagramEngine({
+      nodes: [{ id: "n", kind: "node", x: 10, y: 20, width: 100, height: 40, portIds: ["p"] }],
+      ports: [{ id: "p", kind: "port", nodeId: "n", x: 10, y: 5 }],
+      edges: [{ id: "e", kind: "edge", source: { kind: "port", portId: "p" }, target: { kind: "point", point: { x: 180, y: 25 } }, points: [{ x: 120, y: 10 }] }],
+      selection: { ids: ["n"], primaryId: "n" },
+    })
+    const originalPort = engine.getGeometrySnapshot("p")?.point
+    const originalScene = engine.serialize()
+    engine.dispatch({ type: "flipEntities", axis: "horizontal" })
+    expect(engine.getScene().entities.nodesById.get("n")).toMatchObject({ id: "n", x: 10, y: 20, flipX: true })
+    expect(engine.getGeometrySnapshot("p")?.point).toEqual({ x: 100, y: 25 })
+    expect(engine.getScene().entities.edgesById.get("e")?.source).toEqual({ kind: "port", portId: "p" })
+    expect(engine.getGeometrySnapshot("e")?.path?.[0]).toEqual({ x: 100, y: 25 })
+    engine.dispatch({ type: "flipEntities", ids: ["n"], axis: "vertical" })
+    expect(engine.getScene().entities.nodesById.get("n")).toMatchObject({ flipX: true, flipY: true })
+    expect(engine.getGeometrySnapshot("p")?.point).toEqual({ x: 100, y: 55 })
+    const restored = createDiagramEngine(deserializeScene(engine.serialize()))
+    expect(restored.getScene().entities.nodesById.get("n")).toMatchObject({ flipX: true, flipY: true })
+    engine.dispatch({ type: "undo" })
+    expect(engine.getScene().entities.nodesById.get("n")).toMatchObject({ flipX: true, flipY: undefined })
+    engine.dispatch({ type: "undo" })
+    expect(engine.serialize()).toEqual(originalScene)
+    expect(engine.getGeometrySnapshot("p")?.point).toEqual(originalPort)
+    engine.dispatch({ type: "redo" })
+    engine.dispatch({ type: "redo" })
+    expect(engine.getScene().entities.nodesById.get("n")).toMatchObject({ flipX: true, flipY: true })
+  })
+
+  it("reflects mixed grouped selections around their common center and serializes the transforms", () => {
+    const engine = createDiagramEngine({
+      nodes: [{ id: "n", kind: "node", x: 0, y: 0, width: 20, height: 20 }],
+      shapes: [{ id: "s", kind: "shape", shape: "line", x: 40, y: 0, width: 10, height: 20 }],
+      texts: [{ id: "t", kind: "text", x: 0, y: 40, width: 20, height: 10, text: "label" }],
+      tables: [{ id: "table", kind: "table", x: 30, y: 40, width: 20, height: 10, rowCount: 1, columnCount: 1 }],
+      edges: [{ id: "e", kind: "edge", source: { kind: "point", point: { x: 10, y: 10 } }, target: { kind: "point", point: { x: 50, y: 50 } }, points: [{ x: 30, y: 30 }] }],
+      groups: [{ id: "g", kind: "group", childIds: ["n", "s", "t", "table", "e"] }],
+      selection: { ids: ["g"], primaryId: "g" },
+    })
+    const identity = [
+      engine.getScene().entities.nodesById.get("n"),
+      engine.getScene().entities.shapesById.get("s"),
+      engine.getScene().entities.textsById.get("t"),
+      engine.getScene().entities.tablesById.get("table"),
+      engine.getScene().entities.edgesById.get("e"),
+    ].map((entity) => entity?.id)
+    engine.dispatch({ type: "flipEntities", axis: "horizontal" })
+    expect(engine.getScene().entities.nodesById.get("n")).toMatchObject({ x: 30, flipX: true })
+    expect(engine.getScene().entities.shapesById.get("s")).toMatchObject({ x: 0, flipX: true })
+    expect(engine.getScene().entities.textsById.get("t")).toMatchObject({ x: 30, flipX: true })
+    expect(engine.getScene().entities.tablesById.get("table")).toMatchObject({ x: 0, flipX: true })
+    expect(engine.getGeometrySnapshot("e")?.path).toEqual([{ x: 40, y: 10 }, { x: 20, y: 30 }, { x: 0, y: 50 }])
+    engine.dispatch({ type: "flipEntities", ids: ["g"], axis: "vertical" })
+    expect(engine.getScene().entities.nodesById.get("n")).toMatchObject({ x: 30, y: 30, flipX: true, flipY: true })
+    const loaded = createDiagramEngine(deserializeScene(engine.serialize()))
+    expect(loaded.getScene().entities.nodesById.get("n")).toMatchObject({ flipX: true, flipY: true })
+    expect(loaded.getScene().entities.shapesById.get("s")).toMatchObject({ flipX: true, flipY: true })
+    expect(loaded.getScene().entities.textsById.get("t")).toMatchObject({ flipX: true, flipY: true })
+    expect(loaded.getScene().entities.tablesById.get("table")).toMatchObject({ x: 0, y: 0, flipX: true, flipY: true })
+    expect(loaded.getScene().entities.edgesById.get("e")?.points).toEqual(engine.getScene().entities.edgesById.get("e")?.points)
+    engine.dispatch({ type: "undo" })
+    engine.dispatch({ type: "undo" })
+    expect(engine.serialize()).toMatchObject({ nodes: [{ id: "n", x: 0 }], shapes: [{ id: "s", x: 40 }], texts: [{ id: "t", x: 0 }], tables: [{ id: "table", x: 30 }] })
+    engine.dispatch({ type: "redo" })
+    engine.dispatch({ type: "redo" })
+    expect([
+      engine.getScene().entities.nodesById.get("n")?.id,
+      engine.getScene().entities.shapesById.get("s")?.id,
+      engine.getScene().entities.textsById.get("t")?.id,
+      engine.getScene().entities.tablesById.get("table")?.id,
+      engine.getScene().entities.edgesById.get("e")?.id,
+    ]).toEqual(identity)
+  })
+
   it("honors constraints for locked and non-deletable entities", () => {
     const engine = createDiagramEngine({
       nodes: [

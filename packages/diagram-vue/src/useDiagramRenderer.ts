@@ -6,9 +6,7 @@ export type SvgEntityProps = Readonly<Record<string, string | number | boolean |
 export function getSvgEntityProps(entity: DiagramRenderEntity): SvgEntityProps {
   const { geometry } = entity
   const bounds = geometry.unrotatedBounds ?? geometry.bounds
-  const transform = geometry.rotation
-    ? "rotate(" + geometry.rotation + " " + (bounds.x + bounds.width / 2) + " " + (bounds.y + bounds.height / 2) + ")"
-    : undefined
+  const transform = svgTransform(geometry.rotation ?? 0, geometry.flipX === true, geometry.flipY === true, bounds)
   const common = {
     "data-diagram-id": entity.id,
     "data-diagram-kind": entity.kind,
@@ -56,11 +54,23 @@ export function getDomEntityStyle(entity: DiagramRenderEntity, viewport?: Diagra
   const left = viewport ? (bounds.x - viewport.x) * zoom : bounds.x
   const top = viewport ? (bounds.y - viewport.y) * zoom : bounds.y
   const rotation = entity.geometry.rotation ? " rotate(" + entity.geometry.rotation + "deg)" : ""
+  const flip = entity.geometry.flipX || entity.geometry.flipY
+    ? " scale(" + (entity.geometry.flipX ? -1 : 1) + ", " + (entity.geometry.flipY ? -1 : 1) + ")"
+    : ""
   return Object.freeze({
     position: "absolute",
-    transform: "translate(" + left + "px, " + top + "px)" + rotation,
+    transform: "translate(" + left + "px, " + top + "px)" + rotation + flip,
     width: bounds.width * zoom + "px",
     height: bounds.height * zoom + "px",
-    ...(rotation ? { transformOrigin: "center center" } : {}),
+    ...(rotation || flip ? { transformOrigin: "center center" } : {}),
   })
+}
+
+export function svgTransform(rotation: number, flipX: boolean, flipY: boolean, bounds: Readonly<{ x: number; y: number; width: number; height: number }>): string | undefined {
+  const centerX = bounds.x + bounds.width / 2
+  const centerY = bounds.y + bounds.height / 2
+  const transforms: string[] = []
+  if (rotation) transforms.push(`rotate(${rotation} ${centerX} ${centerY})`)
+  if (flipX || flipY) transforms.push(`translate(${centerX} ${centerY}) scale(${flipX ? -1 : 1} ${flipY ? -1 : 1}) translate(${-centerX} ${-centerY})`)
+  return transforms.length ? transforms.join(" ") : undefined
 }

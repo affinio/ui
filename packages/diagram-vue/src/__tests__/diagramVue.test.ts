@@ -43,7 +43,7 @@ describe("diagram-vue", () => {
     const props = pointer.getSvgPointerProps()
     const event = (pointerId: number, x: number, y: number) => ({ pointerId, clientX: x, clientY: y, shiftKey: false }) as PointerEvent
     const tableRoot = () => mount.querySelector<SVGGElement>('[data-diagram-id="t"]')!
-    const outerRect = () => tableRoot().querySelector<SVGRectElement>(":scope > rect")!
+    const outerRect = () => tableRoot().querySelector<SVGRectElement>(":scope > g > rect")!
     const serialized = controller.engine.serialize()
     const revision = controller.engine.getDocumentRevision()
     const undoDepth = controller.engine.getDiagnostics().undoDepth
@@ -323,6 +323,34 @@ describe("diagram-vue", () => {
     const rotated = visible.projection.value.nodes[0]!
     expect(getSvgEntityProps(rotated)).toMatchObject({ x: 0, y: 0, width: 100, height: 40, transform: "rotate(90 50 20)" })
     expect(getDomEntityStyle(rotated).transform).toBe("translate(0px, 0px) rotate(90deg)")
+  })
+
+  it("projects horizontal and vertical flips through the public Vue renderer", () => {
+    const controller = useDiagramEngine({
+      nodes: [{ id: "flip-node", kind: "node", x: 0, y: 0, width: 100, height: 40, flipX: true }],
+      shapes: [{ id: "flip-shape", kind: "shape", shape: "rect", x: 60, y: 0, width: 40, height: 20, flipY: true }],
+      texts: [{ id: "flip-text", kind: "text", x: 120, y: 0, text: "Text", width: 40, height: 20, flipY: true }],
+      tables: [{ id: "flip-table", kind: "table", x: 0, y: 60, width: 100, height: 40, rowCount: 1, columnCount: 1, flipX: true, flipY: true }],
+      viewport: { x: 0, y: 0, width: 200, height: 120, zoom: 1 },
+    })
+    const visible = useDiagramVisibleEntities(controller)
+    const node = visible.projection.value.nodes[0]!
+    const shape = visible.projection.value.shapes[0]!
+    const text = visible.projection.value.texts[0]!
+    const table = visible.projection.value.tables[0]!
+    expect(getSvgEntityProps(node).transform).toContain("scale(-1 1)")
+    expect(getSvgEntityProps(shape).transform).toContain("scale(1 -1)")
+    expect(getSvgEntityProps(text).transform).toContain("scale(1 -1)")
+    expect(getSvgEntityProps(table).transform).toContain("scale(-1 -1)")
+    const mount = document.createElement("div")
+    document.body.append(mount)
+    const app = createApp({ render: () => h("svg", [h(DiagramTableView, { controller, id: "flip-table", showToolbar: false })]) })
+    app.mount(mount)
+    expect(mount.querySelector('[data-diagram-kind="table"] > g')?.getAttribute("transform")).toContain("scale(-1 -1)")
+    app.unmount()
+    mount.remove()
+    visible.dispose()
+    controller.dispose()
   })
 
   it("exposes one group resize handle set for multi-selection", () => {

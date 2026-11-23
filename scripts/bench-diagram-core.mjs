@@ -113,7 +113,8 @@ function createFixture(entityCount) {
   for (let index = 0; index < nodeCount; index += 1) {
     const x = (index % 100) * 140
     const y = Math.floor(index / 100) * 100
-    nodes.push({ id: `node-${index}`, kind: "node", x, y, width: 96, height: 56, portIds: [`port-${index}`] })
+    const portIds = index < portCount ? [`port-${index}`] : undefined
+    nodes.push({ id: `node-${index}`, kind: "node", x, y, width: 96, height: 56, ...(portIds ? { portIds } : {}) })
   }
   for (let index = 0; index < portCount; index += 1) {
     const nodeId = `node-${index % nodeCount}`

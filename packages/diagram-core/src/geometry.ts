@@ -68,7 +68,7 @@ function findCellIndex(offset: number, sizes: ReadonlyArray<number>, total: numb
 export function createEntityGeometry(id: DiagramId, entities: DiagramEntities): DiagramGeometry | null {
   const node = entities.nodesById.get(id)
   if (node) {
-    return rectGeometry(id, "node", { x: node.x, y: node.y, width: node.width, height: node.height }, node.rotation ?? 0, 4)
+    return rectGeometry(id, "node", { x: node.x, y: node.y, width: node.width, height: node.height }, node.rotation ?? 0, 4, node.flipX, node.flipY)
   }
   const port = entities.portsById.get(id)
   if (port) {
@@ -87,11 +87,11 @@ export function createEntityGeometry(id: DiagramId, entities: DiagramEntities): 
   if (text) {
     const width = text.width ?? Math.max(1, text.text.length) * (text.fontSize ?? 12) * 0.6
     const height = text.height ?? (text.fontSize ?? 12) * 1.2
-    return rectGeometry(id, "text", { x: text.x, y: text.y, width, height }, text.rotation ?? 0, 3)
+    return rectGeometry(id, "text", { x: text.x, y: text.y, width, height }, text.rotation ?? 0, 3, text.flipX, text.flipY)
   }
   const shape = entities.shapesById.get(id)
   if (shape) {
-    return rectGeometry(id, "shape", { x: shape.x, y: shape.y, width: shape.width, height: shape.height }, shape.rotation ?? 0, 3)
+    return rectGeometry(id, "shape", { x: shape.x, y: shape.y, width: shape.width, height: shape.height }, shape.rotation ?? 0, 3, shape.flipX, shape.flipY)
   }
   const group = entities.groupsById.get(id)
   if (group) {
@@ -103,7 +103,7 @@ export function createEntityGeometry(id: DiagramId, entities: DiagramEntities): 
     return { id, kind: "group", bounds, unrotatedBounds: bounds, rotation: 0, hitBounds: inflateRect(bounds, 6) }
   }
   const table = entities.tablesById.get(id)
-  if (table) return rectGeometry(id, "table", { x: table.x, y: table.y, width: table.width, height: table.height }, 0, 3)
+  if (table) return rectGeometry(id, "table", { x: table.x, y: table.y, width: table.width, height: table.height }, 0, 3, table.flipX, table.flipY)
   return null
 }
 
@@ -132,18 +132,21 @@ export function resolvePortPoint(port: DiagramPort, entities: DiagramEntities): 
   if (!node) {
     return { x: port.x, y: port.y }
   }
-  const point = { x: node.x + port.x, y: node.y + port.y }
+  const point = {
+    x: node.x + (node.flipX ? node.width - port.x : port.x),
+    y: node.y + (node.flipY ? node.height - port.y : port.y),
+  }
   return rotatePoint(point, rectCenter({ x: node.x, y: node.y, width: node.width, height: node.height }), node.rotation ?? 0)
 }
 
-function rectGeometry(id: DiagramId, kind: "node" | "shape" | "text" | "table", bounds: DiagramRect, rotation: number, hitPadding: number): DiagramGeometry {
+function rectGeometry(id: DiagramId, kind: "node" | "shape" | "text" | "table", bounds: DiagramRect, rotation: number, hitPadding: number, flipX = false, flipY = false): DiagramGeometry {
   const normalizedRotation = normalizeRotation(rotation)
   if (!normalizedRotation) {
-    return { id, kind, bounds, hitBounds: inflateRect(bounds, hitPadding), unrotatedBounds: bounds, rotation: 0 }
+    return { id, kind, bounds, hitBounds: inflateRect(bounds, hitPadding), unrotatedBounds: bounds, rotation: 0, flipX, flipY }
   }
   const corners = rotatedRectCorners(bounds, normalizedRotation)
   const rotatedBounds = rectFromPoints(corners)
-  return { id, kind, bounds: rotatedBounds, hitBounds: inflateRect(rotatedBounds, hitPadding), unrotatedBounds: bounds, corners, rotation: normalizedRotation }
+  return { id, kind, bounds: rotatedBounds, hitBounds: inflateRect(rotatedBounds, hitPadding), unrotatedBounds: bounds, corners, rotation: normalizedRotation, flipX, flipY }
 }
 
 export function rotatedRectCorners(rect: DiagramRect, rotation: number): ReadonlyArray<DiagramPoint> {

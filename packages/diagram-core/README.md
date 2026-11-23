@@ -116,8 +116,12 @@ engine.dispatch({ type: "removeEdgeWaypoint", id: "e1", index: 0 })
 engine.dispatch({ type: "bringForward", ids: ["n1"] })
 engine.dispatch({ type: "setLayer", ids: ["n1"], layer: "equipment", layerRole: "normal" })
 engine.dispatch({ type: "rotateEntities", entries: [{ id: "n1", rotation: 90 }] }) // geometry exposes rotated bounds/corners
+engine.dispatch({ type: "flipEntities", axis: "horizontal" }) // uses current selection; horizontal mirrors left/right
+engine.dispatch({ type: "flipEntities", ids: ["n1", "n2"], axis: "vertical" }) // vertical mirrors top/bottom around shared bounds center
 engine.dispatch({ type: "alignEntities", ids: ["n1", "n2"], edge: "left" })
 ```
+
+Flips are undoable, preserve entity IDs, and serialize as `flipX`/`flipY` state on nodes, shapes, text, and tables. A single object reflects around its own center; multiple selected IDs or a selected group reflect around their combined geometry bounds. Node ports keep their node-relative coordinates but resolve to mirrored anchors. Shape and text orientation follows the reflected object. A table mirrors its cell layout while keeping row/column IDs and editing indices stable. Edges keep node/port endpoint references; free endpoints and waypoints reflect around the selection center. An edge with only attached endpoints and no waypoints has no independent geometry to flip, so it is unchanged when selected alone. Vue's `getSvgEntityProps()` includes flip transforms for renderer projections; custom renderers should honor `DiagramGeometry.flipX` and `flipY`.
 
 Entities can be marked with metadata constraints. `locked` and `readOnly` entities cannot move, resize, or delete; `nonDeletable` entities can move but cannot be deleted. Front/back commands write `metadata.zIndex` so render order can cross entity kinds. Background layers are excluded from default render ordering unless explicitly requested.
 

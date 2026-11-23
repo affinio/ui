@@ -17,6 +17,10 @@ import type {
   DiagramDiagnostics,
   DiagramEdge,
   DiagramEdgeEndpoint,
+  DiagramNode,
+  DiagramText,
+  DiagramShape,
+  DiagramFlipAxis,
   DiagramGroup,
   DiagramTable,
   DiagramTableCell,
@@ -50,6 +54,8 @@ import type {
   SerializedDiagramScene,
   DiagramDocument,
 } from "./types.js"
+
+type DiagramFlipSnapshot = DiagramNode | DiagramEdge | DiagramText | DiagramShape | DiagramTable
 
 export class DiagramEngine {
   private store: DiagramSceneStore
@@ -755,6 +761,8 @@ export class DiagramEngine {
         return createResizePatch(this.state, command.entries)
       case "rotateEntities":
         return createRotatePatch(this.state, command.entries)
+      case "flipEntities":
+        return createFlipPatch(this.state, command.ids ?? this.state.selection.ids, command.axis)
       case "alignEntities":
         return createAlignPatch(this.state, command.ids, command.edge)
       case "bringForward":
@@ -1147,7 +1155,7 @@ function normalizeTableStyle(style?: DiagramTableStyle): DiagramTableStyle {
 }
 
 function validateDiagramTable(source: DiagramTable): void {
-  if (!source || source.kind !== "table" || ![source.x, source.y, source.width, source.height].every(Number.isFinite) || source.width <= 0 || source.height <= 0) throw new TypeError(`Invalid geometry for table ${source?.id ?? ""}`)
+  if (!source || source.kind !== "table" || ![source.x, source.y, source.width, source.height].every(Number.isFinite) || source.width <= 0 || source.height <= 0 || !validFlipFlags(source)) throw new TypeError(`Invalid geometry for table ${source?.id ?? ""}`)
   if (!Number.isInteger(source.rowCount) || source.rowCount < 1 || !Number.isInteger(source.columnCount) || source.columnCount < 1) throw new TypeError(`Invalid dimensions for table ${source.id}: at least one row and column are required`)
   if (source.cells !== undefined && (!Array.isArray(source.cells) || source.cells.length !== source.rowCount || source.cells.some((row) => !Array.isArray(row) || row.length !== source.columnCount))) throw new TypeError(`Invalid cell matrix for table ${source.id}`)
   for (const row of source.cells ?? []) for (const cell of row) validateTableCell(cell, source.id)
@@ -1156,6 +1164,11 @@ function validateDiagramTable(source: DiagramTable): void {
   if (source.columnWidths && (!validSizes(source.columnWidths, source.columnCount) || !sizesMatch(source.columnWidths, source.width))) throw new TypeError(`Invalid column widths for table ${source.id}`)
   if (source.style && !validTableStyleShape(source.style)) throw new TypeError(`Invalid style for table ${source.id}`)
   validateDiagramTableStyle(normalizeTableStyle(source.style), source.id)
+}
+
+function validFlipFlags(entity: { flipX?: unknown; flipY?: unknown }): boolean {
+  return (entity.flipX === undefined || typeof entity.flipX === "boolean")
+    && (entity.flipY === undefined || typeof entity.flipY === "boolean")
 }
 
 function validateTableCell(cell: DiagramTableCell, id: DiagramId): void {
@@ -1194,11 +1207,11 @@ function validateSceneInput(scene: DiagramSceneInput): DiagramSceneInput {
   }
   const nodes = new Set(nodesInput.map((node) => node.id))
   const ports = new Map(portsInput.map((port) => [port.id, port]))
-  for (const node of nodesInput) if (![node.x, node.y, node.width, node.height, node.rotation ?? 0].every(Number.isFinite) || node.width < 0 || node.height < 0) throw new TypeError(`Invalid geometry for node ${node.id}`)
+  for (const node of nodesInput) if (![node.x, node.y, node.width, node.height, node.rotation ?? 0].every(Number.isFinite) || node.width < 0 || node.height < 0 || !validFlipFlags(node)) throw new TypeError(`Invalid geometry for node ${node.id}`)
   for (const port of portsInput) if (!nodes.has(port.nodeId) || ![port.x, port.y, port.radius ?? 0].every(Number.isFinite)) throw new TypeError(`Invalid port ${port.id}`)
   for (const node of nodesInput) if ((node.portIds ?? []).some((id) => ports.get(id)?.nodeId !== node.id)) throw new TypeError(`Invalid port reference on node ${node.id}`)
-  for (const text of textsInput) if (![text.x, text.y, text.width ?? 0, text.height ?? 0, text.fontSize ?? 0, text.rotation ?? 0].every(Number.isFinite)) throw new TypeError(`Invalid geometry for text ${text.id}`)
-  for (const shape of shapesInput) if (![shape.x, shape.y, shape.width, shape.height, shape.rotation ?? 0].every(Number.isFinite) || shape.width < 0 || shape.height < 0) throw new TypeError(`Invalid geometry for shape ${shape.id}`)
+  for (const text of textsInput) if (![text.x, text.y, text.width ?? 0, text.height ?? 0, text.fontSize ?? 0, text.rotation ?? 0].every(Number.isFinite) || !validFlipFlags(text)) throw new TypeError(`Invalid geometry for text ${text.id}`)
+  for (const shape of shapesInput) if (![shape.x, shape.y, shape.width, shape.height, shape.rotation ?? 0].every(Number.isFinite) || shape.width < 0 || shape.height < 0 || !validFlipFlags(shape)) throw new TypeError(`Invalid geometry for shape ${shape.id}`)
   for (const table of tablesInput) validateDiagramTable(table)
   for (const edge of edgesInput) {
     const validEndpoint = (endpoint: DiagramEdgeEndpoint) => endpoint.kind === "point" ? Number.isFinite(endpoint.point.x) && Number.isFinite(endpoint.point.y) : endpoint.kind === "node" ? nodes.has(endpoint.nodeId) : endpoint.kind === "port" && ports.has(endpoint.portId)
@@ -1603,6 +1616,100 @@ function snapshotEntities(state: InternalState) {
 function normalizeRotation(rotation: number): number {
   const normalized = rotation % 360
   return normalized < 0 ? normalized + 360 : normalized
+}
+
+function createFlipPatch(state: InternalState, requestedIds: ReadonlyArray<DiagramId>, axis: DiagramFlipAxis): Patch | null {
+  if (axis !== "horizontal" && axis !== "vertical") return null
+  const expanded = new Set<DiagramId>()
+  for (const id of requestedIds) {
+    const group = state.entities.groupsById.get(id)
+    if (group) {
+      if (isEntityLockedOrReadOnly(state, id)) continue
+      for (const childId of group.childIds) expanded.add(childId)
+    } else expanded.add(id)
+  }
+  const expandedIds = [...expanded]
+  const entities = snapshotEntities(state)
+  const candidates = [...new Set(expandedIds)].filter((id) => {
+    if (isEntityLockedOrReadOnly(state, id)) return false
+    return state.entities.nodesById.has(id)
+      || state.entities.textsById.has(id)
+      || state.entities.shapesById.has(id)
+      || state.entities.tablesById.has(id)
+      || isEdgeTranslatable(state.entities.edgesById.get(id))
+  })
+  const geometries = candidates.map((id) => createEntityGeometry(id, entities)).filter((geometry): geometry is DiagramGeometry => geometry !== null)
+  if (!geometries.length) return null
+  const bounds = unionDiagramRects(geometries.map((geometry) => geometry.bounds))
+  if (!bounds) return null
+  const center = { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 }
+  const previous = candidates.map((id) => getDiagramFlipSnapshot(state, id)).filter((entity): entity is DiagramFlipSnapshot => entity !== null)
+  const next = previous.map((entity) => reflectDiagramEntity(entity, createEntityGeometry(entity.id, entities)!, center, axis))
+  return createFlipPatchUnchecked(next, previous)
+}
+
+function createFlipPatchUnchecked(entries: ReadonlyArray<DiagramFlipSnapshot>, inverseEntries: ReadonlyArray<DiagramFlipSnapshot>): Patch {
+  return {
+    apply: (state) => applyFlipSnapshots(state, entries),
+    inverse: {
+      apply: (state) => applyFlipSnapshots(state, inverseEntries),
+      inverse: undefined as unknown as Patch,
+    },
+  }
+}
+
+function applyFlipSnapshots(state: InternalState, entries: ReadonlyArray<DiagramFlipSnapshot>): Set<DiagramId> {
+  const changed = new Set<DiagramId>()
+  for (const entity of entries) {
+    if (entity.kind === "node") state.entities.nodesById.set(entity.id, entity)
+    else if (entity.kind === "edge") state.entities.edgesById.set(entity.id, entity)
+    else if (entity.kind === "text") state.entities.textsById.set(entity.id, entity)
+    else if (entity.kind === "shape") state.entities.shapesById.set(entity.id, entity)
+    else if (entity.kind === "table") state.entities.tablesById.set(entity.id, entity)
+    changed.add(entity.id)
+  }
+  return changed
+}
+
+function getDiagramFlipSnapshot(state: InternalState, id: DiagramId): DiagramFlipSnapshot | null {
+  return state.entities.nodesById.get(id)
+    ?? state.entities.edgesById.get(id)
+    ?? state.entities.textsById.get(id)
+    ?? state.entities.shapesById.get(id)
+    ?? state.entities.tablesById.get(id)
+    ?? null
+}
+
+function unionDiagramRects(rects: ReadonlyArray<DiagramRect>): DiagramRect | null {
+  if (!rects.length) return null
+  const left = Math.min(...rects.map((rect) => rect.x))
+  const top = Math.min(...rects.map((rect) => rect.y))
+  const right = Math.max(...rects.map((rect) => rect.x + rect.width))
+  const bottom = Math.max(...rects.map((rect) => rect.y + rect.height))
+  return { x: left, y: top, width: right - left, height: bottom - top }
+}
+
+function reflectDiagramEntity(entity: DiagramFlipSnapshot, geometry: DiagramGeometry, center: DiagramPoint, axis: DiagramFlipAxis): DiagramFlipSnapshot {
+  if (entity.kind === "edge") {
+    const reflectPoint = (point: DiagramPoint): DiagramPoint => axis === "horizontal"
+      ? { x: center.x * 2 - point.x, y: point.y }
+      : { x: point.x, y: center.y * 2 - point.y }
+    const reflectEndpoint = (endpoint: DiagramEdgeEndpoint): DiagramEdgeEndpoint => endpoint.kind === "point"
+      ? { kind: "point", point: reflectPoint(endpoint.point) }
+      : endpoint
+    return { ...entity, source: reflectEndpoint(entity.source), target: reflectEndpoint(entity.target), points: entity.points?.map(reflectPoint) }
+  }
+
+  const bounds = geometry.unrotatedBounds ?? geometry.bounds
+  const x = axis === "horizontal" ? center.x * 2 - (bounds.x + bounds.width) : bounds.x
+  const y = axis === "vertical" ? center.y * 2 - (bounds.y + bounds.height) : bounds.y
+  const flipX = axis === "horizontal" ? !entity.flipX : entity.flipX
+  const flipY = axis === "vertical" ? !entity.flipY : entity.flipY
+  const rotation = "rotation" in entity ? normalizeRotation(-(entity.rotation ?? 0)) : undefined
+  if (entity.kind === "node" || entity.kind === "shape" || entity.kind === "text") {
+    return { ...entity, x, y, flipX, flipY, ...(rotation === undefined ? {} : { rotation }) }
+  }
+  return { ...entity, x, y, flipX, flipY }
 }
 
 function createOrderPatch(state: InternalState, ids: ReadonlyArray<DiagramId>, mode: "forward" | "backward" | "front" | "back"): Patch | null {
@@ -2097,7 +2204,7 @@ function commandIds(command: DiagramCommand): DiagramId[] {
   if (command.type === "groupEntities") return [command.id, ...(command.ids ?? [])]
   if (command.type === "ungroupEntities") return [...command.ids]
   if ("id" in command) return [command.id]
-  if ("ids" in command) return [...command.ids]
+  if ("ids" in command) return [...(command.ids ?? [])]
   if (command.type === "createEdge") return [command.edge.id]
   if (command.type === "createNode") return [command.node.id]
   if (command.type === "createPort") return [command.port.id, command.port.nodeId]
