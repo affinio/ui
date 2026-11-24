@@ -1486,6 +1486,49 @@ describe("DiagramEngine", () => {
     expect(engine.getScene().selection.ids).toEqual(["n1"])
   })
 
+  it("does not snap or commit selection clicks or sub-threshold movement", () => {
+    const engine = createDiagramEngine({
+      nodes: [{ id: "n", kind: "node", x: 14, y: 14, width: 20, height: 20, portIds: [] }],
+      edges: [], ports: [], texts: [], shapes: [],
+      viewport: { x: 0, y: 0, width: 100, height: 100, zoom: 1 },
+    })
+    const frames: Array<() => void> = []
+    const interaction = createDiagramInteractionController(engine, { snap: { gridSize: 10, tolerancePx: 8, snapToPorts: false, snapToAlignment: false, snapToEqualSpacing: false }, scheduleFrame: (callback) => frames.push(callback) })
+    const history = engine.getDiagnostics().undoDepth
+
+    interaction.pointerDown({ id: 1, point: { x: 16, y: 16 } })
+    interaction.pointerUp({ id: 1, point: { x: 16, y: 16 } })
+    expect(engine.getScene().selection.ids).toEqual(["n"])
+    expect(engine.getScene().entities.nodesById.get("n")).toMatchObject({ x: 14, y: 14 })
+    expect(interaction.getCommitCount()).toBe(0)
+    expect(engine.getDiagnostics().undoDepth).toBe(history)
+
+    interaction.pointerDown({ id: 2, point: { x: 16, y: 16 } })
+    interaction.pointerMove({ id: 2, point: { x: 18, y: 18 } })
+    frames.shift()?.()
+    expect(interaction.getSnapshot().previewDelta).toBeNull()
+    expect(interaction.getSnapshot().snapResult).toBeNull()
+    interaction.pointerUp({ id: 2, point: { x: 18, y: 18 } })
+    expect(engine.getScene().entities.nodesById.get("n")).toMatchObject({ x: 14, y: 14 })
+    expect(interaction.getCommitCount()).toBe(0)
+    expect(engine.getDiagnostics().undoDepth).toBe(history)
+
+    interaction.pointerDown({ id: 3, point: { x: 16, y: 16 }, shiftKey: true })
+    interaction.pointerUp({ id: 3, point: { x: 16, y: 16 }, shiftKey: true })
+    expect(engine.getScene().selection.ids).toEqual([])
+    expect(interaction.getCommitCount()).toBe(0)
+    expect(engine.getScene().entities.nodesById.get("n")).toMatchObject({ x: 14, y: 14 })
+
+    interaction.pointerDown({ id: 4, point: { x: 16, y: 16 } })
+    interaction.pointerMove({ id: 4, point: { x: 23, y: 16 } })
+    frames.shift()?.()
+    expect(interaction.getSnapshot().snapResult?.source).toBe("grid")
+    const snapped = interaction.getSnapshot().previewDelta!
+    interaction.pointerUp({ id: 4, point: { x: 23, y: 16 } })
+    expect(engine.getScene().entities.nodesById.get("n")).toMatchObject({ x: 14 + snapped.x, y: 14 + snapped.y })
+    expect(interaction.getCommitCount()).toBe(1)
+  })
+
   it("moves free edge endpoints and route points as one undoable drag", () => {
     const callbacks: Array<() => void> = []
     const engine = createDiagramEngine({
@@ -1709,7 +1752,6 @@ describe("DiagramEngine", () => {
     pan.pointerUp({ id: 9, point: { x: 10, y: 0 } })
     engine.dispatch({ type: "setViewport", viewport: { zoom: 0.8 } })
     expect(engine.getDocumentRevision()).toBe(changedRevision)
-    engine.dispatch({ type: "undo" })
     engine.dispatch({ type: "undo" })
     engine.dispatch({ type: "undo" })
     engine.dispatch({ type: "undo" })
@@ -2630,6 +2672,87 @@ describe("DiagramEngine", () => {
     expect(engine.getGeometrySnapshot("path")?.path?.[1]).toEqual({ x: 35, y: 12 })
     engine.dispatch({ type: "undo" })
     expect(engine.getGeometrySnapshot("path")?.path?.[1]).toEqual({ x: 30, y: 10 })
+  })
+
+  it("cardinal-locks a two-point path endpoint with live Shift and preserves compatible snaps", () => {
+    const createLine = () => createDiagramEngine({
+      shapes: [{ id: "line", kind: "shape", shape: "line", x: 10, y: 10, width: 100, height: 100, points: [{ x: 0, y: 0 }, { x: 100, y: 100 }] }],
+      viewport: { x: 0, y: 0, width: 500, height: 500, zoom: 1 },
+    })
+    const scheduleFrame = (callback: () => void) => callback()
+
+    const held = createLine()
+    const heldInteraction = createDiagramInteractionController(held, { snap: { enabled: false }, scheduleFrame })
+    expect(heldInteraction.beginPathVertexHandle("line", 1, { id: 1, point: { x: 110, y: 110 }, shiftKey: true })).toBe(true)
+    heldInteraction.pointerMove({ id: 1, point: { x: 125, y: 100 }, shiftKey: true })
+    const heldPreview = heldInteraction.getSnapshot().pathVertexPreview!.point
+    expect(heldPreview.x).toBeCloseTo(10 + Math.hypot(115, 90))
+    expect(heldPreview.y).toBe(10)
+    heldInteraction.pointerUp({ id: 1, point: { x: 125, y: 100 }, shiftKey: true })
+    expect(held.getGeometrySnapshot("line")?.path?.[1]).toEqual(heldPreview)
+    expect(held.getDiagnostics().undoDepth).toBe(1)
+
+    const toggled = createLine()
+    const toggledInteraction = createDiagramInteractionController(toggled, { snap: { enabled: false }, scheduleFrame })
+    toggledInteraction.beginPathVertexHandle("line", 1, { id: 2, point: { x: 110, y: 110 } })
+    toggledInteraction.pointerMove({ id: 2, point: { x: 125, y: 100 } })
+    expect(toggledInteraction.getSnapshot().pathVertexPreview?.point).toEqual({ x: 125, y: 100 })
+    toggledInteraction.pointerMove({ id: 2, point: { x: 125, y: 100 }, shiftKey: true })
+    expect(toggledInteraction.getSnapshot().pathVertexPreview?.point.y).toBe(10)
+    const constrained = toggledInteraction.getSnapshot().pathVertexPreview!.point
+    toggledInteraction.pointerMove({ id: 2, point: { x: 125, y: 100 }, shiftKey: false })
+    expect(toggledInteraction.getSnapshot().pathVertexPreview?.point).toEqual({ x: 125, y: 100 })
+    toggledInteraction.pointerUp({ id: 2, point: { x: 125, y: 100 }, shiftKey: false })
+    expect(toggled.getGeometrySnapshot("line")?.path?.[1]).toEqual({ x: 125, y: 100 })
+    expect(constrained.y).toBe(10)
+
+    const vertical = createDiagramEngine({ shapes: [{ id: "line", kind: "shape", shape: "line", x: 10, y: 10, width: 100, height: 200, points: [{ x: 0, y: 0 }, { x: 100, y: 200 }] }] })
+    const verticalInteraction = createDiagramInteractionController(vertical, { snap: { enabled: false }, scheduleFrame })
+    verticalInteraction.beginPathVertexHandle("line", 1, { id: 3, point: { x: 110, y: 210 }, shiftKey: true })
+    verticalInteraction.pointerMove({ id: 3, point: { x: 100, y: 225 }, shiftKey: true })
+    const verticalPreview = verticalInteraction.getSnapshot().pathVertexPreview!.point
+    expect(verticalPreview.x).toBe(10)
+    expect(verticalPreview.y).toBeCloseTo(10 + Math.hypot(90, 215))
+    verticalInteraction.pointerUp({ id: 3, point: { x: 100, y: 225 }, shiftKey: true })
+    expect(vertical.getGeometrySnapshot("line")?.path?.[1]).toEqual(verticalPreview)
+
+    const sourceEnd = createLine()
+    const sourceInteraction = createDiagramInteractionController(sourceEnd, { snap: { enabled: false }, scheduleFrame })
+    sourceInteraction.beginPathVertexHandle("line", 0, { id: 4, point: { x: 10, y: 10 }, shiftKey: true })
+    sourceInteraction.pointerMove({ id: 4, point: { x: 0, y: 100 }, shiftKey: true })
+    const sourcePreview = sourceInteraction.getSnapshot().pathVertexPreview!.point
+    expect(sourcePreview.y).toBe(110)
+    sourceInteraction.pointerUp({ id: 4, point: { x: 0, y: 100 }, shiftKey: true })
+    expect(sourceEnd.getGeometrySnapshot("line")?.path?.[0]).toEqual(sourcePreview)
+  })
+
+  it("keeps grid and object snapping on the Shift-locked path endpoint axis", () => {
+    const engine = createDiagramEngine({
+      nodes: [{ id: "snap-owner", kind: "node", x: 154, y: 8, width: 4, height: 4, portIds: ["snap-port"] }],
+      ports: [{ id: "snap-port", kind: "port", nodeId: "snap-owner", x: 1, y: 2 }],
+      shapes: [{ id: "line", kind: "shape", shape: "line", x: 10, y: 10, width: 100, height: 100, points: [{ x: 0, y: 0 }, { x: 100, y: 100 }] }],
+    })
+    const interaction = createDiagramInteractionController(engine, { snap: { gridSize: 10, tolerancePx: 8, snapToPorts: true, snapToAlignment: false }, scheduleFrame: (callback) => callback() })
+    interaction.beginPathVertexHandle("line", 1, { id: 1, point: { x: 110, y: 110 }, shiftKey: true })
+    interaction.pointerMove({ id: 1, point: { x: 125, y: 100 }, shiftKey: true })
+    const preview = interaction.getSnapshot().pathVertexPreview!.point
+    expect(preview).toEqual({ x: 155, y: 10 })
+    expect(interaction.getSnapshot().snapResult?.source).toBe("port")
+    interaction.pointerUp({ id: 1, point: { x: 125, y: 100 }, shiftKey: true })
+    expect(engine.getGeometrySnapshot("line")?.path?.[1]).toEqual(preview)
+    engine.dispatch({ type: "undo" })
+    expect(engine.getGeometrySnapshot("line")?.path?.[1]).toEqual({ x: 110, y: 110 })
+
+    const gridEngine = createDiagramEngine({ shapes: [{ id: "grid-line", kind: "shape", shape: "line", x: 10, y: 10, width: 100, height: 100, points: [{ x: 0, y: 0 }, { x: 100, y: 100 }] }] })
+    const gridInteraction = createDiagramInteractionController(gridEngine, { snap: { gridSize: 10, snapToPorts: false, snapToAlignment: false }, scheduleFrame: (callback) => callback() })
+    gridInteraction.beginPathVertexHandle("grid-line", 1, { id: 2, point: { x: 110, y: 110 }, shiftKey: true })
+    gridInteraction.pointerMove({ id: 2, point: { x: 124, y: 100 }, shiftKey: true })
+    const gridPreview = gridInteraction.getSnapshot().pathVertexPreview!.point
+    expect(gridPreview.y).toBe(10)
+    expect(gridPreview.x % 10).toBe(0)
+    expect(gridInteraction.getSnapshot().snapResult?.source).toBe("grid")
+    gridInteraction.pointerUp({ id: 2, point: { x: 124, y: 100 }, shiftKey: true })
+    expect(gridEngine.getGeometrySnapshot("grid-line")?.path?.[1]).toEqual(gridPreview)
   })
 
   it("locks click-to-place path segments to a live Shift cardinal from the last vertex", () => {

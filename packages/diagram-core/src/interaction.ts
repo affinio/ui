@@ -23,6 +23,7 @@ export class DiagramInteractionController {
   private latestShiftKey = false
   private shiftAxis: "x" | "y" | null = null
   private previewDelta: DiagramPoint | null = null
+  private dragActivated = false
   private marquee: DiagramRect | null = null
   private resizeOwnerId: DiagramId | null = null
   private resizeSelectionIds: ReadonlyArray<DiagramId> = []
@@ -64,6 +65,8 @@ export class DiagramInteractionController {
   private portCreationPreview: DiagramPortCreationPreview | null = null
   private vertexDragKind: "path" | "edge" | null = null
   private vertexDragStart: DiagramPoint | null = null
+  private vertexConstraintOrigin: DiagramPoint | null = null
+  private vertexCardinalAngle: 0 | 90 | 180 | 270 | null = null
   private framePending = false
   private pendingMoveCount = 0
   private commitCount = 0
@@ -114,6 +117,7 @@ export class DiagramInteractionController {
     this.latestShiftKey = event.shiftKey === true
     this.shiftAxis = null
     this.previewDelta = null
+    this.dragActivated = false
     this.marquee = null
     this.snapGuides = Object.freeze([])
     this.snapResult = null
@@ -218,8 +222,13 @@ export class DiagramInteractionController {
     this.cancel()
     this.tool = "drag-path-vertex"
     this.activePointer = event; this.startPoint = event.point; this.latestPoint = event.point
-    this.pathVertexPreview = { id: ownerId, index, point }
+    this.latestShiftKey = event.shiftKey === true
+    this.vertexConstraintOrigin = shape.points.length === 2 && (index === 0 || index === shape.points.length - 1)
+      ? geometry!.path?.[index === 0 ? 1 : 0] ?? null
+      : null
+    this.vertexCardinalAngle = this.latestShiftKey && this.vertexConstraintOrigin ? nearestCardinalAngle(event.point, this.vertexConstraintOrigin) : null
     this.vertexDragStart = point; this.vertexDragKind = "path"
+    this.pathVertexPreview = { id: ownerId, index, point: this.resolvePathVertexPoint(event.point) }
     return true
   }
 
@@ -231,6 +240,7 @@ export class DiagramInteractionController {
     this.cancel()
     this.tool = "drag-path-vertex"
     this.activePointer = event; this.startPoint = event.point; this.latestPoint = event.point
+    this.latestShiftKey = false
     this.vertexDragStart = point; this.vertexDragKind = "edge"
     this.edgeEndpointId = ownerId
     this.edgeWaypointPreview = [...(edge.points ?? [])]
@@ -398,7 +408,9 @@ export class DiagramInteractionController {
       return
     }
     this.latestPoint = event.point
+    if (this.tool === "drag-selection" && this.startPoint && this.isPastAxisActivation(event.point, this.startPoint)) this.dragActivated = true
     if (this.tool === "drag-path-vertex" && this.pathVertexPreview) {
+      this.updateVertexShiftConstraint(event.shiftKey === true, event.point)
       this.scheduleCreationPreview()
       return
     }
@@ -434,6 +446,7 @@ export class DiagramInteractionController {
       point = { x: base.x + Math.cos(radians) * next.length, y: base.y + Math.sin(radians) * next.length }
     }
     if (![point.x, point.y].every(Number.isFinite)) return false
+    if (this.tool === "drag-selection") this.dragActivated = true
     this.latestPoint = point
     this.dynamicInput = dynamicInputFor(base, point)
     this.previewDynamicInput = this.dynamicInput
@@ -472,8 +485,10 @@ export class DiagramInteractionController {
       return
     }
     this.latestPoint = event.point
+    if (this.tool === "drag-selection" && this.startPoint && this.isPastAxisActivation(event.point, this.startPoint)) this.dragActivated = true
     if (this.tool === "drag-path-vertex" && this.pathVertexPreview) {
-      this.pathVertexPreview = { ...this.pathVertexPreview, point: this.resolveFreeSnap(event.point, this.vertexDragStart ?? event.point) }
+      this.updateVertexShiftConstraint(event.shiftKey === true, event.point)
+      this.pathVertexPreview = { ...this.pathVertexPreview, point: this.resolvePathVertexPoint(event.point) }
       if (this.vertexDragKind === "edge" && this.edgeWaypointPreview) {
         const points = [...this.edgeWaypointPreview]; points[this.pathVertexPreview.index] = this.pathVertexPreview.point; this.edgeWaypointPreview = points
       }
@@ -513,7 +528,7 @@ export class DiagramInteractionController {
         : { type: "resizeTableColumn", id: preview.id, index: preview.index, width: preview.size, historyKey })
       this.commitCount += 1
     }
-    if (this.tool === "drag-selection" && this.previewDelta) {
+    if (this.tool === "drag-selection" && this.dragActivated && this.previewDelta) {
       const selection = this.engine.getScene().selection
       this.engine.dispatch({ type: "moveEntities", ids: this.dragSelectionIds, delta: this.previewDelta, historyKey: `drag:${selection.primaryId ?? "selection"}:${++this.gestureHistoryId}` })
       this.commitCount += 1
@@ -762,6 +777,12 @@ export class DiagramInteractionController {
     if (!this.startPoint || !this.latestPoint) {
       return
     }
+    if (this.tool === "drag-selection" && !this.dragActivated) {
+      this.previewDelta = null
+      this.snapGuides = Object.freeze([])
+      this.snapResult = null
+      return
+    }
     if (this.tool === "draw-path" && this.pathCreationId) {
       this.pathCurrentPoint = this.resolvePathPoint(this.latestPoint)
       this.previewDynamicInput = dynamicInputFor(this.pathVertices[this.pathVertices.length - 1]!, this.pathCurrentPoint)
@@ -776,7 +797,7 @@ export class DiagramInteractionController {
       return
     }
     if (this.tool === "drag-path-vertex" && this.pathVertexPreview) {
-      this.pathVertexPreview = { ...this.pathVertexPreview, point: this.resolveFreeSnap(this.latestPoint, this.vertexDragStart ?? this.latestPoint) }
+      this.pathVertexPreview = { ...this.pathVertexPreview, point: this.resolvePathVertexPoint(this.latestPoint) }
       if (this.vertexDragKind === "edge" && this.edgeWaypointPreview) {
         const points = [...this.edgeWaypointPreview]; points[this.pathVertexPreview.index] = this.pathVertexPreview.point; this.edgeWaypointPreview = points
       }
@@ -993,6 +1014,44 @@ export class DiagramInteractionController {
       angleIncrement: this.snapOptions.angleIncrement,
       additionalAngles: this.snapOptions.additionalAngles,
       ortho: this.snapOptions.ortho,
+    })
+    this.snapResult = snap
+    return snap.point
+  }
+
+  private updateVertexShiftConstraint(shiftKey: boolean, point: DiagramPoint): void {
+    if (this.vertexDragKind !== "path" || !this.vertexConstraintOrigin) return
+    if (!shiftKey) {
+      this.vertexCardinalAngle = null
+      this.latestShiftKey = false
+      return
+    }
+    if (!this.latestShiftKey || this.vertexCardinalAngle === null) this.vertexCardinalAngle = nearestCardinalAngle(point, this.vertexConstraintOrigin)
+    this.latestShiftKey = true
+  }
+
+  private resolvePathVertexPoint(point: DiagramPoint): DiagramPoint {
+    const origin = this.vertexConstraintOrigin
+    if (this.vertexDragKind !== "path" || !origin || !this.latestShiftKey || this.vertexCardinalAngle === null) {
+      return this.resolveFreeSnap(point, this.vertexDragStart ?? point)
+    }
+    const angle = this.vertexCardinalAngle
+    const axisConstraint = angle === 0 || angle === 180 ? "x" : "y"
+    const desired = projectToAngle(origin, point, angle)
+    if (this.snapOptions.enabled === false) {
+      this.snapResult = null
+      return desired
+    }
+    const zoom = this.engine.getScene().viewport.zoom || 1
+    const snap = this.engine.snapPoint(desired, {
+      radius: (this.snapOptions.tolerancePx ?? 6) / zoom,
+      gridSize: this.snapOptions.gridSize,
+      snapToPorts: this.snapOptions.snapToPorts,
+      snapToAlignment: this.snapOptions.snapToAlignment,
+      axisConstraint,
+      excludeIds: this.pathVertexPreview ? new Set([this.pathVertexPreview.id]) : undefined,
+      kinds: this.snapOptions.kinds,
+      tolerancePx: this.snapOptions.kinds ? this.snapOptions.tolerancePx : undefined,
     })
     this.snapResult = snap
     return snap.point
@@ -1312,6 +1371,7 @@ export class DiagramInteractionController {
     this.latestShiftKey = false
     this.shiftAxis = null
     this.previewDelta = null
+    this.dragActivated = false
     this.marquee = null
     this.resizeOwnerId = null
     this.resizeSelectionIds = []
@@ -1342,6 +1402,8 @@ export class DiagramInteractionController {
     this.portCreationPreview = null
     this.vertexDragKind = null
     this.vertexDragStart = null
+    this.vertexConstraintOrigin = null
+    this.vertexCardinalAngle = null
     this.edgeRouteOptions = {}
     this.edgeClickPlacement = false
     this.edgeCreationWaypoints = []

@@ -66,6 +66,25 @@ describe("diagram-vue", () => {
     vi.unstubAllGlobals()
   })
 
+  it("forwards Shift through path vertex handle gestures and renders the constrained preview", async () => {
+    const frames: Array<FrameRequestCallback> = []
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { frames.push(callback); return frames.length })
+    const controller = useDiagramEngine({ shapes: [{ id: "line", kind: "shape", shape: "line", x: 10, y: 10, width: 100, height: 100, points: [{ x: 0, y: 0 }, { x: 100, y: 100 }] }], viewport: { x: 0, y: 0, width: 300, height: 200, zoom: 1 } })
+    const pointer = useDiagramPointerController(controller, { snap: { enabled: false }, toWorldPoint: (event) => ({ x: event.clientX, y: event.clientY }) })
+    const event = (pointerId: number, x: number, y: number, shiftKey = false) => ({ pointerId, clientX: x, clientY: y, shiftKey }) as PointerEvent
+    expect(pointer.beginPathVertexHandle("line", 1, event(1, 110, 110, true))).toBe(true)
+    pointer.getSvgPointerProps().onPointermove(event(1, 125, 100, true))
+    frames.shift()?.(0)
+    await nextTick()
+    const preview = pointer.state.value.pathVertexPreview!.point
+    expect(preview.y).toBe(10)
+    pointer.getSvgPointerProps().onPointerup(event(1, 125, 100, true))
+    expect(controller.engine.getGeometrySnapshot("line")?.path?.[1]).toEqual(preview)
+    pointer.dispose()
+    controller.dispose()
+    vi.unstubAllGlobals()
+  })
+
   it("renders pointer move and resize previews without mutating the committed table scene", async () => {
     const frames: Array<FrameRequestCallback> = []
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { frames.push(callback); return frames.length })

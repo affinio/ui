@@ -1,5 +1,13 @@
 # @affino/diagram-core
 
+## 0.21.1
+
+### Patch Changes
+
+- Require a 4-screen-pixel selection-drag activation before applying movement snaps or committing geometry, so clicks and sub-threshold motion only affect selection.
+- Treat standalone selection changes as transient UI state; they no longer add undo-history entries.
+- Apply live Shift cardinal locking to two-point path endpoint drags, resolving grid and object snaps along the locked axis for matching preview and commit geometry.
+
 ## 0.21.0
 
 ### Minor Changes

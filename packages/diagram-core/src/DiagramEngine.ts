@@ -147,7 +147,7 @@ export class DiagramEngine {
       this.lastCommandMs = now() - startedAt
       return { changed: false, revision: this.state.revision }
     }
-    const transaction = this.commitPatch(patch, true, "historyKey" in command ? command.historyKey ?? null : null)
+    const transaction = this.commitPatch(patch, command.type !== "setSelection", "historyKey" in command ? command.historyKey ?? null : null)
     result = { changed: transaction.changedIds.size > 0, revision: this.state.revision }
     this.lastCommandMs = now() - startedAt
     return result
