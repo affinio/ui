@@ -1,5 +1,13 @@
 # @affino/diagram-vue
 
+## 0.21.0
+
+### Minor Changes
+
+- Exposed Core's runtime scene editing lock in the reactive pointer snapshot and refreshes/cancels active previews when the lock changes.
+- Native SVG projections preserve Core cubic Bézier path commands and compound contour fill behavior.
+
+
 ## 0.20.0
 
 ### Minor Changes

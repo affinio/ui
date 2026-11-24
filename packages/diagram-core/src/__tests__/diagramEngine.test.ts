@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { clampViewportToBounds, createCircularArc, createDiagramEngine, createDiagramInteractionController, deserializeDiagramDocument, deserializeScene, getDiagramTableCellAt, intersectLineSegments, routeOrthogonalConnector, screenToWorld, serializeScene, subtractRectFromCircle, trimAndJoinLines, trimCircleOutsideRect, trimLineByCrossing, validateDiagramScene, worldToScreen, zoomViewportAt } from ".."
+import { clampViewportToBounds, createCircularArc, createDiagramEngine, createDiagramInteractionController, deserializeDiagramDocument, deserializeScene, getDiagramTableCellAt, intersectLineSegments, parseSvgPathData, routeOrthogonalConnector, screenToWorld, serializeScene, subtractRectFromCircle, trimAndJoinLines, trimCircleOutsideRect, trimLineByCrossing, trimSelectionByStroke, validateDiagramScene, worldToScreen, zoomViewportAt } from ".."
 import type { DiagramPoint, DiagramSceneInput } from ".."
 
 const scene: DiagramSceneInput = {
@@ -2943,6 +2943,88 @@ describe("DiagramEngine", () => {
     expect(trimCircleOutsideRect({ x: 5, y: 0 }, 10, { x: 0, y: -10, width: 20, height: 20 }).value).toHaveLength(1)
   })
 
+  it("calculates selection sweep trims for multiple targets and commits the exact preview atomically", () => {
+    const engine = createDiagramEngine({ shapes: [
+      { id: "first", kind: "shape", shape: "line", x: 0, y: 20, width: 100, height: 0, metadata: { stroke: "red", custom: 7 } },
+      { id: "second", kind: "shape", shape: "line", x: 0, y: 40, width: 100, height: 0 },
+      { id: "untouched", kind: "shape", shape: "line", x: 0, y: 60, width: 100, height: 0 },
+    ] })
+    const originalUntouched = engine.getScene().entities.shapesById.get("untouched")
+    const input = { targetIds: ["first", "second"], stroke: [{ x: 40, y: 0 }, { x: 40, y: 50 }], tolerance: 0.25 }
+    const result = trimSelectionByStroke(engine.serialize(), input)
+    expect(result.findings).toEqual([])
+    expect(result.updates).toHaveLength(2)
+    expect(result.targets[0]).toMatchObject({ changed: true, cutPoints: [{ x: 40, y: 20 }] })
+    expect(result.targets[0]?.retained[0]?.segments).toEqual([{ kind: "line", start: { x: 40, y: 20 }, end: { x: 100, y: 20 } }])
+
+    const batch = engine.dispatchBatch(result.updates)
+    expect(batch).toMatchObject({ ok: true, changed: true, affectedIds: ["first", "second"] })
+    expect(engine.getDiagnostics().undoDepth).toBe(1)
+    expect(engine.getScene().entities.shapesById.get("first")).toMatchObject({ metadata: { stroke: "red", custom: 7 } })
+    expect(engine.getScene().entities.shapesById.get("untouched")).toBe(originalUntouched)
+    expect(engine.getGeometrySnapshot("first")?.pathContours).toEqual(createDiagramEngine({ shapes: [result.targets[0]!.preview!] }).getGeometrySnapshot("first")?.pathContours)
+    engine.dispatch({ type: "undo" })
+    expect(engine.serialize().shapes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "first", x: 0, y: 20, width: 100, metadata: { stroke: "red", custom: 7 } }),
+      expect.objectContaining({ id: "second", x: 0, y: 40, width: 100 }),
+    ]))
+    engine.dispatch({ type: "redo" })
+    expect(engine.getGeometrySnapshot("first")?.pathContours).toEqual(createDiagramEngine({ shapes: [result.targets[0]!.preview!] }).getGeometrySnapshot("first")?.pathContours)
+  })
+
+  it("selects the first crossing in gesture direction and handles transformed lines and exact arcs", () => {
+    const multi = createDiagramEngine({ shapes: [{ id: "multi", kind: "shape", shape: "line", x: 0, y: 50, width: 100, height: 0 }] })
+    const first = trimSelectionByStroke(multi.serialize(), { targetIds: ["multi"], stroke: [{ x: 20, y: 40 }, { x: 20, y: 60 }, { x: 80, y: 60 }, { x: 80, y: 40 }], tolerance: 0.01 })
+    expect(first.targets[0]?.cutPoints).toEqual([{ x: 20, y: 50 }])
+
+    const transformed = createDiagramEngine({ shapes: [{ id: "rotated", kind: "shape", shape: "line", x: 0, y: 0, width: 100, height: 40, rotation: 90, flipX: true, points: [{ x: 0, y: 20 }, { x: 100, y: 20 }] }] })
+    const transformedResult = trimSelectionByStroke(transformed.serialize(), { targetIds: ["rotated"], stroke: [{ x: 0, y: 20 }, { x: 100, y: 20 }], tolerance: 0.01 })
+    expect(transformedResult.targets[0]?.cutPoints[0]?.x).toBeCloseTo(50)
+    expect(transformedResult.targets[0]?.cutPoints[0]?.y).toBeCloseTo(20)
+    expect(transformed.dispatchBatch(transformedResult.updates).ok).toBe(true)
+    expect(transformed.getGeometrySnapshot("rotated")?.pathContours).toEqual(createDiagramEngine({ shapes: [transformedResult.targets[0]!.preview!] }).getGeometrySnapshot("rotated")?.pathContours)
+
+    const arc = createDiagramEngine({ shapes: [{ id: "arc", kind: "shape", shape: "line", x: 0, y: 0, width: 100, height: 100, pathContours: [{ segments: [{ kind: "arc", center: { x: 50, y: 50 }, radius: 40, startAngle: 0, sweepAngle: Math.PI }], closed: false }] }] })
+    const arcResult = trimSelectionByStroke(arc.serialize(), { targetIds: ["arc"], stroke: [{ x: 50, y: 0 }, { x: 50, y: 100 }], tolerance: 0.01 })
+    expect(arcResult.targets[0]?.cutPoints[0]?.y).toBeCloseTo(90)
+    expect(arcResult.targets[0]?.retained[0]?.segments[0]).toMatchObject({ kind: "arc", radius: 40, sweepAngle: Math.PI / 2 })
+    expect(arc.dispatchBatch(arcResult.updates).ok).toBe(true)
+    expect(arc.getGeometrySnapshot("arc")?.pathContours).toEqual(createDiagramEngine({ shapes: [arcResult.targets[0]!.preview!] }).getGeometrySnapshot("arc")?.pathContours)
+
+    const polyline = createDiagramEngine({ shapes: [{ id: "poly", kind: "shape", shape: "line", x: 0, y: 0, width: 100, height: 40, points: [{ x: 0, y: 10 }, { x: 100, y: 10 }, { x: 100, y: 30 }, { x: 0, y: 30 }] }] })
+    const polylineResult = trimSelectionByStroke(polyline.serialize(), { targetIds: ["poly"], stroke: [{ x: 40, y: 0 }, { x: 40, y: 40 }], tolerance: 0.01 })
+    expect(polylineResult.targets[0]?.cutPoints).toEqual([{ x: 40, y: 10 }, { x: 40, y: 30 }])
+    expect(polylineResult.targets[0]?.retained).toHaveLength(1)
+    expect(polylineResult.targets[0]?.retained[0]?.segments).toHaveLength(3)
+  })
+
+  it("returns findings and leaves unsupported, connected, anchored, invalid, or untouched targets unchanged", () => {
+    const engine = createDiagramEngine({
+      shapes: [
+        { id: "line", kind: "shape", shape: "line", x: 0, y: 20, width: 100, height: 0 },
+        { id: "box", kind: "shape", shape: "rect", x: 0, y: 0, width: 20, height: 20 },
+        { id: "locked", kind: "shape", shape: "line", x: 0, y: 40, width: 100, height: 0, metadata: { locked: true } },
+        { id: "anchored", kind: "shape", shape: "line", x: 0, y: 60, width: 100, height: 0 },
+      ],
+      ports: [{ id: "p", kind: "port", hostId: "anchored", anchor: { kind: "vertex", index: 0 } }],
+      edges: [{ id: "wire", kind: "edge", source: { kind: "port", portId: "p" }, target: { kind: "point", point: { x: 100, y: 60 } } }],
+    })
+    const before = engine.serialize()
+    const stroke = [{ x: 50, y: 0 }, { x: 50, y: 80 }]
+    const result = trimSelectionByStroke(before, { targetIds: ["line", "box", "locked", "anchored", "wire", "missing"], stroke, tolerance: 0.01 })
+    expect(result.findings.map(({ targetId, code }) => [targetId, code])).toEqual([
+      ["box", "unsupported-target"], ["locked", "locked-target"], ["anchored", "anchored-host"], ["wire", "connected-edge"], ["missing", "unsupported-target"],
+    ])
+    expect(result.updates.map(({ id }) => id)).toEqual(["line"])
+    expect(trimSelectionByStroke(before, { targetIds: ["line"], stroke: [{ x: 10, y: 21 }, { x: 90, y: 21 }], tolerance: 0 }).targets[0]?.finding?.code).toBe("no-intersection")
+    expect(trimSelectionByStroke(before, { targetIds: ["line"], stroke: [{ x: 20, y: 20 }, { x: 80, y: 20 }], tolerance: 0 }).targets[0]?.finding?.code).toBe("ambiguous-intersection")
+    expect(trimSelectionByStroke(before, { targetIds: ["line"], stroke: [{ x: 0, y: 0 }], tolerance: 0 }).findings[0]?.code).toBe("invalid-input")
+    expect(engine.serialize()).toEqual(before)
+
+    const arcScene = { shapes: [{ id: "arc", kind: "shape" as const, shape: "line", x: 0, y: 0, width: 100, height: 100, pathContours: [{ segments: [{ kind: "arc" as const, center: { x: 50, y: 50 }, radius: 40, startAngle: 0, sweepAngle: Math.PI }], closed: false }] }] }
+    expect(trimSelectionByStroke(arcScene, { targetIds: ["arc"], stroke: [{ x: 0, y: 90 }, { x: 100, y: 90 }], tolerance: 0.01 }).targets[0]?.finding?.code).toBe("ambiguous-intersection")
+  })
+
   it("joins selected shoulders and subtracts rectangle contours from circles with holes", () => {
     const joined = trimAndJoinLines([{ x: 0, y: 5 }, { x: 10, y: 5 }], [{ x: 5, y: 0 }, { x: 5, y: 10 }], { x: 0, y: 5 }, { x: 5, y: 10 })
     expect(joined).toMatchObject({ ok: true, value: { closed: false, segments: [{ kind: "line", start: { x: 0, y: 5 } }, { kind: "line", end: { x: 5, y: 10 } }] } })
@@ -2963,5 +3045,93 @@ describe("DiagramEngine", () => {
     expect(subtractRectFromCircle({ x: 0, y: 0 }, 20, { x: 30, y: 30, width: 5, height: 5 })).toMatchObject({ ok: true, value: [{ closed: true }] })
     expect(subtractRectFromCircle({ x: 0, y: 0 }, 20, { x: -30, y: -30, width: 60, height: 60 })).toMatchObject({ ok: true, value: [] })
     expect(trimAndJoinLines([{ x: 0, y: 0 }, { x: 1, y: 0 }], [{ x: 0, y: 2 }, { x: 1, y: 2 }], { x: 0, y: 0 }, { x: 0, y: 2 })).toMatchObject({ ok: false, code: "no-intersection" })
+  })
+
+  it("parses, validates, bounds, transforms, and round-trips exact cubic path geometry", () => {
+    const parsed = parseSvgPathData("M 0 0 C 0 100 100 100 100 0 Z M 30 20 L 70 20 L 50 50 Z")
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok) return
+    expect(parsed.value).toHaveLength(2)
+    expect(parsed.value[0]?.segments[0]).toEqual({ kind: "cubic", start: { x: 0, y: 0 }, control1: { x: 0, y: 100 }, control2: { x: 100, y: 100 }, end: { x: 100, y: 0 } })
+
+    const engine = createDiagramEngine()
+    expect(engine.dispatchBatch([{ type: "createPath", path: { id: "cubic", kind: "path", contours: parsed.value } }]).ok).toBe(true)
+    const geometry = engine.getGeometrySnapshot("cubic")!
+    expect(geometry.bounds.y).toBe(0)
+    expect(geometry.bounds.height).toBeCloseTo(75)
+    expect(engine.hitTest({ x: 50, y: 75 }, 1)?.id).toBe("cubic")
+    expect(engine.hitTest({ x: 50, y: 90 }, 1)).toBeNull()
+    const saved = engine.serialize()
+    const restored = createDiagramEngine(deserializeScene(saved))
+    expect(restored.getGeometrySnapshot("cubic")?.pathContours).toEqual(parsed.value)
+    engine.dispatch({ type: "setSelection", selection: { ids: ["cubic"], primaryId: "cubic" } })
+    engine.importClipboard(engine.exportSelection(), { x: 40, y: 20 })
+    const copyId = [...engine.getScene().entities.shapesById.keys()].find((id) => id !== "cubic")!
+    expect(engine.getScene().entities.shapesById.get(copyId)?.pathContours).toEqual(parsed.value)
+    engine.dispatch({ type: "groupEntities", id: "curve-group", ids: ["cubic", copyId] })
+    expect(engine.getScene().entities.groupsById.get("curve-group")?.childIds).toEqual(["cubic", copyId])
+    engine.dispatch({ type: "ungroupEntities", ids: ["curve-group"] })
+    expect(engine.getScene().entities.shapesById.get("cubic")?.pathContours?.[0]?.segments[0]?.kind).toBe("cubic")
+
+    const revision = engine.getDocumentRevision()
+    const rejected = engine.dispatchBatch([{ type: "updateShapePath", id: "cubic", pathContours: parsed.value }], { expectedRevision: revision - 1 })
+    expect(rejected).toMatchObject({ ok: false, reason: "revision-mismatch" })
+    expect(engine.getDocumentRevision()).toBe(revision)
+    expect(engine.dispatch({ type: "resizeEntities", entries: [{ id: "cubic", width: 200, height: 150 }] }).changed).toBe(true)
+    expect(engine.getGeometrySnapshot("cubic")?.pathContours?.[0]?.segments[0]).toMatchObject({ control1: { x: 0, y: 200 }, control2: { x: 200, y: 200 } })
+    engine.dispatch({ type: "undo" })
+    expect(engine.getGeometrySnapshot("cubic")?.pathContours).toEqual(parsed.value)
+    expect(engine.dispatch({ type: "rotateEntities", entries: [{ id: "cubic", rotation: 90 }] }).changed).toBe(true)
+    expect(engine.getGeometrySnapshot("cubic")?.pathContours?.[0]?.segments[0]?.kind).toBe("cubic")
+    engine.dispatch({ type: "undo" })
+    expect(engine.getGeometrySnapshot("cubic")?.pathContours).toEqual(parsed.value)
+  })
+
+  it("rejects malformed or discontinuous cubic contours and reports trim as unsupported", () => {
+    expect(parseSvgPathData("M 0 0 Q 1 2 3 4")).toMatchObject({ ok: false, code: "unsupported-geometry" })
+    expect(() => createDiagramEngine({ shapes: [{ id: "bad", kind: "shape", shape: "line", x: 0, y: 0, width: 3, height: 3, pathContours: [{ closed: false, segments: [
+      { kind: "cubic", start: { x: 0, y: 0 }, control1: { x: 0, y: Number.NaN }, control2: { x: 2, y: 2 }, end: { x: 3, y: 3 } },
+    ] }] }] })).toThrow(TypeError)
+    expect(() => createDiagramEngine({ shapes: [{ id: "gap", kind: "shape", shape: "line", x: 0, y: 0, width: 3, height: 1, pathContours: [{ closed: false, segments: [
+      { kind: "line", start: { x: 0, y: 0 }, end: { x: 1, y: 0 } },
+      { kind: "cubic", start: { x: 2, y: 0 }, control1: { x: 2, y: 1 }, control2: { x: 3, y: 1 }, end: { x: 3, y: 0 } },
+    ] }] }] })).toThrow(TypeError)
+    const engine = createDiagramEngine({ shapes: [{ id: "curve", kind: "shape", shape: "line", x: 0, y: 0, width: 30, height: 0, pathContours: [{ closed: false, segments: [{ kind: "cubic", start: { x: 0, y: 0 }, control1: { x: 10, y: 20 }, control2: { x: 20, y: 20 }, end: { x: 30, y: 0 } }] }] }] })
+    expect(trimSelectionByStroke(engine.serialize(), { targetIds: ["curve"], stroke: [{ x: 10, y: -5 }, { x: 10, y: 25 }], tolerance: 0.1 }).targets[0]?.finding?.code).toBe("unsupported-geometry")
+  })
+
+  it("locks user edits and active gestures while allowing authoritative scene replacement", () => {
+    const engine = createDiagramEngine({ shapes: [{ id: "editable", kind: "shape", shape: "rect", x: 0, y: 0, width: 20, height: 20 }] })
+    const interaction = createDiagramInteractionController(engine, { snap: { enabled: false } })
+    expect(interaction.beginPathCreation("pending", { id: 1, point: { x: 0, y: 0 } })).toBe(true)
+    interaction.pointerMove({ id: 1, point: { x: 30, y: 30 } })
+    expect(interaction.getSnapshot().pathCreationPreview).not.toBeNull()
+    engine.dispatch({ type: "updateEntities", updates: [{ id: "editable", metadata: { revision: 1 } }] })
+    engine.dispatch({ type: "undo" })
+    const original = engine.serialize()
+    const revision = engine.getDocumentRevision()
+    const undoDepth = engine.getDiagnostics().undoDepth
+    engine.setEditingLocked(true)
+    expect(interaction.getSnapshot()).toMatchObject({ editingLocked: true, pathCreationPreview: null })
+    expect(interaction.getSnapshot().active).toBe(false)
+    interaction.pointerUp({ id: 1, point: { x: 30, y: 30 } })
+    expect(interaction.beginLineCreation("blocked", { id: 2, point: { x: 0, y: 0 } })).toBe(false)
+    expect(engine.dispatch({ type: "createTable", table: { id: "blocked-table", kind: "table", x: 0, y: 0, width: 50, height: 30, rowCount: 1, columnCount: 1 } })).toMatchObject({ changed: false, reason: "scene-locked" })
+    expect(engine.dispatch({ type: "undo" })).toMatchObject({ changed: false, reason: "scene-locked" })
+    expect(engine.dispatch({ type: "redo" })).toMatchObject({ changed: false, reason: "scene-locked" })
+    expect(engine.dispatch({ type: "updateEntities", updates: [{ id: "editable", metadata: { blocked: true } }] })).toMatchObject({ changed: false, reason: "scene-locked" })
+    expect(engine.dispatch({ type: "deleteEntities", ids: ["editable"] })).toMatchObject({ changed: false, reason: "scene-locked" })
+    expect(engine.dispatchBatch([{ type: "createPath", path: { id: "blocked-path", kind: "path", contours: [] } }])).toMatchObject({ ok: false, reason: "scene-locked" })
+    expect(engine.serialize()).toEqual(original)
+    expect(engine.getDocumentRevision()).toBe(revision)
+    expect(engine.getDiagnostics().undoDepth).toBe(undoDepth)
+
+    engine.transact(() => ({ ...original, shapes: [{ id: "server", kind: "shape", shape: "rect", x: 1, y: 2, width: 10, height: 10 }] }))
+    expect(engine.isEditingLocked()).toBe(true)
+    expect(engine.getScene().entities.shapesById.has("server")).toBe(true)
+    engine.setEditingLocked(false)
+    expect(interaction.getSnapshot().editingLocked).toBe(false)
+    expect(engine.dispatch({ type: "createPath", path: { id: "after-unlock", kind: "path", contours: [{ closed: false, segments: [{ kind: "line", start: { x: 0, y: 0 }, end: { x: 10, y: 0 } }] }] } }).changed).toBe(true)
+    interaction.dispose()
   })
 })

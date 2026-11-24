@@ -76,20 +76,24 @@ export class DiagramInteractionController {
   private readonly marqueeMode: DiagramMarqueeMode
   private readonly snapOptions: DiagramInteractionSnapOptions
   private readonly viewportConstraints: DiagramViewportConstraints | undefined
+  private readonly editingLockSubscription: { unsubscribe: () => void }
 
   constructor(private readonly engine: DiagramEngine, options: DiagramInteractionOptions = {}) {
     this.scheduleFrame = options.scheduleFrame ?? defaultScheduleFrame
     this.marqueeMode = options.marqueeMode ?? "contain"
     this.snapOptions = options.snap ?? {}
     this.viewportConstraints = options.viewportConstraints
+    this.editingLockSubscription = this.engine.subscribeEditingLock((locked) => { if (locked) this.cancel() })
   }
 
   setTool(tool: DiagramInteractionTool): void {
     this.cancel()
+    if (this.engine.isEditingLocked()) return
     this.tool = tool
   }
 
   pointerDown(event: DiagramPointerEvent): void {
+    if (this.engine.isEditingLocked()) return
     if (this.tool === "create-port" && this.portCreationId) {
       this.gestureGeneration += 1
       this.activePointer = event
@@ -155,6 +159,7 @@ export class DiagramInteractionController {
   }
 
   beginResizeHandle(ownerId: DiagramId, handle: DiagramResizeHandle, event: DiagramPointerEvent): boolean {
+    if (this.engine.isEditingLocked()) return false
     const geometry = this.engine.getGeometrySnapshot(ownerId)
     if (!geometry || geometry.kind === "edge" || geometry.kind === "port" || !this.engine.canResize([ownerId])) {
       return false
@@ -176,6 +181,7 @@ export class DiagramInteractionController {
 
   /** Starts a row or column boundary resize. The preview is transient until pointerUp. */
   beginTableResizeHandle(ownerId: DiagramId, axis: DiagramTableResizeAxis, index: number, event: DiagramPointerEvent): boolean {
+    if (this.engine.isEditingLocked()) return false
     const table = this.engine.getScene().entities.tablesById.get(ownerId)
     if (!table || !this.engine.canResize([ownerId]) || !Number.isFinite(event.point.x) || !Number.isFinite(event.point.y)
       || !Number.isInteger(index) || index < 0 || index >= (axis === "row" ? table.rowCount - 1 : table.columnCount - 1)) return false
@@ -195,6 +201,7 @@ export class DiagramInteractionController {
   }
 
   beginEdgeEndpointHandle(ownerId: DiagramId, endpoint: "source" | "target", event: DiagramPointerEvent): boolean {
+    if (this.engine.isEditingLocked()) return false
     const geometry = this.engine.getGeometrySnapshot(ownerId)
     if (!geometry || geometry.kind !== "edge" || !geometry.path?.length) return false
     const point = endpoint === "source" ? geometry.path[0]! : geometry.path[geometry.path.length - 1]!
@@ -215,6 +222,7 @@ export class DiagramInteractionController {
   }
 
   beginPathVertexHandle(ownerId: DiagramId, index: number, event: DiagramPointerEvent): boolean {
+    if (this.engine.isEditingLocked()) return false
     const shape = this.engine.getScene().entities.shapesById.get(ownerId)
     const geometry = this.engine.getGeometrySnapshot(ownerId)
     const point = geometry?.path?.[index]
@@ -233,6 +241,7 @@ export class DiagramInteractionController {
   }
 
   beginEdgeWaypointHandle(ownerId: DiagramId, index: number, event: DiagramPointerEvent): boolean {
+    if (this.engine.isEditingLocked()) return false
     const edge = this.engine.getScene().entities.edgesById.get(ownerId)
     const geometry = this.engine.getGeometrySnapshot(ownerId)
     const point = edge?.points?.[index]
@@ -250,6 +259,7 @@ export class DiagramInteractionController {
 
   /** Starts a transient connector drawing gesture. The caller supplies the stable ID before committing. */
   beginEdgeCreation(id: DiagramId, event: DiagramPointerEvent, routeOptions: DiagramOrthogonalRouteOptions = {}): boolean {
+    if (this.engine.isEditingLocked()) return false
     if (!id || this.engine.getGeometrySnapshot(id) || ![event.point.x, event.point.y].every(Number.isFinite)
       || (routeOptions.terminalLead !== undefined && (!Number.isFinite(routeOptions.terminalLead) || routeOptions.terminalLead < 0))
       || (routeOptions.firstAxis !== undefined && routeOptions.firstAxis !== "horizontal" && routeOptions.firstAxis !== "vertical")) return false
@@ -269,6 +279,7 @@ export class DiagramInteractionController {
 
   /** Starts click-to-place connector routing; clicks add bends and `finishEdgePathCreation` commits once. */
   beginEdgePathCreation(id: DiagramId, event: DiagramPointerEvent, routeOptions: DiagramOrthogonalRouteOptions = {}): boolean {
+    if (this.engine.isEditingLocked()) return false
     if (!this.beginEdgeCreation(id, event, routeOptions)) return false
     this.activePointer = null
     this.edgeClickPlacement = true
@@ -277,6 +288,7 @@ export class DiagramInteractionController {
   }
 
   finishEdgePathCreation(point?: DiagramPoint): boolean {
+    if (this.engine.isEditingLocked()) { this.cancel(); return false }
     if (!this.edgeClickPlacement || !this.edgeCreationId || !this.edgeCreationPreview) return false
     if (point) this.latestPoint = point
     this.updateEdgeCreationPreview()
@@ -289,6 +301,7 @@ export class DiagramInteractionController {
 
   /** Starts a line-shape drawing gesture with the same transient snapping contract as connector creation. */
   beginLineCreation(id: DiagramId, event: DiagramPointerEvent): boolean {
+    if (this.engine.isEditingLocked()) return false
     if (!id || this.engine.getGeometrySnapshot(id) || ![event.point.x, event.point.y].every(Number.isFinite)) return false
     this.cancel()
     this.tool = "draw-line"
@@ -303,6 +316,7 @@ export class DiagramInteractionController {
 
   /** Starts a click-to-place free line (two clicks) or polyline (`finishPathCreation`). */
   beginPathCreation(id: DiagramId, event: DiagramPointerEvent, mode: "line" | "path" = "path"): boolean {
+    if (this.engine.isEditingLocked()) return false
     if (!id || this.engine.getGeometrySnapshot(id) || ![event.point.x, event.point.y].every(Number.isFinite)) return false
     this.cancel()
     this.tool = "draw-path"
@@ -322,6 +336,7 @@ export class DiagramInteractionController {
 
   /** Starts one port placement gesture. After commit the create-port tool remains active for the next caller-supplied ID. */
   beginPortCreation(id: DiagramId, event: DiagramPointerEvent, options: DiagramPortCreationOptions = {}): boolean {
+    if (this.engine.isEditingLocked()) return false
     if (!id || this.engine.getGeometrySnapshot(id) || ![event.point.x, event.point.y].every(Number.isFinite)
       || (options.vertexTolerancePx !== undefined && (!Number.isFinite(options.vertexTolerancePx) || options.vertexTolerancePx < 0))) return false
     this.cancel()
@@ -336,6 +351,7 @@ export class DiagramInteractionController {
 
   /** Commits the pending click as a vertex; pointer motion alone never adds vertices. */
   addPathVertex(point?: DiagramPoint, finish = false): boolean {
+    if (this.engine.isEditingLocked()) { this.cancel(); return false }
     if (this.tool !== "draw-path" || !this.pathCreationId || !this.pathVertices.length) return false
     const candidate = point ?? this.latestPoint ?? this.pathCurrentPoint
     if (!candidate || ![candidate.x, candidate.y].every(Number.isFinite)) return false
@@ -352,6 +368,7 @@ export class DiagramInteractionController {
   }
 
   finishPathCreation(): boolean {
+    if (this.engine.isEditingLocked()) { this.cancel(); return false }
     if (this.tool !== "draw-path" || !this.pathCreationId || this.pathVertices.length < 2) return false
     const path = this.pathVertices
     this.engine.dispatch({ type: "createPath", path: { id: this.pathCreationId, kind: "path", points: Object.freeze([...path]) }, historyKey: `draw-path:${this.pathCreationId}:${++this.gestureHistoryId}` })
@@ -361,6 +378,7 @@ export class DiagramInteractionController {
   }
 
   beginResizeSelectionHandle(handle: DiagramResizeHandle, event: DiagramPointerEvent): boolean {
+    if (this.engine.isEditingLocked()) return false
     const ids = this.engine.getScene().selection.ids.filter((id) => {
       const geometry = this.engine.getGeometrySnapshot(id)
       return geometry && geometry.kind !== "edge" && geometry.kind !== "port" && this.engine.canResize([id])
@@ -388,6 +406,7 @@ export class DiagramInteractionController {
   }
 
   pointerMove(event: DiagramPointerEvent): void {
+    if (this.engine.isEditingLocked()) { this.cancel(); return }
     if (this.tool === "create-port" && this.portCreationId && (!this.activePointer || this.activePointer.id === event.id)) {
       this.latestPoint = event.point
       this.scheduleCreationPreview()
@@ -433,6 +452,7 @@ export class DiagramInteractionController {
 
   /** Overrides the active gesture endpoint with finite world-space numeric input. */
   setDynamicInput(values: Partial<DiagramDynamicInputState>): boolean {
+    if (this.engine.isEditingLocked()) return false
     const persistentDrawing = (this.tool === "draw-path" && this.pathCreationId) || (this.tool === "connect-edge" && this.edgeClickPlacement)
     if ((!this.activePointer && !persistentDrawing) || !this.startPoint || !this.latestPoint) return false
     const base = this.tool === "draw-path" ? this.pathVertices[this.pathVertices.length - 1] ?? this.startPoint : this.tool === "connect-edge" ? this.edgeCreationWaypoints[this.edgeCreationWaypoints.length - 1] ?? this.startPoint : this.startPoint
@@ -455,6 +475,7 @@ export class DiagramInteractionController {
   }
 
   confirmDynamicInput(): boolean {
+    if (this.engine.isEditingLocked()) { this.cancel(); return false }
     if (this.tool === "draw-path" && this.pathCreationId && this.latestPoint) return this.clickToPlaceLine ? this.addPathVertex(this.latestPoint, true) : this.finishPathCreation()
     if (this.tool === "connect-edge" && this.edgeClickPlacement) return this.finishEdgePathCreation(this.latestPoint ?? undefined)
     if (!this.activePointer || !this.latestPoint) return false
@@ -467,6 +488,7 @@ export class DiagramInteractionController {
   }
 
   pointerUp(event: DiagramPointerEvent): void {
+    if (this.engine.isEditingLocked()) { this.cancel(); return }
     if (this.tool === "connect-edge" && this.edgeClickPlacement && this.activePointer?.id === event.id) {
       this.activePointer = null
       this.latestPoint = event.point
@@ -586,6 +608,11 @@ export class DiagramInteractionController {
   cancel(): void {
     this.clearGesture()
     this.tool = "select"
+  }
+
+  dispose(): void {
+    this.cancel()
+    this.editingLockSubscription.unsubscribe()
   }
 
   /** Returns renderer-ready geometry for active move and table resize previews. */
@@ -740,6 +767,7 @@ export class DiagramInteractionController {
     return {
       tool: this.tool,
       active: this.activePointer !== null || this.pathCreationId !== null || this.edgeClickPlacement,
+      editingLocked: this.engine.isEditingLocked(),
       previewDelta: this.previewDelta,
       resizePreview: this.resizePreview,
       resizePreviewEntries: this.resizePreviewEntries,

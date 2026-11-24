@@ -67,6 +67,11 @@ function runForCount(count) {
     assertChanged(engine.dispatch({ type: "undo" }), "undo moveEdgeWaypoint")
     assertChanged(engine.dispatch({ type: "undo" }), "undo insertEdgeWaypoint")
   })
+  const cubicHitTest = measure(() => {
+    for (let iteration = 0; iteration < 500; iteration += 1) {
+      engine.hitTest({ x: 44, y: 20 }, 2)
+    }
+  })
   const fitScene = measure(() => engine.fitScene())
   const diagnostics = engine.getDiagnostics()
   const nearestPort = measure(() => engine.nearestPort({ x: 120, y: 64 }, 48))
@@ -89,6 +94,7 @@ function runForCount(count) {
     pasteUndoMs: paste.ms,
     resizeUndoMs: resize.ms,
     waypointEditUndoMs: waypoint.ms,
+    cubicPathHitTest500Ms: cubicHitTest.ms,
     fitSceneMs: fitScene.ms,
     nearestPortMs: nearestPort.ms,
     serializeMs: serialized.ms,
@@ -132,7 +138,13 @@ function createFixture(entityCount) {
     texts.push({ id: `text-${index}`, kind: "text", x: (index % 100) * 140, y: Math.floor(index / 100) * 100 + 64, text: `Label ${index}` })
   }
   for (let index = 0; index < shapeCount; index += 1) {
-    shapes.push({ id: `shape-${index}`, kind: "shape", shape: "rect", x: (index % 100) * 140 + 20, y: Math.floor(index / 100) * 100 + 20, width: 48, height: 32 })
+    const x = (index % 100) * 140 + 20
+    const y = Math.floor(index / 100) * 100 + 20
+    if (index % 20 === 0) {
+      shapes.push({ id: `shape-${index}`, kind: "shape", shape: "line", x, y, width: 48, height: 0, pathContours: [{ closed: false, segments: [{ kind: "cubic", start: { x: 0, y: 0 }, control1: { x: 12, y: -24 }, control2: { x: 36, y: 24 }, end: { x: 48, y: 0 } }] }] })
+    } else {
+      shapes.push({ id: `shape-${index}`, kind: "shape", shape: "rect", x, y, width: 48, height: 32 })
+    }
   }
   return { nodes, ports, edges, texts, shapes, viewport: { x: 0, y: 0, width: 1200, height: 800, zoom: 1 } }
 }

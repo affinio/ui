@@ -41,6 +41,7 @@ import type {
   DiagramPoint,
   DiagramPath,
   DiagramPathContour,
+  DiagramPathSegment,
   DiagramQueryOptions,
   DiagramRect,
   DiagramRenderOrderOptions,
@@ -97,6 +98,8 @@ export class DiagramEngine {
   private dependencyEdgeEndpoints = new Map<DiagramId, readonly [DiagramEdgeEndpoint, DiagramEdgeEndpoint]>()
   private dependencyPortOwners = new Map<DiagramId, DiagramId>()
   private batchReceipts = new Map<string, Readonly<{ fingerprint: string; result: DiagramBatchResult }>>()
+  private editingLocked = false
+  private readonly editingLockListeners = new Set<(locked: boolean) => void>()
 
   constructor(initialScene: DiagramSceneInput = {}, options: DiagramEngineOptions = {}) {
     this.history = new DiagramHistory(options.history)
@@ -121,6 +124,23 @@ export class DiagramEngine {
     return this.state.documentRevision
   }
 
+  isEditingLocked(): boolean {
+    return this.editingLocked
+  }
+
+  /** Locks user-facing commands and active interactions. `transact()` remains available for authoritative scene replacement. */
+  setEditingLocked(locked: boolean): void {
+    if (this.editingLocked === locked) return
+    this.editingLocked = locked
+    for (const listener of this.editingLockListeners) listener(locked)
+  }
+
+  subscribeEditingLock(listener: (locked: boolean) => void): { unsubscribe: () => void } {
+    this.editingLockListeners.add(listener)
+    listener(this.editingLocked)
+    return { unsubscribe: () => this.editingLockListeners.delete(listener) }
+  }
+
   getGeometryReadCount(): number {
     return this.geometryService.getReadCount()
   }
@@ -131,6 +151,10 @@ export class DiagramEngine {
 
   dispatch(command: DiagramCommand): DiagramCommandResult {
     const startedAt = now()
+    if (this.editingLocked) {
+      this.lastCommandMs = now() - startedAt
+      return { changed: false, revision: this.state.revision, reason: "scene-locked" }
+    }
     let result: DiagramCommandResult
     if (command.type === "undo") {
       result = this.undo()
@@ -154,10 +178,11 @@ export class DiagramEngine {
   }
 
   dispatchBatch(commands: ReadonlyArray<DiagramCommand>, options: DiagramBatchOptions = {}): DiagramBatchResult {
-    const failure = (reason: "revision-mismatch" | "invalid-command" | "unsupported-command" | "operation-id-conflict", index: number | null, ids: DiagramId[] = []): DiagramBatchResult => ({
+    const failure = (reason: "revision-mismatch" | "invalid-command" | "unsupported-command" | "operation-id-conflict" | "scene-locked", index: number | null, ids: DiagramId[] = []): DiagramBatchResult => ({
       ok: false, changed: false, revision: this.state.revision, documentRevision: this.state.documentRevision,
       failedCommandIndex: index, reason, affectedIds: [...new Set(ids)],
     })
+    if (this.editingLocked) return failure("scene-locked", null)
     const operationId = options.operationId
     let fingerprint = ""
     if (operationId) {
@@ -220,10 +245,11 @@ export class DiagramEngine {
 
   /** Applies a batch to an isolated draft and returns its candidate scene without publishing or changing history. */
   previewBatch(commands: ReadonlyArray<DiagramCommand>, options: DiagramBatchOptions = {}): DiagramBatchPreviewResult {
-    const failure = (reason: "revision-mismatch" | "invalid-command" | "unsupported-command", index: number | null, ids: DiagramId[] = []): DiagramBatchPreviewResult => ({
+    const failure = (reason: "revision-mismatch" | "invalid-command" | "unsupported-command" | "scene-locked", index: number | null, ids: DiagramId[] = []): DiagramBatchPreviewResult => ({
       ok: false, changed: false, revision: this.state.revision, documentRevision: this.state.documentRevision,
       failedCommandIndex: index, reason, affectedIds: [...new Set(ids)],
     })
+    if (this.editingLocked) return failure("scene-locked", null)
     if (options.expectedRevision !== undefined && options.expectedRevision !== this.state.documentRevision) return failure("revision-mismatch", null)
     const draft = new DiagramEngine(serializeScene(this.store.getSnapshot()))
     draft.state.revision = this.state.revision
@@ -945,7 +971,7 @@ export class DiagramEngine {
         return arc.ok ? createCreatePathPatch(this.state, { id: command.id, kind: "path", contours: [arc.value], ...(command.metadata ? { metadata: command.metadata } : {}) }) : null
       }
       case "updateShapePath":
-        return createUpdateShapePathPatch(this.state, command.id, command.points, command.pathContours)
+        return createUpdateShapePathPatch(this.state, command.id, command.points, command.pathContours, command.worldSpace)
       case "insertPathVertex":
         return createPathVertexPatch(this.state, command.id, command.index, command.point, "insert")
       case "movePathVertex":
@@ -1789,6 +1815,8 @@ function createResizePatchForNonTableEntities(state: InternalState, entries: Rea
     const entity = node ?? shape ?? text
     if (!entity) continue
     if (shape && shape.shape === "rect" && !isValidCornerRadius({ ...shape, width: entry.width ?? shape.width, height: entry.height ?? shape.height }, shape.cornerRadius ?? 0)) return null
+    if (shape?.pathContours?.some((contour) => contour.segments.some((segment) => segment.kind === "arc"))
+      && Math.abs((entry.width ?? shape.width) / (shape.width || 1) - (entry.height ?? shape.height) / (shape.height || 1)) > 1e-8) return null
     previous.set(entry.id, { id: entry.id, x: entity.x, y: entity.y, width: entity.width, height: entity.height })
     nextEntries.push(entry)
     const oldWidth = entity.width ?? 1, oldHeight = entity.height ?? 1
@@ -1846,6 +1874,14 @@ function applyResizeEntries(state: InternalState, entries: ReadonlyArray<Diagram
         ...shape,
         ...definedRectPatch(entry),
         ...(shape.points ? { points: shape.points.map((point) => ({ x: point.x * scaleX, y: point.y * scaleY })) } : {}),
+        ...(shape.pathContours ? { pathContours: shape.pathContours.map((contour) => ({
+          ...contour,
+          segments: contour.segments.map((segment): DiagramPathSegment => segment.kind === "line"
+            ? { kind: "line", start: { x: segment.start.x * scaleX, y: segment.start.y * scaleY }, end: { x: segment.end.x * scaleX, y: segment.end.y * scaleY } }
+            : segment.kind === "cubic"
+              ? { kind: "cubic", start: { x: segment.start.x * scaleX, y: segment.start.y * scaleY }, control1: { x: segment.control1.x * scaleX, y: segment.control1.y * scaleY }, control2: { x: segment.control2.x * scaleX, y: segment.control2.y * scaleY }, end: { x: segment.end.x * scaleX, y: segment.end.y * scaleY } }
+              : { ...segment, center: { x: segment.center.x * scaleX, y: segment.center.y * scaleY }, radius: segment.radius * scaleX }),
+        })) } : {}),
       })
       changed.add(entry.id)
       continue
@@ -2371,18 +2407,43 @@ function createCreatePathPatch(state: InternalState, path: DiagramPath): Patch |
 }
 
 function validPathContours(contours: ReadonlyArray<DiagramPathContour>): boolean {
-  return contours.length > 0 && contours.every((contour) => contour.segments.length > 0 && contour.segments.every((segment) => segment.kind === "line"
-    ? [segment.start.x, segment.start.y, segment.end.x, segment.end.y].every(Number.isFinite)
-    : [segment.center.x, segment.center.y, segment.radius, segment.startAngle, segment.sweepAngle].every(Number.isFinite) && segment.radius > 0 && Math.abs(segment.sweepAngle) > 0 && Math.abs(segment.sweepAngle) <= Math.PI * 2 + 1e-8))
+  if (!contours.length || contours.some((contour) => !Array.isArray(contour.segments) || contour.segments.length === 0
+    || (contour.name !== undefined && typeof contour.name !== "string")
+    || (contour.hole === true && contour.closed !== true)
+    || contour.segments.some((segment) => !isValidPathSegment(segment))
+    || contour.segments.slice(1).some((segment, index) => !samePathPoint(pathSegmentEnd(contour.segments[index]!), pathSegmentStart(segment))))) return false
+  return !contours.some((contour) => contour.hole) || contours.some((contour) => contour.closed && !contour.hole)
+}
+
+function isValidPathSegment(segment: DiagramPathSegment): boolean {
+  if (segment.kind === "line") return [segment.start.x, segment.start.y, segment.end.x, segment.end.y].every(Number.isFinite)
+  if (segment.kind === "arc") return [segment.center.x, segment.center.y, segment.radius, segment.startAngle, segment.sweepAngle].every(Number.isFinite) && segment.radius > 0 && Math.abs(segment.sweepAngle) > 0 && Math.abs(segment.sweepAngle) <= Math.PI * 2 + 1e-8
+  return [segment.start.x, segment.start.y, segment.control1.x, segment.control1.y, segment.control2.x, segment.control2.y, segment.end.x, segment.end.y].every(Number.isFinite)
+}
+
+function pathSegmentStart(segment: DiagramPathSegment): DiagramPoint {
+  if (segment.kind !== "arc") return segment.start
+  return { x: segment.center.x + Math.cos(segment.startAngle) * segment.radius, y: segment.center.y + Math.sin(segment.startAngle) * segment.radius }
+}
+
+function pathSegmentEnd(segment: DiagramPathSegment): DiagramPoint {
+  if (segment.kind !== "arc") return segment.end
+  const angle = segment.startAngle + segment.sweepAngle
+  return { x: segment.center.x + Math.cos(angle) * segment.radius, y: segment.center.y + Math.sin(angle) * segment.radius }
+}
+
+function samePathPoint(a: DiagramPoint, b: DiagramPoint): boolean {
+  return Math.abs(a.x - b.x) <= 1e-8 && Math.abs(a.y - b.y) <= 1e-8
 }
 
 function isVertexPortForHost(port: DiagramPort, hostId: DiagramId): port is DiagramPort & { hostId: DiagramId; anchor: { kind: "vertex"; index: number } } {
   return diagramPortHostId(port) === hostId && "hostId" in port && (port as Extract<DiagramPort, { hostId: DiagramId }>).anchor.kind === "vertex"
 }
 
-function createUpdateShapePathPatch(state: InternalState, id: DiagramId, points?: ReadonlyArray<DiagramPoint>, contours?: ReadonlyArray<DiagramPathContour>): Patch | null {
+function createUpdateShapePathPatch(state: InternalState, id: DiagramId, points?: ReadonlyArray<DiagramPoint>, contours?: ReadonlyArray<DiagramPathContour>, worldSpace = false): Patch | null {
   const previous = state.entities.shapesById.get(id)
   if (!previous || isEntityLockedOrReadOnly(state, id) || (!points && !contours)) return null
+  if (worldSpace && [...state.entities.portsById.values()].some((port) => ("hostId" in port ? port.hostId : port.nodeId) === id)) return null
   if (points && (points.length < 2 || points.some((point) => ![point.x, point.y].every(Number.isFinite)))) return null
   if (contours && !validPathContours(contours)) return null
   if ([...state.entities.portsById.values()].some((port) => isVertexPortForHost(port, id) && (points?.length ?? 0) <= port.anchor.index)) return null
@@ -2390,7 +2451,17 @@ function createUpdateShapePathPatch(state: InternalState, id: DiagramId, points?
   if (world.length < 2) return null
   const minX = Math.min(...world.map((point) => point.x)), minY = Math.min(...world.map((point) => point.y))
   const maxX = Math.max(...world.map((point) => point.x)), maxY = Math.max(...world.map((point) => point.y))
-  const next: DiagramShape = { ...previous, shape: "line", x: minX, y: minY, width: maxX - minX, height: maxY - minY, points: points ? points.map((point) => ({ x: point.x + previous.x - minX, y: point.y + previous.y - minY })) : undefined, pathContours: contours?.map((contour) => translatePathContour(contour, -minX, -minY)) }
+  const next: DiagramShape = {
+    ...previous,
+    shape: "line",
+    x: minX,
+    y: minY,
+    width: maxX - minX,
+    height: maxY - minY,
+    ...(worldSpace ? { rotation: 0, flipX: false, flipY: false } : {}),
+    points: points ? points.map((point) => ({ x: point.x + previous.x - minX, y: point.y + previous.y - minY })) : undefined,
+    pathContours: contours?.map((contour) => translatePathContour(contour, -minX, -minY)),
+  }
   const apply = (value: DiagramShape): Patch["apply"] => (draft) => { draft.entities.shapesById.set(id, value); return new Set([id]) }
   return { apply: apply(next), inverse: { apply: apply(previous), inverse: undefined as unknown as Patch } }
 }

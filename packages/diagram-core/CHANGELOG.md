@@ -1,5 +1,18 @@
 # @affino/diagram-core
 
+## 0.22.0
+
+### Minor Changes
+
+- Added exact cubic Bézier path segments, SVG-like `M/L/C/Z` parsing, native path command generation, exact cubic bounds, transforms, and deterministic bounded hit-testing support. Operations without exact cubic support, including sweep Trim, return typed findings.
+- Added `setEditingLocked()` to suspend user commands and cancel transient interaction gestures while leaving `transact()` available for authoritative scene replacement.
+
+## 0.21.3
+
+### Patch Changes
+
+- Added pure `trimSelectionByStroke()` geometry results for deterministic multi-target trimming of open line/path shapes, including exact line/arc intersections, transformed geometry, typed findings, and batch-ready undoable updates.
+
 ## 0.21.2
 
 ### Patch Changes

@@ -19,7 +19,8 @@ export type DiagramPoint = Readonly<{
 
 export type DiagramPathSegment = Readonly<{ kind: "line"; start: DiagramPoint; end: DiagramPoint }>
   | Readonly<{ kind: "arc"; center: DiagramPoint; radius: number; startAngle: number; sweepAngle: number }>
-export type DiagramPathContour = Readonly<{ segments: ReadonlyArray<DiagramPathSegment>; closed?: boolean; hole?: boolean }>
+  | Readonly<{ kind: "cubic"; start: DiagramPoint; control1: DiagramPoint; control2: DiagramPoint; end: DiagramPoint }>
+export type DiagramPathContour = Readonly<{ segments: ReadonlyArray<DiagramPathSegment>; closed?: boolean; hole?: boolean; name?: string }>
 
 /** Horizontal reflects X (left/right); vertical reflects Y (top/bottom). */
 export type DiagramFlipAxis = "horizontal" | "vertical"
@@ -357,7 +358,7 @@ export type DiagramCommand =
   | Readonly<{ type: "createShape"; shape: DiagramShape; historyKey?: string }>
   | Readonly<{ type: "createPath"; path: DiagramPath; historyKey?: string }>
   | Readonly<{ type: "createArc"; id: DiagramId; start: DiagramPoint; through: DiagramPoint; end: DiagramPoint; metadata?: DiagramMetadata; historyKey?: string }>
-  | Readonly<{ type: "updateShapePath"; id: DiagramId; points?: ReadonlyArray<DiagramPoint>; pathContours?: ReadonlyArray<DiagramPathContour>; historyKey?: string }>
+  | Readonly<{ type: "updateShapePath"; id: DiagramId; points?: ReadonlyArray<DiagramPoint>; pathContours?: ReadonlyArray<DiagramPathContour>; /** Treat pathContours as world-space and canonicalize the resulting shape without rotation/flips. */ worldSpace?: boolean; historyKey?: string }>
   | Readonly<{ type: "insertPathVertex"; id: DiagramId; index: number; point: DiagramPoint; historyKey?: string }>
   | Readonly<{ type: "movePathVertex"; id: DiagramId; index: number; point: DiagramPoint; historyKey?: string }>
   | Readonly<{ type: "removePathVertex"; id: DiagramId; index: number; historyKey?: string }>
@@ -414,9 +415,41 @@ export type DiagramEntityUpdate = Readonly<{
 export type DiagramCommandResult = Readonly<{
   changed: boolean
   revision: number
+  reason?: "scene-locked"
 }>
 
-export type DiagramBatchFailureReason = "revision-mismatch" | "invalid-command" | "unsupported-command" | "operation-id-conflict"
+export type DiagramSweepTrimFindingCode = "invalid-input" | "no-intersection" | "ambiguous-intersection" | "unsupported-target" | "unsupported-geometry" | "connected-edge" | "locked-target" | "anchored-host"
+export type DiagramSweepTrimFinding = Readonly<{
+  code: DiagramSweepTrimFindingCode
+  targetId?: DiagramId
+  message: string
+}>
+/** World-space path replacement; pass directly to dispatchBatch() to commit one stroke atomically. */
+export type DiagramSweepTrimUpdate = Readonly<{
+  type: "updateShapePath"
+  id: DiagramId
+  pathContours: ReadonlyArray<DiagramPathContour>
+  worldSpace: true
+}>
+export type DiagramSweepTrimTargetResult = Readonly<{
+  id: DiagramId
+  changed: boolean
+  /** Exact retained contours in world coordinates, also used to construct preview. */
+  retained: ReadonlyArray<DiagramPathContour>
+  cutPoints: ReadonlyArray<DiagramPoint>
+  /** Renderer-ready canonical shape matching the result of `update`. */
+  preview: DiagramShape | null
+  update?: DiagramSweepTrimUpdate
+  finding?: DiagramSweepTrimFinding
+}>
+export type DiagramSweepTrimResult = Readonly<{
+  ok: boolean
+  targets: ReadonlyArray<DiagramSweepTrimTargetResult>
+  updates: ReadonlyArray<DiagramSweepTrimUpdate>
+  findings: ReadonlyArray<DiagramSweepTrimFinding>
+}>
+
+export type DiagramBatchFailureReason = "revision-mismatch" | "invalid-command" | "unsupported-command" | "operation-id-conflict" | "scene-locked"
 export type DiagramBatchResult = Readonly<{
   ok: boolean
   changed: boolean
@@ -473,6 +506,7 @@ export type DiagramMarqueeMode = "intersect" | "contain"
 export type DiagramInteractionSnapshot = Readonly<{
   tool: DiagramInteractionTool
   active: boolean
+  editingLocked: boolean
   previewDelta: DiagramPoint | null
   resizePreview: DiagramResizeEntry | null
   resizePreviewEntries: ReadonlyArray<DiagramResizeEntry>

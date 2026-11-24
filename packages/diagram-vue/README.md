@@ -180,6 +180,8 @@ Preview geometry remains transient until pointerup. Start endpoint gestures with
 
 During selection drags, holding Shift constrains movement to the dominant axis from the gesture origin. During edge endpoint drags, Shift projects the edge vector from its stationary endpoint to a latched cardinal angle. During resize gestures it preserves the original aspect ratio. The Vue pointer adapter forwards `shiftKey` to core on pointer events, so pressing or releasing Shift updates the active preview.
 
+The pointer snapshot exposes `editingLocked`, which reacts to Core's `engine.setEditingLocked(boolean)`. Locking cancels transient previews and prevents pointer interactions from committing; Core still allows authoritative `transact()` scene replacement while locked. Path projections preserve cubic Bézier control points and `getSvgEntityProps()` returns native SVG `C` path commands without display-time flattening.
+
 ### Migration from 0.1.0
 
 - Replace `viewBox.width = viewport.width / viewport.zoom` and the corresponding height formula with raw world `viewport.width` and `viewport.height`.

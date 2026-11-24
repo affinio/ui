@@ -69,6 +69,7 @@ export function useDiagramPointerController(controller: DiagramEngineController,
     lastSnapshot = next
     state.value = next
   }
+  const editingLockSubscription = controller.engine.subscribeEditingLock(() => refresh())
   const toEvent = (event: PointerEvent) => ({ id: event.pointerId, point: toWorldPoint(event, options.toWorldPoint), shiftKey: event.shiftKey, clickCount: event.detail })
   const api: DiagramPointerController = {
     interaction,
@@ -158,7 +159,8 @@ export function useDiagramPointerController(controller: DiagramEngineController,
         return
       }
       disposed = true
-      interaction.cancel()
+      interaction.dispose()
+      editingLockSubscription.unsubscribe()
       refresh()
     },
   }
@@ -171,6 +173,7 @@ export function useDiagramPointerController(controller: DiagramEngineController,
 function sameSnapshot(previous: DiagramInteractionSnapshot, next: DiagramInteractionSnapshot): boolean {
   return previous.tool === next.tool
     && previous.active === next.active
+    && previous.editingLocked === next.editingLocked
     && previous.previewDelta === next.previewDelta
     && previous.resizePreview === next.resizePreview
     && previous.resizePreviewEntries === next.resizePreviewEntries

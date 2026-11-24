@@ -973,4 +973,43 @@ describe("diagram-vue", () => {
     expect(props.d).toContain("A 10 10")
     expect(props["fill-rule"]).toBe("evenodd")
   })
+
+  it("projects cubic and compound paths as native SVG curves and preserves hit testing", () => {
+    const engine = createDiagramEngine()
+    const contours = [
+      { closed: true, segments: [
+        { kind: "cubic" as const, start: { x: 0, y: 0 }, control1: { x: 0, y: 100 }, control2: { x: 100, y: 100 }, end: { x: 100, y: 0 } },
+        { kind: "line" as const, start: { x: 100, y: 0 }, end: { x: 0, y: 0 } },
+      ] },
+      { closed: true, hole: true, segments: [
+        { kind: "line" as const, start: { x: 40, y: 20 }, end: { x: 60, y: 20 } },
+        { kind: "line" as const, start: { x: 60, y: 20 }, end: { x: 50, y: 40 } },
+        { kind: "line" as const, start: { x: 50, y: 40 }, end: { x: 40, y: 20 } },
+      ] },
+    ]
+    engine.dispatch({ type: "createPath", path: { id: "compound-cubic", kind: "path", contours } })
+    const geometry = engine.getGeometrySnapshot("compound-cubic")!
+    const props = getSvgEntityProps({ id: "compound-cubic", kind: "shape", layer: "svg", geometry, selected: false })
+    expect(props.d).toContain("C 0 100 100 100 100 0")
+    expect(props.d).toContain("Z")
+    expect(props["fill-rule"]).toBe("evenodd")
+    expect(engine.hitTest({ x: 20, y: 25 })?.id).toBe("compound-cubic")
+    expect(engine.hitTest({ x: 50, y: 25 })).toBeNull()
+  })
+
+  it("publishes Core scene editing lock reactively through the pointer snapshot", async () => {
+    const diagram = useDiagramEngine({ shapes: [{ id: "rect", kind: "shape", shape: "rect", x: 0, y: 0, width: 20, height: 20 }] })
+    const pointer = useDiagramPointerController(diagram, { snap: { enabled: false } })
+    expect(pointer.beginPathCreation("pending", { pointerId: 4, clientX: 0, clientY: 0 } as PointerEvent)).toBe(true)
+    diagram.engine.setEditingLocked(true)
+    await nextTick()
+    expect(pointer.state.value.editingLocked).toBe(true)
+    expect(pointer.state.value.pathCreationPreview).toBeNull()
+    expect(pointer.beginPathCreation("blocked", { pointerId: 5, clientX: 0, clientY: 0 } as PointerEvent)).toBe(false)
+    diagram.engine.setEditingLocked(false)
+    await nextTick()
+    expect(pointer.state.value.editingLocked).toBe(false)
+    pointer.dispose()
+    diagram.dispose()
+  })
 })
