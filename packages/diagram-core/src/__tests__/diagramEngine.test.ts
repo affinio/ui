@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { clampViewportToBounds, createCircularArc, createDiagramEngine, createDiagramInteractionController, deserializeDiagramDocument, deserializeScene, getDiagramTableCellAt, intersectLineSegments, parseSvgPathData, routeOrthogonalConnector, screenToWorld, serializeScene, subtractRectFromCircle, trimAndJoinLines, trimCircleOutsideRect, trimLineByCrossing, trimSelectionByStroke, validateDiagramScene, worldToScreen, zoomViewportAt } from ".."
+import { clampViewportToBounds, createCircularArc, createDiagramEngine, createDiagramInteractionController, deserializeDiagramDocument, deserializeScene, getDiagramTableCellAt, intersectLineSegments, parseSvgPathData, rotatePoint, routeOrthogonalConnector, screenToWorld, serializeScene, subtractRectFromCircle, trimAndJoinLines, trimCircleOutsideRect, trimLineByCrossing, trimSelectionByStroke, validateDiagramScene, worldToScreen, zoomViewportAt } from ".."
 import type { DiagramPoint, DiagramSceneInput } from ".."
 
 const scene: DiagramSceneInput = {
@@ -24,6 +24,108 @@ const scene: DiagramSceneInput = {
 }
 
 describe("DiagramEngine", () => {
+  it("draws an exact cubic Bézier contour with transient preview and one undoable commit", () => {
+    const engine = createDiagramEngine({ viewport: { x: 0, y: 0, width: 300, height: 200, zoom: 1 } })
+    const frames: Array<() => void> = []
+    const pointer = createDiagramInteractionController(engine, { snap: { enabled: false }, scheduleFrame: (callback) => frames.push(callback) })
+    expect(pointer.beginBezierCreation("pen", { id: 1, point: { x: 10, y: 10 } })).toBe(true)
+    pointer.pointerMove({ id: 1, point: { x: 20, y: 20 } })
+    frames.shift()?.()
+    expect(pointer.getSnapshot().bezierCreationPreview?.contour.segments).toHaveLength(1)
+    pointer.pointerDown({ id: 1, point: { x: 40, y: 10 } })
+    pointer.pointerMove({ id: 1, point: { x: 40, y: 30 } })
+    frames.shift()?.()
+    const preview = pointer.getSnapshot().bezierCreationPreview!
+    expect(preview.contour.segments[0]).toMatchObject({ kind: "cubic", start: { x: 10, y: 10 }, control1: { x: 10, y: 10 }, control2: { x: 40, y: 30 }, end: { x: 40, y: 10 } })
+    pointer.pointerUp({ id: 1, point: { x: 40, y: 30 } })
+    expect(pointer.finishBezierCreation()).toBe(true)
+    expect(engine.getGeometrySnapshot("pen")?.pathContours?.[0]?.segments[0]).toEqual(preview.contour.segments[0])
+    expect(engine.getDiagnostics().undoDepth).toBe(1)
+    engine.dispatch({ type: "undo" })
+    expect(engine.getScene().entities.shapesById.has("pen")).toBe(false)
+    engine.dispatch({ type: "redo" })
+    expect(engine.getGeometrySnapshot("pen")?.pathContours?.[0]?.segments[0]).toEqual(preview.contour.segments[0])
+  })
+
+  it("cancels a cubic draft without changing document history and supports Shift tangent constraints", () => {
+    const engine = createDiagramEngine()
+    const pointer = createDiagramInteractionController(engine, { snap: { enabled: false }, scheduleFrame: (callback) => callback() })
+    pointer.beginBezierCreation("draft", { id: 1, point: { x: 0, y: 0 } })
+    pointer.pointerDown({ id: 1, point: { x: 20, y: 20 } })
+    pointer.pointerMove({ id: 1, point: { x: 24, y: 29 }, shiftKey: true })
+    const preview = pointer.getSnapshot().bezierCreationPreview!
+    expect(preview.activeAnchor?.incoming?.x).toBe(20)
+    expect(preview.activeAnchor?.incoming?.y).toBeGreaterThan(29)
+    pointer.cancel()
+    expect(engine.serialize().shapes).toHaveLength(0)
+    expect(engine.getDiagnostics().undoDepth).toBe(0)
+    expect(engine.getDocumentRevision()).toBe(0)
+  })
+
+  it("closes a pen contour at the first anchor and round-trips it", () => {
+    const engine = createDiagramEngine()
+    const pointer = createDiagramInteractionController(engine, { snap: { enabled: false }, scheduleFrame: (callback) => callback() })
+    pointer.beginBezierCreation("closed-bezier", { id: 7, point: { x: 0, y: 0 } }, { closeTolerancePx: 6 })
+    pointer.pointerMove({ id: 7, point: { x: 20, y: 0 } })
+    pointer.pointerDown({ id: 7, point: { x: 20, y: 0 } })
+    pointer.pointerUp({ id: 7, point: { x: 20, y: 0 } })
+    pointer.pointerDown({ id: 7, point: { x: 1, y: 1 } })
+    pointer.pointerUp({ id: 7, point: { x: 1, y: 1 } })
+    const contour = engine.getScene().entities.shapesById.get("closed-bezier")?.pathContours?.[0]
+    expect(contour?.closed).toBe(true)
+    expect(contour?.segments).toHaveLength(2)
+    expect(engine.getDiagnostics().undoDepth).toBe(1)
+    const roundTrip = createDiagramEngine(deserializeScene(engine.serialize()))
+    expect(roundTrip.getScene().entities.shapesById.get("closed-bezier")?.pathContours?.[0]).toEqual(contour)
+  })
+
+  it("stores a sharp-click segment as a line beside dragged native cubic segments", () => {
+    const engine = createDiagramEngine()
+    const pointer = createDiagramInteractionController(engine, { snap: { enabled: false }, scheduleFrame: (callback) => callback() })
+    pointer.beginBezierCreation("mixed-pen", { id: 8, point: { x: 0, y: 0 } })
+    pointer.pointerDown({ id: 8, point: { x: 20, y: 0 } })
+    pointer.pointerUp({ id: 8, point: { x: 20, y: 0 } })
+    pointer.pointerDown({ id: 8, point: { x: 40, y: 0 } })
+    pointer.pointerMove({ id: 8, point: { x: 40, y: 10 } })
+    pointer.pointerUp({ id: 8, point: { x: 40, y: 10 } })
+    pointer.finishBezierCreation()
+    const contour = engine.getScene().entities.shapesById.get("mixed-pen")?.pathContours?.[0]
+    expect(contour?.segments.map((segment) => segment.kind)).toEqual(["line", "cubic"])
+    const restored = createDiagramEngine(deserializeScene(engine.serialize()))
+    expect(restored.getScene().entities.shapesById.get("mixed-pen")?.pathContours?.[0]).toEqual(contour)
+  })
+
+  it("previews and commits cubic tangent edits as one undoable path update", () => {
+    const original = { kind: "cubic" as const, start: { x: 0, y: 0 }, control1: { x: 10, y: 0 }, control2: { x: 20, y: 0 }, end: { x: 30, y: 0 } }
+    const engine = createDiagramEngine({ shapes: [{ id: "curve-edit", kind: "shape", shape: "line", x: 0, y: 0, width: 30, height: 0, pathContours: [{ segments: [original], closed: false }] }] })
+    const pointer = createDiagramInteractionController(engine, { scheduleFrame: (callback) => callback(), snap: { enabled: false } })
+    expect(pointer.beginBezierHandle("curve-edit", 0, 0, "outgoing", { id: 2, point: { x: 10, y: 0 } })).toBe(true)
+    pointer.pointerMove({ id: 2, point: { x: 12, y: 8 } })
+    const previewGeometry = pointer.getPreviewGeometry("curve-edit")!
+    expect(previewGeometry.pathContours?.[0]?.segments[0]).toMatchObject({ kind: "cubic", control1: { x: 12, y: 8 } })
+    pointer.pointerUp({ id: 2, point: { x: 12, y: 8 } })
+    expect(engine.getGeometrySnapshot("curve-edit")?.pathContours?.[0]?.segments[0]).toMatchObject({ kind: "cubic", control1: { x: 12, y: 8 } })
+    expect(engine.getDiagnostics().undoDepth).toBe(1)
+    engine.dispatch({ type: "undo" })
+    expect(engine.getScene().entities.shapesById.get("curve-edit")?.pathContours?.[0]?.segments[0]).toEqual(original)
+    engine.dispatch({ type: "redo" })
+    expect(engine.getGeometrySnapshot("curve-edit")?.pathContours?.[0]?.segments[0]).toEqual(previewGeometry.pathContours?.[0]?.segments[0])
+  })
+
+  it("keeps transformed cubic handle preview identical to commit and undo", () => {
+    const engine = createDiagramEngine({ shapes: [{ id: "rotated-curve", kind: "shape", shape: "line", x: 20, y: 30, width: 40, height: 20, rotation: 90, flipX: true, pathContours: [{ segments: [{ kind: "cubic", start: { x: 0, y: 10 }, control1: { x: 10, y: 0 }, control2: { x: 30, y: 20 }, end: { x: 40, y: 10 } }] }] }] })
+    const before = engine.getGeometrySnapshot("rotated-curve")!.pathContours![0]!.segments[0]
+    const control = before.kind === "cubic" ? before.control1 : { x: 0, y: 0 }
+    const pointer = createDiagramInteractionController(engine, { scheduleFrame: (callback) => callback(), snap: { enabled: false } })
+    pointer.beginBezierHandle("rotated-curve", 0, 0, "outgoing", { id: 3, point: control })
+    pointer.pointerMove({ id: 3, point: { x: control.x + 8, y: control.y + 5 } })
+    const preview = pointer.getPreviewGeometry("rotated-curve")!
+    pointer.pointerUp({ id: 3, point: { x: control.x + 8, y: control.y + 5 } })
+    expect(engine.getGeometrySnapshot("rotated-curve")?.pathContours).toEqual(preview.pathContours)
+    engine.dispatch({ type: "undo" })
+    expect(engine.getGeometrySnapshot("rotated-curve")?.pathContours?.[0]?.segments[0]).toEqual(before)
+  })
+
   it("updates render order and visible queries when pasting after order caches are read", () => {
     const engine = createDiagramEngine({ viewport: { x: 0, y: 0, width: 900, height: 600, zoom: 1 } })
     engine.serialize()
@@ -440,6 +542,33 @@ describe("DiagramEngine", () => {
     engine.dispatch({ type: "undo" })
     expect(engine.getScene().entities.groupsById.size).toBe(2)
     expect([...engine.getScene().entities.edgesById.values()]).toHaveLength(2)
+  })
+
+  it("applies clipboard offsets to free edge endpoints and waypoints without moving attachments", () => {
+    const initial = {
+      nodes: [{ id: "host", kind: "node" as const, x: 300, y: 0, width: 40, height: 40, portIds: ["host-port"] }],
+      ports: [{ id: "host-port", kind: "port" as const, nodeId: "host", x: 0, y: 20 }],
+      edges: [
+        { id: "free", kind: "edge" as const, source: { kind: "point" as const, point: { x: 0, y: 0 } }, target: { kind: "point" as const, point: { x: 100, y: 0 } }, points: [{ x: 50, y: 20 }] },
+        { id: "mixed", kind: "edge" as const, source: { kind: "port" as const, portId: "host-port" }, target: { kind: "point" as const, point: { x: 200, y: 30 } }, points: [{ x: 250, y: 25 }] },
+      ],
+    }
+    const engine = createDiagramEngine(initial)
+    engine.dispatch({ type: "setSelection", selection: { ids: ["host", "free", "mixed"], primaryId: "free" } })
+    const clipboard = engine.exportSelection()
+    expect(engine.importClipboard(clipboard, { x: 100, y: 50 }).changed).toBe(true)
+    const freeCopy = [...engine.getScene().entities.edgesById.values()].find((edge) => edge.id !== "free" && edge.id !== "mixed" && edge.source.kind === "point" && edge.target.kind === "point")!
+    expect(freeCopy).toMatchObject({ source: { kind: "point", point: { x: 100, y: 50 } }, target: { kind: "point", point: { x: 200, y: 50 } }, points: [{ x: 150, y: 70 }] })
+    const mixedCopy = [...engine.getScene().entities.edgesById.values()].find((edge) => edge.id !== "free" && edge.id !== "mixed" && edge.source.kind === "port")!
+    expect(mixedCopy).toMatchObject({ source: { kind: "port", portId: expect.not.stringMatching(/^host-port$/) }, target: { kind: "point", point: { x: 300, y: 80 } }, points: [{ x: 350, y: 75 }] })
+    expect(engine.getGeometrySnapshot(mixedCopy.id)?.path?.[0]).toEqual(engine.getGeometrySnapshot(mixedCopy.source.kind === "port" ? mixedCopy.source.portId : "")?.point)
+
+    const zeroOffset = createDiagramEngine(initial)
+    zeroOffset.dispatch({ type: "setSelection", selection: { ids: ["host", "free", "mixed"], primaryId: "free" } })
+    const zeroClipboard = zeroOffset.exportSelection()
+    zeroOffset.importClipboard(zeroClipboard, { x: 0, y: 0 })
+    const zeroCopy = [...zeroOffset.getScene().entities.edgesById.values()].find((edge) => edge.id !== "free" && edge.id !== "mixed" && edge.source.kind === "point")!
+    expect(zeroCopy).toMatchObject({ source: { point: { x: 0, y: 0 } }, target: { point: { x: 100, y: 0 } }, points: [{ x: 50, y: 20 }] })
   })
 
   it("rejects nested and invalid groups at scene boundaries and supports groups in transact", () => {
@@ -2121,6 +2250,101 @@ describe("DiagramEngine", () => {
     expect(toggleEngine.getScene().entities.nodesById.get("shape")).toMatchObject({ width: 130, height: 70 })
   })
 
+  it("resizes side handles on one axis, anchors the opposite side, and supports undo and redo", () => {
+    const cases = [
+      { handle: "n", point: { x: 50, y: -10 }, expected: { x: 0, y: -10, width: 100, height: 50 }, anchor: { x: 50, y: 40 } },
+      { handle: "e", point: { x: 110, y: 20 }, expected: { x: 0, y: 0, width: 110, height: 40 }, anchor: { x: 0, y: 20 } },
+      { handle: "s", point: { x: 50, y: 50 }, expected: { x: 0, y: 0, width: 100, height: 50 }, anchor: { x: 50, y: 0 } },
+      { handle: "w", point: { x: -10, y: 20 }, expected: { x: -10, y: 0, width: 110, height: 40 }, anchor: { x: 100, y: 20 } },
+    ] as const
+
+    for (const [index, scenario] of cases.entries()) {
+      const callbacks: Array<() => void> = []
+      const engine = createDiagramEngine({ nodes: [{ id: "shape", kind: "node", x: 0, y: 0, width: 100, height: 40 }] })
+      const controller = createDiagramInteractionController(engine, { scheduleFrame: (callback) => callbacks.push(callback), snap: { enabled: false } })
+      const starts = { n: { x: 50, y: 0 }, e: { x: 100, y: 20 }, s: { x: 50, y: 40 }, w: { x: 0, y: 20 } } as const
+      expect(controller.beginResizeHandle("shape", scenario.handle, { id: index + 1, point: starts[scenario.handle], shiftKey: true })).toBe(true)
+      controller.pointerMove({ id: index + 1, point: scenario.point, shiftKey: true })
+      callbacks[0]?.()
+      const preview = controller.getSnapshot().resizePreview!
+      const previewBounds = { x: preview.x ?? 0, y: preview.y ?? 0, width: preview.width!, height: preview.height! }
+      expect({ id: preview.id, ...previewBounds }).toEqual({ id: "shape", ...scenario.expected })
+      const oppositeAfter = scenario.handle === "n" || scenario.handle === "s"
+        ? { x: previewBounds.x + previewBounds.width / 2, y: scenario.handle === "n" ? previewBounds.y + previewBounds.height : previewBounds.y }
+        : { x: scenario.handle === "e" ? previewBounds.x : previewBounds.x + previewBounds.width, y: previewBounds.y + previewBounds.height / 2 }
+      expect(oppositeAfter).toEqual(scenario.anchor)
+      controller.pointerUp({ id: index + 1, point: scenario.point, shiftKey: true })
+      expect(engine.getScene().entities.nodesById.get("shape")).toMatchObject(scenario.expected)
+      expect(engine.getDiagnostics().undoDepth).toBe(1)
+      engine.dispatch({ type: "undo" })
+      expect(engine.getScene().entities.nodesById.get("shape")).toMatchObject({ x: 0, y: 0, width: 100, height: 40 })
+      engine.dispatch({ type: "redo" })
+      expect(engine.getScene().entities.nodesById.get("shape")).toMatchObject(scenario.expected)
+    }
+  })
+
+  it("resizes side handles along rotated local axes and cancels without committing", () => {
+    for (const rotation of [90, 31]) {
+      const callbacks: Array<() => void> = []
+      const engine = createDiagramEngine({ nodes: [{ id: "shape", kind: "node", x: 20, y: 30, width: 100, height: 40, rotation }] })
+      const controller = createDiagramInteractionController(engine, { scheduleFrame: (callback) => callbacks.push(callback), snap: { enabled: false } })
+      const center = { x: 70, y: 50 }
+      const start = rotatePoint({ x: center.x, y: 30 }, center, rotation)
+      const end = rotatePoint({ x: center.x, y: 20 }, center, rotation)
+      const opposite = rotatePoint({ x: center.x, y: 70 }, center, rotation)
+      const depth = engine.getDiagnostics().undoDepth
+      expect(controller.beginResizeHandle("shape", "n", { id: 1, point: start })).toBe(true)
+      controller.pointerMove({ id: 1, point: end })
+      callbacks[0]?.()
+      expect(controller.getSnapshot().resizePreview).toMatchObject({ x: expect.any(Number), y: expect.any(Number), width: 100 })
+      expect(controller.getSnapshot().resizePreview?.height).toBeCloseTo(50)
+      controller.cancel()
+      expect(engine.getScene().entities.nodesById.get("shape")).toMatchObject({ x: 20, y: 30, width: 100, height: 40 })
+      expect(engine.getDiagnostics().undoDepth).toBe(depth)
+
+      controller.beginResizeHandle("shape", "n", { id: 2, point: start })
+      controller.pointerMove({ id: 2, point: end })
+      callbacks[1]?.()
+      const preview = controller.getPreviewGeometry("shape")!
+      const resizedBounds = preview.unrotatedBounds!
+      const resizedCenter = { x: resizedBounds.x + resizedBounds.width / 2, y: resizedBounds.y + resizedBounds.height / 2 }
+      const oppositeAfter = rotatePoint({ x: resizedCenter.x, y: resizedBounds.y + resizedBounds.height }, resizedCenter, rotation)
+      expect(oppositeAfter.x).toBeCloseTo(opposite.x)
+      expect(oppositeAfter.y).toBeCloseTo(opposite.y)
+      const previewEntry = controller.getSnapshot().resizePreview
+      controller.pointerUp({ id: 2, point: end })
+      expect(engine.getScene().entities.nodesById.get("shape")).toMatchObject({ ...previewEntry })
+    }
+  })
+
+  it("snaps side resize and enforces the minimum size", () => {
+    const callbacks: Array<() => void> = []
+    const engine = createDiagramEngine({ nodes: [{ id: "shape", kind: "node", x: 0, y: 0, width: 100, height: 40 }] })
+    const controller = createDiagramInteractionController(engine, { scheduleFrame: (callback) => callbacks.push(callback), snap: { gridSize: 10 } })
+    controller.beginResizeHandle("shape", "e", { id: 1, point: { x: 100, y: 20 } })
+    controller.pointerMove({ id: 1, point: { x: 113, y: 20 } })
+    callbacks.shift()?.()
+    expect(controller.getSnapshot().resizePreview).toMatchObject({ width: 110, height: 40 })
+    controller.pointerMove({ id: 1, point: { x: 1, y: 20 } })
+    callbacks.shift()?.()
+    expect(controller.getSnapshot().resizePreview?.width).toBeGreaterThanOrEqual(8)
+    controller.cancel()
+  })
+
+  it("keeps flipped side handles aligned to their projected local side", () => {
+    const callbacks: Array<() => void> = []
+    const engine = createDiagramEngine({ nodes: [{ id: "shape", kind: "node", x: 0, y: 0, width: 100, height: 40, flipX: true }] })
+    const controller = createDiagramInteractionController(engine, { scheduleFrame: (callback) => callbacks.push(callback), snap: { enabled: false } })
+    expect(controller.beginResizeHandle("shape", "e", { id: 1, point: { x: 0, y: 20 } })).toBe(true)
+    controller.pointerMove({ id: 1, point: { x: -20, y: 20 } })
+    callbacks[0]?.()
+    expect(controller.getSnapshot().resizePreview).toMatchObject({ x: -20, width: 120, height: 40 })
+    controller.pointerUp({ id: 1, point: { x: -20, y: 20 } })
+    const entity = engine.getScene().entities.nodesById.get("shape")!
+    expect(entity).toMatchObject({ x: -20, width: 120, height: 40, flipX: true })
+    expect(engine.getGeometrySnapshot("shape")?.bounds).toMatchObject({ x: -20, width: 120 })
+  })
+
   it("supports dragging either edge endpoint and cancels without history changes", () => {
     for (const endpoint of ["source", "target"] as const) {
       const callbacks: Array<() => void> = []
@@ -2662,6 +2886,95 @@ describe("DiagramEngine", () => {
     expect(engine.canUndo()).toBe(true)
   })
 
+  it("uses a port-only screen tolerance consistently across viewport zoom levels", () => {
+    for (const zoom of [0.5, 1, 2]) {
+      const engine = createDiagramEngine({
+        nodes: [{ id: "host", kind: "node", x: 100, y: 0, width: 10, height: 10, portIds: ["port"] }],
+        ports: [{ id: "port", kind: "port", nodeId: "host", x: 0, y: 0 }],
+        viewport: { x: 0, y: 0, width: 300, height: 200, zoom },
+      })
+      const interaction = createDiagramInteractionController(engine, {
+        scheduleFrame: (callback) => callback(),
+        snap: { kinds: ["port"], tolerancePx: 2, portTolerancePx: 8 },
+      })
+      const inside = { x: 100, y: 7 / zoom }
+      expect(interaction.beginEdgeCreation(`inside-${zoom}`, { id: 1, point: { x: 0, y: 0 } })).toBe(true)
+      interaction.pointerMove({ id: 1, point: inside })
+      expect(interaction.getSnapshot().edgeCreationPreview?.target).toEqual({ kind: "port", portId: "port" })
+      interaction.cancel()
+
+      const outside = { x: 100, y: 9 / zoom }
+      expect(interaction.beginEdgeCreation(`outside-${zoom}`, { id: 2, point: { x: 0, y: 0 } })).toBe(true)
+      interaction.pointerMove({ id: 2, point: outside })
+      expect(interaction.getSnapshot().edgeCreationPreview?.target).toEqual({ kind: "point", point: outside })
+      interaction.cancel()
+    }
+  })
+
+  it("applies portTolerancePx only to ports and preserves legacy tolerance fallback", () => {
+    const edgeEngine = createDiagramEngine({
+      shapes: [{ id: "reference", kind: "shape", shape: "line", x: 96, y: 0, width: 8, height: 0 }],
+      nodes: [{ id: "host", kind: "node", x: 200, y: 0, width: 10, height: 10, portIds: ["port"] }],
+      ports: [{ id: "port", kind: "port", nodeId: "host", x: 0, y: 0 }],
+    })
+    const edgeInteraction = createDiagramInteractionController(edgeEngine, {
+      snap: { kinds: ["port", "endpoint"], tolerancePx: 2, portTolerancePx: 12 },
+      scheduleFrame: (callback) => callback(),
+    })
+    edgeInteraction.beginEdgeCreation("endpoint-outside", { id: 1, point: { x: 0, y: 0 } })
+    edgeInteraction.pointerMove({ id: 1, point: { x: 100, y: 0 } })
+    expect(edgeInteraction.getSnapshot().edgeCreationPreview?.target).toEqual({ kind: "point", point: { x: 100, y: 0 } })
+
+    const makeLegacyEngine = () => createDiagramEngine({
+      nodes: [{ id: "legacy-host", kind: "node", x: 100, y: 0, width: 10, height: 10, portIds: ["legacy-port"] }],
+      ports: [{ id: "legacy-port", kind: "port", nodeId: "legacy-host", x: 0, y: 0 }],
+    })
+    const legacy = createDiagramInteractionController(makeLegacyEngine(), {
+      snap: { kinds: ["port"], tolerancePx: 8 },
+      scheduleFrame: (callback) => callback(),
+    })
+    legacy.beginEdgeCreation("legacy-edge", { id: 1, point: { x: 0, y: 0 } })
+    legacy.pointerMove({ id: 1, point: { x: 100, y: 7 } })
+    expect(legacy.getSnapshot().edgeCreationPreview?.target).toEqual({ kind: "port", portId: "legacy-port" })
+  })
+
+  it("uses stable port selection for preview and commit and honors snapToPorts=false", () => {
+    const engine = createDiagramEngine({
+      nodes: [
+        { id: "z-host", kind: "node", x: 100, y: 5, width: 10, height: 10, portIds: ["z-port"] },
+        { id: "a-host", kind: "node", x: 100, y: -5, width: 10, height: 10, portIds: ["a-port"] },
+      ],
+      ports: [
+        { id: "z-port", kind: "port", nodeId: "z-host", x: 0, y: 0 },
+        { id: "a-port", kind: "port", nodeId: "a-host", x: 0, y: 0 },
+      ],
+    })
+    const interaction = createDiagramInteractionController(engine, {
+      snap: { kinds: ["port"], tolerancePx: 2, portTolerancePx: 8 },
+      scheduleFrame: (callback) => callback(),
+    })
+    interaction.beginEdgeCreation("tie-edge", { id: 1, point: { x: 0, y: 0 } })
+    interaction.pointerMove({ id: 1, point: { x: 100, y: 0 } })
+    const preview = interaction.getSnapshot().edgeCreationPreview!
+    expect(preview.target).toEqual({ kind: "port", portId: "a-port" })
+    interaction.pointerUp({ id: 1, point: { x: 100, y: 0 } })
+    expect(engine.getScene().entities.edgesById.get("tie-edge")?.target).toEqual(preview.target)
+
+    const disabledEngine = createDiagramEngine({
+      nodes: [{ id: "disabled-host", kind: "node", x: 100, y: 0, width: 10, height: 10, portIds: ["disabled-port"] }],
+      ports: [{ id: "disabled-port", kind: "port", nodeId: "disabled-host", x: 0, y: 0 }],
+    })
+    const disabled = createDiagramInteractionController(disabledEngine, {
+      snap: { kinds: ["port"], tolerancePx: 2, portTolerancePx: 12, snapToPorts: false },
+      scheduleFrame: (callback) => callback(),
+    })
+    disabled.beginEdgeCreation("disabled-edge", { id: 1, point: { x: 0, y: 0 } })
+    disabled.pointerMove({ id: 1, point: { x: 100, y: 5 } })
+    expect(disabled.getSnapshot().edgeCreationPreview?.target).toEqual({ kind: "point", point: { x: 100, y: 5 } })
+    disabled.pointerUp({ id: 1, point: { x: 100, y: 5 } })
+    expect(disabledEngine.getScene().entities.edgesById.get("disabled-edge")?.target).toEqual({ kind: "point", point: { x: 100, y: 5 } })
+  })
+
   it("previews and commits a snapped free line as one undoable shape command", () => {
     const engine = createDiagramEngine({ viewport: { x: 0, y: 0, width: 200, height: 100, zoom: 1 } })
     const frames: Array<() => void> = []
@@ -2913,6 +3226,104 @@ describe("DiagramEngine", () => {
     expect(engine.getScene().entities.edgesById.has("wire")).toBe(false)
   })
 
+  it("applies Shift to connector click previews from the latest bend and constrains waypoint edits", () => {
+    const engine = createDiagramEngine()
+    const interaction = createDiagramInteractionController(engine, { snap: { enabled: false }, scheduleFrame: (callback) => callback() })
+    expect(interaction.beginEdgePathCreation("shift-wire", { id: 1, point: { x: 0, y: 0 } })).toBe(true)
+    interaction.pointerMove({ id: 1, point: { x: 30, y: 15 }, shiftKey: true })
+    expect(interaction.getSnapshot().edgeCreationPreview?.target).toMatchObject({ kind: "point", point: { y: 0 } })
+    interaction.pointerDown({ id: 1, point: { x: 30, y: 15 }, shiftKey: true })
+    interaction.pointerUp({ id: 1, point: { x: 30, y: 15 }, shiftKey: true })
+    const firstBend = interaction.getSnapshot().edgeCreationPreview?.points.find((point) => point.y === 0 && point.x > 30)
+    expect(firstBend).toBeDefined()
+    interaction.pointerMove({ id: 1, point: { x: 50, y: 8 }, shiftKey: true })
+    expect(interaction.getSnapshot().edgeCreationPreview?.target).toMatchObject({ kind: "point", point: { y: 0 } })
+    const preview = interaction.getSnapshot().edgeCreationPreview!
+    expect(interaction.finishEdgePathCreation()).toBe(true)
+    expect(engine.getScene().entities.edgesById.get("shift-wire")?.points).toEqual(preview.points)
+    expect(engine.getDiagnostics().undoDepth).toBe(1)
+    engine.dispatch({ type: "undo" })
+
+    engine.dispatch({ type: "createEdge", edge: { id: "waypoint-wire", kind: "edge", source: { kind: "point", point: { x: 0, y: 0 } }, target: { kind: "point", point: { x: 100, y: 100 } }, points: [{ x: 50, y: 50 }] } })
+    const point = { x: 50, y: 50 }
+    expect(interaction.beginEdgeWaypointHandle("waypoint-wire", 0, { id: 2, point })).toBe(true)
+    interaction.pointerMove({ id: 2, point: { x: 80, y: 60 }, shiftKey: true })
+    const waypointPreview = interaction.getSnapshot().pathVertexPreview!.point
+    expect(waypointPreview.y).toBe(50)
+    expect(waypointPreview.x).toBeGreaterThan(80)
+    expect(interaction.getPreviewGeometry("waypoint-wire")?.path).toContainEqual(waypointPreview)
+    interaction.pointerUp({ id: 2, point: { x: 80, y: 60 }, shiftKey: true })
+    expect(engine.getScene().entities.edgesById.get("waypoint-wire")?.points?.[0]).toEqual(waypointPreview)
+  })
+
+  it("drags orthogonal connector segments in parallel, preserves attachments, and commits the exact preview once", () => {
+    const engine = createDiagramEngine({
+      nodes: [
+        { id: "a", kind: "node", x: 0, y: 0, width: 20, height: 20, portIds: ["pa"] },
+        { id: "b", kind: "node", x: 200, y: 0, width: 20, height: 20, portIds: ["pb"] },
+      ],
+      ports: [
+        { id: "pa", kind: "port", nodeId: "a", x: 20, y: 10 },
+        { id: "pb", kind: "port", nodeId: "b", x: 0, y: 10 },
+      ],
+      edges: [{ id: "attached", kind: "edge", source: { kind: "port", portId: "pa" }, target: { kind: "port", portId: "pb" }, points: [{ x: 60, y: 10 }, { x: 60, y: 80 }, { x: 140, y: 80 }, { x: 140, y: 10 }] }],
+    })
+    const interaction = createDiagramInteractionController(engine, { snap: { enabled: false }, scheduleFrame: (callback) => callback() })
+    const initial = engine.serialize()
+    const undoDepth = engine.getDiagnostics().undoDepth
+    expect(interaction.beginEdgeSegmentHandle("attached", 1, { id: 1, point: { x: 60, y: 45 } })).toBe(true)
+    interaction.pointerMove({ id: 1, point: { x: 80, y: 45 } })
+    const preview = interaction.getSnapshot().edgeSegmentPreview!
+    expect(preview).toMatchObject({ id: "attached", segmentIndex: 1, axis: "vertical" })
+    expect(preview.points).toEqual([{ x: 80, y: 10 }, { x: 80, y: 80 }, { x: 140, y: 80 }, { x: 140, y: 10 }])
+    expect(interaction.getPreviewGeometry("attached")?.path).toEqual(preview.path)
+    expect(engine.serialize()).toEqual(initial)
+    expect(engine.getDiagnostics().undoDepth).toBe(undoDepth)
+    interaction.pointerUp({ id: 1, point: { x: 80, y: 45 } })
+    const committed = engine.getScene().entities.edgesById.get("attached")!
+    expect(committed).toMatchObject({ source: { kind: "port", portId: "pa" }, target: { kind: "port", portId: "pb" }, points: preview.points })
+    expect(engine.getGeometrySnapshot("attached")?.path).toEqual(preview.path)
+    expect(engine.getDiagnostics().undoDepth).toBe(undoDepth + 1)
+    engine.dispatch({ type: "undo" })
+    expect(engine.getScene().entities.edgesById.get("attached")?.points).toEqual([{ x: 60, y: 10 }, { x: 60, y: 80 }, { x: 140, y: 80 }, { x: 140, y: 10 }])
+    engine.dispatch({ type: "redo" })
+    expect(engine.getScene().entities.edgesById.get("attached")?.points).toEqual(preview.points)
+  })
+
+  it("keeps free endpoints movable and adds a bend at attached endpoints when dragging terminal segments", () => {
+    const free = createDiagramEngine({ edges: [{ id: "free", kind: "edge", source: { kind: "point", point: { x: 0, y: 0 } }, target: { kind: "point", point: { x: 100, y: 0 } } }] })
+    const interaction = createDiagramInteractionController(free, { snap: { enabled: false }, scheduleFrame: (callback) => callback() })
+    expect(interaction.beginEdgeSegmentHandle("free", 0, { id: 1, point: { x: 50, y: 0 } })).toBe(true)
+    interaction.pointerMove({ id: 1, point: { x: 50, y: 20 } })
+    expect(interaction.getSnapshot().edgeSegmentPreview).toMatchObject({ path: [{ x: 0, y: 20 }, { x: 100, y: 20 }], points: [], source: { kind: "point", point: { x: 0, y: 20 } }, target: { kind: "point", point: { x: 100, y: 20 } } })
+    interaction.pointerUp({ id: 1, point: { x: 50, y: 20 } })
+    expect(free.getScene().entities.edgesById.get("free")).toMatchObject({ source: { point: { x: 0, y: 20 } }, target: { point: { x: 100, y: 20 } } })
+
+    const attached = createDiagramEngine({ nodes: [{ id: "host", kind: "node", x: 0, y: 0, width: 20, height: 20, portIds: ["p"] }], ports: [{ id: "p", kind: "port", nodeId: "host", x: 20, y: 10 }], edges: [{ id: "edge", kind: "edge", source: { kind: "port", portId: "p" }, target: { kind: "point", point: { x: 100, y: 10 } }, points: [{ x: 60, y: 10 }] }] })
+    const attachedInteraction = createDiagramInteractionController(attached, { snap: { enabled: false }, scheduleFrame: (callback) => callback() })
+    expect(attachedInteraction.beginEdgeSegmentHandle("edge", 0, { id: 2, point: { x: 40, y: 10 } })).toBe(true)
+    attachedInteraction.pointerMove({ id: 2, point: { x: 40, y: 0 } })
+    expect(attachedInteraction.getSnapshot().edgeSegmentPreview?.path).toEqual([{ x: 20, y: 10 }, { x: 20, y: 0 }, { x: 60, y: 0 }, { x: 100, y: 0 }])
+    const beforeCancel = attached.serialize()
+    attachedInteraction.cancel()
+    expect(attached.serialize()).toEqual(beforeCancel)
+    expect(attached.getDiagnostics().undoDepth).toBe(0)
+  })
+
+  it("applies grid snapping to segment drags identically in preview and commit", () => {
+    const engine = createDiagramEngine({ edges: [{ id: "line", kind: "edge", source: { kind: "point", point: { x: 0, y: 0 } }, target: { kind: "point", point: { x: 100, y: 0 } } }] })
+    const interaction = createDiagramInteractionController(engine, { snap: { gridSize: 10, kinds: ["grid"] }, scheduleFrame: (callback) => callback() })
+    expect(interaction.beginEdgeSegmentHandle("line", 0, { id: 1, point: { x: 50, y: 0 } })).toBe(true)
+    interaction.pointerMove({ id: 1, point: { x: 50, y: 17 } })
+    const preview = interaction.getSnapshot().edgeSegmentPreview!
+    expect(preview.path).toEqual([{ x: 0, y: 20 }, { x: 100, y: 20 }])
+    expect(interaction.getSnapshot().snapResult).toMatchObject({ snapped: true, source: "grid" })
+    interaction.pointerUp({ id: 1, point: { x: 50, y: 17 } })
+    expect(engine.getGeometrySnapshot("line")?.path).toEqual(preview.path)
+    engine.dispatch({ type: "undo" })
+    expect(engine.getGeometrySnapshot("line")?.path).toEqual([{ x: 0, y: 0 }, { x: 100, y: 0 }])
+  })
+
   it("creates major circular arcs through three points and preserves them through scene round trips", () => {
     const arc = createCircularArc({ x: 10, y: 0 }, { x: -10, y: 0 }, { x: 0, y: 10 })
     expect(arc.ok).toBe(true)
@@ -2972,6 +3383,76 @@ describe("DiagramEngine", () => {
     expect(engine.getGeometrySnapshot("first")?.pathContours).toEqual(createDiagramEngine({ shapes: [result.targets[0]!.preview!] }).getGeometrySnapshot("first")?.pathContours)
   })
 
+  it("trims selected rectangle outlines into deterministic open contours and preserves scene identity through history", () => {
+    const engine = createDiagramEngine({ shapes: [
+      { id: "selected-rect", kind: "shape", shape: "rect", x: 0, y: 0, width: 100, height: 80, fill: "#abc", stroke: "#123", metadata: { equipment: "Q1" } },
+      { id: "unselected-rect", kind: "shape", shape: "rect", x: 120, y: 0, width: 100, height: 80 },
+    ] })
+    const before = engine.serialize()
+    const result = trimSelectionByStroke(before, { targetIds: ["selected-rect"], stroke: [{ x: 50, y: -10 }, { x: 50, y: 90 }], tolerance: 0.01 })
+    expect(result.findings).toEqual([])
+    expect(result.targets[0]).toMatchObject({ changed: true, cutPoints: [{ x: 50, y: 0 }, { x: 50, y: 80 }] })
+    expect(result.targets[0]?.retained).toHaveLength(1)
+    expect(result.targets[0]?.retained[0]).toMatchObject({ closed: false, segments: [
+      { kind: "line", start: { x: 50, y: 0 }, end: { x: 100, y: 0 } },
+      { kind: "line", start: { x: 100, y: 0 }, end: { x: 100, y: 80 } },
+      { kind: "line", start: { x: 100, y: 80 }, end: { x: 50, y: 80 } },
+    ] })
+    expect(result.targets[0]?.preview).toMatchObject({ id: "selected-rect", shape: "line", fill: "#abc", stroke: "#123", metadata: { equipment: "Q1" } })
+    expect(engine.getScene().entities.shapesById.get("unselected-rect")).toEqual(before.shapes?.find((shape) => shape.id === "unselected-rect"))
+    expect(engine.dispatchBatch(result.updates)).toMatchObject({ ok: true, changed: true })
+    expect(engine.getDiagnostics().undoDepth).toBe(1)
+    const committed = engine.serialize().shapes?.find((shape) => shape.id === "selected-rect")
+    expect(engine.getGeometrySnapshot("selected-rect")?.pathContours).toEqual(createDiagramEngine({ shapes: [result.targets[0]!.preview!] }).getGeometrySnapshot("selected-rect")?.pathContours)
+    engine.dispatch({ type: "undo" })
+    expect(engine.serialize()).toEqual(before)
+    engine.dispatch({ type: "redo" })
+    expect(engine.serialize().shapes?.find((shape) => shape.id === "selected-rect")).toEqual(committed)
+  })
+
+  it("intersects and splits cubic segments exactly with matching preview and commit geometry", () => {
+    const engine = createDiagramEngine({ shapes: [{ id: "curve", kind: "shape", shape: "line", x: 0, y: 0, width: 100, height: 75, pathContours: [{ closed: false, segments: [{ kind: "cubic", start: { x: 0, y: 0 }, control1: { x: 0, y: 100 }, control2: { x: 100, y: 100 }, end: { x: 100, y: 0 } }] }] }] })
+    const result = trimSelectionByStroke(engine.serialize(), { targetIds: ["curve"], stroke: [{ x: 50, y: -10 }, { x: 50, y: 110 }], tolerance: 0.01 })
+    expect(result.findings).toEqual([])
+    expect(result.targets[0]?.cutPoints[0]).toMatchObject({ x: 50, y: 75 })
+    const kept = result.targets[0]?.retained[0]?.segments[0]
+    expect(kept).toMatchObject({ kind: "cubic", start: { x: 50, y: 75 }, control1: { x: 75, y: 75 }, control2: { x: 100, y: 50 }, end: { x: 100, y: 0 } })
+    expect(engine.dispatchBatch(result.updates).ok).toBe(true)
+    expect(engine.getGeometrySnapshot("curve")?.pathContours).toEqual(createDiagramEngine({ shapes: [result.targets[0]!.preview!] }).getGeometrySnapshot("curve")?.pathContours)
+  })
+
+  it("trims circular and transformed rectangle outlines in world coordinates", () => {
+    const circle = createDiagramEngine({ shapes: [{ id: "circle", kind: "shape", shape: "line", x: 0, y: 0, width: 100, height: 100, pathContours: [{ closed: true, segments: [{ kind: "arc", center: { x: 50, y: 50 }, radius: 40, startAngle: 0, sweepAngle: Math.PI * 2 }] }] }] })
+    const circleResult = trimSelectionByStroke(circle.serialize(), { targetIds: ["circle"], stroke: [{ x: 50, y: 0 }, { x: 50, y: 100 }], tolerance: 0.01 })
+    expect(circleResult.targets[0]).toMatchObject({ changed: true, cutPoints: [{ x: 50, y: 10 }, { x: 50, y: 90 }] })
+    expect(circleResult.targets[0]?.retained[0]?.closed).toBe(false)
+    expect(circleResult.targets[0]?.retained[0]?.segments.every((segment) => segment.kind === "arc")).toBe(true)
+
+    const rotation = 37
+    const center = { x: 60, y: 60 }
+    const transform = (point: DiagramPoint) => rotatePoint(point, center, rotation)
+    const transformed = createDiagramEngine({ shapes: [{ id: "rotated-rect", kind: "shape", shape: "rect", x: 10, y: 20, width: 100, height: 80, rotation, flipX: true }] })
+    const transformedResult = trimSelectionByStroke(transformed.serialize(), { targetIds: ["rotated-rect"], stroke: [transform({ x: 60, y: 0 }), transform({ x: 60, y: 120 })], tolerance: 0.01 })
+    expect(transformedResult.targets[0]?.changed).toBe(true)
+    expect(transformed.dispatchBatch(transformedResult.updates).ok).toBe(true)
+    expect(transformed.getGeometrySnapshot("rotated-rect")?.pathContours).toEqual(createDiagramEngine({ shapes: [transformedResult.targets[0]!.preview!] }).getGeometrySnapshot("rotated-rect")?.pathContours)
+  })
+
+  it("returns typed findings without changing ambiguous holes and self-crossing strokes", () => {
+    const donut = createDiagramEngine({ shapes: [{ id: "donut", kind: "shape", shape: "line", x: 0, y: 0, width: 100, height: 100, pathContours: [
+      { closed: true, segments: [{ kind: "line", start: { x: 0, y: 0 }, end: { x: 100, y: 0 } }, { kind: "line", start: { x: 100, y: 0 }, end: { x: 100, y: 100 } }, { kind: "line", start: { x: 100, y: 100 }, end: { x: 0, y: 100 } }, { kind: "line", start: { x: 0, y: 100 }, end: { x: 0, y: 0 } }] },
+      { closed: true, hole: true, segments: [{ kind: "line", start: { x: 40, y: 40 }, end: { x: 60, y: 40 } }, { kind: "line", start: { x: 60, y: 40 }, end: { x: 60, y: 60 } }, { kind: "line", start: { x: 60, y: 60 }, end: { x: 40, y: 60 } }, { kind: "line", start: { x: 40, y: 60 }, end: { x: 40, y: 40 } }] },
+    ] }] })
+    const before = donut.serialize()
+    const result = trimSelectionByStroke(before, { targetIds: ["donut"], stroke: [{ x: 50, y: -10 }, { x: 50, y: 110 }], tolerance: 0.01 })
+    expect(result.targets[0]).toMatchObject({ changed: false, finding: { code: "ambiguous-intersection" } })
+    expect(result.updates).toEqual([])
+    expect(donut.serialize()).toEqual(before)
+    const crossingStroke = trimSelectionByStroke(before, { targetIds: ["donut"], stroke: [{ x: 0, y: 0 }, { x: 100, y: 100 }, { x: 0, y: 100 }, { x: 100, y: 0 }], tolerance: 0.01 })
+    expect(crossingStroke.findings[0]?.code).toBe("self-intersecting-stroke")
+    expect(crossingStroke.updates).toEqual([])
+  })
+
   it("selects the first crossing in gesture direction and handles transformed lines and exact arcs", () => {
     const multi = createDiagramEngine({ shapes: [{ id: "multi", kind: "shape", shape: "line", x: 0, y: 50, width: 100, height: 0 }] })
     const first = trimSelectionByStroke(multi.serialize(), { targetIds: ["multi"], stroke: [{ x: 20, y: 40 }, { x: 20, y: 60 }, { x: 80, y: 60 }, { x: 80, y: 40 }], tolerance: 0.01 })
@@ -3013,7 +3494,7 @@ describe("DiagramEngine", () => {
     const stroke = [{ x: 50, y: 0 }, { x: 50, y: 80 }]
     const result = trimSelectionByStroke(before, { targetIds: ["line", "box", "locked", "anchored", "wire", "missing"], stroke, tolerance: 0.01 })
     expect(result.findings.map(({ targetId, code }) => [targetId, code])).toEqual([
-      ["box", "unsupported-target"], ["locked", "locked-target"], ["anchored", "anchored-host"], ["wire", "connected-edge"], ["missing", "unsupported-target"],
+      ["box", "no-intersection"], ["locked", "locked-target"], ["anchored", "anchored-host"], ["wire", "connected-edge"], ["missing", "unsupported-target"],
     ])
     expect(result.updates.map(({ id }) => id)).toEqual(["line"])
     expect(trimSelectionByStroke(before, { targetIds: ["line"], stroke: [{ x: 10, y: 21 }, { x: 90, y: 21 }], tolerance: 0 }).targets[0]?.finding?.code).toBe("no-intersection")
@@ -3087,7 +3568,7 @@ describe("DiagramEngine", () => {
     expect(engine.getGeometrySnapshot("cubic")?.pathContours).toEqual(parsed.value)
   })
 
-  it("rejects malformed or discontinuous cubic contours and reports trim as unsupported", () => {
+  it("rejects malformed or discontinuous cubic contours and trims valid cubic segments", () => {
     expect(parseSvgPathData("M 0 0 Q 1 2 3 4")).toMatchObject({ ok: false, code: "unsupported-geometry" })
     expect(() => createDiagramEngine({ shapes: [{ id: "bad", kind: "shape", shape: "line", x: 0, y: 0, width: 3, height: 3, pathContours: [{ closed: false, segments: [
       { kind: "cubic", start: { x: 0, y: 0 }, control1: { x: 0, y: Number.NaN }, control2: { x: 2, y: 2 }, end: { x: 3, y: 3 } },
@@ -3097,7 +3578,8 @@ describe("DiagramEngine", () => {
       { kind: "cubic", start: { x: 2, y: 0 }, control1: { x: 2, y: 1 }, control2: { x: 3, y: 1 }, end: { x: 3, y: 0 } },
     ] }] }] })).toThrow(TypeError)
     const engine = createDiagramEngine({ shapes: [{ id: "curve", kind: "shape", shape: "line", x: 0, y: 0, width: 30, height: 0, pathContours: [{ closed: false, segments: [{ kind: "cubic", start: { x: 0, y: 0 }, control1: { x: 10, y: 20 }, control2: { x: 20, y: 20 }, end: { x: 30, y: 0 } }] }] }] })
-    expect(trimSelectionByStroke(engine.serialize(), { targetIds: ["curve"], stroke: [{ x: 10, y: -5 }, { x: 10, y: 25 }], tolerance: 0.1 }).targets[0]?.finding?.code).toBe("unsupported-geometry")
+    const trim = trimSelectionByStroke(engine.serialize(), { targetIds: ["curve"], stroke: [{ x: 10, y: -5 }, { x: 10, y: 25 }], tolerance: 0.1 })
+    expect(trim.targets[0]).toMatchObject({ changed: true, retained: [{ segments: [{ kind: "cubic" }] }] })
   })
 
   it("locks user edits and active gestures while allowing authoritative scene replacement", () => {

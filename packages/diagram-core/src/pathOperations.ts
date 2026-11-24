@@ -263,6 +263,10 @@ export function trimSelectionByStroke(scene: DiagramSceneInput, input: Readonly<
   }
   const strokeOffsets: number[] = [0]
   for (const length of strokeLengths) strokeOffsets.push(strokeOffsets[strokeOffsets.length - 1]! + length)
+  if (strokeHasSelfIntersection(input.stroke, input.tolerance)) {
+    const finding = fail("self-intersecting-stroke", "Self-intersecting sweep strokes are ambiguous and do not trim targets.")
+    return { ok: true, targets: input.targetIds.map((id) => ({ id, changed: false, retained: [], cutPoints: [], preview: null, finding: { ...finding, targetId: id } })), updates, findings: input.targetIds.map((id) => ({ ...finding, targetId: id })) }
+  }
   const uniqueIds = [...new Set(input.targetIds)]
   const shapeById = new Map((scene.shapes ?? []).map((shape) => [shape.id, shape]))
   const edgeIds = new Set((scene.edges ?? []).map((edge) => edge.id))
@@ -281,8 +285,8 @@ export function trimSelectionByStroke(scene: DiagramSceneInput, input: Readonly<
       addFinding("unsupported-target", "Sweep trim supports selected line/path shapes only.")
       continue
     }
-    if (shape.shape !== "line" || shape.metadata?.locked || shape.metadata?.readOnly) {
-      addFinding(shape.metadata?.locked || shape.metadata?.readOnly ? "locked-target" : "unsupported-target", shape.metadata?.locked || shape.metadata?.readOnly ? "Locked or read-only shapes cannot be trimmed." : "Sweep trim supports selected line/path shapes only.")
+    if (shape.metadata?.locked || shape.metadata?.readOnly) {
+      addFinding("locked-target", "Locked or read-only shapes cannot be trimmed.")
       continue
     }
     if (![shape.x, shape.y, shape.width, shape.height, shape.rotation ?? 0].every(Number.isFinite) || shape.width < 0 || shape.height < 0
@@ -301,21 +305,38 @@ export function trimSelectionByStroke(scene: DiagramSceneInput, input: Readonly<
     }
     const sourceContours = shape.pathContours?.length
       ? shape.pathContours.map((contour) => transformPathContour(translatePathContour(contour, shape.x, shape.y), { x: shape.x + shape.width / 2, y: shape.y + shape.height / 2 }, shape.rotation ?? 0, shape.flipX, shape.flipY))
-      : [{ segments: shapeLinePoints(shape).slice(1).map((end, index): DiagramPathSegment => ({ kind: "line", start: shapeLinePoints(shape)[index]!, end })), closed: false }]
-    if (sourceContours.some((contour) => contour.segments.some((segment) => segment.kind === "cubic"))) {
-      addFinding("unsupported-geometry", "Sweep Trim does not yet split cubic Bézier segments; the target is unchanged.", sourceContours)
+      : shape.shape === "rect"
+        ? [rectShapeContour(shape)]
+        : shape.shape === "line"
+          ? [{ segments: shapeLinePoints(shape).slice(1).map((end, index): DiagramPathSegment => ({ kind: "line", start: shapeLinePoints(shape)[index]!, end })), closed: false }]
+          : []
+    if (!sourceContours.length) {
+      addFinding("unsupported-geometry", "This figure has no exact line, circular-arc, or cubic outline representation for sweep Trim.")
       continue
     }
     const retained: DiagramPathContour[] = []
     const cutPoints: DiagramPoint[] = []
     let ambiguous = false
-    let hasUnsupportedContour = false
     for (const contour of sourceContours) {
-      if (contour.closed || contour.hole) {
-        retained.push(contour)
-        hasUnsupportedContour = true
+      if (contour.closed) {
+        if (contour.hole) {
+          const holeHits = contour.segments.some((segment) => collectStrokeIntersections(segment, input.stroke, strokeLengths, strokeOffsets, input.tolerance).length > 0)
+          if (holeHits) { ambiguous = true; break }
+          retained.push(contour)
+          continue
+        }
+        const closedResult = trimClosedContour(contour, input.stroke, strokeLengths, strokeOffsets, input.tolerance)
+        if (closedResult.finding) {
+          ambiguous = true
+          break
+        }
+        if (closedResult.cutPoints.length) {
+          retained.push(...closedResult.retained)
+          cutPoints.push(...closedResult.cutPoints)
+        } else retained.push(contour)
         continue
       }
+      if (contour.hole) { retained.push(contour); continue }
       const outputSegments: DiagramPathSegment[] = []
       for (const segment of contour.segments) {
         const intersections = collectStrokeIntersections(segment, input.stroke, strokeLengths, strokeOffsets, input.tolerance)
@@ -344,11 +365,15 @@ export function trimSelectionByStroke(scene: DiagramSceneInput, input: Readonly<
       retained.push(...stitchOpenSegments(outputSegments))
     }
     if (ambiguous) {
-      addFinding("ambiguous-intersection", "The stroke is tangent or parallel at the nearest crossing, so it does not select a safe side.", sourceContours)
+      addFinding("ambiguous-intersection", "The stroke has a tangent, endpoint, overlap, or otherwise ambiguous crossing; this target is unchanged.", sourceContours)
       continue
     }
     if (!cutPoints.length) {
-      addFinding(hasUnsupportedContour ? "unsupported-target" : "no-intersection", hasUnsupportedContour ? "Closed contours and holes are preserved but are not cut by sweep Trim." : "The stroke does not cross a supported interior segment of this target.", sourceContours)
+      addFinding("no-intersection", "The stroke does not cross a supported interior segment of this target.", sourceContours)
+      continue
+    }
+    if (sourceContours.some((contour) => contour.hole) && sourceContours.some((contour) => contour.closed && cutPoints.length)) {
+      addFinding("topology-ambiguous", "A sweep intersecting a shape with holes could change fill topology; the target is unchanged.", sourceContours)
       continue
     }
     if (!retained.some((contour) => contour.segments.length)) {
@@ -363,14 +388,115 @@ export function trimSelectionByStroke(scene: DiagramSceneInput, input: Readonly<
     const canonicalPreview: DiagramShape = { ...shape, shape: "line", x: worldMinX, y: worldMinY, width: worldMaxX - worldMinX, height: worldMaxY - worldMinY, rotation: 0, flipX: false, flipY: false, points: undefined, pathContours: worldContours.map((contour) => translatePathContour(contour, -worldMinX, -worldMinY)) }
     const update: DiagramSweepTrimUpdate = { type: "updateShapePath", id, pathContours: worldContours, worldSpace: true }
     updates.push(update)
-    const finding = hasUnsupportedContour ? fail("unsupported-target", "Closed contours and holes were preserved but not cut by sweep Trim.", id) : undefined
-    if (finding) findings.push(finding)
-    targets.push({ id, changed: true, retained: worldContours, cutPoints, preview: canonicalPreview, update, ...(finding ? { finding } : {}) })
+    targets.push({ id, changed: true, retained: worldContours, cutPoints, preview: canonicalPreview, update })
   }
   return { ok: true, targets, updates, findings }
 }
 
 type SweepIntersection = Readonly<{ point: DiagramPoint; targetT: number; strokeIndex: number; progress: number }>
+type ContourIntersection = SweepIntersection & Readonly<{ segmentIndex: number }>
+
+function rectShapeContour(shape: DiagramShape): DiagramPathContour {
+  const corners = [
+    { x: shape.x, y: shape.y }, { x: shape.x + shape.width, y: shape.y },
+    { x: shape.x + shape.width, y: shape.y + shape.height }, { x: shape.x, y: shape.y + shape.height },
+  ].map((point) => rotatePoint({
+    x: shape.x + (shape.flipX ? shape.width - (point.x - shape.x) : point.x - shape.x),
+    y: shape.y + (shape.flipY ? shape.height - (point.y - shape.y) : point.y - shape.y),
+  }, { x: shape.x + shape.width / 2, y: shape.y + shape.height / 2 }, shape.rotation ?? 0))
+  return { closed: true, segments: corners.map((start, index): DiagramPathSegment => ({ kind: "line", start, end: corners[(index + 1) % corners.length]! })) }
+}
+
+function trimClosedContour(contour: DiagramPathContour, stroke: ReadonlyArray<DiagramPoint>, lengths: ReadonlyArray<number>, offsets: ReadonlyArray<number>, tolerance: number): Readonly<{ retained: ReadonlyArray<DiagramPathContour>; cutPoints: ReadonlyArray<DiagramPoint>; finding?: true }> {
+  const intersections: ContourIntersection[] = []
+  contour.segments.forEach((segment, segmentIndex) => {
+    for (const hit of collectStrokeIntersections(segment, stroke, lengths, offsets, tolerance)) intersections.push({ ...hit, segmentIndex })
+  })
+  intersections.sort((a, b) => a.progress - b.progress || a.segmentIndex - b.segmentIndex || a.targetT - b.targetT)
+  const unique: ContourIntersection[] = []
+  for (const hit of intersections) if (!unique.some((previous) => distance(previous.point, hit.point) <= Math.max(EPSILON, tolerance))) unique.push(hit)
+  if (!unique.length) return { retained: [], cutPoints: [] }
+  if (unique.length !== 2 || unique.some((hit) => !Number.isFinite(hit.targetT))) return { retained: [], cutPoints: [], finding: true }
+  const first = unique[0]!, second = unique[1]!
+  const firstToSecond = sliceClosedContour(contour, first, second)
+  const secondToFirst = sliceClosedContour(contour, second, first)
+  const firstSide = contourIntervalSide(firstToSecond, stroke, tolerance)
+  const secondSide = contourIntervalSide(secondToFirst, stroke, tolerance)
+  if (firstSide === 0 || secondSide === 0 || firstSide === secondSide) return { retained: [], cutPoints: [], finding: true }
+  const kept = firstSide < 0 ? firstToSecond : secondToFirst
+  if (!kept.length) return { retained: [], cutPoints: [], finding: true }
+  return { retained: [{ segments: kept, closed: false }], cutPoints: [first.point, second.point] }
+}
+
+function sliceClosedContour(contour: DiagramPathContour, from: ContourIntersection, to: ContourIntersection): DiagramPathSegment[] {
+  const output: DiagramPathSegment[] = []
+  const count = contour.segments.length
+  if (!count) return output
+  const append = (segment: DiagramPathSegment | null) => { if (segment && segmentLength(segment) > EPSILON) output.push(segment) }
+  if (from.segmentIndex === to.segmentIndex && from.targetT < to.targetT) {
+    const [, afterStart] = splitPathSegment(contour.segments[from.segmentIndex]!, from.targetT)
+    if (afterStart) {
+      const [middle] = splitPathSegment(afterStart, (to.targetT - from.targetT) / (1 - from.targetT))
+      append(middle)
+    }
+    return output
+  }
+  const [, afterStart] = splitPathSegment(contour.segments[from.segmentIndex]!, from.targetT)
+  append(afterStart)
+  for (let step = 1; step < count; step += 1) {
+    const index = (from.segmentIndex + step) % count
+    if (index === to.segmentIndex) break
+    output.push(contour.segments[index]!)
+  }
+  const [beforeEnd] = splitPathSegment(contour.segments[to.segmentIndex]!, to.targetT)
+  append(beforeEnd)
+  return output
+}
+
+function contourIntervalSide(segments: ReadonlyArray<DiagramPathSegment>, stroke: ReadonlyArray<DiagramPoint>, tolerance: number): -1 | 0 | 1 {
+  let result: -1 | 0 | 1 = 0
+  for (const segment of segments) {
+    const point = segmentPointAt(segment, 0.5)
+    const nearest = nearestStrokeSide(point, stroke)
+    if (nearest.distance <= Math.max(EPSILON, tolerance) || nearest.side === 0) return 0
+    if (result && result !== nearest.side) return 0
+    result = nearest.side
+  }
+  return result
+}
+
+function nearestStrokeSide(point: DiagramPoint, stroke: ReadonlyArray<DiagramPoint>): Readonly<{ distance: number; side: -1 | 0 | 1 }> {
+  let bestDistance = Number.POSITIVE_INFINITY
+  let bestSide: -1 | 0 | 1 = 0
+  for (let index = 0; index < stroke.length - 1; index += 1) {
+    const a = stroke[index]!, b = stroke[index + 1]!, delta = { x: b.x - a.x, y: b.y - a.y }
+    const lengthSquared = delta.x * delta.x + delta.y * delta.y
+    if (lengthSquared <= EPSILON) continue
+    const t = Math.max(0, Math.min(1, ((point.x - a.x) * delta.x + (point.y - a.y) * delta.y) / lengthSquared))
+    const nearest = { x: a.x + delta.x * t, y: a.y + delta.y * t }
+    const d = distance(point, nearest)
+    if (d < bestDistance) {
+      bestDistance = d
+      const signed = cross(delta, { x: point.x - nearest.x, y: point.y - nearest.y })
+      bestSide = Math.abs(signed) <= EPSILON * Math.max(1, Math.sqrt(lengthSquared)) ? 0 : signed > 0 ? 1 : -1
+    }
+  }
+  return { distance: bestDistance, side: bestSide }
+}
+
+function segmentPointAt(segment: DiagramPathSegment, t: number): DiagramPoint {
+  if (segment.kind === "line") return { x: segment.start.x + (segment.end.x - segment.start.x) * t, y: segment.start.y + (segment.end.y - segment.start.y) * t }
+  if (segment.kind === "arc") return arcPoint(segment.center, segment.radius, segment.startAngle + segment.sweepAngle * t)
+  return cubicPoint(segment, t)
+}
+
+function strokeHasSelfIntersection(stroke: ReadonlyArray<DiagramPoint>, tolerance: number): boolean {
+  for (let first = 0; first < stroke.length - 1; first += 1) for (let second = first + 2; second < stroke.length - 1; second += 1) {
+    if (first === 0 && second === stroke.length - 2 && distance(stroke[0]!, stroke[stroke.length - 1]!) <= tolerance) continue
+    if (lineLineIntersections({ kind: "line", start: stroke[first]!, end: stroke[first + 1]! }, stroke[second]!, stroke[second + 1]!).some((hit) => Number.isFinite(hit.targetT))) return true
+  }
+  return false
+}
 
 function shapeLinePoints(shape: DiagramShape): DiagramPoint[] {
   const points = shape.points?.length ? shape.points : [{ x: 0, y: 0 }, { x: shape.width, y: shape.height }]
@@ -391,7 +517,7 @@ function collectStrokeIntersections(segment: DiagramPathSegment, stroke: Readonl
   for (let index = 0; index < lengths.length; index += 1) {
     const a = stroke[index]!, b = stroke[index + 1]!
     if (lengths[index]! <= EPSILON) continue
-    const found = segment.kind === "line" ? lineLineIntersections(segment, a, b) : segment.kind === "arc" ? arcLineIntersections(segment, a, b) : []
+    const found = segment.kind === "line" ? lineLineIntersections(segment, a, b) : segment.kind === "arc" ? arcLineIntersections(segment, a, b) : cubicLineIntersections(segment, a, b, tolerance)
     for (const item of found) {
       candidates.push({ ...item, strokeIndex: index, progress: offsets[index]! + item.strokeT * lengths[index]! })
     }
@@ -405,6 +531,80 @@ function collectStrokeIntersections(segment: DiagramPathSegment, stroke: Readonl
     return [{ ...unique[0]!, targetT: Number.NaN }]
   }
   return unique
+}
+
+function cubicLineIntersections(cubic: Extract<DiagramPathSegment, { kind: "cubic" }>, a: DiagramPoint, b: DiagramPoint, tolerance: number): Array<Readonly<{ point: DiagramPoint; targetT: number; strokeT: number }>> {
+  const direction = { x: b.x - a.x, y: b.y - a.y }
+  const length = Math.hypot(direction.x, direction.y)
+  if (length <= EPSILON) return []
+  const p0 = cubic.start, p1 = cubic.control1, p2 = cubic.control2, p3 = cubic.end
+  const crossPoint = (point: DiagramPoint) => cross({ x: point.x - a.x, y: point.y - a.y }, direction)
+  const coefficients = [
+    crossPoint(p0),
+    3 * cross({ x: p1.x - p0.x, y: p1.y - p0.y }, direction),
+    3 * cross({ x: p0.x - 2 * p1.x + p2.x, y: p0.y - 2 * p1.y + p2.y }, direction),
+    cross({ x: -p0.x + 3 * p1.x - 3 * p2.x + p3.x, y: -p0.y + 3 * p1.y - 3 * p2.y + p3.y }, direction),
+  ]
+  const coefficientScale = Math.max(1, ...coefficients.map(Math.abs))
+  if (coefficients.every((value) => Math.abs(value) <= EPSILON * coefficientScale)) {
+    const controlBounds = boundsFromPoints([p0, p1, p2, p3])
+    const strokeBounds = boundsFromPoints([a, b])
+    return rectsOverlap(inflateRect(controlBounds, tolerance), strokeBounds) ? [{ point: a, targetT: Number.NaN, strokeT: 0 }] : []
+  }
+  const roots = cubicPolynomialRoots(coefficients[3]!, coefficients[2]!, coefficients[1]!, coefficients[0]!, Math.max(EPSILON, tolerance * length))
+  const result: Array<Readonly<{ point: DiagramPoint; targetT: number; strokeT: number }>> = []
+  for (const targetT of roots) {
+    const point = cubicPoint(cubic, targetT)
+    const strokeT = ((point.x - a.x) * direction.x + (point.y - a.y) * direction.y) / (length * length)
+    if (strokeT < -EPSILON || strokeT > 1 + EPSILON) continue
+    const boundedT = Math.max(0, Math.min(1, targetT))
+    const boundedStrokeT = Math.max(0, Math.min(1, strokeT))
+    result.push({ point, targetT: boundedT <= 1e-7 || boundedT >= 1 - 1e-7 ? Number.NaN : boundedT, strokeT: boundedStrokeT })
+  }
+  return result
+}
+
+/** Finds all roots in [0,1] by derivative partitioning and at most 48 bisections per monotone interval. */
+function cubicPolynomialRoots(a: number, b: number, c: number, d: number, valueTolerance: number): number[] {
+  const evaluate = (t: number) => ((a * t + b) * t + c) * t + d
+  const critical: number[] = []
+  if (Math.abs(a) <= EPSILON) {
+    if (Math.abs(b) > EPSILON) critical.push(-c / (2 * b))
+  } else {
+    const discriminant = 4 * b * b - 12 * a * c
+    if (discriminant >= 0) {
+      const root = Math.sqrt(discriminant)
+      critical.push((-2 * b - root) / (6 * a), (-2 * b + root) / (6 * a))
+    }
+  }
+  const boundaries = [0, ...critical.filter((t) => t > 0 && t < 1).sort((x, y) => x - y), 1]
+  const scale = Math.max(1, Math.abs(a), Math.abs(b), Math.abs(c), Math.abs(d))
+  const tolerance = Math.max(EPSILON * scale, valueTolerance * 1e-8)
+  const roots: number[] = []
+  const add = (t: number) => { if (!roots.some((existing) => Math.abs(existing - t) <= 1e-7)) roots.push(t) }
+  for (const boundary of boundaries) if (Math.abs(evaluate(boundary)) <= tolerance) add(boundary)
+  for (let index = 0; index < boundaries.length - 1; index += 1) {
+    let low = boundaries[index]!, high = boundaries[index + 1]!
+    let fLow = evaluate(low), fHigh = evaluate(high)
+    if (fLow === 0 || fHigh === 0 || Math.sign(fLow) === Math.sign(fHigh)) continue
+    for (let iteration = 0; iteration < 48; iteration += 1) {
+      const middle = (low + high) / 2
+      const fMiddle = evaluate(middle)
+      if (Math.abs(fMiddle) <= tolerance || high - low <= 1e-12) { low = middle; high = middle; break }
+      if (Math.sign(fLow) === Math.sign(fMiddle)) { low = middle; fLow = fMiddle }
+      else { high = middle; fHigh = fMiddle }
+    }
+    add((low + high) / 2)
+  }
+  return roots.sort((x, y) => x - y)
+}
+
+function cubicPoint(segment: Extract<DiagramPathSegment, { kind: "cubic" }>, t: number): DiagramPoint {
+  const u = 1 - t
+  return {
+    x: u ** 3 * segment.start.x + 3 * u * u * t * segment.control1.x + 3 * u * t * t * segment.control2.x + t ** 3 * segment.end.x,
+    y: u ** 3 * segment.start.y + 3 * u * u * t * segment.control1.y + 3 * u * t * t * segment.control2.y + t ** 3 * segment.end.y,
+  }
 }
 
 function lineLineIntersections(target: Extract<DiagramPathSegment, { kind: "line" }>, a: DiagramPoint, b: DiagramPoint): Array<Readonly<{ point: DiagramPoint; targetT: number; strokeT: number }>> {
@@ -474,7 +674,15 @@ function splitPathSegment(segment: DiagramPathSegment, t: number): [DiagramPathS
     const point = { x: segment.start.x + (segment.end.x - segment.start.x) * t, y: segment.start.y + (segment.end.y - segment.start.y) * t }
     return [t > EPSILON ? { kind: "line", start: segment.start, end: point } : null, t < 1 - EPSILON ? { kind: "line", start: point, end: segment.end } : null]
   }
-  if (segment.kind === "cubic") return [null, null]
+  if (segment.kind === "cubic") {
+    const mix = (a: DiagramPoint, b: DiagramPoint): DiagramPoint => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t })
+    const a = mix(segment.start, segment.control1), b = mix(segment.control1, segment.control2), c = mix(segment.control2, segment.end)
+    const d = mix(a, b), e = mix(b, c), point = mix(d, e)
+    return [
+      t > EPSILON ? { kind: "cubic", start: segment.start, control1: a, control2: d, end: point } : null,
+      t < 1 - EPSILON ? { kind: "cubic", start: point, control1: e, control2: c, end: segment.end } : null,
+    ]
+  }
   const angleAt = segment.startAngle + segment.sweepAngle * t
   return [t > EPSILON ? { ...segment, sweepAngle: segment.sweepAngle * t } : null, t < 1 - EPSILON ? { ...segment, startAngle: angleAt, sweepAngle: segment.sweepAngle * (1 - t) } : null]
 }
@@ -496,8 +704,25 @@ function stitchOpenSegments(segments: ReadonlyArray<DiagramPathSegment>): Diagra
 
 function segmentStart(segment: DiagramPathSegment): DiagramPoint { return segment.kind === "line" || segment.kind === "cubic" ? segment.start : arcPoint(segment.center, segment.radius, segment.startAngle) }
 function segmentEnd(segment: DiagramPathSegment): DiagramPoint { return segment.kind === "line" || segment.kind === "cubic" ? segment.end : arcPoint(segment.center, segment.radius, segment.startAngle + segment.sweepAngle) }
-function segmentLength(segment: DiagramPathSegment): number { return segment.kind === "line" ? distance(segment.start, segment.end) : segment.kind === "arc" ? Math.abs(segment.sweepAngle) * segment.radius : 0 }
+function segmentLength(segment: DiagramPathSegment): number {
+  if (segment.kind === "line") return distance(segment.start, segment.end)
+  if (segment.kind === "arc") return Math.abs(segment.sweepAngle) * segment.radius
+  let length = 0, previous = segment.start
+  for (let index = 1; index <= 16; index += 1) { const point = cubicPoint(segment, index / 16); length += distance(previous, point); previous = point }
+  return length
+}
 function cross(a: DiagramPoint, b: DiagramPoint): number { return a.x * b.y - a.y * b.x }
+
+function boundsFromPoints(points: ReadonlyArray<DiagramPoint>): DiagramRect {
+  const xs = points.map((point) => point.x), ys = points.map((point) => point.y)
+  return { x: Math.min(...xs), y: Math.min(...ys), width: Math.max(...xs) - Math.min(...xs), height: Math.max(...ys) - Math.min(...ys) }
+}
+
+function inflateRect(rect: DiagramRect, amount: number): DiagramRect { return { x: rect.x - amount, y: rect.y - amount, width: rect.width + amount * 2, height: rect.height + amount * 2 } }
+
+function rectsOverlap(a: DiagramRect, b: DiagramRect): boolean {
+  return a.x <= b.x + b.width && a.x + a.width >= b.x && a.y <= b.y + b.height && a.y + a.height >= b.y
+}
 
 /** Exact circular arcs and straight cutter-boundary segments for circle minus rectangle. */
 export function subtractRectFromCircle(center: DiagramPoint, radius: number, rect: DiagramRect): DiagramGeometryResult<ReadonlyArray<DiagramPathContour>> {
@@ -548,11 +773,6 @@ function circleRectAngles(center: DiagramPoint, radius: number, rect: DiagramRec
     for (const x of [center.x - Math.sqrt(disc), center.x + Math.sqrt(disc)]) if (x > rect.x + EPSILON && x < rect.x + rect.width - EPSILON) points.push({ x, y })
   }
   return [...new Set(points.map((point) => positive(angle(center, point)).toFixed(10)))].map(Number).sort((a, b) => a - b)
-}
-
-function cubicPoint(segment: Extract<DiagramPathSegment, { kind: "cubic" }>, t: number): DiagramPoint {
-  const u = 1 - t, a = u ** 3, b = 3 * u * u * t, c = 3 * u * t * t, d = t ** 3
-  return { x: a * segment.start.x + b * segment.control1.x + c * segment.control2.x + d * segment.end.x, y: a * segment.start.y + b * segment.control1.y + c * segment.control2.y + d * segment.end.y }
 }
 
 function cubicExtrema(p0: number, p1: number, p2: number, p3: number): number[] {

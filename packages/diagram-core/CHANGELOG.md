@@ -1,5 +1,23 @@
 # @affino/diagram-core
 
+## 0.24.0
+
+### Minor Changes
+
+- Added the `draw-bezier` interaction tool, exact cubic contour draft previews, click-drag anchor tangents, cardinal Shift constraints, close/finish/cancel behavior, and one-step undoable creation.
+- Added `beginBezierHandle()` for transient anchor and tangent editing of cubic path segments; commits use the existing `updateShapePath` command and preserve the path ID.
+- Added north/east/south/west resize handles for one-axis resizing, anchored opposite sides, with rotation/flip-aware previews and commits.
+- Extended `trimSelectionByStroke()` to exact cubic intersections and splits, closed contour outlines, and native rectangular figures; ambiguous topology and self-intersecting strokes return typed findings without changing affected targets.
+
+## 0.23.0
+
+### Minor Changes
+
+- Added frame-batched orthogonal edge-segment dragging through `beginEdgeSegmentHandle()`, with axis-constrained snapping, transient full-route preview, attached endpoint preservation, and one atomic undoable commit.
+- Applied Shift cardinal constraints to click-to-place connector previews relative to the latest confirmed bend and to connector waypoint drags.
+- Clipboard offsets now translate free edge point endpoints together with waypoints while preserving node/port references.
+- Added `DiagramInteractionSnapOptions.portTolerancePx` for independent screen-space connector port capture, with legacy fallback to `tolerancePx`.
+
 ## 0.22.0
 
 ### Minor Changes

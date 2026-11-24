@@ -418,7 +418,7 @@ export type DiagramCommandResult = Readonly<{
   reason?: "scene-locked"
 }>
 
-export type DiagramSweepTrimFindingCode = "invalid-input" | "no-intersection" | "ambiguous-intersection" | "unsupported-target" | "unsupported-geometry" | "connected-edge" | "locked-target" | "anchored-host"
+export type DiagramSweepTrimFindingCode = "invalid-input" | "no-intersection" | "ambiguous-intersection" | "self-intersecting-stroke" | "topology-ambiguous" | "unsupported-target" | "unsupported-geometry" | "connected-edge" | "locked-target" | "anchored-host"
 export type DiagramSweepTrimFinding = Readonly<{
   code: DiagramSweepTrimFindingCode
   targetId?: DiagramId
@@ -463,7 +463,19 @@ export type DiagramBatchOptions = Readonly<{ expectedRevision?: number; operatio
 export type DiagramBatchPreviewResult = DiagramBatchResult & Readonly<{ scene?: SerializedDiagramScene }>
 export type DiagramValidationIssue = Readonly<{ code: string; severity: "error" | "warning"; entityIds: ReadonlyArray<DiagramId>; message: string }>
 
-export type DiagramInteractionTool = "pan" | "select" | "marquee" | "drag-selection" | "resize-selection" | "resize-table-axis" | "drag-edge-endpoint" | "drag-path-vertex" | "connect-edge" | "draw-line" | "draw-path" | "create-port" | "edit-text"
+export type DiagramInteractionTool = "pan" | "select" | "marquee" | "drag-selection" | "resize-selection" | "resize-table-axis" | "drag-edge-endpoint" | "drag-path-vertex" | "drag-edge-segment" | "connect-edge" | "draw-line" | "draw-path" | "draw-bezier" | "create-port" | "edit-text"
+
+export type DiagramBezierAnchor = Readonly<{ point: DiagramPoint; incoming: DiagramPoint; outgoing: DiagramPoint }>
+export type DiagramBezierCreationOptions = Readonly<{ /** Screen-pixel radius for closing onto the first anchor. Defaults to snap tolerance (or 8px). */ closeTolerancePx?: number }>
+export type DiagramBezierCreationPreview = Readonly<{
+  id: DiagramId
+  contour: DiagramPathContour
+  anchors: ReadonlyArray<DiagramBezierAnchor>
+  activeAnchor: DiagramBezierAnchor | null
+  closed: boolean
+}>
+export type DiagramBezierHandleKind = "anchor" | "incoming" | "outgoing"
+export type DiagramBezierHandlePreview = Readonly<{ id: DiagramId; contourIndex: number; segmentIndex: number; handle: DiagramBezierHandleKind; anchorSide?: "start" | "end"; point: DiagramPoint; contours: ReadonlyArray<DiagramPathContour> }>
 
 export type DiagramPortCreationOptions = Readonly<{
   /** Restrict placement to this host; useful when an inspector has already selected it. */
@@ -479,7 +491,7 @@ export type DiagramPortCreationPreview = Readonly<{
   snapResult?: DiagramSnapResult
 }>
 
-export type DiagramResizeHandle = "nw" | "ne" | "se" | "sw"
+export type DiagramResizeHandle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w"
 
 export type DiagramPointerEvent = Readonly<{
   id: number
@@ -512,6 +524,7 @@ export type DiagramInteractionSnapshot = Readonly<{
   resizePreviewEntries: ReadonlyArray<DiagramResizeEntry>
   tableResizePreview: DiagramTableResizePreview | null
   edgeEndpointPreview: DiagramEdgeEndpointPreview | null
+  edgeSegmentPreview: DiagramEdgeSegmentPreview | null
   snapGuides: ReadonlyArray<DiagramSnapGuide>
   snapResult: DiagramSnapResult | null
   snapMarkers: ReadonlyArray<DiagramSnapCandidate>
@@ -520,10 +533,22 @@ export type DiagramInteractionSnapshot = Readonly<{
   edgeCreationPreview: DiagramEdgeCreationPreview | null
   shapeCreationPreview: DiagramShape | null
   pathCreationPreview: Readonly<{ id: DiagramId; vertices: ReadonlyArray<DiagramPoint>; current: DiagramPoint }> | null
+  bezierCreationPreview: DiagramBezierCreationPreview | null
+  bezierHandlePreview: DiagramBezierHandlePreview | null
   portCreationPreview: DiagramPortCreationPreview | null
   edgeWaypointPreview: Readonly<{ id: DiagramId; points: ReadonlyArray<DiagramPoint> }> | null
   pathVertexPreview: Readonly<{ id: DiagramId; index: number; point: DiagramPoint }> | null
   marquee: DiagramRect | null
+}>
+
+export type DiagramEdgeSegmentPreview = Readonly<{
+  id: DiagramId
+  segmentIndex: number
+  axis: "horizontal" | "vertical"
+  path: ReadonlyArray<DiagramPoint>
+  points: ReadonlyArray<DiagramPoint>
+  source: DiagramEdgeEndpoint
+  target: DiagramEdgeEndpoint
 }>
 
 export type DiagramDynamicInputState = Readonly<{ x: number; y: number; dx: number; dy: number; length: number; angle: number }>
@@ -615,6 +640,8 @@ export type DiagramInteractionSnapOptions = Readonly<{
   enabled?: boolean
   /** Pointer tolerance in screen pixels. Converted to world units using the current zoom. */
   tolerancePx?: number
+  /** Connector endpoint capture radius for ports, in screen pixels. Defaults to tolerancePx. */
+  portTolerancePx?: number
   /** Grid spacing in world units. Omit to disable grid snapping. */
   gridSize?: number
   snapToPorts?: boolean
