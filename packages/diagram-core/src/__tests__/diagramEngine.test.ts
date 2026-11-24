@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { clampViewportToBounds, createDiagramEngine, createDiagramInteractionController, deserializeDiagramDocument, deserializeScene, getDiagramTableCellAt, routeOrthogonalConnector, screenToWorld, serializeScene, validateDiagramScene, worldToScreen, zoomViewportAt } from ".."
+import { clampViewportToBounds, createCircularArc, createDiagramEngine, createDiagramInteractionController, deserializeDiagramDocument, deserializeScene, getDiagramTableCellAt, intersectLineSegments, routeOrthogonalConnector, screenToWorld, serializeScene, subtractRectFromCircle, trimAndJoinLines, trimCircleOutsideRect, trimLineByCrossing, validateDiagramScene, worldToScreen, zoomViewportAt } from ".."
 import type { DiagramPoint, DiagramSceneInput } from ".."
 
 const scene: DiagramSceneInput = {
@@ -2451,5 +2451,57 @@ describe("DiagramEngine", () => {
     expect(engine.getScene().entities.edgesById.get("wire")?.points?.[0]).toEqual(waypoint)
     engine.dispatch({ type: "undo" })
     expect(engine.getScene().entities.edgesById.has("wire")).toBe(false)
+  })
+
+  it("creates major circular arcs through three points and preserves them through scene round trips", () => {
+    const arc = createCircularArc({ x: 10, y: 0 }, { x: -10, y: 0 }, { x: 0, y: 10 })
+    expect(arc.ok).toBe(true)
+    if (!arc.ok) return
+    expect(Math.abs(arc.value.segments[0]!.kind === "arc" ? arc.value.segments[0]!.sweepAngle : 0)).toBeGreaterThan(Math.PI)
+    const engine = createDiagramEngine()
+    expect(engine.dispatch({ type: "createPath", path: { id: "arc", kind: "path", contours: [arc.value] } }).changed).toBe(true)
+    const geometry = engine.getGeometrySnapshot("arc")
+    expect(geometry?.bounds.x).toBeCloseTo(-10)
+    expect(geometry?.bounds.y).toBeCloseTo(-10)
+    const beforeRotate = geometry?.pathContours?.[0]?.segments[0]
+    expect(engine.dispatch({ type: "rotateEntities", entries: [{ id: "arc", rotation: 90 }] }).changed).toBe(true)
+    expect(engine.getGeometrySnapshot("arc")?.pathContours?.[0]?.segments[0]).not.toEqual(beforeRotate)
+    engine.dispatch({ type: "undo" })
+    const saved = engine.serialize()
+    const restored = createDiagramEngine(deserializeScene(saved))
+    expect(restored.getGeometrySnapshot("arc")?.pathContours).toEqual(geometry?.pathContours)
+    expect(createCircularArc({ x: 0, y: 0 }, { x: 1, y: 1 }, { x: 2, y: 2 })).toMatchObject({ ok: false, code: "degenerate-arc" })
+  })
+
+  it("trims line fragments, ignores tangencies and returns outside circle arcs", () => {
+    expect(trimLineByCrossing([{ x: 0, y: 0 }, { x: 10, y: 0 }], [{ x: 5, y: -5 }, { x: 5, y: 5 }], { x: 9, y: 0 })).toMatchObject({ ok: true, value: [{ x: 0, y: 0 }, { x: 5, y: 0 }] })
+    expect(intersectLineSegments({ x: 0, y: 0 }, { x: 5, y: 0 }, { x: 5, y: 0 }, { x: 5, y: 5 })).toBeNull()
+    const arcs = trimCircleOutsideRect({ x: 0, y: 0 }, 10, { x: 5, y: -4, width: 10, height: 8 })
+    expect(arcs.ok && arcs.value.length).toBe(1)
+    expect(arcs.ok && arcs.value.every((contour) => contour.segments[0]?.kind === "arc" && contour.closed === false)).toBe(true)
+    expect(trimCircleOutsideRect({ x: 0, y: 0 }, 10, { x: -20, y: -20, width: 40, height: 40 })).toMatchObject({ ok: true, value: [] })
+    expect(trimCircleOutsideRect({ x: 5, y: 0 }, 10, { x: 0, y: -10, width: 20, height: 20 }).value).toHaveLength(1)
+  })
+
+  it("joins selected shoulders and subtracts rectangle contours from circles with holes", () => {
+    const joined = trimAndJoinLines([{ x: 0, y: 5 }, { x: 10, y: 5 }], [{ x: 5, y: 0 }, { x: 5, y: 10 }], { x: 0, y: 5 }, { x: 5, y: 10 })
+    expect(joined).toMatchObject({ ok: true, value: { closed: false, segments: [{ kind: "line", start: { x: 0, y: 5 } }, { kind: "line", end: { x: 5, y: 10 } }] } })
+    const subtraction = subtractRectFromCircle({ x: 0, y: 0 }, 20, { x: -4, y: -4, width: 8, height: 8 })
+    expect(subtraction.ok && subtraction.value).toHaveLength(2)
+    expect(subtraction.ok && subtraction.value[1]?.hole).toBe(true)
+    if (subtraction.ok) {
+      const engine = createDiagramEngine()
+      expect(engine.dispatch({ type: "createPath", path: { id: "donut", kind: "path", contours: subtraction.value } }).changed).toBe(true)
+      expect(engine.hitTest({ x: 0, y: 0 })).toBeNull()
+      expect(engine.hitTest({ x: 15, y: 0 })?.id).toBe("donut")
+      expect(createDiagramEngine(deserializeScene(engine.serialize())).getGeometrySnapshot("donut")?.pathContours).toEqual(subtraction.value)
+    }
+    const partial = subtractRectFromCircle({ x: 0, y: 0 }, 20, { x: 10, y: -5, width: 15, height: 10 })
+    expect(partial.ok).toBe(true)
+    expect(partial.ok && partial.value.length).toBeGreaterThan(0)
+    expect(partial.ok && partial.value.every((contour) => contour.closed === true)).toBe(true)
+    expect(subtractRectFromCircle({ x: 0, y: 0 }, 20, { x: 30, y: 30, width: 5, height: 5 })).toMatchObject({ ok: true, value: [{ closed: true }] })
+    expect(subtractRectFromCircle({ x: 0, y: 0 }, 20, { x: -30, y: -30, width: 60, height: 60 })).toMatchObject({ ok: true, value: [] })
+    expect(trimAndJoinLines([{ x: 0, y: 0 }, { x: 1, y: 0 }], [{ x: 0, y: 2 }, { x: 1, y: 2 }], { x: 0, y: 0 }, { x: 0, y: 2 })).toMatchObject({ ok: false, code: "no-intersection" })
   })
 })

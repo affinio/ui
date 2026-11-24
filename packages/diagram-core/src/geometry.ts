@@ -1,4 +1,5 @@
 import type { DiagramEdge, DiagramEdgeEndpoint, DiagramEntities, DiagramGeometry, DiagramId, DiagramOrthogonalRouteOptions, DiagramOrthogonalRouteResult, DiagramPoint, DiagramPort, DiagramRect, DiagramTable, DiagramTableCellPosition } from "./types.js"
+import { flattenPathContour, pathContourBoundsPoints, transformPathContour, translatePathContour } from "./pathOperations.js"
 
 export function rectIntersects(a: DiagramRect, b: DiagramRect): boolean {
   return a.x <= b.x + b.width && a.x + a.width >= b.x && a.y <= b.y + b.height && a.y + a.height >= b.y
@@ -125,6 +126,14 @@ export function createEntityGeometry(id: DiagramId, entities: DiagramEntities): 
   }
   const shape = entities.shapesById.get(id)
   if (shape) {
+    if (shape.pathContours?.length) {
+      const transformOrigin = { x: shape.x + shape.width / 2, y: shape.y + shape.height / 2 }
+      const pathContours = shape.pathContours.map((contour) => transformPathContour(translatePathContour(contour, shape.x, shape.y), transformOrigin, shape.rotation ?? 0, shape.flipX, shape.flipY))
+      const contours = pathContours.map((contour) => flattenPathContour(contour))
+      const path = contours.flat()
+      const bounds = rectFromPoints(pathContours.flatMap(pathContourBoundsPoints))
+      return { id, kind: "shape", bounds, hitBounds: inflateRect(bounds, 6), path, pathContours }
+    }
     if (shape.shape === "line" && shape.points?.length) {
       const center = { x: shape.x + shape.width / 2, y: shape.y + shape.height / 2 }
       const path = shape.points.map((point) => {

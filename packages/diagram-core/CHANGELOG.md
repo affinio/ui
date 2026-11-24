@@ -1,5 +1,13 @@
 # @affino/diagram-core
 
+## 0.18.0
+
+### Minor Changes
+
+- Added exact circular-arc Path contours, three-point `createArc`, path bounds, serialization, SVG path projection helpers, and hole-aware hit testing.
+- Added deterministic line intersection, straight-fragment trim, circle/rectangle arc trim, line Trim & Join, and circle-minus-rectangle geometry helpers with structured failures.
+- Added undoable `updateShapePath`; operations can be composed with `dispatchBatch` for atomic trim/join/subtract commits.
+
 ## 0.17.0
 
 ### Minor Changes

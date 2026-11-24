@@ -9,11 +9,17 @@ import {
   useDiagramVisibleEntities,
   type DiagramRenderEntity,
 } from "@affino/diagram-vue"
-import { createEntityGeometry, type DiagramClipboard, type DiagramEdgeEndpoint, type DiagramGeometry, type DiagramPoint, type DiagramSceneInput } from "@affino/diagram-core"
+import { createCircularArc, createEntityGeometry, pathContourSvg, subtractRectFromCircle, trimAndJoinLines, trimCircleOutsideRect, trimLineByCrossing, type DiagramClipboard, type DiagramEdgeEndpoint, type DiagramGeometry, type DiagramPathContour, type DiagramPoint, type DiagramSceneInput, type DiagramShape } from "@affino/diagram-core"
 import { beginDiagramHandleInteraction } from "./diagramHandleInteractions"
 
 const stageRef = ref<HTMLElement | null>(null)
 const clipboard = ref<DiagramClipboard | null>(null)
+const geometryMode = ref<"arc" | "trim-line" | "trim-circle" | "join" | "subtract" | null>(null)
+const arcPoints = ref<DiagramPoint[]>([])
+const operationPointer = ref<DiagramPoint | null>(null)
+const joinShoulders = ref<DiagramPoint[]>([])
+const geometryMessage = ref("")
+let nextGeometryId = 1
 
 const GRID_COLUMNS = 40
 const GENERATED_NODE_COUNT = 1000
@@ -85,7 +91,13 @@ const selection = useDiagramSelection(diagram)
 const visible = useDiagramVisibleEntities(diagram, { overscan: 80 })
 const viewport = useDiagramViewport(diagram, { element: stageRef })
 const pointer = useDiagramPointerController(diagram, { toWorldPoint })
-const pointerProps = pointer.getSvgPointerProps()
+const corePointerProps = pointer.getSvgPointerProps()
+const pointerProps = {
+  onPointerdown: handleStagePointerDown,
+  onPointermove: handleStagePointerMove,
+  onPointerup: handleStagePointerUp,
+  onPointercancel: handleStagePointerCancel,
+}
 
 const selectedLabel = computed(() => {
   const id = selection.selection.value.primaryId
@@ -136,6 +148,190 @@ const renderEntities = computed(() => {
   }
   return projection.ids.map((id) => byId.get(id)).filter((entity): entity is DiagramRenderEntity => entity !== undefined)
 })
+const geometryPreview = computed(() => {
+  const point = operationPointer.value
+  const ids = selection.selection.value.ids
+  if (geometryMode.value === "arc" && arcPoints.value.length === 2 && point) {
+    const result = createCircularArc(arcPoints.value[0]!, point, arcPoints.value[1]!)
+    return result.ok ? [result.value] : []
+  }
+  if (geometryMode.value === "trim-line" && point && ids.length >= 2) {
+    const target = diagram.scene.value.entities.shapesById.get(ids[0]!)
+    const cutter = diagram.scene.value.entities.shapesById.get(ids[1]!)
+    if (!target || !cutter || target.shape !== "line" || cutter.shape !== "line" || target.rotation || cutter.rotation) return []
+    const targetPath = shapeLinePoints(target), cutterPath = shapeLinePoints(cutter)
+    if (distanceToPath(point, targetPath) > 8 / viewport.viewport.value.zoom || distanceToPath(point, cutterPath) > 8 / viewport.viewport.value.zoom) return []
+    const result = trimLineByCrossing(targetPath, cutterPath, point)
+    if (!result.ok) return []
+    const source = shapeLinePoints(target)
+    const removed = Math.hypot(result.value[0]!.x - source[0]!.x, result.value[0]!.y - source[0]!.y) < 1e-7
+      ? [result.value[1]!, source[1]!]
+      : [source[0]!, result.value[0]!]
+    return [{ segments: [{ kind: "line" as const, start: removed[0]!, end: removed[1]! }], closed: false }]
+  }
+  if (geometryMode.value === "trim-circle" || geometryMode.value === "subtract") {
+    const base = diagram.scene.value.entities.shapesById.get(ids[0]!)
+    const cutter = diagram.scene.value.entities.shapesById.get(ids[1]!)
+    if (!base || !cutter || base.shape !== "ellipse" || base.width !== base.height || base.rotation || cutter.shape !== "rect" || cutter.rotation) return []
+    const circle = { x: base.x + base.width / 2, y: base.y + base.height / 2 }
+    const result = geometryMode.value === "trim-circle"
+      ? trimCircleOutsideRect(circle, base.width / 2, cutter)
+      : subtractRectFromCircle(circle, base.width / 2, cutter)
+    return result.ok ? result.value : []
+  }
+  if (geometryMode.value === "join" && ids.length === 2 && joinShoulders.value.length === 2) {
+    const first = diagram.scene.value.entities.shapesById.get(ids[0]!)
+    const second = diagram.scene.value.entities.shapesById.get(ids[1]!)
+    if (!first || !second) return []
+    const result = trimAndJoinLines(shapeLinePoints(first), shapeLinePoints(second), joinShoulders.value[0]!, joinShoulders.value[1]!)
+    return result.ok ? [result.value] : []
+  }
+  return []
+})
+
+function shapeLinePoints(shape: DiagramShape): DiagramPoint[] {
+  if (shape.points?.length) return shape.points.map((point) => ({ x: shape.x + point.x, y: shape.y + point.y }))
+  return [{ x: shape.x, y: shape.y }, { x: shape.x + shape.width, y: shape.y + shape.height }]
+}
+
+function startGeometryMode(mode: typeof geometryMode.value): void {
+  geometryMode.value = mode
+  arcPoints.value = []
+  joinShoulders.value = []
+  operationPointer.value = null
+  geometryMessage.value = mode === "subtract" ? "Select base circle first, cutter rectangle second." : mode === "trim-circle" ? "Select circle first and trim boundary second." : ""
+}
+
+function handleStagePointerDown(event: PointerEvent): void {
+  if (!geometryMode.value) { corePointerProps.onPointerdown(event); return }
+  event.preventDefault()
+  const point = snappedGeometryPoint(toWorldPoint(event))
+  operationPointer.value = point
+  if (geometryMode.value === "arc") {
+    if (arcPoints.value.length < 2) arcPoints.value = [...arcPoints.value, point]
+    else { operationPointer.value = point; confirmGeometryOperation() }
+  } else if (geometryMode.value === "trim-line") {
+    confirmGeometryOperation()
+  } else if (geometryMode.value === "join") {
+    if (joinShoulders.value.length < 2) {
+      const id = selection.selection.value.ids[joinShoulders.value.length]
+      const shape = id ? diagram.scene.value.entities.shapesById.get(id) : null
+      if (shape?.shape === "line" && distanceToPath(point, shapeLinePoints(shape)) <= 8 / viewport.viewport.value.zoom) joinShoulders.value = [...joinShoulders.value, point]
+      else geometryMessage.value = "Click directly on a line shoulder."
+    }
+  }
+}
+
+function handleStagePointerMove(event: PointerEvent): void {
+  if (!geometryMode.value) { corePointerProps.onPointermove(event); return }
+  operationPointer.value = snappedGeometryPoint(toWorldPoint(event))
+}
+
+function snappedGeometryPoint(point: DiagramPoint): DiagramPoint {
+  return diagram.engine.snapPoint(point, { tolerancePx: 8, gridSize: 24, snapToPorts: true, kinds: ["grid", "port", "endpoint", "midpoint", "intersection", "nearest"] }).point
+}
+
+function distanceToPath(point: DiagramPoint, path: ReadonlyArray<DiagramPoint>): number {
+  let best = Number.POSITIVE_INFINITY
+  for (let index = 1; index < path.length; index += 1) {
+    const start = path[index - 1]!, end = path[index]!, dx = end.x - start.x, dy = end.y - start.y
+    const length = dx * dx + dy * dy
+    const t = length ? Math.max(0, Math.min(1, ((point.x - start.x) * dx + (point.y - start.y) * dy) / length)) : 0
+    best = Math.min(best, Math.hypot(point.x - start.x - t * dx, point.y - start.y - t * dy))
+  }
+  return best
+}
+
+function handleStagePointerUp(event: PointerEvent): void {
+  if (!geometryMode.value) corePointerProps.onPointerup(event)
+}
+
+function handleStagePointerCancel(): void {
+  if (geometryMode.value) { startGeometryMode(null); geometryMessage.value = "Operation cancelled." }
+  else corePointerProps.onPointercancel()
+}
+
+function confirmGeometryOperation(): void {
+  const mode = geometryMode.value
+  const ids = selection.selection.value.ids
+  const shapes = diagram.scene.value.entities.shapesById
+  if (!mode) return
+  if (mode === "arc") {
+    const start = arcPoints.value[0], end = arcPoints.value[1], through = operationPointer.value
+    if (!start || !end || !through) { geometryMessage.value = "Pick the start, end, then a point on the arc."; return }
+    const checked = createCircularArc(start, through, end)
+    if (!checked.ok) { geometryMessage.value = checked.message; return }
+    const id = `playground-arc-${nextGeometryId++}`
+    diagram.dispatch({ type: "createArc", id, start, through, end })
+    selection.setSelection([id], id)
+    startGeometryMode(null)
+    return
+  }
+  if (mode === "trim-line" && ids.length >= 2 && operationPointer.value) {
+    const target = shapes.get(ids[0]!), cutter = shapes.get(ids[1]!)
+    if (!target || !cutter || target.shape !== "line" || cutter.shape !== "line" || target.rotation || cutter.rotation || !diagram.engine.canMove([target.id, cutter.id])) { geometryMessage.value = "Select two unlocked, unrotated line shapes."; return }
+    const result = trimLineByCrossing(shapeLinePoints(target), shapeLinePoints(cutter), operationPointer.value)
+    if (!result.ok) { geometryMessage.value = result.message; return }
+    if (!geometryPreview.value.length) { geometryMessage.value = "Move over the fragment to remove within the screen tolerance."; return }
+    const points = result.value.map((point) => ({ x: point.x - target.x, y: point.y - target.y }))
+    diagram.dispatch({ type: "updateShapePath", id: target.id, points })
+    startGeometryMode(null)
+    return
+  }
+  if ((mode === "trim-circle" || mode === "subtract") && ids.length >= 2) {
+    const base = shapes.get(ids[0]!), cutter = shapes.get(ids[1]!)
+    if (!base || !cutter || !diagram.engine.canMove([base.id, cutter.id])) { geometryMessage.value = "Select two unlocked shapes in the shown order."; return }
+    if (base.shape !== "ellipse" || base.width !== base.height || base.rotation || cutter.shape !== "rect" || cutter.rotation) { geometryMessage.value = "This operation supports an unrotated circle and rectangle."; return }
+    const circle = { x: base.x + base.width / 2, y: base.y + base.height / 2 }
+    const result = mode === "trim-circle" ? trimCircleOutsideRect(circle, base.width / 2, cutter) : subtractRectFromCircle(circle, base.width / 2, cutter)
+    if (!result.ok) { geometryMessage.value = result.message; return }
+    if (mode === "trim-circle") {
+      if (!result.value.length) diagram.dispatch({ type: "deleteEntities", ids: [base.id] })
+      else if (result.value.length === 1 && result.value[0]?.segments[0]?.kind === "arc" && Math.abs(Math.abs(result.value[0].segments[0].sweepAngle) - Math.PI * 2) < 1e-8) {
+        geometryMessage.value = "The circle and trim boundary do not intersect."; return
+      } else diagram.dispatch({ type: "updateShapePath", id: base.id, pathContours: result.value })
+    } else if (!result.value.length) {
+      diagram.dispatch({ type: "deleteEntities", ids: [base.id, cutter.id] })
+    } else {
+      const noOverlap = result.value.length === 1 && result.value[0]?.segments.length === 1 && result.value[0]?.segments[0]?.kind === "arc" && Math.abs(Math.abs(result.value[0].segments[0].sweepAngle) - Math.PI * 2) < 1e-8
+      if (noOverlap) { geometryMessage.value = "The shapes do not overlap."; return }
+      const batch = diagram.engine.dispatchBatch([{ type: "updateShapePath", id: base.id, pathContours: result.value }, { type: "deleteEntities", ids: [cutter.id] }], { expectedRevision: diagram.engine.getDocumentRevision() })
+      if (!batch.ok) { geometryMessage.value = "Subtract was rejected; the scene was not changed."; return }
+    }
+    startGeometryMode(null)
+    return
+  }
+  if (mode === "join" && ids.length === 2 && joinShoulders.value.length === 2) {
+    const first = shapes.get(ids[0]!), second = shapes.get(ids[1]!)
+    if (!first || !second || first.shape !== "line" || second.shape !== "line" || first.rotation || second.rotation || !diagram.engine.canMove([first.id, second.id])) { geometryMessage.value = "Select two unlocked, unrotated line shapes."; return }
+    const joined = trimAndJoinLines(shapeLinePoints(first), shapeLinePoints(second), joinShoulders.value[0]!, joinShoulders.value[1]!)
+    if (!joined.ok) { geometryMessage.value = joined.message; return }
+    const id = `playground-join-${nextGeometryId++}`
+    const batch = diagram.engine.dispatchBatch([{ type: "deleteEntities", ids: [first.id, second.id] }, { type: "createPath", path: { id, kind: "path", contours: [joined.value], metadata: first.metadata } }], { expectedRevision: diagram.engine.getDocumentRevision() })
+    if (!batch.ok) { geometryMessage.value = "Join was rejected; the scene was not changed."; return }
+    selection.setSelection([id], id)
+    startGeometryMode(null)
+  }
+}
+
+function pathData(contours: ReadonlyArray<DiagramPathContour>): string { return contours.map(pathContourSvg).join(" ") }
+
+function addSampleShape(shape: "circle" | "rect" | "lines"): void {
+  const id = `playground-${shape}-${nextGeometryId++}`
+  const x = viewport.viewport.value.x + 180, y = viewport.viewport.value.y + 120
+  if (shape === "circle") diagram.dispatch({ type: "createShape", shape: { id, kind: "shape", shape: "ellipse", x, y, width: 120, height: 120 } })
+  else if (shape === "rect") diagram.dispatch({ type: "createShape", shape: { id, kind: "shape", shape: "rect", x: x + 70, y: y + 20, width: 100, height: 80 } })
+  else {
+    const first = `${id}-a`, second = `${id}-b`
+    diagram.engine.dispatchBatch([
+      { type: "createShape", shape: { id: first, kind: "shape", shape: "line", x, y: y + 30, width: 130, height: 100 } },
+      { type: "createShape", shape: { id: second, kind: "shape", shape: "line", x: x + 65, y, width: 0, height: 160 } },
+    ])
+    selection.setSelection([first, second], second)
+    return
+  }
+  selection.setSelection([id], id)
+}
 
 function toWorldPoint(event: PointerEvent): DiagramPoint {
   const rect = stageRef.value?.getBoundingClientRect()
@@ -336,6 +532,12 @@ function resizeSelected(): void {
 }
 
 function handleStageKeydown(event: KeyboardEvent): void {
+  if (geometryMode.value && event.key === "Escape") {
+    event.preventDefault(); startGeometryMode(null); geometryMessage.value = "Operation cancelled."; return
+  }
+  if (geometryMode.value && event.key === "Enter") {
+    event.preventDefault(); confirmGeometryOperation(); return
+  }
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
     event.preventDefault()
     diagram.engine.dispatchKeyboardCommand(event.shiftKey ? "redo" : "undo")
@@ -478,6 +680,9 @@ function clamp(value: number, min: number, max: number): number {
         <button type="button" @click="duplicateSelected">Duplicate</button>
         <button type="button" @click="copySelection">Copy</button>
         <button type="button" @click="pasteClipboard">Paste</button>
+        <button type="button" @click="addSampleShape('circle')">Add circle</button>
+        <button type="button" @click="addSampleShape('rect')">Add rectangle</button>
+        <button type="button" @click="addSampleShape('lines')">Add crossing lines</button>
       </div>
 
       <div class="diagram-viewport-controls" aria-label="Canvas navigation">
@@ -523,6 +728,14 @@ function clamp(value: number, min: number, max: number): number {
         <button class="wide" type="button" @click="diagram.engine.fitSelection()">Fit selection</button>
         <button class="wide" type="button" @click="diagram.engine.fitScene()">Fit scene</button>
         <button class="wide" type="button" @click="resetViewport">Reset view</button>
+        <button class="wide" :class="{ active: geometryMode === 'arc' }" type="button" @click="startGeometryMode('arc')">Arc (3 points)</button>
+        <button class="wide" :class="{ active: geometryMode === 'trim-line' }" type="button" @click="startGeometryMode('trim-line')">Trim line</button>
+        <button class="wide" :class="{ active: geometryMode === 'trim-circle' }" type="button" @click="startGeometryMode('trim-circle')">Trim circle by rectangle</button>
+        <button class="wide" :class="{ active: geometryMode === 'join' }" type="button" @click="startGeometryMode('join')">Trim &amp; Join</button>
+        <button class="wide" :class="{ active: geometryMode === 'subtract' }" type="button" @click="startGeometryMode('subtract')">Subtract rectangle</button>
+        <button v-if="geometryMode && geometryMode !== 'arc' && geometryMode !== 'trim-line'" class="wide" type="button" @click="confirmGeometryOperation">Apply {{ geometryMode }}</button>
+        <button v-if="geometryMode" class="wide" type="button" @click="startGeometryMode(null)">Cancel geometry tool</button>
+        <p v-if="geometryMode" class="wide geometry-help">{{ geometryMode === 'arc' ? 'Click start, click end, move through the arc, then click to create. Esc cancels.' : geometryMode === 'trim-line' ? 'Select target line first and cutter line second; click the fragment to remove.' : geometryMode === 'join' ? 'Select two crossing lines; click one retained shoulder on each, then Apply.' : geometryMode === 'trim-circle' ? 'Select circle first and rectangle second; Apply keeps open arcs outside it.' : 'Select base circle first and cutter rectangle second; Apply keeps the result.' }} {{ geometryMessage }}</p>
       </div>
 
       <dl class="diagram-stats">
@@ -551,7 +764,9 @@ function clamp(value: number, min: number, max: number): number {
           </defs>
           <rect class="diagram-grid-fill" :x="displayViewport.x" :y="displayViewport.y" :width="displayViewport.width" :height="displayViewport.height" fill="url(#diagram-grid)" />
           <template v-for="entity in renderEntities" :key="entity.id">
-            <rect v-if="entity.kind === 'shape'" class="diagram-bus" v-bind="rectPreviewProps(entity)" :transform="entityTransform(entity)" />
+            <path v-if="entity.kind === 'shape' && entity.geometry.pathContours?.length" class="diagram-operation-path" :class="{ selected: entity.selected, 'is-filled': entity.geometry.pathContours.some((contour) => contour.closed) }" :d="pathData(entity.geometry.pathContours)" fill-rule="evenodd" />
+            <polyline v-else-if="entity.kind === 'shape' && entity.geometry.path" class="diagram-bus diagram-path-line" :points="entity.geometry.path.map((point) => `${point.x},${point.y}`).join(' ')" :transform="entityTransform(entity)" />
+            <rect v-else-if="entity.kind === 'shape'" class="diagram-bus" v-bind="rectPreviewProps(entity)" :transform="entityTransform(entity)" />
             <polyline v-else-if="entity.kind === 'edge'" class="diagram-edge" :class="{ selected: entity.selected }" v-bind="edgePreviewProps(entity)" />
             <rect v-else-if="entity.kind === 'node'" class="diagram-node" :class="{ selected: entity.selected }" v-bind="rectPreviewProps(entity)" :transform="entityTransform(entity)" />
             <circle v-else-if="entity.kind === 'port'" class="diagram-port" v-bind="portPreviewProps(entity)" />
@@ -559,6 +774,7 @@ function clamp(value: number, min: number, max: number): number {
               {{ diagram.scene.value.entities.textsById.get(entity.id)?.text }}
             </text>
           </template>
+          <path v-for="(contour, index) in geometryPreview" :key="`operation-preview-${index}`" class="diagram-operation-preview" :class="{ 'is-filled': geometryMode === 'subtract' }" :d="pathContourSvg(contour)" fill-rule="evenodd" />
           <line v-for="(guide, index) in snapGuides" :key="`snap-${index}`" class="diagram-snap-guide" :class="`diagram-snap-guide--${guide.kind}`" :data-axis="guide.axis" :x1="guide.start.x" :y1="guide.start.y" :x2="guide.end.x" :y2="guide.end.y" />
           <template v-if="showSelectionOverlays">
             <rect v-for="anchor in visible.projection.value.overlayAnchors" :key="anchor.id" class="diagram-anchor" :x="anchor.rect.x" :y="anchor.rect.y" :width="anchor.rect.width" :height="anchor.rect.height" />
@@ -783,6 +999,20 @@ button.active {
   stroke: #8d321e;
   stroke-width: 1;
 }
+
+.diagram-path-line,
+.diagram-operation-path {
+  fill: none;
+  stroke: #8d321e;
+  stroke-width: 3;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.diagram-operation-path.is-filled { fill: #c85d3c; fill-opacity: 0.24; }
+.diagram-operation-preview { fill: none; stroke: #147a65; stroke-width: 4; stroke-dasharray: 8 5; pointer-events: none; }
+.diagram-operation-preview.is-filled { fill: #147a65; fill-opacity: 0.2; }
+.geometry-help { grid-column: 1 / -1; margin: 0; color: #52645e; font-size: 0.8rem; }
 
 
 .diagram-svg-label {

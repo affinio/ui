@@ -1,4 +1,5 @@
 import { createEntityGeometry, distance, inflateRect, rectContainsPoint, rectIntersects, rotatePoint } from "./geometry.js"
+import { createCircularArc, flattenPathContour, pathContourBoundsPoints, translatePathContour } from "./pathOperations.js"
 import { DiagramClipboardService } from "./internal/DiagramClipboardService.js"
 import { DiagramGeometryService } from "./internal/DiagramGeometryService.js"
 import { DiagramHistory } from "./internal/DiagramHistory.js"
@@ -36,6 +37,7 @@ import type {
   DiagramId,
   DiagramPoint,
   DiagramPath,
+  DiagramPathContour,
   DiagramQueryOptions,
   DiagramRect,
   DiagramRenderOrderOptions,
@@ -924,6 +926,12 @@ export class DiagramEngine {
         return createCreateShapePatch(this.state, command.shape)
       case "createPath":
         return createCreatePathPatch(this.state, command.path)
+      case "createArc": {
+        const arc = createCircularArc(command.start, command.through, command.end)
+        return arc.ok ? createCreatePathPatch(this.state, { id: command.id, kind: "path", contours: [arc.value], ...(command.metadata ? { metadata: command.metadata } : {}) }) : null
+      }
+      case "updateShapePath":
+        return createUpdateShapePathPatch(this.state, command.id, command.points, command.pathContours)
       case "movePathVertex":
         return createPathVertexPatch(this.state, command.id, command.index, command.point, false)
       case "removePathVertex":
@@ -2227,10 +2235,33 @@ function createCreateShapePatch(state: InternalState, shape: DiagramShape): Patc
 }
 
 function createCreatePathPatch(state: InternalState, path: DiagramPath): Patch | null {
-  if (!path.id || !Array.isArray(path.points) || path.points.length < 2 || path.points.some((point) => ![point.x, point.y].every(Number.isFinite))) return null
-  const minX = Math.min(...path.points.map((point) => point.x)), minY = Math.min(...path.points.map((point) => point.y))
-  const maxX = Math.max(...path.points.map((point) => point.x)), maxY = Math.max(...path.points.map((point) => point.y))
-  return createCreateShapePatch(state, { id: path.id, kind: "shape", shape: "line", x: minX, y: minY, width: maxX - minX, height: maxY - minY, points: path.points.map((point) => ({ x: point.x - minX, y: point.y - minY })), ...(path.metadata ? { metadata: path.metadata } : {}) })
+  if (!path.id || (!path.points && !path.contours) || (path.points && (path.points.length < 2 || path.points.some((point) => ![point.x, point.y].every(Number.isFinite))))) return null
+  if (path.contours && !validPathContours(path.contours)) return null
+  const allPoints = [...(path.points ?? []), ...(path.contours ?? []).flatMap((contour) => [...pathContourBoundsPoints(contour)])]
+  if (allPoints.length < 2) return null
+  const minX = Math.min(...allPoints.map((point) => point.x)), minY = Math.min(...allPoints.map((point) => point.y))
+  const maxX = Math.max(...allPoints.map((point) => point.x)), maxY = Math.max(...allPoints.map((point) => point.y))
+  return createCreateShapePatch(state, { id: path.id, kind: "shape", shape: "line", x: minX, y: minY, width: maxX - minX, height: maxY - minY, ...(path.points ? { points: path.points.map((point) => ({ x: point.x - minX, y: point.y - minY })) } : {}), ...(path.contours ? { pathContours: path.contours.map((contour) => translatePathContour(contour, -minX, -minY)) } : {}), ...(path.metadata ? { metadata: path.metadata } : {}) })
+}
+
+function validPathContours(contours: ReadonlyArray<DiagramPathContour>): boolean {
+  return contours.length > 0 && contours.every((contour) => contour.segments.length > 0 && contour.segments.every((segment) => segment.kind === "line"
+    ? [segment.start.x, segment.start.y, segment.end.x, segment.end.y].every(Number.isFinite)
+    : [segment.center.x, segment.center.y, segment.radius, segment.startAngle, segment.sweepAngle].every(Number.isFinite) && segment.radius > 0 && Math.abs(segment.sweepAngle) > 0 && Math.abs(segment.sweepAngle) <= Math.PI * 2 + 1e-8))
+}
+
+function createUpdateShapePathPatch(state: InternalState, id: DiagramId, points?: ReadonlyArray<DiagramPoint>, contours?: ReadonlyArray<DiagramPathContour>): Patch | null {
+  const previous = state.entities.shapesById.get(id)
+  if (!previous || isEntityLockedOrReadOnly(state, id) || (!points && !contours)) return null
+  if (points && (points.length < 2 || points.some((point) => ![point.x, point.y].every(Number.isFinite)))) return null
+  if (contours && !validPathContours(contours)) return null
+  const world = [...(points ?? []).map((point) => ({ x: previous.x + point.x, y: previous.y + point.y })), ...(contours ?? []).flatMap((contour) => pathContourBoundsPoints(contour))]
+  if (world.length < 2) return null
+  const minX = Math.min(...world.map((point) => point.x)), minY = Math.min(...world.map((point) => point.y))
+  const maxX = Math.max(...world.map((point) => point.x)), maxY = Math.max(...world.map((point) => point.y))
+  const next: DiagramShape = { ...previous, shape: "line", x: minX, y: minY, width: maxX - minX, height: maxY - minY, points: points ? points.map((point) => ({ x: point.x + previous.x - minX, y: point.y + previous.y - minY })) : undefined, pathContours: contours?.map((contour) => translatePathContour(contour, -minX, -minY)) }
+  const apply = (value: DiagramShape): Patch["apply"] => (draft) => { draft.entities.shapesById.set(id, value); return new Set([id]) }
+  return { apply: apply(next), inverse: { apply: apply(previous), inverse: undefined as unknown as Patch } }
 }
 
 function createPathVertexPatch(state: InternalState, id: DiagramId, index: number, point: DiagramPoint | null, remove: boolean): Patch | null {
@@ -2273,7 +2304,8 @@ function isValidDiagramShape(shape: DiagramShape): boolean {
   return Boolean(shape && [shape.x, shape.y, shape.width, shape.height, shape.rotation ?? 0].every(Number.isFinite)
     && shape.width >= 0 && shape.height >= 0 && validFlipFlags(shape)
     && isValidCornerRadius(shape, shape.cornerRadius ?? 0)
-    && (!shape.points || (shape.shape === "line" && shape.points.length >= 2 && shape.points.every((point) => [point.x, point.y].every(Number.isFinite)))))
+    && (!shape.points || (shape.shape === "line" && shape.points.length >= 2 && shape.points.every((point) => [point.x, point.y].every(Number.isFinite))))
+    && (!shape.pathContours || validPathContours(shape.pathContours)))
 }
 
 function createTableSnapshotPatch(id: DiagramId, previous: DiagramTable, next: DiagramTable, orderChanged = false): Patch | null {
@@ -3125,6 +3157,17 @@ function hitDistanceForGeometry(geometry: DiagramGeometry, point: DiagramPoint, 
     const edgeDistance = distanceToPath(point, geometry.path ?? [])
     const tolerance = Math.max(radius, 6)
     return edgeDistance <= tolerance ? edgeDistance : null
+  }
+  if (geometry.pathContours?.length) {
+    let inside = false
+    let best = Number.POSITIVE_INFINITY
+    for (const contour of geometry.pathContours) {
+      const path = flattenPathContour(contour)
+      if (contour.closed && pointInPolygon(point, path)) inside = !inside
+      best = Math.min(best, distanceToPath(point, path))
+    }
+    if (inside) return 0
+    return best <= radius ? best : null
   }
   if (geometry.corners?.length) {
     if (pointInPolygon(point, geometry.corners)) return 0

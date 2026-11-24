@@ -1,5 +1,13 @@
 # @affino/diagram-vue
 
+## 0.17.0
+
+### Minor Changes
+
+- Added SVG path-data projection for exact circular contours.
+- Added Arc, Trim, Trim & Join, and Subtract controls with preview and apply flows to the diagram playground.
+- Updated the workspace dependency to `@affino/diagram-core` 0.18.0.
+
 ## 0.16.0
 
 ### Minor Changes

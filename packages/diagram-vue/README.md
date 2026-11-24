@@ -66,6 +66,8 @@ For a free line shape, call `pointer.beginLineCreation(id, event)`; render `poin
 
 Click-to-place drawing is available through `useDiagramPointerController()`: `beginPathCreation(id, event, "line")` places a two-click line; omit the mode for a multipoint free path, then finish with `finishPathCreation()` (Enter) or a double click. Use `beginEdgePathCreation(id, event, options)` for a connector whose later clicks add route bends; finish with `finishEdgePathCreation()` or snap its target to a port. The reactive `state.value.pathCreationPreview` and `edgeCreationPreview` are transient Core projections. Selected path vertices and edge waypoints appear as `activeHandles` (`path-vertex` and `waypoint`); pass them to `beginPathVertexHandle()` or `beginEdgeWaypointHandle()` to edit. Existing drag-to-draw methods remain supported.
 
+Shapes with exact Core `pathContours` are projected by `getSvgEntityProps()` as SVG `d` path data with `fill-rule="evenodd"`; render that entity as `<path>`. The diagram playground demonstrates three-point Arc, straight-line Trim, circle-by-rectangle Trim, two-line Trim & Join, and circle-minus-rectangle Subtract previews. Selection order is explicit: base/target first, cutter second; Trim & Join shoulder clicks select the two retained line ends. Escape cancels the active tool. These tools use Core geometry helpers and `updateShapePath`/`dispatchBatch`; Vue owns only pointer handling and display.
+
 ```ts
 const pointer = useDiagramPointerController(diagram, {
   toWorldPoint: (event) => screenToWorld(diagram.scene.value.viewport, { x: event.clientX, y: event.clientY }),

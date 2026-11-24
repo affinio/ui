@@ -17,6 +17,10 @@ export type DiagramPoint = Readonly<{
   y: number
 }>
 
+export type DiagramPathSegment = Readonly<{ kind: "line"; start: DiagramPoint; end: DiagramPoint }>
+  | Readonly<{ kind: "arc"; center: DiagramPoint; radius: number; startAngle: number; sweepAngle: number }>
+export type DiagramPathContour = Readonly<{ segments: ReadonlyArray<DiagramPathSegment>; closed?: boolean; hole?: boolean }>
+
 /** Horizontal reflects X (left/right); vertical reflects Y (top/bottom). */
 export type DiagramFlipAxis = "horizontal" | "vertical"
 
@@ -109,11 +113,13 @@ export type DiagramShape = DiagramEntityBase & Readonly<{
   cornerRadius?: number
   /** Optional local-coordinate vertices for a free polyline shape. Never creates connectivity. */
   points?: ReadonlyArray<DiagramPoint>
+  /** Exact line/circular-arc contours in shape-local coordinates. */
+  pathContours?: ReadonlyArray<DiagramPathContour>
   shape: "rect" | "ellipse" | "line" | string
 }>
 
 /** Free, non-electrical polyline defined by world-space vertices. */
-export type DiagramPath = DiagramEntityBase & Readonly<{ kind: "path"; points: ReadonlyArray<DiagramPoint>; metadata?: DiagramMetadata }>
+export type DiagramPath = DiagramEntityBase & Readonly<{ kind: "path"; points?: ReadonlyArray<DiagramPoint>; contours?: ReadonlyArray<DiagramPathContour>; metadata?: DiagramMetadata }>
 
 export type DiagramTableHorizontalAlignment = "left" | "center" | "right"
 export type DiagramTableVerticalAlignment = "top" | "middle" | "bottom"
@@ -312,6 +318,7 @@ export type DiagramGeometry = Readonly<{
   flipY?: boolean
   cornerRadius?: number
   path?: ReadonlyArray<DiagramPoint>
+  pathContours?: ReadonlyArray<DiagramPathContour>
   point?: DiagramPoint
 }>
 
@@ -339,6 +346,8 @@ export type DiagramCommand =
   | Readonly<{ type: "createNode"; node: DiagramNode; historyKey?: string }>
   | Readonly<{ type: "createShape"; shape: DiagramShape; historyKey?: string }>
   | Readonly<{ type: "createPath"; path: DiagramPath; historyKey?: string }>
+  | Readonly<{ type: "createArc"; id: DiagramId; start: DiagramPoint; through: DiagramPoint; end: DiagramPoint; metadata?: DiagramMetadata; historyKey?: string }>
+  | Readonly<{ type: "updateShapePath"; id: DiagramId; points?: ReadonlyArray<DiagramPoint>; pathContours?: ReadonlyArray<DiagramPathContour>; historyKey?: string }>
   | Readonly<{ type: "movePathVertex"; id: DiagramId; index: number; point: DiagramPoint; historyKey?: string }>
   | Readonly<{ type: "removePathVertex"; id: DiagramId; index: number; historyKey?: string }>
   | Readonly<{ type: "updateShape"; id: DiagramId; cornerRadius: number; historyKey?: string }>

@@ -130,6 +130,12 @@ For click placement, use `beginPathCreation(id, firstClick, "line")` for a two-c
 
 Selected path shapes expose one handle per vertex and selected edges expose handles for intermediate waypoints through the Vue visible projection. Core `beginPathVertexHandle()` and `beginEdgeWaypointHandle()` provide transient previews; pointerup commits one undoable vertex update. `removePathVertex` removes only interior path vertices and refuses to leave fewer than two points. Existing drag creation methods remain unchanged.
 
+### Curved paths and boolean helpers
+
+`createCircularArc(start, through, end)` returns an exact circular `DiagramPathContour`; the through point selects the minor or major sweep. Degenerate or collinear inputs return `{ ok: false, code, message }`. Commit with `dispatch({ type: "createArc", id, start, through, end })`, or create a `DiagramPath` from world-space `contours` with `createPath`. Path contours are stored as optional shape-local data, so old scenes remain valid and move/rotate/flip/clipboard/serialization keep the curve. `pathContourSvg()` and `flattenPathContour()` are exported for renderer use; Core geometry uses exact arc extrema for bounds and flattened curve samples for hit testing.
+
+Geometry tools are deterministic helpers: `intersectLineSegments`, `trimLineByCrossing`, `trimCircleOutsideRect`, `trimAndJoinLines`, and `subtractRectFromCircle`. First-version Trim/Join accepts strict interior crossings of straight two-point lines; coincident lines, endpoint touches and missing intersections are not split and return a structured failure (or no-op geometry). Circle/rectangle trim returns open exact circular arcs; subtraction returns closed contours and tags an internal rectangle contour with `hole: true`. Subtraction covers non-overlap, full coverage, contained rectangular holes, and partial overlaps. It does not perform general arbitrary polygon boolean operations. Use `updateShapePath` to retain an object's ID/style, and `dispatchBatch` with delete/create commands when joining or removing the cutter; a successful batch is one undo step. No geometric crossing changes `DiagramEdge` connectivity.
+
 Dynamic input is renderer-neutral and operates on the active gesture preview:
 
 ```ts

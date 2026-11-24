@@ -1,5 +1,6 @@
 import type { DiagramRenderEntity } from "./types.js"
 import type { DiagramViewport } from "@affino/diagram-core"
+import { pathContourSvg } from "@affino/diagram-core"
 
 export type SvgEntityProps = Readonly<Record<string, string | number | boolean | undefined>>
 
@@ -31,6 +32,7 @@ export function getSvgEntityProps(entity: DiagramRenderEntity): SvgEntityProps {
     return {
       ...common,
       ...(entity.kind === "shape" && geometry.path ? { points: geometry.path.map((point) => `${point.x},${point.y}`).join(" ") } : {}),
+      ...(entity.kind === "shape" && geometry.pathContours ? { d: geometry.pathContours.map(pathContourSvg).join(" "), "fill-rule": "evenodd" } : {}),
       x: bounds.x,
       y: bounds.y,
       width: bounds.width,

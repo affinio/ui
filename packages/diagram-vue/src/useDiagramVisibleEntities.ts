@@ -147,6 +147,7 @@ function createEdgeWaypointHandles(geometry: DiagramGeometry): DiagramHandle[] {
 }
 
 function createPathVertexHandles(geometry: DiagramGeometry): DiagramHandle[] {
+  if (geometry.pathContours?.length) return []
   if (geometry.kind !== "shape" || !geometry.path || geometry.path.length < 2) return []
   return geometry.path.map((point, index) => ({ id: `${geometry.id}:vertex:${index}`, ownerId: geometry.id, kind: "path-vertex", point }))
 }

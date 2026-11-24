@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 import { computed, createApp, effectScope, h, nextTick, shallowRef } from "vue"
-import { createDiagramEngine, type DiagramSceneInput } from "@affino/diagram-core"
+import { createCircularArc, createDiagramEngine, type DiagramSceneInput } from "@affino/diagram-core"
 import { createDiagramInteractionController } from "@affino/diagram-core"
 import { DiagramTableView, getDomEntityStyle, getSvgEntityProps, useDiagramEngine, useDiagramPointerController, useDiagramSelection, useDiagramTable, useDiagramTextEditor, useDiagramViewport, useDiagramVisibleEntities } from ".."
 import { beginDiagramHandleInteraction } from "../../../demo-vue/src/pages/diagramHandleInteractions"
@@ -864,5 +864,17 @@ describe("diagram-vue", () => {
     viewport.setViewport({ x: 20 })
 
     expect(viewport.viewport.value.x).toBe(20)
+  })
+
+  it("projects exact circular paths to SVG arc commands", () => {
+    const arc = createCircularArc({ x: 10, y: 0 }, { x: -10, y: 0 }, { x: 0, y: 10 })
+    expect(arc.ok).toBe(true)
+    if (!arc.ok) return
+    const engine = createDiagramEngine()
+    engine.dispatch({ type: "createPath", path: { id: "arc", kind: "path", contours: [arc.value] } })
+    const geometry = engine.getGeometrySnapshot("arc")!
+    const props = getSvgEntityProps({ id: "arc", kind: "shape", layer: "svg", geometry, selected: false })
+    expect(props.d).toContain("A 10 10")
+    expect(props["fill-rule"]).toBe("evenodd")
   })
 })
