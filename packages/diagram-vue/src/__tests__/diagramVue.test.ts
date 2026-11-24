@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 import { computed, createApp, effectScope, h, nextTick, shallowRef } from "vue"
 import { createCircularArc, createDiagramEngine, type DiagramSceneInput } from "@affino/diagram-core"
 import { createDiagramInteractionController } from "@affino/diagram-core"
-import { DiagramTableView, getDomEntityStyle, getSvgEntityProps, getSvgPortCreationPreviewProps, useDiagramEngine, useDiagramPointerController, useDiagramSelection, useDiagramTable, useDiagramTextEditor, useDiagramViewport, useDiagramVisibleEntities } from ".."
+import { DiagramBezierOverlay, DiagramTableView, getDomEntityStyle, getSvgEntityProps, getSvgPortCreationPreviewProps, useDiagramEngine, useDiagramPointerController, useDiagramSelection, useDiagramTable, useDiagramTextEditor, useDiagramViewport, useDiagramVisibleEntities } from ".."
 import { beginDiagramHandleInteraction } from "../../../demo-vue/src/pages/diagramHandleInteractions"
 
 const scene: DiagramSceneInput = {
@@ -27,6 +27,47 @@ const scene: DiagramSceneInput = {
 }
 
 describe("diagram-vue", () => {
+  it("publishes native cubic creation preview and renders zoom-stable editable handles", async () => {
+    const frames: Array<FrameRequestCallback> = []
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { frames.push(callback); return frames.length })
+    const diagram = useDiagramEngine({
+      shapes: [{ id: "curve", kind: "shape", shape: "line", x: 10, y: 10, width: 30, height: 10, pathContours: [{ closed: false, segments: [{ kind: "cubic", start: { x: 0, y: 0 }, control1: { x: 10, y: 0 }, control2: { x: 20, y: 10 }, end: { x: 30, y: 10 } }] }] }],
+      viewport: { x: 0, y: 0, width: 300, height: 200, zoom: 2 },
+    })
+    diagram.engine.dispatch({ type: "setSelection", selection: { ids: ["curve"], primaryId: "curve" } })
+    const pointer = useDiagramPointerController(diagram, { toWorldPoint: (event) => ({ x: event.clientX, y: event.clientY }), snap: { enabled: false } })
+    const visible = useDiagramVisibleEntities(diagram)
+    const mount = document.createElement("div")
+    document.body.append(mount)
+    const app = createApp({ render: () => h("svg", [h(DiagramBezierOverlay, { pointer, handles: visible.projection.value.activeHandles, zoom: 2 })]) })
+    app.mount(mount)
+    const event = (x: number, y: number) => ({ pointerId: 22, clientX: x, clientY: y, shiftKey: false, detail: 1 }) as PointerEvent
+    expect(pointer.beginBezierCreation("new-curve", event(50, 50))).toBe(true)
+    pointer.getSvgPointerProps().onPointermove(event(80, 60))
+    frames.shift()?.(0)
+    pointer.getSvgPointerProps().onPointerdown(event(80, 60))
+    pointer.getSvgPointerProps().onPointermove(event(80, 75))
+    frames.shift()?.(0)
+    await nextTick()
+    expect(pointer.state.value.bezierCreationPreview?.contour.segments[0]).toMatchObject({ kind: "cubic" })
+    expect(mount.querySelector('[data-bezier-preview="new-curve"]')?.getAttribute("d")).toContain("C")
+    expect(mount.querySelectorAll("[data-bezier-handle]")).toHaveLength(4)
+    pointer.getSvgPointerProps().onKeydown({ key: "Escape", preventDefault: vi.fn() } as unknown as KeyboardEvent)
+    expect(pointer.state.value.bezierCreationPreview).toBeNull()
+    const handleEvent = (x: number, y: number) => ({ pointerId: 23, clientX: x, clientY: y, shiftKey: false, detail: 1 }) as PointerEvent
+    expect(pointer.beginBezierHandle("curve", 0, 0, "outgoing", handleEvent(20, 10))).toBe(true)
+    pointer.getSvgPointerProps().onPointermove(handleEvent(25, 15))
+    frames.shift()?.(0)
+    pointer.getSvgPointerProps().onPointerup(handleEvent(25, 15))
+    expect(diagram.engine.getGeometrySnapshot("curve")?.pathContours?.[0]?.segments[0]).toMatchObject({ kind: "cubic", control1: { x: 25, y: 15 } })
+    expect(diagram.engine.getDiagnostics().undoDepth).toBe(1)
+    app.unmount()
+    mount.remove()
+    visible.dispose()
+    pointer.dispose()
+    diagram.dispose()
+    vi.unstubAllGlobals()
+  })
   it("projects anchored port identity and transformed geometry from Core", () => {
     const controller = useDiagramEngine({
       shapes: [{ id: "host", kind: "shape", shape: "rect", x: 10, y: 20, width: 80, height: 40, rotation: 90, flipX: true }],
@@ -444,6 +485,32 @@ describe("diagram-vue", () => {
     expect(getSvgEntityProps(node)).toMatchObject({ x: 0, y: 0, width: 100, height: 60 })
   })
 
+  it("projects selected orthogonal segment handles and bridges transient segment previews", () => {
+    const callbacks: Array<FrameRequestCallback> = []
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { callbacks.push(callback); return callbacks.length })
+    const diagram = useDiagramEngine({ edges: [{ id: "wire", kind: "edge", source: { kind: "point", point: { x: 0, y: 0 } }, target: { kind: "point", point: { x: 100, y: 100 } }, points: [{ x: 50, y: 0 }, { x: 50, y: 100 }] }], viewport: { x: 0, y: 0, width: 200, height: 160, zoom: 1 } })
+    diagram.dispatch({ type: "setSelection", selection: { ids: ["wire"], primaryId: "wire" } })
+    const visible = useDiagramVisibleEntities(diagram)
+    const handles = visible.projection.value.activeHandles.filter((handle) => handle.kind === "edge-segment")
+    expect(handles.map((handle) => handle.segmentIndex)).toEqual([0, 1, 2])
+    expect(handles[1]?.point).toEqual({ x: 50, y: 50 })
+    const pointer = useDiagramPointerController(diagram, { snap: { enabled: false }, toWorldPoint: (event) => ({ x: event.clientX, y: event.clientY }) })
+    const event = (x: number, y: number) => ({ pointerId: 7, clientX: x, clientY: y, shiftKey: false } as PointerEvent)
+    expect(pointer.beginEdgeSegmentHandle("wire", handles[1]!.segmentIndex!, event(50, 50))).toBe(true)
+    pointer.getSvgPointerProps().onPointermove(event(70, 50))
+    callbacks.shift()?.(0)
+    const preview = pointer.state.value.edgeSegmentPreview!
+    expect(preview.path).toEqual([{ x: 0, y: 0 }, { x: 70, y: 0 }, { x: 70, y: 100 }, { x: 100, y: 100 }])
+    expect(diagram.scene.value.entities.edgesById.get("wire")?.points).toEqual([{ x: 50, y: 0 }, { x: 50, y: 100 }])
+    pointer.getSvgPointerProps().onPointerup(event(70, 50))
+    expect(diagram.scene.value.entities.edgesById.get("wire")?.points).toEqual(preview.points)
+    expect(diagram.engine.getDiagnostics().undoDepth).toBe(1)
+    pointer.dispose()
+    visible.dispose()
+    diagram.dispose()
+    vi.unstubAllGlobals()
+  })
+
   it("renders rounded rectangle geometry reactively and edits a table title separately from cells", async () => {
     const controller = useDiagramEngine({
       shapes: [{ id: "rounded", kind: "shape", shape: "rect", x: 0, y: 0, width: 60, height: 30, cornerRadius: 8 }],
@@ -648,7 +715,9 @@ describe("diagram-vue", () => {
     const visible = useDiagramVisibleEntities(controller)
 
     expect(visible.projection.value.nodes[0]?.geometry.corners).toHaveLength(4)
-    expect(visible.projection.value.activeHandles.map((handle) => handle.point)).toEqual(visible.projection.value.nodes[0]?.geometry.corners)
+    expect(visible.projection.value.activeHandles.filter((handle) => handle.kind === "resize").map((handle) => handle.resizeHandle)).toEqual(["nw", "n", "ne", "e", "se", "s", "sw", "w"])
+    expect(visible.projection.value.activeHandles.find((handle) => handle.resizeHandle === "nw")?.point).toEqual(visible.projection.value.nodes[0]?.geometry.corners[0])
+    expect(visible.projection.value.activeHandles.find((handle) => handle.resizeHandle === "ne")?.point).toEqual(visible.projection.value.nodes[0]?.geometry.corners[1])
     const rotated = visible.projection.value.nodes[0]!
     expect(getSvgEntityProps(rotated)).toMatchObject({ x: 0, y: 0, width: 100, height: 40, transform: "rotate(90 50 20)" })
     expect(getDomEntityStyle(rotated).transform).toBe("translate(0px, 0px) rotate(90deg)")
@@ -764,8 +833,9 @@ describe("diagram-vue", () => {
     })
     const visible = useDiagramVisibleEntities(controller)
 
-    expect(visible.projection.value.activeHandles.map((handle) => handle.id)).toEqual(["__selection__:nw", "__selection__:ne", "__selection__:se", "__selection__:sw"])
-    expect(visible.projection.value.activeHandles[2]?.point).toEqual({ x: 280, y: 120 })
+    expect(visible.projection.value.activeHandles.map((handle) => handle.id)).toEqual(["__selection__:nw", "__selection__:n", "__selection__:ne", "__selection__:e", "__selection__:se", "__selection__:s", "__selection__:sw", "__selection__:w"])
+    expect(visible.projection.value.activeHandles.find((handle) => handle.resizeHandle === "se")?.point).toEqual({ x: 280, y: 120 })
+    expect(visible.projection.value.activeHandles.find((handle) => handle.resizeHandle === "n")?.point).toEqual({ x: 140, y: 0 })
   })
 
   it("updates Vue rotate availability and group selection geometry after core rotation", async () => {
@@ -790,7 +860,8 @@ describe("diagram-vue", () => {
     expect(canRotate.value).toBe(true)
     expect(visible.projection.value.overlayAnchors.find((anchor) => anchor.id === "g")?.rect).toEqual({ x: 4, y: -16, width: 32, height: 52 })
     expect(visible.projection.value.activeHandles.map((handle) => handle.point)).toEqual([
-      { x: 10, y: -10 }, { x: 30, y: -10 }, { x: 30, y: 30 }, { x: 10, y: 30 },
+      { x: 10, y: -10 }, { x: 20, y: -10 }, { x: 30, y: -10 }, { x: 30, y: 10 },
+      { x: 30, y: 30 }, { x: 20, y: 30 }, { x: 10, y: 30 }, { x: 10, y: 10 },
     ])
     visible.dispose()
     controller.dispose()
@@ -824,6 +895,7 @@ describe("diagram-vue", () => {
     expect(visible.projection.value.activeHandles).toEqual([
       { id: "e1:source", ownerId: "e1", kind: "edge-endpoint", point: { x: 100, y: 30 } },
       { id: "e1:target", ownerId: "e1", kind: "edge-endpoint", point: { x: 400, y: 30 } },
+      { id: "e1:segment:0", ownerId: "e1", kind: "edge-segment", segmentIndex: 0, point: { x: 250, y: 30 } },
     ])
   })
 
@@ -852,7 +924,7 @@ describe("diagram-vue", () => {
 
     expect(visible.projection.value.edges.map((entity) => entity.id)).toContain("e1")
     expect(visible.projection.value.overlayAnchors.map((anchor) => anchor.id)).not.toContain("e1")
-    expect(visible.projection.value.activeHandles.map((handle) => handle.id)).toEqual(["e1:source", "e1:target"])
+    expect(visible.projection.value.activeHandles.map((handle) => handle.id)).toEqual(["e1:source", "e1:target", "e1:segment:0"])
   })
 
   it("routes Vue endpoint handles through the public endpoint drag interaction", () => {
@@ -879,7 +951,7 @@ describe("diagram-vue", () => {
     visible.refreshVisible()
 
     expect(visible.projection.value.nodes.map((entity) => entity.id)).toContain("n2")
-    expect(visible.projection.value.activeHandles).toHaveLength(4)
+    expect(visible.projection.value.activeHandles).toHaveLength(8)
     expect(visible.projection.value.overlayAnchors.map((anchor) => anchor.id)).toContain("n2")
     visible.dispose()
   })
@@ -906,6 +978,18 @@ describe("diagram-vue", () => {
     expect(pointer.state.value.active).toBe(false)
     expect(controller.scene.value.entities.nodesById.get("n1")?.x).toBe(10)
     expect(controller.scene.value.entities.nodesById.get("n1")?.y).toBe(0)
+
+    const event = (x: number, y: number) => ({ pointerId: 2, clientX: x, clientY: y, shiftKey: false }) as PointerEvent
+    expect(pointer.beginResizeHandle("n1", "e", event(110, 30))).toBe(true)
+    props.onPointercancel()
+    expect(pointer.state.value.active).toBe(false)
+    expect(controller.scene.value.entities.nodesById.get("n1")?.width).toBe(100)
+    controller.dispatch({ type: "setSelection", selection: { ids: ["n1", "n2"], primaryId: "n1" } })
+    expect(pointer.beginResizeSelectionHandle("e", event(110, 30))).toBe(true)
+    const escape = { key: "Escape", preventDefault: vi.fn() } as unknown as KeyboardEvent
+    props.onKeydown(escape)
+    expect(escape.preventDefault).toHaveBeenCalledOnce()
+    expect(pointer.state.value.active).toBe(false)
   })
 
   it("reactively exposes connector and numeric-input previews through the Vue pointer API", () => {
@@ -1044,5 +1128,30 @@ describe("diagram-vue", () => {
     expect(pointer.state.value.editingLocked).toBe(false)
     pointer.dispose()
     diagram.dispose()
+  })
+
+  it("forwards the independent connector port tolerance through the Vue pointer composable", () => {
+    const callbacks: Array<FrameRequestCallback> = []
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { callbacks.push(callback); return callbacks.length })
+    const diagram = useDiagramEngine({
+      nodes: [{ id: "host", kind: "node", x: 100, y: 0, width: 10, height: 10, portIds: ["port"] }],
+      ports: [{ id: "port", kind: "port", nodeId: "host", x: 0, y: 0 }],
+      viewport: { x: 0, y: 0, width: 300, height: 200, zoom: 2 },
+    })
+    const pointer = useDiagramPointerController(diagram, {
+      toWorldPoint: (event) => ({ x: event.clientX, y: event.clientY }),
+      snap: { kinds: ["port"], tolerancePx: 1, portTolerancePx: 8 },
+    })
+    const event = (x: number, y: number) => ({ pointerId: 7, clientX: x, clientY: y, shiftKey: false }) as PointerEvent
+    expect(pointer.beginEdgeCreation("vue-port-edge", event(0, 0))).toBe(true)
+    pointer.getSvgPointerProps().onPointermove(event(100, 4))
+    callbacks.shift()?.(0)
+    const preview = pointer.state.value.edgeCreationPreview!
+    expect(preview.target).toEqual({ kind: "port", portId: "port" })
+    pointer.getSvgPointerProps().onPointerup(event(100, 4))
+    expect(diagram.scene.value.entities.edgesById.get("vue-port-edge")?.target).toEqual(preview.target)
+    pointer.dispose()
+    diagram.dispose()
+    vi.unstubAllGlobals()
   })
 })

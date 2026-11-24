@@ -1,4 +1,4 @@
-import type { DiagramEntityKind, DiagramGeometry, DiagramId, DiagramPoint, DiagramRect } from "@affino/diagram-core"
+import type { DiagramEntityKind, DiagramGeometry, DiagramId, DiagramPoint, DiagramRect, DiagramResizeHandle } from "@affino/diagram-core"
 
 export type DiagramRenderLayer = "svg" | "dom"
 
@@ -13,8 +13,13 @@ export type DiagramRenderEntity = Readonly<{
 export type DiagramHandle = Readonly<{
   id: string
   ownerId: DiagramId
-  kind: "resize" | "port" | "edge-endpoint" | "waypoint" | "path-vertex"
+  kind: "resize" | "port" | "edge-endpoint" | "waypoint" | "edge-segment" | "path-vertex" | "bezier-anchor" | "bezier-incoming" | "bezier-outgoing"
   point: DiagramPoint
+  resizeHandle?: DiagramResizeHandle
+  segmentIndex?: number
+  contourIndex?: number
+  bezierHandle?: "anchor" | "incoming" | "outgoing"
+  anchorSide?: "start" | "end"
 }>
 
 export type DiagramOverlayAnchor = Readonly<{

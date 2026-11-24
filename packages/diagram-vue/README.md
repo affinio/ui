@@ -84,14 +84,35 @@ const textEditor = useDiagramTextEditor(diagram)
 
 For a free line shape, call `pointer.beginLineCreation(id, event)`; render `pointer.state.value.shapeCreationPreview` transiently, then let the same controller commit the shape on pointerup. Connector creation uses `beginEdgeCreation()` and exposes endpoint references plus route waypoints in `edgeCreationPreview`.
 
-Click-to-place drawing is available through `useDiagramPointerController()`: `beginPathCreation(id, event, "line")` places a two-click line; omit the mode for a multipoint free path, then finish with `finishPathCreation()` (Enter) or a double click. Holding Shift constrains the preview segment to the nearest cardinal direction from the last confirmed vertex; releasing Shift resumes free placement. Use `beginEdgePathCreation(id, event, options)` for a connector whose later clicks add route bends; finish with `finishEdgePathCreation()` or snap its target to a port. The reactive `state.value.pathCreationPreview` and `edgeCreationPreview` are transient Core projections. Selected path vertices and edge waypoints appear as `activeHandles` (`path-vertex` and `waypoint`); pass them to `beginPathVertexHandle()` or `beginEdgeWaypointHandle()` to edit. Existing drag-to-draw methods remain supported.
+Click-to-place drawing is available through `useDiagramPointerController()`: `beginPathCreation(id, event, "line")` places a two-click line; omit the mode for a multipoint free path, then finish with `finishPathCreation()` (Enter) or a double click. Holding Shift constrains the preview segment to the nearest cardinal direction from the last confirmed vertex; releasing Shift resumes free placement. Use `beginEdgePathCreation(id, event, options)` for a connector whose later clicks add route bends; Shift constrains each preview segment from the latest bend. Finish with `finishEdgePathCreation()` or snap its target to a port. The reactive `state.value.pathCreationPreview` and `edgeCreationPreview` are transient Core projections. Selected path vertices, edge waypoints, endpoints, and orthogonal segments appear as `activeHandles` (`path-vertex`, `waypoint`, `edge-endpoint`, and `edge-segment`). Pass a segment handle's `segmentIndex` to `beginEdgeSegmentHandle(id, segmentIndex, event)`; `state.value.edgeSegmentPreview` and `getPreviewGeometry(id)` expose the live route until commit or cancel. Segment drags preserve attached endpoints and commit as one undo step. Existing drag-to-draw methods remain supported.
+
+Selected resizable entities expose eight `activeHandles` with `resizeHandle` directions `nw`, `n`, `ne`, `e`, `se`, `s`, `sw`, and `w`. Start entity and group gestures through `beginResizeHandle(id, handle, event)` and `beginResizeSelectionHandle(handle, event)` on the pointer controller; Core owns preview geometry and the single undoable commit. Escape or pointer cancellation drops the preview.
+
+### Bézier/Pen tool
+
+Set `pointer.setTool("draw-bezier")`; on the first canvas click call `pointer.beginBezierCreation(id, event, { closeTolerancePx })`. The optional close radius is in screen pixels. Subsequent canvas pointerdown/move/up events place click-drag anchors; the reactive `pointer.state.value.bezierCreationPreview` contains the exact cubic contour and active tangent handles. Enter finishes an open contour, clicking its first anchor closes it, and Escape/pointercancel cancels it. The adapter adds no document changes until finish; a completed contour creates one undo step and becomes selected.
+
+Render transient paths and selected path handles inside the same world-coordinate SVG group as the scene:
+
+```vue
+<svg v-bind="pointer.getSvgPointerProps()" @keydown="pointer.getSvgPointerProps().onKeydown">
+  <!-- committed entities -->
+  <DiagramBezierOverlay
+    :pointer="pointer"
+    :handles="visible.projection.value.activeHandles"
+    :zoom="diagram.scene.value.viewport.zoom"
+  />
+</svg>
+```
+
+`DiagramBezierOverlay` renders native SVG cubic commands, draft anchors, tangent guides, and editable controls. Its handle hit targets remain screen-sized using `zoom`; it accepts the adapter's typed `DiagramHandle` projection and routes edits through Core. Mount it within the existing viewport transform so path data, preview, and committed geometry use identical world coordinates. The controller's `beginBezierHandle(id, contourIndex, segmentIndex, handle, event)` is also available when an application renders its own handle chrome.
 
 Shapes with exact Core `pathContours` are projected by `getSvgEntityProps()` as SVG `d` path data with `fill-rule="evenodd"`; render that entity as `<path>`. The diagram playground demonstrates three-point Arc, straight-line Trim, circle-by-rectangle Trim, two-line Trim & Join, and circle-minus-rectangle Subtract previews. Selection order is explicit: base/target first, cutter second; Trim & Join shoulder clicks select the two retained line ends. Escape cancels the active tool. These tools use Core geometry helpers and `updateShapePath`/`dispatchBatch`; Vue owns only pointer handling and display.
 
 ```ts
 const pointer = useDiagramPointerController(diagram, {
   toWorldPoint: (event) => screenToWorld(diagram.scene.value.viewport, { x: event.clientX, y: event.clientY }),
-  snap: { gridSize: 8, tolerancePx: 8, kinds: ["port", "endpoint", "midpoint", "nearest", "grid"], angleIncrement: 45 },
+  snap: { gridSize: 8, tolerancePx: 8, portTolerancePx: 14, kinds: ["port", "endpoint", "midpoint", "nearest", "grid"], angleIncrement: 45 },
 })
 
 function onConnectPointerDown(event: PointerEvent) {
@@ -100,6 +121,8 @@ function onConnectPointerDown(event: PointerEvent) {
 pointer.setDynamicInput({ length: 120, angle: 30 })
 pointer.confirmDynamicInput()
 ```
+
+`snap.portTolerancePx` controls only connector endpoint capture to ports, in screen pixels across viewport zoom levels. If omitted, port capture uses `snap.tolerancePx`, preserving existing behavior; other snap types continue using `tolerancePx`. `snap.snapToPorts: false` disables port references regardless of either tolerance.
 
 ### Visual table component
 
@@ -159,7 +182,7 @@ Pass the same `viewportConstraints` to `useDiagramPointerController()` to constr
 `useDiagramVisibleEntities()` exposes:
 
 - `nodes`, `edges`, `ports`, `shapes`, and `texts` for SVG rendering;
-- `activeHandles` for selected resize/port handles and source/target handles on selected edges;
+- `activeHandles` for the eight selected resize handles (`nw`, `n`, `ne`, `e`, `se`, `s`, `sw`, `w`), port handles, and source/target handles on selected edges. Resize handles expose their typed direction as `resizeHandle` and their projected world-space center as `point`;
 - `overlayAnchors` for context menus and toolbars.
 
 Selected entities are included even when outside the viewport, which keeps handles and overlays stable during keyboard or programmatic selection changes. `useDiagramTextEditor()` owns one shared DOM editor overlay for the active text entity; it reads bounds from core, positions through the viewport transform, and commits through the `editText` command.

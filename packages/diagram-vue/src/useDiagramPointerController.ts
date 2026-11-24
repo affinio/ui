@@ -1,6 +1,6 @@
 import { getCurrentScope, onScopeDispose, shallowRef } from "vue"
 import type { ShallowRef } from "vue"
-import { createDiagramInteractionController, type DiagramDynamicInputState, type DiagramInteractionController, type DiagramInteractionSnapOptions, type DiagramInteractionSnapshot, type DiagramInteractionTool, type DiagramPoint, type DiagramPointerEvent, type DiagramOrthogonalRouteOptions, type DiagramViewportConstraints, type DiagramId, type DiagramTableResizeAxis, type DiagramPortCreationOptions } from "@affino/diagram-core"
+import { createDiagramInteractionController, type DiagramBezierCreationOptions, type DiagramBezierHandleKind, type DiagramDynamicInputState, type DiagramInteractionController, type DiagramInteractionSnapOptions, type DiagramInteractionSnapshot, type DiagramInteractionTool, type DiagramPoint, type DiagramPointerEvent, type DiagramOrthogonalRouteOptions, type DiagramViewportConstraints, type DiagramId, type DiagramTableResizeAxis, type DiagramPortCreationOptions, type DiagramResizeHandle } from "@affino/diagram-core"
 import type { DiagramEngineController } from "./useDiagramEngine.js"
 
 export type DiagramPointerController = Readonly<{
@@ -16,9 +16,15 @@ export type DiagramPointerController = Readonly<{
   finishEdgePathCreation: (point?: DiagramPoint) => boolean
   beginLineCreation: (id: string, event: PointerEvent) => boolean
   beginPathCreation: (id: string, event: PointerEvent, mode?: "line" | "path") => boolean
+  beginBezierCreation: (id: DiagramId, event: PointerEvent, options?: DiagramBezierCreationOptions) => boolean
+  finishBezierCreation: (closed?: boolean) => boolean
+  beginBezierHandle: (id: DiagramId, contourIndex: number, segmentIndex: number, handle: DiagramBezierHandleKind, event: PointerEvent, anchorSide?: "start" | "end") => boolean
   beginPortCreation: (id: DiagramId, event: PointerEvent, options?: DiagramPortCreationOptions) => boolean
   beginPathVertexHandle: (id: string, index: number, event: PointerEvent) => boolean
   beginEdgeWaypointHandle: (id: string, index: number, event: PointerEvent) => boolean
+  beginEdgeSegmentHandle: (id: string, segmentIndex: number, event: PointerEvent) => boolean
+  beginResizeHandle: (id: DiagramId, handle: DiagramResizeHandle, event: PointerEvent) => boolean
+  beginResizeSelectionHandle: (handle: DiagramResizeHandle, event: PointerEvent) => boolean
   addPathVertex: (point?: DiagramPoint, finish?: boolean) => boolean
   finishPathCreation: () => boolean
   beginTableResizeHandle: (id: DiagramId, axis: DiagramTableResizeAxis, index: number, event: PointerEvent) => boolean
@@ -28,6 +34,7 @@ export type DiagramPointerController = Readonly<{
     onPointermove: (event: PointerEvent) => void
     onPointerup: (event: PointerEvent) => void
     onPointercancel: () => void
+    onKeydown: (event: KeyboardEvent) => void
   }
   dispose: () => void
 }>
@@ -114,6 +121,9 @@ export function useDiagramPointerController(controller: DiagramEngineController,
       refresh()
       return accepted
     },
+    beginBezierCreation: (id, event, bezierOptions) => { options.setPointerCapture?.(event); const accepted = interaction.beginBezierCreation(id, toEvent(event), bezierOptions); refresh(); return accepted },
+    finishBezierCreation: (closed) => { const accepted = interaction.finishBezierCreation(closed); refresh(); return accepted },
+    beginBezierHandle: (id, contourIndex, segmentIndex, handle, event, anchorSide) => { options.setPointerCapture?.(event); const accepted = interaction.beginBezierHandle(id, contourIndex, segmentIndex, handle, toEvent(event), anchorSide); refresh(); return accepted },
     beginPortCreation: (id, event, portOptions) => {
       const accepted = interaction.beginPortCreation(id, toEvent(event), portOptions)
       refresh()
@@ -121,6 +131,9 @@ export function useDiagramPointerController(controller: DiagramEngineController,
     },
     beginPathVertexHandle: (id, index, event) => { const accepted = interaction.beginPathVertexHandle(id, index, toEvent(event)); refresh(); return accepted },
     beginEdgeWaypointHandle: (id, index, event) => { const accepted = interaction.beginEdgeWaypointHandle(id, index, toEvent(event)); refresh(); return accepted },
+    beginEdgeSegmentHandle: (id, segmentIndex, event) => { options.setPointerCapture?.(event); const accepted = interaction.beginEdgeSegmentHandle(id, segmentIndex, toEvent(event)); refresh(); return accepted },
+    beginResizeHandle: (id, handle, event) => { options.setPointerCapture?.(event); const accepted = interaction.beginResizeHandle(id, handle, toEvent(event)); refresh(); return accepted },
+    beginResizeSelectionHandle: (handle, event) => { options.setPointerCapture?.(event); const accepted = interaction.beginResizeSelectionHandle(handle, toEvent(event)); refresh(); return accepted },
     addPathVertex: (point, finish) => { const accepted = interaction.addPathVertex(point, finish); refresh(); return accepted },
     finishPathCreation: () => { const accepted = interaction.finishPathCreation(); refresh(); return accepted },
     beginTableResizeHandle: (id, axis, index, event) => {
@@ -153,6 +166,17 @@ export function useDiagramPointerController(controller: DiagramEngineController,
         interaction.cancel()
         refresh()
       },
+      onKeydown: (event) => {
+        if (event.key === "Escape") {
+          if (interaction.getSnapshot().active) event.preventDefault()
+          interaction.cancel()
+          refresh()
+        } else if (event.key === "Enter" && interaction.getSnapshot().tool === "draw-bezier") {
+          event.preventDefault()
+          interaction.finishBezierCreation()
+          refresh()
+        }
+      },
     }),
     dispose: () => {
       if (disposed) {
@@ -179,6 +203,7 @@ function sameSnapshot(previous: DiagramInteractionSnapshot, next: DiagramInterac
     && previous.resizePreviewEntries === next.resizePreviewEntries
     && previous.tableResizePreview === next.tableResizePreview
     && previous.edgeEndpointPreview === next.edgeEndpointPreview
+    && previous.edgeSegmentPreview === next.edgeSegmentPreview
     && previous.snapGuides === next.snapGuides
     && previous.snapResult === next.snapResult
     && previous.snapMarkers === next.snapMarkers
@@ -187,6 +212,8 @@ function sameSnapshot(previous: DiagramInteractionSnapshot, next: DiagramInterac
     && previous.edgeCreationPreview === next.edgeCreationPreview
     && previous.shapeCreationPreview === next.shapeCreationPreview
     && previous.pathCreationPreview === next.pathCreationPreview
+    && previous.bezierCreationPreview === next.bezierCreationPreview
+    && previous.bezierHandlePreview === next.bezierHandlePreview
     && previous.portCreationPreview === next.portCreationPreview
     && previous.edgeWaypointPreview === next.edgeWaypointPreview
     && previous.pathVertexPreview === next.pathVertexPreview

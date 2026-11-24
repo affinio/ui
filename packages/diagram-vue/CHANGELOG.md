@@ -1,5 +1,21 @@
 # @affino/diagram-vue
 
+## 0.23.0
+
+### Minor Changes
+
+- Exposed `beginBezierCreation()`, `finishBezierCreation()`, and `beginBezierHandle()` through the typed pointer controller, including reactive draft and handle previews.
+- Added `DiagramBezierOverlay` for SVG-native cubic previews, anchors, tangent guides, and zoom-stable editing handles; Enter finishes and Escape cancels an active draft.
+- Projected all four side resize handles for selected entities and group selections, added typed `beginResizeHandle()`/`beginResizeSelectionHandle()` methods, and routed Escape cancellation through Core.
+
+## 0.22.0
+
+### Minor Changes
+
+- Added midpoint handles for orthogonal connector segments and exposed `beginEdgeSegmentHandle()` plus reactive `edgeSegmentPreview` through the pointer controller.
+- Updated the Core workspace dependency for segment editing and related connector interaction fixes.
+- Exposes Core's `snap.portTolerancePx` through `useDiagramPointerController()` for independent zoom-stable connector port capture.
+
 ## 0.21.1
 
 ### Patch Changes

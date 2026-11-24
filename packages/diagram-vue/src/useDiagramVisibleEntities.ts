@@ -1,6 +1,6 @@
 import { getCurrentScope, onScopeDispose, shallowRef } from "vue"
 import type { ShallowRef } from "vue"
-import { createEntityGeometry, type DiagramGeometry, type DiagramId, type DiagramRect } from "@affino/diagram-core"
+import { createEntityGeometry, rotatePoint, type DiagramGeometry, type DiagramId, type DiagramPoint, type DiagramRect, type DiagramResizeHandle } from "@affino/diagram-core"
 import type { DiagramEngineController } from "./useDiagramEngine.js"
 import type { DiagramHandle, DiagramOverlayAnchor, DiagramRenderEntity, DiagramVisibleProjection } from "./types.js"
 
@@ -91,8 +91,9 @@ function buildProjection(
   const anchorGeometries = activeGeometries.filter((geometry) => geometry.kind !== "edge")
   const activeHandles = [
     ...(anchorGeometries.length > 1 ? createGroupHandles(anchorGeometries) : activeGeometries.flatMap(createHandles)),
-    ...activeGeometries.flatMap((geometry) => geometry.kind === "edge" ? createEdgeWaypointHandles(geometry) : geometry.kind === "shape" ? createPathVertexHandles(geometry) : []),
+    ...activeGeometries.flatMap((geometry) => geometry.kind === "edge" ? createEdgeWaypointHandles(geometry) : geometry.kind === "shape" ? [...createPathVertexHandles(geometry), ...createBezierHandles(geometry)] : []),
     ...activeGeometries.filter((geometry) => geometry.kind === "edge").flatMap(createEdgeEndpointHandles),
+    ...activeGeometries.filter((geometry) => geometry.kind === "edge").flatMap(createEdgeSegmentHandles),
   ]
   return Object.freeze({
     ids: Object.freeze(entities.map((entity) => entity.id)),
@@ -119,18 +120,10 @@ function createHandles(geometry: DiagramGeometry): DiagramHandle[] {
   if (geometry.kind === "port") {
     return [{ id: `${geometry.id}:port`, ownerId: geometry.id, kind: "port", point: geometry.point ?? { x: rect.x, y: rect.y } }]
   }
-  const corners = geometry.corners ?? [
-    { x: rect.x, y: rect.y },
-    { x: rect.x + rect.width, y: rect.y },
-    { x: rect.x + rect.width, y: rect.y + rect.height },
-    { x: rect.x, y: rect.y + rect.height },
-  ]
-  return [
-    { id: `${geometry.id}:nw`, ownerId: geometry.id, kind: "resize", point: corners[0]! },
-    { id: `${geometry.id}:ne`, ownerId: geometry.id, kind: "resize", point: corners[1]! },
-    { id: `${geometry.id}:se`, ownerId: geometry.id, kind: "resize", point: corners[2]! },
-    { id: `${geometry.id}:sw`, ownerId: geometry.id, kind: "resize", point: corners[3]! },
-  ]
+  const points = resizeHandlePoints(rect, geometry.rotation ?? 0, geometry.flipX === true, geometry.flipY === true)
+  return (Object.entries(points) as Array<[DiagramResizeHandle, DiagramPoint]>).map(([handle, point]) => ({
+    id: `${geometry.id}:${handle}`, ownerId: geometry.id, kind: "resize", resizeHandle: handle, point,
+  }))
 }
 
 function createEdgeEndpointHandles(geometry: DiagramGeometry): DiagramHandle[] {
@@ -146,21 +139,68 @@ function createEdgeWaypointHandles(geometry: DiagramGeometry): DiagramHandle[] {
   return geometry.path.slice(1, -1).map((point, index) => ({ id: `${geometry.id}:waypoint:${index}`, ownerId: geometry.id, kind: "waypoint", point }))
 }
 
+function createEdgeSegmentHandles(geometry: DiagramGeometry): DiagramHandle[] {
+  if (geometry.kind !== "edge" || !geometry.path || geometry.path.length < 2) return []
+  const handles: DiagramHandle[] = []
+  for (let index = 0; index < geometry.path.length - 1; index += 1) {
+    const start = geometry.path[index]!, end = geometry.path[index + 1]!
+    const horizontal = Math.abs(start.y - end.y) <= 1e-6 && start.x !== end.x
+    const vertical = Math.abs(start.x - end.x) <= 1e-6 && start.y !== end.y
+    if (!horizontal && !vertical) continue
+    handles.push({ id: `${geometry.id}:segment:${index}`, ownerId: geometry.id, kind: "edge-segment", segmentIndex: index, point: { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 } })
+  }
+  return handles
+}
+
 function createPathVertexHandles(geometry: DiagramGeometry): DiagramHandle[] {
   if (geometry.pathContours?.length) return []
   if (geometry.kind !== "shape" || !geometry.path || geometry.path.length < 2) return []
   return geometry.path.map((point, index) => ({ id: `${geometry.id}:vertex:${index}`, ownerId: geometry.id, kind: "path-vertex", point }))
 }
 
+function createBezierHandles(geometry: DiagramGeometry): DiagramHandle[] {
+  if (geometry.kind !== "shape" || !geometry.pathContours?.length) return []
+  const handles: DiagramHandle[] = []
+  geometry.pathContours.forEach((contour, contourIndex) => {
+    if (!contour.closed && contour.segments[0]?.kind === "cubic") handles.push({
+      id: `${geometry.id}:bezier:${contourIndex}:0:anchor-start`, ownerId: geometry.id, kind: "bezier-anchor", contourIndex, segmentIndex: 0, bezierHandle: "anchor", anchorSide: "start", point: contour.segments[0].start,
+    })
+    contour.segments.forEach((segment, segmentIndex) => {
+    if (segment.kind !== "cubic") return
+    handles.push(
+      { id: `${geometry.id}:bezier:${contourIndex}:${segmentIndex}:anchor`, ownerId: geometry.id, kind: "bezier-anchor", contourIndex, segmentIndex, bezierHandle: "anchor", anchorSide: "end", point: segment.end },
+      { id: `${geometry.id}:bezier:${contourIndex}:${segmentIndex}:in`, ownerId: geometry.id, kind: "bezier-incoming", contourIndex, segmentIndex, bezierHandle: "incoming", point: segment.control2 },
+      { id: `${geometry.id}:bezier:${contourIndex}:${segmentIndex}:out`, ownerId: geometry.id, kind: "bezier-outgoing", contourIndex, segmentIndex, bezierHandle: "outgoing", point: segment.control1 },
+    )
+    })
+  })
+  return handles
+}
+
 function createGroupHandles(geometries: ReadonlyArray<DiagramGeometry>): DiagramHandle[] {
   const rect = unionRects(geometries.map((geometry) => geometry.bounds))
   if (!rect) return []
-  return [
-    { id: `${SELECTION_OWNER_ID}:nw`, ownerId: SELECTION_OWNER_ID, kind: "resize", point: { x: rect.x, y: rect.y } },
-    { id: `${SELECTION_OWNER_ID}:ne`, ownerId: SELECTION_OWNER_ID, kind: "resize", point: { x: rect.x + rect.width, y: rect.y } },
-    { id: `${SELECTION_OWNER_ID}:se`, ownerId: SELECTION_OWNER_ID, kind: "resize", point: { x: rect.x + rect.width, y: rect.y + rect.height } },
-    { id: `${SELECTION_OWNER_ID}:sw`, ownerId: SELECTION_OWNER_ID, kind: "resize", point: { x: rect.x, y: rect.y + rect.height } },
-  ]
+  return (Object.entries(resizeHandlePoints(rect, 0, false, false)) as Array<[DiagramResizeHandle, DiagramPoint]>).map(([handle, point]) => ({
+    id: `${SELECTION_OWNER_ID}:${handle}`, ownerId: SELECTION_OWNER_ID, kind: "resize", resizeHandle: handle, point,
+  }))
+}
+
+function resizeHandlePoints(rect: DiagramRect, rotation: number, flipX: boolean, flipY: boolean): Record<DiagramResizeHandle, DiagramPoint> {
+  const left = rect.x
+  const right = rect.x + rect.width
+  const top = rect.y
+  const bottom = rect.y + rect.height
+  const center = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 }
+  const local: Record<DiagramResizeHandle, DiagramPoint> = {
+    nw: { x: left, y: top }, n: { x: center.x, y: top }, ne: { x: right, y: top },
+    e: { x: right, y: center.y }, se: { x: right, y: bottom }, s: { x: center.x, y: bottom },
+    sw: { x: left, y: bottom }, w: { x: left, y: center.y },
+  }
+  const transform = (point: DiagramPoint) => rotatePoint({
+    x: rect.x + (flipX ? rect.width - (point.x - rect.x) : point.x - rect.x),
+    y: rect.y + (flipY ? rect.height - (point.y - rect.y) : point.y - rect.y),
+  }, center, rotation)
+  return Object.fromEntries(Object.entries(local).map(([handle, point]) => [handle, transform(point)])) as Record<DiagramResizeHandle, DiagramPoint>
 }
 
 function unionRects(rects: ReadonlyArray<DiagramRect>): DiagramRect | null {
