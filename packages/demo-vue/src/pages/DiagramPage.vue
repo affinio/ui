@@ -2,6 +2,7 @@
 import { computed, ref } from "vue"
 import {
   getSvgEntityProps,
+  DiagramBezierOverlay,
   useDiagramEngine,
   useDiagramPointerController,
   useDiagramSelection,
@@ -201,6 +202,11 @@ function startGeometryMode(mode: typeof geometryMode.value): void {
 }
 
 function handleStagePointerDown(event: PointerEvent): void {
+  if (pointer.state.value.tool === "draw-bezier") {
+    if (!pointer.state.value.bezierCreationPreview) pointer.beginBezierCreation(`bezier-${nextGeometryId++}`, event)
+    else corePointerProps.onPointerdown(event)
+    return
+  }
   if (!geometryMode.value) { corePointerProps.onPointerdown(event); return }
   event.preventDefault()
   const point = snappedGeometryPoint(toWorldPoint(event))
@@ -313,6 +319,11 @@ function confirmGeometryOperation(): void {
 }
 
 function pathData(contours: ReadonlyArray<DiagramPathContour>): string { return contours.map(pathContourSvg).join(" ") }
+
+function shapePreviewContours(entity: DiagramRenderEntity): ReadonlyArray<DiagramPathContour> {
+  const geometry = pointer.interaction.getPreviewGeometry(entity.id)
+  return geometry?.pathContours ?? entity.geometry.pathContours ?? []
+}
 
 function addSampleShape(shape: "circle" | "rect" | "lines"): void {
   const id = `playground-${shape}-${nextGeometryId++}`
@@ -463,6 +474,12 @@ function resizeSelected(): void {
 }
 
 function handleStageKeydown(event: KeyboardEvent): void {
+  if (pointer.state.value.tool === "draw-bezier" && event.key === "Escape") {
+    event.preventDefault(); pointer.cancel(); return
+  }
+  if (pointer.state.value.tool === "draw-bezier" && event.key === "Enter") {
+    event.preventDefault(); pointer.finishBezierCreation(); return
+  }
   if (geometryMode.value && event.key === "Escape") {
     event.preventDefault(); startGeometryMode(null); geometryMessage.value = "Operation cancelled."; return
   }
@@ -605,6 +622,7 @@ function clamp(value: number, min: number, max: number): number {
       <div class="diagram-toolbar" role="toolbar" aria-label="Diagram tools">
         <button :class="{ active: tool === 'select' }" type="button" @click="pointer.setTool('select')">Select</button>
         <button :class="{ active: tool === 'pan' }" type="button" @click="pointer.setTool('pan')">Pan</button>
+        <button :class="{ active: tool === 'draw-bezier' }" type="button" @click="pointer.setTool('draw-bezier')">Pen</button>
         <button type="button" @click="diagram.dispatch({ type: 'undo' })">Undo</button>
         <button type="button" @click="diagram.dispatch({ type: 'redo' })">Redo</button>
         <button type="button" @click="deleteSelected">Delete</button>
@@ -695,7 +713,7 @@ function clamp(value: number, min: number, max: number): number {
           </defs>
           <rect class="diagram-grid-fill" :x="displayViewport.x" :y="displayViewport.y" :width="displayViewport.width" :height="displayViewport.height" fill="url(#diagram-grid)" />
           <template v-for="entity in renderEntities" :key="entity.id">
-            <path v-if="entity.kind === 'shape' && entity.geometry.pathContours?.length" class="diagram-operation-path" :class="{ selected: entity.selected, 'is-filled': entity.geometry.pathContours.some((contour) => contour.closed) }" :d="pathData(entity.geometry.pathContours)" fill-rule="evenodd" />
+            <path v-if="entity.kind === 'shape' && shapePreviewContours(entity).length" class="diagram-operation-path" :class="{ selected: entity.selected, 'is-filled': shapePreviewContours(entity).some((contour) => contour.closed) }" :d="pathData(shapePreviewContours(entity))" fill-rule="evenodd" />
             <polyline v-else-if="entity.kind === 'shape' && entity.geometry.path" class="diagram-bus diagram-path-line" :points="entity.geometry.path.map((point) => `${point.x},${point.y}`).join(' ')" :transform="entityTransform(entity)" />
             <rect v-else-if="entity.kind === 'shape'" class="diagram-bus" v-bind="rectPreviewProps(entity)" :transform="entityTransform(entity)" />
             <polyline v-else-if="entity.kind === 'edge'" class="diagram-edge" :class="{ selected: entity.selected }" v-bind="edgePreviewProps(entity)" />
@@ -706,10 +724,11 @@ function clamp(value: number, min: number, max: number): number {
             </text>
           </template>
           <path v-for="(contour, index) in geometryPreview" :key="`operation-preview-${index}`" class="diagram-operation-preview" :class="{ 'is-filled': geometryMode === 'subtract' }" :d="pathContourSvg(contour)" fill-rule="evenodd" />
+          <DiagramBezierOverlay :pointer="pointer" :handles="visible.projection.value.activeHandles" :zoom="viewport.viewport.value.zoom" />
           <line v-for="(guide, index) in snapGuides" :key="`snap-${index}`" class="diagram-snap-guide" :class="`diagram-snap-guide--${guide.kind}`" :data-axis="guide.axis" :x1="guide.start.x" :y1="guide.start.y" :x2="guide.end.x" :y2="guide.end.y" />
           <template v-if="showSelectionOverlays">
             <rect v-for="anchor in visible.projection.value.overlayAnchors" :key="anchor.id" class="diagram-anchor" :x="anchor.rect.x" :y="anchor.rect.y" :width="anchor.rect.width" :height="anchor.rect.height" />
-            <circle v-for="handle in visible.projection.value.activeHandles" :key="handle.id" class="diagram-handle" :cx="handle.point.x" :cy="handle.point.y" r="5" @pointerdown.stop.prevent="beginResizeHandle(handle.id, handle.ownerId, $event)" />
+            <circle v-for="handle in visible.projection.value.activeHandles.filter((entry) => !entry.bezierHandle)" :key="handle.id" class="diagram-handle" :cx="handle.point.x" :cy="handle.point.y" r="5" @pointerdown.stop.prevent="beginResizeHandle(handle.id, handle.ownerId, $event)" />
           </template>
           <rect v-if="marqueeRect" class="diagram-marquee" :x="marqueeRect.x" :y="marqueeRect.y" :width="marqueeRect.width" :height="marqueeRect.height" />
         </svg>

@@ -12,7 +12,7 @@ export function beginDiagramHandleInteraction(
     return endpoint ? interaction.beginEdgeEndpointHandle(handle.ownerId, endpoint, event) : false
   }
   if (handle.kind !== "resize") return false
-  const resizeHandle = handle.id.slice(handle.id.lastIndexOf(":") + 1) as DiagramResizeHandle
+  const resizeHandle = handle.resizeHandle ?? handle.id.slice(handle.id.lastIndexOf(":") + 1) as DiagramResizeHandle
   return handle.ownerId === "__selection__"
     ? interaction.beginResizeSelectionHandle(resizeHandle, event)
     : interaction.beginResizeHandle(handle.ownerId, resizeHandle, event)
