@@ -141,6 +141,13 @@ For click placement, use `beginPathCreation(id, firstClick, "line")` for a two-c
 
 Selected path shapes expose one handle per vertex and selected edges expose handles for intermediate waypoints through the Vue visible projection. Core `beginPathVertexHandle()` and `beginEdgeWaypointHandle()` provide transient previews; pointerup commits one undoable vertex update. `removePathVertex` removes only interior path vertices and refuses to leave fewer than two points. Existing drag creation methods remain unchanged.
 
+Interactive port placement uses the same controller and hit-testing order as other gestures. Call `beginPortCreation(id, pointer, options)` when arming a caller-generated ID; this starts a hover preview without changing the scene. Pointer moves update `getSnapshot().portCreationPreview`. The next pointer down/up commits exactly one `createPort` command, then leaves the `create-port` tool active; arm the next point with another new ID. Escape, `cancel()`, pointercancel, or `setTool()` clears the preview. `hostId` can restrict placement to an already selected host. Otherwise Core picks the topmost node, shape, text, table, or group at the pointer. Line/path vertices are selected within `vertexTolerancePx` screen pixels (defaulting to the controller snap tolerance); farther points project onto the nearest segment and use a local anchor. Other hosts use a clamped host-local point, inverse-transforming rotation and flips. The preview includes the exact world point, host, anchor, and optional `snapResult` used by commit.
+
+```ts
+interaction.beginPortCreation("terminal-2", { id: 1, point: cursorWorldPoint }, { hostId: "symbol-1", vertexTolerancePx: 8 })
+// On pointer down/up, the active create-port gesture commits one port.
+```
+
 ### Curved paths and boolean helpers
 
 `createCircularArc(start, through, end)` returns an exact circular `DiagramPathContour`; the through point selects the minor or major sweep. Degenerate or collinear inputs return `{ ok: false, code, message }`. Commit with `dispatch({ type: "createArc", id, start, through, end })`, or create a `DiagramPath` from world-space `contours` with `createPath`. Path contours are stored as optional shape-local data, so old scenes remain valid and move/rotate/flip/clipboard/serialization keep the curve. `pathContourSvg()` and `flattenPathContour()` are exported for renderer use; Core geometry uses exact arc extrema for bounds and flattened curve samples for hit testing.

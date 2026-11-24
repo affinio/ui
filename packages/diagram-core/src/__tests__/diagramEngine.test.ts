@@ -627,6 +627,90 @@ describe("DiagramEngine", () => {
     expect(engine.dispatch({ type: "createPort", port: { id: "invalid", kind: "port", hostId: "table", anchor: { kind: "local", x: Number.NaN, y: 0 } } }).changed).toBe(false)
   })
 
+  it("places ports on the topmost host and commits the exact preview as one undoable change", () => {
+    const engine = createDiagramEngine({ shapes: [
+      { id: "back", kind: "shape", shape: "rect", x: 0, y: 0, width: 100, height: 80 },
+      { id: "front", kind: "shape", shape: "rect", x: 20, y: 10, width: 80, height: 60, metadata: { zIndex: 2 } },
+    ] })
+    const frames: Array<() => void> = []
+    const interaction = createDiagramInteractionController(engine, { snap: { tolerancePx: 8 }, scheduleFrame: (callback) => frames.push(callback) })
+    expect(interaction.beginPortCreation("p1", { id: 1, point: { x: 40, y: 30 } })).toBe(true)
+    interaction.pointerMove({ id: 1, point: { x: 55, y: 35 } })
+    frames.shift()?.()
+    const preview = interaction.getSnapshot().portCreationPreview!
+    expect(preview).toMatchObject({ id: "p1", hostId: "front", anchor: { kind: "local", x: 35, y: 25 }, point: { x: 55, y: 35 } })
+    const before = engine.serialize()
+    const depth = engine.getDiagnostics().undoDepth
+    interaction.pointerDown({ id: 1, point: { x: 55, y: 35 } })
+    interaction.pointerUp({ id: 1, point: { x: 55, y: 35 } })
+    expect(engine.getScene().entities.portsById.get("p1")).toMatchObject({ hostId: preview.hostId, anchor: preview.anchor })
+    expect(engine.getGeometrySnapshot("p1")?.point).toEqual(preview.point)
+    expect(engine.getDiagnostics().undoDepth).toBe(depth + 1)
+    expect(engine.serialize()).not.toEqual(before)
+    expect(interaction.getSnapshot().tool).toBe("create-port")
+    engine.dispatch({ type: "undo" })
+    expect(engine.getScene().entities.portsById.has("p1")).toBe(false)
+    engine.dispatch({ type: "redo" })
+    expect(engine.getGeometrySnapshot("p1")?.point).toEqual(preview.point)
+  })
+
+  it("snaps port placement to path vertices within screen tolerance and projects onto distant segments", () => {
+    const engine = createDiagramEngine({
+      shapes: [{ id: "path", kind: "shape", shape: "line", x: 0, y: 0, width: 100, height: 0, points: [{ x: 0, y: 0 }, { x: 50, y: 0 }, { x: 100, y: 0 }] }],
+      viewport: { x: 0, y: 0, width: 200, height: 100, zoom: 2 },
+    })
+    const interaction = createDiagramInteractionController(engine, { snap: { tolerancePx: 6 } })
+    expect(interaction.beginPortCreation("vertex-port", { id: 1, point: { x: 52, y: 2 } })).toBe(true)
+    expect(interaction.getSnapshot().portCreationPreview).toMatchObject({ hostId: "path", anchor: { kind: "vertex", index: 1 }, point: { x: 50, y: 0 }, snapResult: { source: "endpoint", snapped: true } })
+    interaction.cancel()
+    expect(interaction.beginPortCreation("segment-port", { id: 2, point: { x: 70, y: 2 } })).toBe(true)
+    expect(interaction.getSnapshot().portCreationPreview).toMatchObject({ hostId: "path", anchor: { kind: "local", x: 70, y: 0 }, point: { x: 70, y: 0 }, snapResult: { source: "nearest" } })
+    interaction.pointerDown({ id: 2, point: { x: 70, y: 2 } })
+    interaction.pointerUp({ id: 2, point: { x: 70, y: 2 } })
+    expect(engine.getGeometrySnapshot("segment-port")?.point).toEqual({ x: 70, y: 0 })
+  })
+
+  it("resolves transformed local anchors identically in preview and committed state", () => {
+    const engine = createDiagramEngine({
+      shapes: [{ id: "rotated", kind: "shape", shape: "rect", x: 100, y: 100, width: 80, height: 40, rotation: 90, flipX: true }],
+      viewport: { x: 50, y: 70, width: 300, height: 200, zoom: 0.5 },
+    })
+    const interaction = createDiagramInteractionController(engine, { viewportConstraints: { bounds: { x: 0, y: 0, width: 400, height: 300 }, margin: 20 } })
+    expect(interaction.beginPortCreation("rotated-port", { id: 1, point: { x: 150, y: 140 } }, { hostId: "rotated" })).toBe(true)
+    const preview = interaction.getSnapshot().portCreationPreview!
+    expect(preview).toMatchObject({ hostId: "rotated", anchor: { kind: "local", x: 20, y: 10 }, point: { x: 150, y: 140 } })
+    interaction.pointerDown({ id: 1, point: { x: 150, y: 140 } })
+    interaction.pointerUp({ id: 1, point: { x: 150, y: 140 } })
+    expect(engine.getGeometrySnapshot("rotated-port")?.point).toEqual(preview.point)
+    expect(engine.getScene().entities.portsById.get("rotated-port")).toMatchObject({ anchor: preview.anchor })
+  })
+
+  it("cancels port previews on pointer cancellation, explicit cancellation, host removal, and tool changes", () => {
+    const engine = createDiagramEngine({ shapes: [{ id: "s", kind: "shape", shape: "rect", x: 0, y: 0, width: 40, height: 40 }] })
+    const interaction = createDiagramInteractionController(engine)
+    const serialized = engine.serialize()
+    const depth = engine.getDiagnostics().undoDepth
+    interaction.beginPortCreation("cancelled", { id: 1, point: { x: 10, y: 10 } })
+    interaction.pointerDown({ id: 1, point: { x: 10, y: 10 } })
+    interaction.cancel()
+    expect(engine.getScene().entities.portsById.has("cancelled")).toBe(false)
+    expect(engine.serialize()).toEqual(serialized)
+    interaction.beginPortCreation("cancelled-2", { id: 2, point: { x: 10, y: 10 } })
+    interaction.cancel()
+    expect(interaction.getSnapshot().portCreationPreview).toBeNull()
+    expect(engine.serialize()).toEqual(serialized)
+    expect(engine.getDiagnostics().undoDepth).toBe(depth)
+    interaction.beginPortCreation("cancelled-3", { id: 3, point: { x: 10, y: 10 } })
+    interaction.pointerDown({ id: 3, point: { x: 10, y: 10 } })
+    engine.dispatch({ type: "deleteEntities", ids: ["s"] })
+    interaction.pointerUp({ id: 3, point: { x: 10, y: 10 } })
+    expect(engine.getScene().entities.portsById.has("cancelled-3")).toBe(false)
+    expect(interaction.getSnapshot().portCreationPreview).toBeNull()
+    interaction.beginPortCreation("cancelled-4", { id: 4, point: { x: 10, y: 10 } })
+    interaction.setTool("select")
+    expect(interaction.getSnapshot().portCreationPreview).toBeNull()
+  })
+
   it("updates vertex port indexes on insertion and rejects removal of an anchored vertex", () => {
     const engine = createDiagramEngine({
       shapes: [{ id: "path", kind: "shape", shape: "line", x: 0, y: 0, width: 100, height: 0, points: [{ x: 0, y: 0 }, { x: 50, y: 0 }, { x: 100, y: 0 }] }],

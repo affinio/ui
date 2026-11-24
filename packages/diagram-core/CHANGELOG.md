@@ -1,5 +1,12 @@
 # @affino/diagram-core
 
+## 0.21.0
+
+### Minor Changes
+
+- Added the persistent `create-port` interaction tool with typed host-local preview, deterministic topmost host selection, vertex tolerance, and nearest line/path segment projection.
+- Port placement preview and `createPort` commit share the same resolved host, anchor, and point; cancel and stale hosts produce no port/history entry.
+
 ## 0.20.0
 
 ### Minor Changes

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 import { computed, createApp, effectScope, h, nextTick, shallowRef } from "vue"
 import { createCircularArc, createDiagramEngine, type DiagramSceneInput } from "@affino/diagram-core"
 import { createDiagramInteractionController } from "@affino/diagram-core"
-import { DiagramTableView, getDomEntityStyle, getSvgEntityProps, useDiagramEngine, useDiagramPointerController, useDiagramSelection, useDiagramTable, useDiagramTextEditor, useDiagramViewport, useDiagramVisibleEntities } from ".."
+import { DiagramTableView, getDomEntityStyle, getSvgEntityProps, getSvgPortCreationPreviewProps, useDiagramEngine, useDiagramPointerController, useDiagramSelection, useDiagramTable, useDiagramTextEditor, useDiagramViewport, useDiagramVisibleEntities } from ".."
 import { beginDiagramHandleInteraction } from "../../../demo-vue/src/pages/diagramHandleInteractions"
 
 const scene: DiagramSceneInput = {
@@ -39,6 +39,31 @@ describe("diagram-vue", () => {
     expect(props).toMatchObject({ "data-port-host-id": "host", "data-port-anchor-kind": "local", "data-port-anchor-x": 0, "data-port-anchor-y": 10 })
     expect({ x: props.cx, y: props.cy }).toEqual(controller.engine.getGeometrySnapshot("anchor")?.point)
     controller.dispose()
+  })
+
+  it("publishes a reactive port placement preview and marker props, then clears it on cancel", async () => {
+    const frames: Array<FrameRequestCallback> = []
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { frames.push(callback); return frames.length })
+    const controller = useDiagramEngine({ shapes: [{ id: "host", kind: "shape", shape: "rect", x: 20, y: 30, width: 80, height: 40, rotation: 90, flipX: true }], viewport: { x: 50, y: 60, width: 200, height: 100, zoom: 0.5 } })
+    const pointer = useDiagramPointerController(controller, { snap: { tolerancePx: 8 }, toWorldPoint: (event) => ({ x: event.clientX, y: event.clientY }) })
+    const event = (pointerId: number, x: number, y: number) => ({ pointerId, clientX: x, clientY: y, shiftKey: false }) as PointerEvent
+    expect(pointer.beginPortCreation("new-port", event(7, 50, 50), { hostId: "host" })).toBe(true)
+    pointer.getSvgPointerProps().onPointermove(event(7, 55, 45))
+    frames.shift()?.(0)
+    await nextTick()
+    const preview = pointer.state.value.portCreationPreview!
+    expect(preview).toMatchObject({ id: "new-port", hostId: "host", anchor: { kind: "local" } })
+    expect(getSvgPortCreationPreviewProps(preview)).toMatchObject({ cx: preview.point.x, cy: preview.point.y, "data-port-host-id": "host", "pointer-events": "none" })
+    expect(controller.scene.value.entities.portsById.has("new-port")).toBe(false)
+    pointer.getSvgPointerProps().onPointercancel()
+    expect(pointer.state.value.portCreationPreview).toBeNull()
+    expect(controller.scene.value.entities.portsById.has("new-port")).toBe(false)
+    pointer.beginPortCreation("another-port", event(8, 50, 50), { hostId: "host" })
+    pointer.setTool("select")
+    expect(pointer.state.value.portCreationPreview).toBeNull()
+    pointer.dispose()
+    controller.dispose()
+    vi.unstubAllGlobals()
   })
 
   it("renders pointer move and resize previews without mutating the committed table scene", async () => {

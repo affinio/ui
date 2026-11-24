@@ -32,6 +32,24 @@ Core `flipEntities` commands are reflected by `getSvgEntityProps()` and `getDomE
 
 Ports render and hit-test from the same Core geometry snapshot as other entities. `getSvgEntityProps()` exposes `data-port-host-id`, `data-port-anchor-kind`, and the anchor's local coordinates or vertex index for consumers that need to label or inspect terminals. Core owns transformed positions, preview, snapping, and endpoint attachment; the Vue adapter does not keep a duplicate anchor model. Existing node-relative ports continue to render unchanged.
 
+For interactive placement, call `pointer.beginPortCreation(id, pointerEvent, options)` when arming a new caller-generated ID. The call publishes an initial hover preview; ordinary SVG pointer moves keep it reactive, and the next pointer down/up commits it. The `create-port` tool remains active after a commit; call `beginPortCreation()` again with a fresh ID to place another port. Escape can call `pointer.cancel()`, while native pointercancel already clears the preview.
+
+Render the marker inside the same SVG/world coordinate system as diagram entities. `getSvgPortCreationPreviewProps()` returns renderer-ready circle attributes, including the resolved position and host/anchor data:
+
+```vue
+<template>
+  <svg v-bind="pointer.getSvgPointerProps()">
+    <!-- diagram entities -->
+    <circle
+      v-if="pointer.state.value.portCreationPreview"
+      v-bind="getSvgPortCreationPreviewProps(pointer.state.value.portCreationPreview)"
+      fill="none"
+      stroke="currentColor"
+    />
+  </svg>
+</template>
+```
+
 Rectangular `DiagramShape` geometry exposes `cornerRadius` (world units) to renderers. `getSvgEntityProps()` maps it to SVG `rx`/`ry`; render the shape as `<rect>`. Omitted radius projects as zero, and Core rejects a value above half the smaller rectangle side. Other shape kinds are unchanged.
 
 Core group rotation publishes updated member geometry and selection bounds through the existing scene controller. `getSvgEntityProps()` and `DiagramTableView` apply the resulting rotation, so Vue toolbar capability checks based on `engine.canRotate(selection.ids)` and group selection overlays react to the command.

@@ -2,7 +2,7 @@ import { createEntityGeometry, diagramPortHostId, inflateRect, rectFromPoints as
 import { routeOrthogonalConnector } from "./geometry.js"
 import { clampViewportToBounds } from "./viewport.js"
 import type { DiagramEngine } from "./DiagramEngine.js"
-import type { DiagramCommand, DiagramDynamicInputState, DiagramEdgeCreationPreview, DiagramEdgeEndpoint, DiagramId, DiagramGeometry, DiagramInteractionSnapOptions, DiagramInteractionSnapshot, DiagramInteractionTool, DiagramMarqueeMode, DiagramPointerEvent, DiagramPoint, DiagramPort, DiagramRect, DiagramResizeEntry, DiagramResizeHandle, DiagramSnapCandidate, DiagramSnapGuide, DiagramSnapResult, DiagramViewportConstraints, DiagramOrthogonalRouteOptions, DiagramShape, DiagramTableResizeAxis, DiagramTableResizePreview } from "./types.js"
+import type { DiagramCommand, DiagramDynamicInputState, DiagramEdgeCreationPreview, DiagramEdgeEndpoint, DiagramId, DiagramGeometry, DiagramInteractionSnapOptions, DiagramInteractionSnapshot, DiagramInteractionTool, DiagramMarqueeMode, DiagramPointerEvent, DiagramPoint, DiagramPort, DiagramPortAnchor, DiagramPortCreationOptions, DiagramPortCreationPreview, DiagramRect, DiagramResizeEntry, DiagramResizeHandle, DiagramSnapCandidate, DiagramSnapGuide, DiagramSnapResult, DiagramViewportConstraints, DiagramOrthogonalRouteOptions, DiagramShape, DiagramTableResizeAxis, DiagramTableResizePreview } from "./types.js"
 
 type ScheduleFrame = (callback: () => void) => void
 const AXIS_LOCK_ACTIVATION_TOLERANCE_PX = 4
@@ -59,6 +59,9 @@ export class DiagramInteractionController {
   private pathCurrentPoint: DiagramPoint | null = null
   private clickToPlaceLine = false
   private pathVertexPreview: Readonly<{ id: DiagramId; index: number; point: DiagramPoint }> | null = null
+  private portCreationId: DiagramId | null = null
+  private portCreationOptions: DiagramPortCreationOptions = {}
+  private portCreationPreview: DiagramPortCreationPreview | null = null
   private vertexDragKind: "path" | "edge" | null = null
   private vertexDragStart: DiagramPoint | null = null
   private framePending = false
@@ -84,6 +87,14 @@ export class DiagramInteractionController {
   }
 
   pointerDown(event: DiagramPointerEvent): void {
+    if (this.tool === "create-port" && this.portCreationId) {
+      this.gestureGeneration += 1
+      this.activePointer = event
+      this.startPoint = event.point
+      this.latestPoint = event.point
+      this.updatePortCreationPreview()
+      return
+    }
     if (this.tool === "connect-edge" && this.edgeClickPlacement) {
       this.activePointer = event
       this.latestPoint = event.point
@@ -299,6 +310,20 @@ export class DiagramInteractionController {
     return true
   }
 
+  /** Starts one port placement gesture. After commit the create-port tool remains active for the next caller-supplied ID. */
+  beginPortCreation(id: DiagramId, event: DiagramPointerEvent, options: DiagramPortCreationOptions = {}): boolean {
+    if (!id || this.engine.getGeometrySnapshot(id) || ![event.point.x, event.point.y].every(Number.isFinite)
+      || (options.vertexTolerancePx !== undefined && (!Number.isFinite(options.vertexTolerancePx) || options.vertexTolerancePx < 0))) return false
+    this.cancel()
+    this.tool = "create-port"
+    this.portCreationId = id
+    this.portCreationOptions = options
+    this.startPoint = event.point
+    this.latestPoint = event.point
+    this.updatePortCreationPreview()
+    return true
+  }
+
   /** Commits the pending click as a vertex; pointer motion alone never adds vertices. */
   addPathVertex(point?: DiagramPoint, finish = false): boolean {
     if (this.tool !== "draw-path" || !this.pathCreationId || !this.pathVertices.length) return false
@@ -353,6 +378,11 @@ export class DiagramInteractionController {
   }
 
   pointerMove(event: DiagramPointerEvent): void {
+    if (this.tool === "create-port" && this.portCreationId && (!this.activePointer || this.activePointer.id === event.id)) {
+      this.latestPoint = event.point
+      this.scheduleCreationPreview()
+      return
+    }
     if (this.tool === "connect-edge" && this.edgeClickPlacement) {
       this.latestPoint = event.point
       this.scheduleCreationPreview()
@@ -369,6 +399,10 @@ export class DiagramInteractionController {
     }
     this.latestPoint = event.point
     if (this.tool === "drag-path-vertex" && this.pathVertexPreview) {
+      this.scheduleCreationPreview()
+      return
+    }
+    if (this.tool === "create-port" && this.portCreationId) {
       this.scheduleCreationPreview()
       return
     }
@@ -456,6 +490,17 @@ export class DiagramInteractionController {
       this.pathCurrentPoint = this.resolvePathPoint(event.point)
       this.addPathVertex(this.pathCurrentPoint, (event.clickCount ?? 0) >= 2)
       this.activePointer = null
+      return
+    }
+    if (this.tool === "create-port" && this.portCreationId) {
+      this.updatePortCreationPreview()
+      const preview = this.portCreationPreview
+      if (preview) {
+        this.engine.dispatch({ type: "createPort", port: { id: preview.id, kind: "port", hostId: preview.hostId, anchor: preview.anchor } })
+        if (this.engine.getScene().entities.portsById.has(preview.id)) this.commitCount += 1
+      }
+      this.clearGesture()
+      this.tool = "create-port"
       return
     }
     this.updateShiftAxis(event.shiftKey === true, event.point)
@@ -663,7 +708,7 @@ export class DiagramInteractionController {
   }
 
   getSnapshot(): DiagramInteractionSnapshot {
-    const hasPreview = this.previewDelta !== null || this.resizePreviewEntries.length > 0 || this.edgeEndpointPreview !== null || this.edgeCreationPreview !== null || this.lineCreationPreview !== null || this.pathCreationId !== null || this.pathVertexPreview !== null
+    const hasPreview = this.previewDelta !== null || this.resizePreviewEntries.length > 0 || this.edgeEndpointPreview !== null || this.edgeCreationPreview !== null || this.lineCreationPreview !== null || this.pathCreationId !== null || this.pathVertexPreview !== null || this.portCreationPreview !== null
     const endpointOrigin = this.edgeEndpointOppositeStart ?? (this.tool === "connect-edge" || this.tool === "draw-line" ? this.startPoint : null)
     const endpointAngle = (this.tool === "drag-edge-endpoint" || this.tool === "connect-edge" || this.tool === "draw-line") && endpointOrigin && this.latestPoint
       ? (this.latestShiftKey ? this.edgeEndpointCardinalAngle : this.configuredAngle(this.latestPoint, endpointOrigin))
@@ -697,6 +742,7 @@ export class DiagramInteractionController {
       pathCreationPreview: this.pathCreationId && this.pathVertices.length && this.pathCurrentPoint
         ? { id: this.pathCreationId, vertices: Object.freeze([...this.pathVertices]), current: this.pathCurrentPoint }
         : null,
+      portCreationPreview: this.portCreationPreview,
       edgeWaypointPreview: this.edgeEndpointId && this.edgeWaypointPreview ? { id: this.edgeEndpointId, points: this.edgeWaypointPreview } : null,
       pathVertexPreview: this.pathVertexPreview,
       marquee: this.marquee,
@@ -719,6 +765,10 @@ export class DiagramInteractionController {
     if (this.tool === "draw-path" && this.pathCreationId) {
       this.pathCurrentPoint = this.resolvePathPoint(this.latestPoint)
       this.previewDynamicInput = dynamicInputFor(this.pathVertices[this.pathVertices.length - 1]!, this.pathCurrentPoint)
+      return
+    }
+    if (this.tool === "create-port" && this.portCreationId) {
+      this.updatePortCreationPreview()
       return
     }
     if (this.tool === "connect-edge" && this.edgeClickPlacement) {
@@ -851,6 +901,72 @@ export class DiagramInteractionController {
     if (this.tool === "marquee") {
       this.marquee = rectFromPoints(this.startPoint, this.latestPoint)
     }
+  }
+
+  private updatePortCreationPreview(): void {
+    const id = this.portCreationId
+    const point = this.latestPoint
+    if (!id || !point) { this.portCreationPreview = null; return }
+    const viewport = this.engine.getScene().viewport
+    const zoom = viewport.zoom > 0 ? viewport.zoom : 1
+    const tolerancePx = this.portCreationOptions.vertexTolerancePx ?? this.snapOptions.tolerancePx ?? 6
+    const kinds = ["node", "shape", "text", "table", "group"] as const
+    const hostId = this.portCreationOptions.hostId
+      ?? this.engine.hitTest(point, { kinds, radius: tolerancePx / zoom })?.id
+    if (!hostId) { this.portCreationPreview = null; return }
+    const host = this.engine.getGeometrySnapshot(hostId)
+    if (!host || !kinds.includes(host.kind as typeof kinds[number])) { this.portCreationPreview = null; return }
+    const localBounds = this.portHostLocalBounds(hostId, host)
+    if (!localBounds) { this.portCreationPreview = null; return }
+
+    const shape = this.engine.getScene().entities.shapesById.get(hostId)
+    const path = shape?.shape === "line"
+      ? host.path ?? [worldPointAtLocalAnchor({ kind: "local", x: 0, y: 0 }, host, localBounds), worldPointAtLocalAnchor({ kind: "local", x: shape.width, y: shape.height }, host, localBounds)]
+      : undefined
+    const canAnchorToVertex = Boolean(shape?.shape === "line" && !shape.pathContours?.length)
+    let anchor: DiagramPortAnchor
+    let resolvedPoint: DiagramPoint
+    let snapResult: DiagramSnapResult | undefined
+    if (path && path.length >= 2) {
+      const nearestVertex = canAnchorToVertex ? path.reduce<{ index: number; point: DiagramPoint; distance: number } | null>((best, vertex, index) => {
+        const candidateDistance = Math.hypot(vertex.x - point.x, vertex.y - point.y)
+        return candidateDistance * zoom <= tolerancePx && (!best || candidateDistance < best.distance || (candidateDistance === best.distance && index < best.index))
+          ? { index, point: vertex, distance: candidateDistance }
+          : best
+      }, null) : null
+      if (nearestVertex) {
+        anchor = { kind: "vertex", index: nearestVertex.index }
+        resolvedPoint = nearestVertex.point
+        const candidate = { kind: "endpoint" as const, point: resolvedPoint, targetId: hostId, distancePx: nearestVertex.distance * zoom }
+        snapResult = { point: resolvedPoint, snapped: nearestVertex.distance > 0, source: "endpoint", targetId: hostId, candidate, candidates: [candidate] }
+      } else {
+        const nearest = nearestPointOnPolyline(point, path)
+        if (!nearest) { this.portCreationPreview = null; return }
+        resolvedPoint = nearest.point
+        anchor = localAnchorAtWorldPoint(resolvedPoint, host, localBounds)
+        const candidate = { kind: "nearest" as const, point: resolvedPoint, targetId: hostId, distancePx: nearest.distance * zoom }
+        snapResult = { point: resolvedPoint, snapped: nearest.distance > 1e-9, source: "nearest", targetId: hostId, candidate, candidates: [candidate] }
+      }
+    } else {
+      anchor = localAnchorAtWorldPoint(point, host, localBounds)
+      resolvedPoint = worldPointAtLocalAnchor(anchor, host, localBounds)
+    }
+    this.portCreationPreview = Object.freeze({ id, hostId, anchor: Object.freeze({ ...anchor }), point: Object.freeze({ ...resolvedPoint }), ...(snapResult ? { snapResult: Object.freeze(snapResult) } : {}) })
+    this.snapResult = snapResult ?? null
+  }
+
+  private portHostLocalBounds(hostId: DiagramId, geometry: DiagramGeometry): DiagramRect | null {
+    const scene = this.engine.getScene()
+    const node = scene.entities.nodesById.get(hostId)
+    if (node) return { x: node.x, y: node.y, width: node.width, height: node.height }
+    const shape = scene.entities.shapesById.get(hostId)
+    if (shape) return { x: shape.x, y: shape.y, width: shape.width, height: shape.height }
+    const text = scene.entities.textsById.get(hostId)
+    if (text) return geometry.unrotatedBounds ?? geometry.bounds
+    const table = scene.entities.tablesById.get(hostId)
+    if (table) return { x: table.x, y: table.y, width: table.width, height: table.height }
+    if (scene.entities.groupsById.has(hostId)) return geometry.bounds
+    return null
   }
 
   private scheduleCreationPreview(): void {
@@ -1221,6 +1337,9 @@ export class DiagramInteractionController {
     this.pathCurrentPoint = null
     this.clickToPlaceLine = false
     this.pathVertexPreview = null
+    this.portCreationId = null
+    this.portCreationOptions = {}
+    this.portCreationPreview = null
     this.vertexDragKind = null
     this.vertexDragStart = null
     this.edgeRouteOptions = {}
@@ -1267,6 +1386,39 @@ function defaultScheduleFrame(callback: () => void): void {
     return
   }
   callback()
+}
+
+function nearestPointOnPolyline(point: DiagramPoint, path: ReadonlyArray<DiagramPoint>): Readonly<{ point: DiagramPoint; distance: number }> | null {
+  let best: { point: DiagramPoint; distance: number; segment: number } | null = null
+  for (let index = 0; index < path.length - 1; index += 1) {
+    const start = path[index]!
+    const end = path[index + 1]!
+    const dx = end.x - start.x
+    const dy = end.y - start.y
+    const lengthSquared = dx * dx + dy * dy
+    if (lengthSquared === 0) continue
+    const t = Math.max(0, Math.min(1, ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared))
+    const projected = { x: start.x + dx * t, y: start.y + dy * t }
+    const candidate = { point: projected, distance: Math.hypot(projected.x - point.x, projected.y - point.y), segment: index }
+    if (!best || candidate.distance < best.distance || (candidate.distance === best.distance && candidate.segment < best.segment)) best = candidate
+  }
+  return best
+}
+
+function localAnchorAtWorldPoint(point: DiagramPoint, geometry: DiagramGeometry, bounds: DiagramRect): DiagramPortAnchor {
+  const unrotated = geometry.rotation ? rotatePoint(point, { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 }, -geometry.rotation) : point
+  const localX = geometry.flipX ? bounds.width - (unrotated.x - bounds.x) : unrotated.x - bounds.x
+  const localY = geometry.flipY ? bounds.height - (unrotated.y - bounds.y) : unrotated.y - bounds.y
+  return { kind: "local", x: Math.max(0, Math.min(bounds.width, localX)), y: Math.max(0, Math.min(bounds.height, localY)) }
+}
+
+function worldPointAtLocalAnchor(anchor: DiagramPortAnchor, geometry: DiagramGeometry, bounds: DiagramRect): DiagramPoint {
+  if (anchor.kind !== "local") return { x: bounds.x, y: bounds.y }
+  const local = {
+    x: bounds.x + (geometry.flipX ? bounds.width - anchor.x : anchor.x),
+    y: bounds.y + (geometry.flipY ? bounds.height - anchor.y : anchor.y),
+  }
+  return geometry.rotation ? rotatePoint(local, { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 }, geometry.rotation) : local
 }
 
 function rotateDelta(delta: DiagramPoint, rotation: number): DiagramPoint {

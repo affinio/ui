@@ -1,6 +1,6 @@
 import { getCurrentScope, onScopeDispose, shallowRef } from "vue"
 import type { ShallowRef } from "vue"
-import { createDiagramInteractionController, type DiagramDynamicInputState, type DiagramInteractionController, type DiagramInteractionSnapOptions, type DiagramInteractionSnapshot, type DiagramInteractionTool, type DiagramPoint, type DiagramPointerEvent, type DiagramOrthogonalRouteOptions, type DiagramViewportConstraints, type DiagramId, type DiagramTableResizeAxis } from "@affino/diagram-core"
+import { createDiagramInteractionController, type DiagramDynamicInputState, type DiagramInteractionController, type DiagramInteractionSnapOptions, type DiagramInteractionSnapshot, type DiagramInteractionTool, type DiagramPoint, type DiagramPointerEvent, type DiagramOrthogonalRouteOptions, type DiagramViewportConstraints, type DiagramId, type DiagramTableResizeAxis, type DiagramPortCreationOptions } from "@affino/diagram-core"
 import type { DiagramEngineController } from "./useDiagramEngine.js"
 
 export type DiagramPointerController = Readonly<{
@@ -16,6 +16,7 @@ export type DiagramPointerController = Readonly<{
   finishEdgePathCreation: (point?: DiagramPoint) => boolean
   beginLineCreation: (id: string, event: PointerEvent) => boolean
   beginPathCreation: (id: string, event: PointerEvent, mode?: "line" | "path") => boolean
+  beginPortCreation: (id: DiagramId, event: PointerEvent, options?: DiagramPortCreationOptions) => boolean
   beginPathVertexHandle: (id: string, index: number, event: PointerEvent) => boolean
   beginEdgeWaypointHandle: (id: string, index: number, event: PointerEvent) => boolean
   addPathVertex: (point?: DiagramPoint, finish?: boolean) => boolean
@@ -112,6 +113,11 @@ export function useDiagramPointerController(controller: DiagramEngineController,
       refresh()
       return accepted
     },
+    beginPortCreation: (id, event, portOptions) => {
+      const accepted = interaction.beginPortCreation(id, toEvent(event), portOptions)
+      refresh()
+      return accepted
+    },
     beginPathVertexHandle: (id, index, event) => { const accepted = interaction.beginPathVertexHandle(id, index, toEvent(event)); refresh(); return accepted },
     beginEdgeWaypointHandle: (id, index, event) => { const accepted = interaction.beginEdgeWaypointHandle(id, index, toEvent(event)); refresh(); return accepted },
     addPathVertex: (point, finish) => { const accepted = interaction.addPathVertex(point, finish); refresh(); return accepted },
@@ -178,6 +184,7 @@ function sameSnapshot(previous: DiagramInteractionSnapshot, next: DiagramInterac
     && previous.edgeCreationPreview === next.edgeCreationPreview
     && previous.shapeCreationPreview === next.shapeCreationPreview
     && previous.pathCreationPreview === next.pathCreationPreview
+    && previous.portCreationPreview === next.portCreationPreview
     && previous.edgeWaypointPreview === next.edgeWaypointPreview
     && previous.pathVertexPreview === next.pathVertexPreview
     && previous.shapeCreationPreview === next.shapeCreationPreview

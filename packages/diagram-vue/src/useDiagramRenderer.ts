@@ -1,8 +1,25 @@
 import type { DiagramRenderEntity } from "./types.js"
-import type { DiagramViewport } from "@affino/diagram-core"
+import type { DiagramPortCreationPreview, DiagramViewport } from "@affino/diagram-core"
 import { pathContourSvg } from "@affino/diagram-core"
 
 export type SvgEntityProps = Readonly<Record<string, string | number | boolean | undefined>>
+
+/** SVG circle attributes for rendering the transient Core port-placement marker. */
+export function getSvgPortCreationPreviewProps(preview: DiagramPortCreationPreview, radius = 5): SvgEntityProps {
+  return {
+    cx: preview.point.x,
+    cy: preview.point.y,
+    r: radius,
+    "data-port-preview-id": preview.id,
+    "data-port-host-id": preview.hostId,
+    "data-port-anchor-kind": preview.anchor.kind,
+    "data-port-anchor-index": preview.anchor.kind === "vertex" ? preview.anchor.index : undefined,
+    "data-port-anchor-x": preview.anchor.kind === "local" ? preview.anchor.x : undefined,
+    "data-port-anchor-y": preview.anchor.kind === "local" ? preview.anchor.y : undefined,
+    "pointer-events": "none",
+    "aria-hidden": true,
+  }
+}
 
 export function getSvgEntityProps(entity: DiagramRenderEntity): SvgEntityProps {
   const { geometry } = entity

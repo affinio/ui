@@ -430,7 +430,21 @@ export type DiagramBatchOptions = Readonly<{ expectedRevision?: number; operatio
 export type DiagramBatchPreviewResult = DiagramBatchResult & Readonly<{ scene?: SerializedDiagramScene }>
 export type DiagramValidationIssue = Readonly<{ code: string; severity: "error" | "warning"; entityIds: ReadonlyArray<DiagramId>; message: string }>
 
-export type DiagramInteractionTool = "pan" | "select" | "marquee" | "drag-selection" | "resize-selection" | "resize-table-axis" | "drag-edge-endpoint" | "drag-path-vertex" | "connect-edge" | "draw-line" | "draw-path" | "edit-text"
+export type DiagramInteractionTool = "pan" | "select" | "marquee" | "drag-selection" | "resize-selection" | "resize-table-axis" | "drag-edge-endpoint" | "drag-path-vertex" | "connect-edge" | "draw-line" | "draw-path" | "create-port" | "edit-text"
+
+export type DiagramPortCreationOptions = Readonly<{
+  /** Restrict placement to this host; useful when an inspector has already selected it. */
+  hostId?: DiagramId
+  /** Screen-pixel radius for preferring an existing line/path vertex. Defaults to interaction snap tolerance. */
+  vertexTolerancePx?: number
+}>
+export type DiagramPortCreationPreview = Readonly<{
+  id: DiagramId
+  hostId: DiagramId
+  anchor: DiagramPortAnchor
+  point: DiagramPoint
+  snapResult?: DiagramSnapResult
+}>
 
 export type DiagramResizeHandle = "nw" | "ne" | "se" | "sw"
 
@@ -472,6 +486,7 @@ export type DiagramInteractionSnapshot = Readonly<{
   edgeCreationPreview: DiagramEdgeCreationPreview | null
   shapeCreationPreview: DiagramShape | null
   pathCreationPreview: Readonly<{ id: DiagramId; vertices: ReadonlyArray<DiagramPoint>; current: DiagramPoint }> | null
+  portCreationPreview: DiagramPortCreationPreview | null
   edgeWaypointPreview: Readonly<{ id: DiagramId; points: ReadonlyArray<DiagramPoint> }> | null
   pathVertexPreview: Readonly<{ id: DiagramId; index: number; point: DiagramPoint }> | null
   marquee: DiagramRect | null

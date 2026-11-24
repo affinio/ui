@@ -1,5 +1,13 @@
 # @affino/diagram-vue
 
+## 0.20.0
+
+### Minor Changes
+
+- Added `beginPortCreation()` and reactive port placement preview through `useDiagramPointerController()`.
+- Exported `getSvgPortCreationPreviewProps()` to render the transient marker from the Core snapshot without DOM geometry workarounds.
+- Updated the workspace dependency to `@affino/diagram-core` 0.21.0.
+
 ## 0.19.0
 
 ### Minor Changes
