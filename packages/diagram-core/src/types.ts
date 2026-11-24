@@ -67,13 +67,19 @@ export type DiagramNode = DiagramEntityBase & Readonly<{
   portIds?: ReadonlyArray<DiagramId>
 }>
 
-export type DiagramPort = DiagramEntityBase & Readonly<{
-  kind: "port"
-  nodeId: DiagramId
-  x: number
-  y: number
-  radius?: number
-}>
+/** A host-local point is measured from the host's unrotated top-left and scales with it on resize. */
+export type DiagramPortAnchor = Readonly<{ kind: "local"; x: number; y: number }>
+  /** Vertex indices address DiagramShape.points, or the implicit endpoints of a line shape. */
+  | Readonly<{ kind: "vertex"; index: number }>
+
+export type DiagramPortHost = Readonly<{ hostId: DiagramId; anchor: DiagramPortAnchor }>
+export type DiagramPort = DiagramEntityBase & Readonly<{ kind: "port"; radius?: number }> & (
+  /** Legacy node ports keep their existing node-local x/y contract. */
+  Readonly<{ nodeId: DiagramId; x: number; y: number; hostId?: never; anchor?: never }>
+  | DiagramPortHost & Readonly<{ nodeId?: never; x?: never; y?: never }>
+)
+
+export type DiagramPortRemap = DiagramPortHost
 
 export type DiagramEdgeEndpoint =
   | Readonly<{ kind: "point"; point: DiagramPoint }>
@@ -321,6 +327,9 @@ export type DiagramGeometry = Readonly<{
   path?: ReadonlyArray<DiagramPoint>
   pathContours?: ReadonlyArray<DiagramPathContour>
   point?: DiagramPoint
+  /** Present for port geometry; the point's resolved world position is `point`. */
+  hostId?: DiagramId
+  anchor?: DiagramPortAnchor
 }>
 
 export type DiagramHitTestOptions = Readonly<{
@@ -349,6 +358,7 @@ export type DiagramCommand =
   | Readonly<{ type: "createPath"; path: DiagramPath; historyKey?: string }>
   | Readonly<{ type: "createArc"; id: DiagramId; start: DiagramPoint; through: DiagramPoint; end: DiagramPoint; metadata?: DiagramMetadata; historyKey?: string }>
   | Readonly<{ type: "updateShapePath"; id: DiagramId; points?: ReadonlyArray<DiagramPoint>; pathContours?: ReadonlyArray<DiagramPathContour>; historyKey?: string }>
+  | Readonly<{ type: "insertPathVertex"; id: DiagramId; index: number; point: DiagramPoint; historyKey?: string }>
   | Readonly<{ type: "movePathVertex"; id: DiagramId; index: number; point: DiagramPoint; historyKey?: string }>
   | Readonly<{ type: "removePathVertex"; id: DiagramId; index: number; historyKey?: string }>
   | Readonly<{ type: "updateShape"; id: DiagramId; cornerRadius: number; historyKey?: string }>
@@ -363,7 +373,7 @@ export type DiagramCommand =
   | Readonly<{ type: "updateTableStyle"; id: DiagramId; style: DiagramTableStyleUpdate; historyKey?: string }>
   | Readonly<{ type: "updateTableHeader"; id: DiagramId; header: DiagramTableHeader | null; historyKey?: string }>
   | Readonly<{ type: "groupEntities"; id: DiagramId; ids?: ReadonlyArray<DiagramId>; historyKey?: string }>
-  | Readonly<{ type: "ungroupEntities"; ids: ReadonlyArray<DiagramId>; historyKey?: string }>
+  | Readonly<{ type: "ungroupEntities"; ids: ReadonlyArray<DiagramId>; portRemaps?: Readonly<Record<DiagramId, DiagramPortRemap>>; historyKey?: string }>
   | Readonly<{ type: "createPort"; port: DiagramPort; historyKey?: string }>
   | Readonly<{ type: "deleteEntities"; ids: ReadonlyArray<DiagramId>; historyKey?: string }>
   | Readonly<{ type: "reconnectEdgeEndpoint"; id: DiagramId; endpoint: "source" | "target"; connection: DiagramEdgeEndpoint; historyKey?: string }>

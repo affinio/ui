@@ -1,4 +1,4 @@
-import { createEntityGeometry, distance, inflateRect, rectContainsPoint, rectIntersects, rotatePoint } from "./geometry.js"
+import { createEntityGeometry, diagramPortHostId, distance, inflateRect, isValidDiagramPortAnchor, rectContainsPoint, rectIntersects, resolvePortPoint, rotatePoint } from "./geometry.js"
 import { createCircularArc, flattenPathContour, pathContourBoundsPoints, translatePathContour } from "./pathOperations.js"
 import { DiagramClipboardService } from "./internal/DiagramClipboardService.js"
 import { DiagramGeometryService } from "./internal/DiagramGeometryService.js"
@@ -20,6 +20,9 @@ import type {
   DiagramEdge,
   DiagramEdgeEndpoint,
   DiagramNode,
+  DiagramPort,
+  DiagramPortAnchor,
+  DiagramPortRemap,
   DiagramText,
   DiagramShape,
   DiagramFlipAxis,
@@ -88,7 +91,7 @@ export class DiagramEngine {
   private dependencyIndexReady = false
   private dependencyIndexRebuildCount = 0
   private dependencyEntityIds = new Set<DiagramId>()
-  private portIdsByNode = new Map<DiagramId, Set<DiagramId>>()
+  private portIdsByHost = new Map<DiagramId, Set<DiagramId>>()
   private edgeIdsByNode = new Map<DiagramId, Set<DiagramId>>()
   private edgeIdsByPort = new Map<DiagramId, Set<DiagramId>>()
   private dependencyEdgeEndpoints = new Map<DiagramId, readonly [DiagramEdgeEndpoint, DiagramEdgeEndpoint]>()
@@ -791,7 +794,7 @@ export class DiagramEngine {
   private collectInvalidatedIds(changedIds: ReadonlySet<DiagramId>): Set<DiagramId> {
     const invalidated = new Set(changedIds)
     for (const id of changedIds) {
-      for (const portId of this.portIdsByNode.get(id) ?? []) {
+      for (const portId of this.portIdsByHost.get(id) ?? []) {
         invalidated.add(portId)
       }
       for (const edgeId of this.edgeIdsByNode.get(id) ?? []) {
@@ -827,17 +830,18 @@ export class DiagramEngine {
         }
         const oldOwner = this.dependencyPortOwners.get(id)
         const port = this.state.entities.portsById.get(id)
-        if (oldOwner !== port?.nodeId) {
+        const nextOwner = port ? diagramPortHostId(port) : undefined
+        if (oldOwner !== nextOwner) {
           const attachedEdges = [...(this.edgeIdsByPort.get(id) ?? [])]
           for (const edgeId of attachedEdges) {
             const endpoints = this.dependencyEdgeEndpoints.get(edgeId)
             if (endpoints) this.removeEdgeDependencies(edgeId, endpoints)
           }
-          if (oldOwner) removeDependency(this.portIdsByNode, oldOwner, id)
+          if (oldOwner) removeDependency(this.portIdsByHost, oldOwner, id)
           if (!port) this.dependencyPortOwners.delete(id)
           else {
-            this.dependencyPortOwners.set(id, port.nodeId)
-            addDependency(this.portIdsByNode, port.nodeId, id)
+            this.dependencyPortOwners.set(id, nextOwner!)
+            addDependency(this.portIdsByHost, nextOwner!, id)
           }
           for (const edgeId of attachedEdges) {
             const endpoints = this.dependencyEdgeEndpoints.get(edgeId)
@@ -861,14 +865,15 @@ export class DiagramEngine {
       ...this.state.order.groupIds,
       ...this.state.order.tableIds,
     ])
-    this.portIdsByNode = new Map()
+    this.portIdsByHost = new Map()
     this.edgeIdsByNode = new Map()
     this.edgeIdsByPort = new Map()
     this.dependencyEdgeEndpoints.clear()
     this.dependencyPortOwners.clear()
     for (const port of this.state.entities.portsById.values()) {
-      this.dependencyPortOwners.set(port.id, port.nodeId)
-      addDependency(this.portIdsByNode, port.nodeId, port.id)
+      const hostId = diagramPortHostId(port)
+      this.dependencyPortOwners.set(port.id, hostId)
+      addDependency(this.portIdsByHost, hostId, port.id)
     }
     for (const edge of this.state.entities.edgesById.values()) {
       const endpoints = [edge.source, edge.target] as const
@@ -932,10 +937,12 @@ export class DiagramEngine {
       }
       case "updateShapePath":
         return createUpdateShapePathPatch(this.state, command.id, command.points, command.pathContours)
+      case "insertPathVertex":
+        return createPathVertexPatch(this.state, command.id, command.index, command.point, "insert")
       case "movePathVertex":
-        return createPathVertexPatch(this.state, command.id, command.index, command.point, false)
+        return createPathVertexPatch(this.state, command.id, command.index, command.point, "move")
       case "removePathVertex":
-        return createPathVertexPatch(this.state, command.id, command.index, null, true)
+        return createPathVertexPatch(this.state, command.id, command.index, null, "remove")
       case "updateShape":
         return createUpdateShapePatch(this.state, command.id, command.cornerRadius)
       case "createTable":
@@ -961,7 +968,7 @@ export class DiagramEngine {
       case "groupEntities":
         return createGroupEntitiesPatch(this.state, command.id, command.ids ?? this.state.selection.ids)
       case "ungroupEntities":
-        return createUngroupEntitiesPatch(this.state, command.ids)
+        return createUngroupEntitiesPatch(this.state, command.ids, command.portRemaps)
       case "createPort":
         return createCreatePortPatch(this.state, command.port)
       case "deleteEntities":
@@ -1472,8 +1479,11 @@ function validateSceneInput(scene: DiagramSceneInput): DiagramSceneInput {
   const nodes = new Set(nodesInput.map((node) => node.id))
   const ports = new Map(portsInput.map((port) => [port.id, port]))
   for (const node of nodesInput) if (![node.x, node.y, node.width, node.height, node.rotation ?? 0].every(Number.isFinite) || node.width < 0 || node.height < 0 || !validFlipFlags(node)) throw new TypeError(`Invalid geometry for node ${node.id}`)
-  for (const port of portsInput) if (!nodes.has(port.nodeId) || ![port.x, port.y, port.radius ?? 0].every(Number.isFinite)) throw new TypeError(`Invalid port ${port.id}`)
-  for (const node of nodesInput) if ((node.portIds ?? []).some((id) => ports.get(id)?.nodeId !== node.id)) throw new TypeError(`Invalid port reference on node ${node.id}`)
+  for (const port of portsInput) {
+    const legacyNodePort = "nodeId" in port && typeof port.nodeId === "string"
+    const validPosition = legacyNodePort ? nodes.has(port.nodeId) && [port.x, port.y].every(Number.isFinite) : "hostId" in port && typeof port.hostId === "string" && "anchor" in port && Boolean(port.anchor)
+    if (!validPosition || (port.radius !== undefined && (!Number.isFinite(port.radius) || port.radius < 0))) throw new TypeError(`Invalid port ${port.id}`)
+  }
   for (const text of textsInput) if (![text.x, text.y, text.width ?? 0, text.height ?? 0, text.fontSize ?? 0, text.rotation ?? 0].every(Number.isFinite) || !validFlipFlags(text)) throw new TypeError(`Invalid geometry for text ${text.id}`)
   for (const shape of shapesInput) if (!isValidDiagramShape(shape)) throw new TypeError(`Invalid geometry for shape ${shape.id}`)
   for (const table of tablesInput) validateDiagramTable(table)
@@ -1490,6 +1500,21 @@ function validateSceneInput(scene: DiagramSceneInput): DiagramSceneInput {
       groupedChildren.add(childId)
     }
   }
+  const portEntities = {
+    nodesById: new Map(nodesInput.map((entity) => [entity.id, entity])),
+    edgesById: new Map(edgesInput.map((entity) => [entity.id, entity])),
+    textsById: new Map(textsInput.map((entity) => [entity.id, entity])),
+    shapesById: new Map(shapesInput.map((entity) => [entity.id, entity])),
+    portsById: new Map(portsInput.map((entity) => [entity.id, entity])),
+    groupsById: new Map(groupsInput.map((entity) => [entity.id, entity])),
+    tablesById: new Map(tablesInput.map((entity) => [entity.id, entity])),
+  }
+  for (const port of portsInput) {
+    if ("nodeId" in port && port.nodeId) continue
+    const anchored = port as Extract<DiagramPort, { hostId: DiagramId }>
+    if (!anchored.hostId || !isValidDiagramPortAnchor(anchored.hostId, anchored.anchor, portEntities)) throw new TypeError(`Invalid port anchor ${port.id}`)
+  }
+  for (const node of nodesInput) if ((node.portIds ?? []).some((id) => !ports.has(id) || diagramPortHostId(ports.get(id)!) !== node.id)) throw new TypeError(`Invalid port reference on node ${node.id}`)
   if (scene.viewport && (![scene.viewport.x, scene.viewport.y, scene.viewport.width, scene.viewport.height, scene.viewport.zoom].filter((value) => value !== undefined).every(Number.isFinite) || (scene.viewport.zoom !== undefined && scene.viewport.zoom <= 0))) throw new TypeError("Invalid diagram viewport")
   const selectionIds = scene.selection?.ids ?? []
   if (selectionIds.some((id) => !ids.has(id))) throw new TypeError("Diagram selection contains an unknown entity")
@@ -1656,6 +1681,7 @@ function createResizePatch(state: InternalState, entries: ReadonlyArray<DiagramR
   const groupedChildren = new Set(groupEntries.flatMap((entry) => groupMembers(state, entry.id)))
   const regularPatch = createResizePatchForEntities(state, entries.filter((entry) => !state.entities.groupsById.has(entry.id) && !groupedChildren.has(entry.id)))
   const rectEntries: DiagramResizeEntry[] = []
+  const portPatches: Patch[] = []
   const previousEdges = new Map<DiagramId, DiagramEdge>()
   const nextEdges = new Map<DiagramId, DiagramEdge>()
   const entities = snapshotEntities(state)
@@ -1671,6 +1697,8 @@ function createResizePatch(state: InternalState, entries: ReadonlyArray<DiagramR
       x: nextBounds.x + (point.x - base.x) * scaleX,
       y: nextBounds.y + (point.y - base.y) * scaleY,
     })
+    const portPatch = createGroupPortResizePatch(state, entry.id, base, nextBounds)
+    if (portPatch) portPatches.push(portPatch)
     for (const id of groupMembers(state, entry.id)) {
       const edge = state.entities.edgesById.get(id)
       if (edge) {
@@ -1699,8 +1727,23 @@ function createResizePatch(state: InternalState, entries: ReadonlyArray<DiagramR
     new Map(changedEdges),
     (next, id, value) => next.entities.edgesById.set(id, value as DiagramEdge),
   ) : null
-  const groupPatch = [childRectPatch, edgePatch].filter((patch): patch is Patch => patch !== null).reduce<Patch | null>((current, patch) => current ? composePatches(current, patch) : patch, null)
-  return [regularPatch, groupPatch].filter((patch): patch is Patch => patch !== null).reduce<Patch | null>((current, patch) => current ? composePatches(current, patch) : patch, null)
+  const groupPatch = [childRectPatch, edgePatch, ...portPatches].filter((patch): patch is Patch => patch !== null).reduce<Patch | null>((current, patch) => current ? composeUndoablePatches(current, patch) : patch, null)
+  return [regularPatch, groupPatch].filter((patch): patch is Patch => patch !== null).reduce<Patch | null>((current, patch) => current ? composeUndoablePatches(current, patch) : patch, null)
+}
+
+function createGroupPortResizePatch(state: InternalState, groupId: DiagramId, from: DiagramRect, to: DiagramRect): Patch | null {
+  const sx = from.width === 0 ? 1 : to.width / from.width
+  const sy = from.height === 0 ? 1 : to.height / from.height
+  const previous = new Map<DiagramId, DiagramPort>()
+  const next = new Map<DiagramId, DiagramPort>()
+  for (const port of state.entities.portsById.values()) {
+    if (diagramPortHostId(port) !== groupId || !("hostId" in port)) continue
+    const anchored = port as Extract<DiagramPort, { hostId: DiagramId }>
+    if (anchored.anchor.kind !== "local") continue
+    previous.set(port.id, port)
+    next.set(port.id, { id: port.id, kind: "port", metadata: port.metadata, radius: port.radius, hostId: groupId, anchor: { kind: "local", x: anchored.anchor.x * sx, y: anchored.anchor.y * sy } })
+  }
+  return next.size ? createEntitySnapshotPatch([...next.keys()], previous, next, (draft, id, value) => draft.entities.portsById.set(id, value)) : null
 }
 
 function createResizePatchForEntities(state: InternalState, entries: ReadonlyArray<DiagramResizeEntry>): Patch | null {
@@ -1718,14 +1761,17 @@ function createResizePatchForEntities(state: InternalState, entries: ReadonlyArr
     if (![resized.x, resized.y, resized.width, resized.height].every(Number.isFinite) || resized.width <= 0 || resized.height <= 0) return null
     previous.set(entry.id, table)
     next.set(entry.id, resized)
+    const anchoredPorts = createPortResizePatch(state, entry.id, table.width, table.height, resized.width, resized.height)
+    if (anchoredPorts) patches.push(anchoredPorts)
   }
   if (next.size) patches.push(createEntitySnapshotPatch([...next.keys()], previous, next, (draft, id, value) => draft.entities.tablesById.set(id, value as DiagramTable)))
-  return patches.reduce<Patch | null>((current, patch) => current ? composePatches(current, patch) : patch, null)
+  return patches.reduce<Patch | null>((current, patch) => current ? composeUndoablePatches(current, patch) : patch, null)
 }
 
 function createResizePatchForNonTableEntities(state: InternalState, entries: ReadonlyArray<DiagramResizeEntry>): Patch | null {
   const previous = new Map<DiagramId, DiagramResizeEntry>()
   const nextEntries: DiagramResizeEntry[] = []
+  const patches: Patch[] = []
   for (const entry of entries) {
     if (isEntityLockedOrReadOnly(state, entry.id)) continue
     const node = state.entities.nodesById.get(entry.id)
@@ -1736,23 +1782,30 @@ function createResizePatchForNonTableEntities(state: InternalState, entries: Rea
     if (shape && shape.shape === "rect" && !isValidCornerRadius({ ...shape, width: entry.width ?? shape.width, height: entry.height ?? shape.height }, shape.cornerRadius ?? 0)) return null
     previous.set(entry.id, { id: entry.id, x: entity.x, y: entity.y, width: entity.width, height: entity.height })
     nextEntries.push(entry)
-    if (node) {
-      for (const port of state.entities.portsById.values()) {
-        if (port.nodeId !== node.id || isEntityLockedOrReadOnly(state, port.id)) continue
-        const nextWidth = entry.width ?? node.width
-        const nextHeight = entry.height ?? node.height
-        const nextPort = {
-          id: port.id,
-          x: node.width === 0 ? port.x : port.x * (nextWidth / node.width),
-          y: node.height === 0 ? port.y : port.y * (nextHeight / node.height),
-        }
-        previous.set(port.id, { id: port.id, x: port.x, y: port.y })
-        nextEntries.push(nextPort)
-      }
-    }
+    const oldWidth = entity.width ?? 1, oldHeight = entity.height ?? 1
+    const resizedPorts = createPortResizePatch(state, entry.id, oldWidth, oldHeight, entry.width ?? oldWidth, entry.height ?? oldHeight)
+    if (resizedPorts) patches.push(resizedPorts)
   }
-  if (!nextEntries.length) return null
-  return createResizePatchUnchecked(nextEntries, [...previous.values()])
+  if (nextEntries.length) patches.unshift(createResizePatchUnchecked(nextEntries, [...previous.values()]))
+  return patches.reduce<Patch | null>((current, patch) => current ? composeUndoablePatches(current, patch) : patch, null)
+}
+
+function createPortResizePatch(state: InternalState, hostId: DiagramId, oldWidth: number, oldHeight: number, width: number, height: number): Patch | null {
+  const scaleX = oldWidth === 0 ? 1 : width / oldWidth
+  const scaleY = oldHeight === 0 ? 1 : height / oldHeight
+  const previous = new Map<DiagramId, DiagramPort>()
+  const next = new Map<DiagramId, DiagramPort>()
+  for (const port of state.entities.portsById.values()) {
+    if (diagramPortHostId(port) !== hostId || isEntityLockedOrReadOnly(state, port.id)) continue
+    let resized: DiagramPort | null = null
+    if ("nodeId" in port && port.nodeId) resized = { id: port.id, kind: "port", metadata: port.metadata, radius: port.radius, nodeId: port.nodeId, x: port.x * scaleX, y: port.y * scaleY }
+    else {
+      const anchored = port as Extract<DiagramPort, { hostId: DiagramId }>
+      if (anchored.anchor.kind === "local") resized = { id: port.id, kind: "port", metadata: port.metadata, radius: port.radius, hostId: anchored.hostId, anchor: { ...anchored.anchor, x: anchored.anchor.x * scaleX, y: anchored.anchor.y * scaleY } }
+    }
+    if (resized) { previous.set(port.id, port); next.set(port.id, resized) }
+  }
+  return next.size ? createEntitySnapshotPatch([...next.keys()], previous, next, (draft, id, value) => draft.entities.portsById.set(id, value)) : null
 }
 
 function createResizePatchUnchecked(entries: ReadonlyArray<DiagramResizeEntry>, inverseEntries: ReadonlyArray<DiagramResizeEntry>): Patch {
@@ -1797,7 +1850,7 @@ function applyResizeEntries(state: InternalState, entries: ReadonlyArray<Diagram
     const port = state.entities.portsById.get(entry.id)
     if (port) {
       const patch = Object.fromEntries(Object.entries(entry).filter(([key, value]) => (key === "x" || key === "y") && value !== undefined)) as Partial<DiagramResizeEntry>
-      state.entities.portsById.set(entry.id, { ...port, ...patch })
+      if ("nodeId" in port && port.nodeId) state.entities.portsById.set(entry.id, { ...port, ...patch })
       changed.add(entry.id)
     }
   }
@@ -1845,7 +1898,41 @@ function createRotatePatch(state: InternalState, entries: ReadonlyArray<DiagramR
     next.set(entry.id, { ...entity, rotation })
   }
   if (!next.size) return null
-  return createRotatePatchUnchecked([...next.values()], [...previous.values()])
+  const rotationPatch = createRotatePatchUnchecked([...next.values()], [...previous.values()])
+  const entities = {
+    nodesById: new Map(state.entities.nodesById), edgesById: new Map(state.entities.edgesById), textsById: new Map(state.entities.textsById),
+    shapesById: new Map(state.entities.shapesById), portsById: new Map(state.entities.portsById), groupsById: new Map(state.entities.groupsById), tablesById: new Map(state.entities.tablesById),
+  }
+  for (const entity of next.values()) {
+    if (entity.kind === "node") entities.nodesById.set(entity.id, entity)
+    else if (entity.kind === "edge") entities.edgesById.set(entity.id, entity)
+    else if (entity.kind === "text") entities.textsById.set(entity.id, entity)
+    else if (entity.kind === "shape") entities.shapesById.set(entity.id, entity)
+    else if (entity.kind === "table") entities.tablesById.set(entity.id, entity)
+    else if (entity.kind === "group") entities.groupsById.set(entity.id, entity)
+  }
+  const previousPorts = new Map<DiagramId, DiagramPort>()
+  const nextPorts = new Map<DiagramId, DiagramPort>()
+  for (const entry of entries) {
+    const group = state.entities.groupsById.get(entry.id)
+    if (!group || !next.has(group.id)) continue
+    const before = createEntityGeometry(group.id, snapshotEntities(state))
+    const after = createEntityGeometry(group.id, entities)
+    if (!before || !after) continue
+    const center = { x: before.bounds.x + before.bounds.width / 2, y: before.bounds.y + before.bounds.height / 2 }
+    const delta = normalizeRotation(entry.rotation - (group.rotation ?? 0))
+    for (const port of state.entities.portsById.values()) {
+      if (diagramPortHostId(port) !== group.id || !("hostId" in port)) continue
+      const anchored = port as Extract<DiagramPort, { hostId: DiagramId }>
+      if (anchored.anchor.kind !== "local") continue
+      const world = resolvePortPoint(port, snapshotEntities(state))
+      const rotated = rotatePoint(world, center, delta)
+      previousPorts.set(port.id, port)
+      nextPorts.set(port.id, { id: port.id, kind: "port", metadata: port.metadata, radius: port.radius, hostId: group.id, anchor: { kind: "local", x: rotated.x - after.bounds.x, y: rotated.y - after.bounds.y } })
+    }
+  }
+  const portPatch = nextPorts.size ? createEntitySnapshotPatch([...nextPorts.keys()], previousPorts, nextPorts, (draft, id, value) => draft.entities.portsById.set(id, value)) : null
+  return portPatch ? composeUndoablePatches(rotationPatch, portPatch) : rotationPatch
 }
 
 function createRotatePatchUnchecked(entries: ReadonlyArray<DiagramRotationSnapshot>, inverseEntries: ReadonlyArray<DiagramRotationSnapshot>): Patch {
@@ -1981,7 +2068,36 @@ function createFlipPatch(state: InternalState, requestedIds: ReadonlyArray<Diagr
   const center = { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 }
   const previous = candidates.map((id) => getDiagramFlipSnapshot(state, id)).filter((entity): entity is DiagramFlipSnapshot => entity !== null)
   const next = previous.map((entity) => reflectDiagramEntity(entity, createEntityGeometry(entity.id, entities)!, center, axis))
-  return createFlipPatchUnchecked(next, previous)
+  const flipPatch = createFlipPatchUnchecked(next, previous)
+  const future = {
+    nodesById: new Map(state.entities.nodesById), edgesById: new Map(state.entities.edgesById), textsById: new Map(state.entities.textsById),
+    shapesById: new Map(state.entities.shapesById), portsById: new Map(state.entities.portsById), groupsById: new Map(state.entities.groupsById), tablesById: new Map(state.entities.tablesById),
+  }
+  for (const entity of next) {
+    if (entity.kind === "node") future.nodesById.set(entity.id, entity)
+    else if (entity.kind === "edge") future.edgesById.set(entity.id, entity)
+    else if (entity.kind === "text") future.textsById.set(entity.id, entity)
+    else if (entity.kind === "shape") future.shapesById.set(entity.id, entity)
+    else if (entity.kind === "table") future.tablesById.set(entity.id, entity)
+  }
+  const previousPorts = new Map<DiagramId, DiagramPort>()
+  const nextPorts = new Map<DiagramId, DiagramPort>()
+  const flippedGroups = requestedIds.filter((id) => state.entities.groupsById.has(id) && next.some((entity) => entity.id === id))
+  for (const groupId of flippedGroups) {
+    const after = createEntityGeometry(groupId, future)
+    if (!after) continue
+    for (const port of state.entities.portsById.values()) {
+      if (diagramPortHostId(port) !== groupId || !("hostId" in port)) continue
+      const anchored = port as Extract<DiagramPort, { hostId: DiagramId }>
+      if (anchored.anchor.kind !== "local") continue
+      const point = resolvePortPoint(port, entities)
+      const reflected = { x: axis === "horizontal" ? 2 * center.x - point.x : point.x, y: axis === "vertical" ? 2 * center.y - point.y : point.y }
+      previousPorts.set(port.id, port)
+      nextPorts.set(port.id, { id: port.id, kind: "port", metadata: port.metadata, radius: port.radius, hostId: groupId, anchor: { kind: "local", x: reflected.x - after.bounds.x, y: reflected.y - after.bounds.y } })
+    }
+  }
+  const portPatch = nextPorts.size ? createEntitySnapshotPatch([...nextPorts.keys()], previousPorts, nextPorts, (draft, id, value) => draft.entities.portsById.set(id, value)) : null
+  return portPatch ? composeUndoablePatches(flipPatch, portPatch) : flipPatch
 }
 
 function createFlipPatchUnchecked(entries: ReadonlyArray<DiagramFlipSnapshot>, inverseEntries: ReadonlyArray<DiagramFlipSnapshot>): Patch {
@@ -2251,11 +2367,16 @@ function validPathContours(contours: ReadonlyArray<DiagramPathContour>): boolean
     : [segment.center.x, segment.center.y, segment.radius, segment.startAngle, segment.sweepAngle].every(Number.isFinite) && segment.radius > 0 && Math.abs(segment.sweepAngle) > 0 && Math.abs(segment.sweepAngle) <= Math.PI * 2 + 1e-8))
 }
 
+function isVertexPortForHost(port: DiagramPort, hostId: DiagramId): port is DiagramPort & { hostId: DiagramId; anchor: { kind: "vertex"; index: number } } {
+  return diagramPortHostId(port) === hostId && "hostId" in port && (port as Extract<DiagramPort, { hostId: DiagramId }>).anchor.kind === "vertex"
+}
+
 function createUpdateShapePathPatch(state: InternalState, id: DiagramId, points?: ReadonlyArray<DiagramPoint>, contours?: ReadonlyArray<DiagramPathContour>): Patch | null {
   const previous = state.entities.shapesById.get(id)
   if (!previous || isEntityLockedOrReadOnly(state, id) || (!points && !contours)) return null
   if (points && (points.length < 2 || points.some((point) => ![point.x, point.y].every(Number.isFinite)))) return null
   if (contours && !validPathContours(contours)) return null
+  if ([...state.entities.portsById.values()].some((port) => isVertexPortForHost(port, id) && (points?.length ?? 0) <= port.anchor.index)) return null
   const world = [...(points ?? []).map((point) => ({ x: previous.x + point.x, y: previous.y + point.y })), ...(contours ?? []).flatMap((contour) => pathContourBoundsPoints(contour))]
   if (world.length < 2) return null
   const minX = Math.min(...world.map((point) => point.x)), minY = Math.min(...world.map((point) => point.y))
@@ -2265,22 +2386,39 @@ function createUpdateShapePathPatch(state: InternalState, id: DiagramId, points?
   return { apply: apply(next), inverse: { apply: apply(previous), inverse: undefined as unknown as Patch } }
 }
 
-function createPathVertexPatch(state: InternalState, id: DiagramId, index: number, point: DiagramPoint | null, remove: boolean): Patch | null {
+function createPathVertexPatch(state: InternalState, id: DiagramId, index: number, point: DiagramPoint | null, operation: "insert" | "move" | "remove"): Patch | null {
   const shape = state.entities.shapesById.get(id)
-  const points = shape?.points ? [...shape.points] : null
-  if (!shape || shape.shape !== "line" || !points || isEntityLockedOrReadOnly(state, id) || !Number.isInteger(index) || index < 0 || index >= points.length) return null
-  if (remove && (points.length <= 2 || index === 0 || index === points.length - 1)) return null
-  if (!remove && (!point || ![point.x, point.y].every(Number.isFinite))) return null
+  const points = shape ? [...(shape.points ?? (shape.shape === "line" ? [{ x: 0, y: 0 }, { x: shape.width, y: shape.height }] : []))] : null
+  if (!shape || shape.shape !== "line" || !points?.length || isEntityLockedOrReadOnly(state, id) || !Number.isInteger(index)) return null
+  if (operation === "insert" ? index < 0 || index > points.length : index < 0 || index >= points.length) return null
+  if (operation === "remove" && (points.length <= 2 || index === 0 || index === points.length - 1)) return null
+  if (operation !== "remove" && (!point || ![point.x, point.y].every(Number.isFinite))) return null
+  const vertexPorts = [...state.entities.portsById.values()].filter((port) => isVertexPortForHost(port, id))
+  if (operation === "remove" && vertexPorts.some((port) => port.anchor.index === index)) return null
   const previous = shape
-  if (remove) points.splice(index, 1)
+  if (operation === "remove") points.splice(index, 1)
   else {
     const unrotated = rotatePoint(point!, { x: shape.x + shape.width / 2, y: shape.y + shape.height / 2 }, -(shape.rotation ?? 0))
     const localX = unrotated.x - shape.x, localY = unrotated.y - shape.y
-    points[index] = { x: shape.flipX ? shape.width - localX : localX, y: shape.flipY ? shape.height - localY : localY }
+    const localPoint = { x: shape.flipX ? shape.width - localX : localX, y: shape.flipY ? shape.height - localY : localY }
+    if (operation === "insert") points.splice(index, 0, localPoint)
+    else points[index] = localPoint
   }
   const next = { ...shape, points }
-  const apply = (value: DiagramShape): Patch["apply"] => (draft) => { draft.entities.shapesById.set(id, value); return new Set([id]) }
-  return { apply: apply(next), inverse: { apply: apply(previous), inverse: undefined as unknown as Patch } }
+  const shapePatch = createEntitySnapshotPatch([id], new Map([[id, previous]]), new Map([[id, next]]), (draft, entityId, value) => draft.entities.shapesById.set(entityId, value))
+  if (operation === "move" || !vertexPorts.length) return shapePatch
+  const previousPorts = new Map<DiagramId, DiagramPort>()
+  const nextPorts = new Map<DiagramId, DiagramPort>()
+  for (const port of vertexPorts) {
+    const anchor = port.anchor
+    const anchored = port
+    if (anchor.kind !== "vertex" || (operation === "remove" && anchor.index < index) || (operation === "insert" && anchor.index < index)) continue
+    previousPorts.set(port.id, port)
+    const nextIndex = operation === "insert" ? anchor.index + 1 : anchor.index - 1
+    nextPorts.set(port.id, { id: port.id, kind: "port", metadata: port.metadata, radius: port.radius, hostId: anchored.hostId, anchor: { kind: "vertex", index: nextIndex } })
+  }
+  const portPatch = nextPorts.size ? createEntitySnapshotPatch([...nextPorts.keys()], previousPorts, nextPorts, (draft, portId, value) => draft.entities.portsById.set(portId, value)) : null
+  return portPatch ? composeUndoablePatches(shapePatch, portPatch) : shapePatch
 }
 
 function createUpdateShapePatch(state: InternalState, id: DiagramId, cornerRadius: number): Patch | null {
@@ -2495,10 +2633,32 @@ function createGroupEntitiesPatch(state: InternalState, id: DiagramId, ids: Read
   }
 }
 
-function createUngroupEntitiesPatch(state: InternalState, ids: ReadonlyArray<DiagramId>): Patch | null {
+function createUngroupEntitiesPatch(state: InternalState, ids: ReadonlyArray<DiagramId>, portRemaps: Readonly<Record<DiagramId, DiagramPortRemap>> = {}): Patch | null {
   const groupIds = [...new Set(ids)]
   if (!groupIds.length || groupIds.some((id) => !state.entities.groupsById.has(id) || isEntityLockedOrReadOnly(state, id))) return null
   const groups = groupIds.map((id) => state.entities.groupsById.get(id)!)
+  const hostedPorts = [...state.entities.portsById.values()].filter((port) => groupIds.includes(diagramPortHostId(port)))
+  if (hostedPorts.some((port) => isEntityLockedOrReadOnly(state, port.id))) return null
+  const remapIds = Object.keys(portRemaps)
+  if (remapIds.some((id) => !hostedPorts.some((port) => port.id === id)) || hostedPorts.some((port) => !portRemaps[port.id])) return null
+  const nextPorts = new Map<DiagramId, DiagramPort>()
+  const previousPorts = new Map<DiagramId, DiagramPort>()
+  const nextNodePorts = new Map<DiagramId, DiagramNode>()
+  const previousNodePorts = new Map<DiagramId, DiagramNode>()
+  for (const port of hostedPorts) {
+    const remap = portRemaps[port.id]!
+    const group = groups.find((entry) => entry.id === diagramPortHostId(port))!
+    if (!group.childIds.includes(remap.hostId) || !hasEntity(state, remap.hostId) || isEntityLockedOrReadOnly(state, remap.hostId) || !isValidDiagramPortAnchor(remap.hostId, remap.anchor, state.entities)) return null
+    previousPorts.set(port.id, port)
+    const anchoredPort = port as Extract<DiagramPort, { hostId: DiagramId }>
+    nextPorts.set(port.id, { ...anchoredPort, hostId: remap.hostId, anchor: remap.anchor })
+    const node = state.entities.nodesById.get(remap.hostId)
+    if (node) {
+      previousNodePorts.set(node.id, node)
+      const current = nextNodePorts.get(node.id) ?? node
+      nextNodePorts.set(node.id, { ...current, portIds: [...new Set([...(current.portIds ?? []), port.id])] })
+    }
+  }
   const previousSelection = state.selection
   const childIds = [...new Set(groups.flatMap((group) => group.childIds))]
   const nextSelection: DiagramSelection = { ids: childIds, primaryId: childIds[0] ?? null }
@@ -2509,8 +2669,10 @@ function createUngroupEntitiesPatch(state: InternalState, ids: ReadonlyArray<Dia
       for (const id of groupIds) next.entities.groupsById.delete(id)
       next.order.groupIds = next.order.groupIds.filter((id) => !groupIds.includes(id))
       for (const id of groupIds) next.versions.delete(id)
+      for (const [id, port] of nextPorts) next.entities.portsById.set(id, port)
+      for (const [id, node] of nextNodePorts) next.entities.nodesById.set(id, node)
       next.selection = nextSelection
-      return new Set([...groupIds, "selection"])
+      return new Set([...groupIds, ...nextPorts.keys(), ...nextNodePorts.keys(), "selection"])
     },
     inverse: {
       orderChanged: true,
@@ -2521,8 +2683,10 @@ function createUngroupEntitiesPatch(state: InternalState, ids: ReadonlyArray<Dia
           next.order.groupIds.splice(Math.max(0, Math.min(position, next.order.groupIds.length)), 0, group.id)
           next.versions.set(group.id, 0)
         }
+        for (const [id, port] of previousPorts) next.entities.portsById.set(id, port)
+        for (const [id, node] of previousNodePorts) next.entities.nodesById.set(id, node)
         next.selection = previousSelection
-        return new Set([...groupIds, "selection"])
+        return new Set([...groupIds, ...previousPorts.keys(), ...previousNodePorts.keys(), "selection"])
       },
       inverse: undefined as unknown as Patch,
     },
@@ -2530,20 +2694,25 @@ function createUngroupEntitiesPatch(state: InternalState, ids: ReadonlyArray<Dia
 }
 
 function createCreatePortPatch(state: InternalState, port: import("./types.js").DiagramPort): Patch | null {
-  const owner = state.entities.nodesById.get(port.nodeId)
-  if (!owner || isEntityLockedOrReadOnly(state, owner.id) || !isUniqueId(state, port.id) || !Number.isFinite(port.x) || !Number.isFinite(port.y) || (port.radius !== undefined && (!Number.isFinite(port.radius) || port.radius < 0))) return null
-  const previousPorts = [...(owner.portIds ?? [])]
+  const hostId = diagramPortHostId(port)
+  const owner = state.entities.nodesById.get(hostId)
+  const validAnchor = "nodeId" in port && port.nodeId
+    ? Number.isFinite(port.x) && Number.isFinite(port.y)
+    : "hostId" in port && Boolean(port.hostId) && isValidDiagramPortAnchor((port as Extract<DiagramPort, { hostId: DiagramId }>).hostId, (port as Extract<DiagramPort, { hostId: DiagramId }>).anchor, state.entities)
+  if (!hostId || !hasEntity(state, hostId) || isEntityLockedOrReadOnly(state, hostId) || !isUniqueId(state, port.id) || !validAnchor || (port.radius !== undefined && (!Number.isFinite(port.radius) || port.radius < 0))) return null
+  const previousPorts = owner?.portIds ?? []
+  const nextPorts = owner ? [...new Set([...previousPorts, port.id])] : null
   return {
     orderChanged: true,
     apply: (next) => {
       next.entities.portsById.set(port.id, port)
-      next.entities.nodesById.set(owner.id, { ...next.entities.nodesById.get(owner.id)!, portIds: [...new Set([...previousPorts, port.id])] })
+      if (owner && nextPorts) next.entities.nodesById.set(owner.id, { ...next.entities.nodesById.get(owner.id)!, portIds: nextPorts })
       next.versions.set(port.id, 0)
-      return new Set([port.id, owner.id])
+      return new Set([port.id, hostId, ...(owner ? [owner.id] : [])])
     },
     inverse: {
       orderChanged: true,
-      apply: (next) => { next.entities.portsById.delete(port.id); next.entities.nodesById.set(owner.id, { ...next.entities.nodesById.get(owner.id)!, portIds: previousPorts }); return new Set([port.id, owner.id]) },
+      apply: (next) => { next.entities.portsById.delete(port.id); if (owner) next.entities.nodesById.set(owner.id, { ...next.entities.nodesById.get(owner.id)!, portIds: previousPorts }); return new Set([port.id, hostId, ...(owner ? [owner.id] : [])]) },
       inverse: undefined as unknown as Patch,
     },
   }
@@ -2554,10 +2723,8 @@ function createDeleteEntitiesCommandPatch(state: InternalState, ids: ReadonlyArr
   const cascade = expandDeletedIds(state, ids)
   const deleting = new Set(cascade)
   for (const id of deleting) {
-    if (state.entities.nodesById.has(id)) {
-      for (const port of state.entities.portsById.values()) if (port.nodeId === id && !deleting.has(port.id)) return null
-      for (const edge of state.entities.edgesById.values()) if (endpointDeleted(edge.source, deleting) || endpointDeleted(edge.target, deleting)) if (!deleting.has(edge.id)) return null
-    }
+    for (const port of state.entities.portsById.values()) if (diagramPortHostId(port) === id && !deleting.has(port.id)) return null
+    for (const edge of state.entities.edgesById.values()) if ((endpointDeleted(edge.source, deleting) || endpointDeleted(edge.target, deleting)) && !deleting.has(edge.id)) return null
   }
   if (cascade.length !== new Set(cascade).size || cascade.some((id) => isEntityNonDeletable(state, id) || isEntityLockedOrReadOnly(state, id))) return null
   if (ids.some((id) => isEntityNonDeletable(state, id) || isEntityLockedOrReadOnly(state, id))) return null
@@ -2646,7 +2813,7 @@ function isValidEndpoint(state: InternalState, endpoint: DiagramEdgeEndpoint): b
   if (endpoint.kind === "point") return Number.isFinite(endpoint.point.x) && Number.isFinite(endpoint.point.y)
   if (endpoint.kind === "node") return state.entities.nodesById.has(endpoint.nodeId)
   const port = state.entities.portsById.get(endpoint.portId)
-  return Boolean(port && state.entities.nodesById.has(port.nodeId))
+  return Boolean(port && hasEntity(state, diagramPortHostId(port)))
 }
 function isValidEdge(state: InternalState, edge: DiagramEdge): boolean {
   return isValidEndpoint(state, edge.source) && isValidEndpoint(state, edge.target) && (edge.points ?? []).every((point) => Number.isFinite(point.x) && Number.isFinite(point.y))
@@ -2654,14 +2821,14 @@ function isValidEdge(state: InternalState, edge: DiagramEdge): boolean {
 function commandIds(command: DiagramCommand): DiagramId[] {
   if (command.type === "createTable") return [command.table.id]
   if (command.type === "groupEntities") return [command.id, ...(command.ids ?? [])]
-  if (command.type === "ungroupEntities") return [...command.ids]
+  if (command.type === "ungroupEntities") return [...command.ids, ...Object.keys(command.portRemaps ?? {})]
   if ("id" in command) return [command.id]
   if ("ids" in command) return [...(command.ids ?? [])]
   if (command.type === "createEdge") return [command.edge.id]
   if (command.type === "createNode") return [command.node.id]
   if (command.type === "createShape") return [command.shape.id]
   if (command.type === "createPath") return [command.path.id]
-  if (command.type === "createPort") return [command.port.id, command.port.nodeId]
+  if (command.type === "createPort") return [command.port.id, diagramPortHostId(command.port)]
   if (command.type === "updateEntities") return command.updates.map((update) => update.id)
   return []
 }
@@ -2674,11 +2841,10 @@ function createDeleteSelectionPatch(state: InternalState): Patch | null {
     if (group && groupedIds.some((childId) => isEntityNonDeletable(state, childId) || isEntityLockedOrReadOnly(state, childId))) return false
     const ownerGroup = [...state.entities.groupsById.values()].find((candidate) => candidate.childIds.includes(id))
     if (ownerGroup && groupMembers(state, ownerGroup.id).some((childId) => isEntityNonDeletable(state, childId) || isEntityLockedOrReadOnly(state, childId))) return false
-    const nodeIds = new Set([id, ...groupedIds].filter((nodeId) => state.entities.nodesById.has(nodeId)))
-    if (nodeIds.size) {
-      if ([...state.entities.portsById.values()].some((port) => nodeIds.has(port.nodeId) && (isEntityNonDeletable(state, port.id) || isEntityLockedOrReadOnly(state, port.id)))) return false
-      if ([...state.entities.edgesById.values()].some((edge) => (endpointDeleted(edge.source, nodeIds) || endpointDeleted(edge.target, nodeIds)) && (isEntityNonDeletable(state, edge.id) || isEntityLockedOrReadOnly(state, edge.id)))) return false
-    }
+    const hostIds = new Set([id, ...groupedIds])
+    if ([...state.entities.portsById.values()].some((port) => hostIds.has(diagramPortHostId(port)) && (isEntityNonDeletable(state, port.id) || isEntityLockedOrReadOnly(state, port.id)))) return false
+    const hostPortIds = new Set([...state.entities.portsById.values()].filter((port) => hostIds.has(diagramPortHostId(port))).map((port) => port.id))
+    if ([...state.entities.edgesById.values()].some((edge) => (endpointDeleted(edge.source, hostIds) || endpointDeleted(edge.target, hostIds) || (edge.source.kind === "port" && hostPortIds.has(edge.source.portId)) || (edge.target.kind === "port" && hostPortIds.has(edge.target.portId))) && (isEntityNonDeletable(state, edge.id) || isEntityLockedOrReadOnly(state, edge.id)))) return false
     return true
   })
   const deleted = expandDeletedIds(state, safe)
@@ -2699,7 +2865,7 @@ function createDeleteEntitiesPatch(ids: ReadonlyArray<DiagramId>): Patch {
       deletedPortOwners = new Map()
       for (const id of ids) {
         const port = next.entities.portsById.get(id)
-        const owner = port && next.entities.nodesById.get(port.nodeId)
+        const owner = port && next.entities.nodesById.get(diagramPortHostId(port))
         if (port && owner) {
           deletedPortOwners.set(owner.id, owner)
           next.entities.nodesById.set(owner.id, { ...owner, portIds: (owner.portIds ?? []).filter((portId) => portId !== id) })
@@ -2896,12 +3062,8 @@ function expandDeletedIds(state: InternalState, ids: ReadonlyArray<DiagramId>): 
     }
   }
   for (const id of [...deleted]) {
-    if (state.entities.nodesById.has(id)) {
-      for (const port of state.entities.portsById.values()) {
-        if (port.nodeId === id && !isEntityNonDeletable(state, port.id) && !isEntityLockedOrReadOnly(state, port.id)) {
-          deleted.add(port.id)
-        }
-      }
+    for (const port of state.entities.portsById.values()) {
+      if (diagramPortHostId(port) === id && !isEntityNonDeletable(state, port.id) && !isEntityLockedOrReadOnly(state, port.id)) deleted.add(port.id)
     }
   }
   for (const edge of state.entities.edgesById.values()) {
@@ -2935,16 +3097,20 @@ function composePatches(first: Patch, second: Patch): Patch {
     orderChanged: first.orderChanged === true || second.orderChanged === true,
     apply: (state) => {
       const changed = new Set<DiagramId>()
-      for (const step of steps) {
-        for (const id of step.apply(state)) {
-          changed.add(id)
-        }
-      }
+      for (const step of steps) for (const id of step.apply(state)) changed.add(id)
       return changed
     },
     inverse: undefined as unknown as Patch,
     steps,
   }
+}
+
+function composeUndoablePatches(first: Patch, second: Patch): Patch {
+  const combined = composePatches(first, second)
+  const inverse = composePatches(second.inverse, first.inverse)
+  combined.inverse = inverse
+  inverse.inverse = combined
+  return combined
 }
 
 function cloneOrder(order: MutableOrder): MutableOrder {

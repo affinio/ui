@@ -1,4 +1,5 @@
 import type { DiagramClipboard, DiagramEdge, DiagramEdgeEndpoint, DiagramGroup, DiagramId, DiagramNode, DiagramPoint, DiagramSelection, DiagramShape, DiagramTable, DiagramText } from "../types.js"
+import { diagramPortHostId } from "../geometry.js"
 import type { InternalState, Patch } from "./model.js"
 
 type DeletePatchFactory = (ids: ReadonlyArray<DiagramId>) => Patch
@@ -26,7 +27,7 @@ export class DiagramClipboardService {
     const nodes = state.order.nodeIds
       .map((id) => state.entities.nodesById.get(id))
       .filter((entity): entity is DiagramNode => entity !== undefined && selected.has(entity.id))
-    const ports = [...state.entities.portsById.values()].filter((port) => selected.has(port.id) || selected.has(port.nodeId))
+    const ports = [...state.entities.portsById.values()].filter((port) => selected.has(port.id) || selected.has(diagramPortHostId(port)))
     const included = new Set<DiagramId>([...selected, ...ports.map((port) => port.id)])
     const edges = state.order.edgeIds
       .map((id) => state.entities.edgesById.get(id))
@@ -57,7 +58,11 @@ export class DiagramClipboardService {
     }
     for (const entity of [...clipboard.nodes, ...clipboard.ports, ...clipboard.edges, ...clipboard.texts, ...clipboard.shapes, ...(clipboard.groups ?? []), ...(clipboard.tables ?? [])]) reserve(entity.id)
     const nodes = clipboard.nodes.map((node) => ({ ...node, id: remap.get(node.id)!, x: node.x + offset.x, y: node.y + offset.y, portIds: node.portIds?.map((id) => remap.get(id) ?? id) }))
-    const ports = clipboard.ports.map((port) => ({ ...port, id: remap.get(port.id)!, nodeId: remap.get(port.nodeId) ?? port.nodeId }))
+    const ports = clipboard.ports.map((port) => {
+      if ("nodeId" in port && port.nodeId) return { id: remap.get(port.id)!, kind: "port" as const, metadata: port.metadata, radius: port.radius, nodeId: remap.get(port.nodeId) ?? port.nodeId, x: port.x, y: port.y }
+      const anchored = port as Extract<typeof port, { hostId: string }>
+      return { id: remap.get(port.id)!, kind: "port" as const, metadata: port.metadata, radius: port.radius, hostId: remap.get(anchored.hostId) ?? anchored.hostId, anchor: anchored.anchor }
+    })
     const edges = clipboard.edges.map((edge) => ({ ...edge, id: remap.get(edge.id)!, source: remapEndpoint(edge.source, remap), target: remapEndpoint(edge.target, remap), points: edge.points?.map((point) => ({ x: point.x + offset.x, y: point.y + offset.y })) }))
     const texts = clipboard.texts.map((text) => ({ ...text, id: remap.get(text.id)!, x: text.x + offset.x, y: text.y + offset.y }))
     const shapes = clipboard.shapes.map((shape) => ({ ...shape, id: remap.get(shape.id)!, x: shape.x + offset.x, y: shape.y + offset.y }))

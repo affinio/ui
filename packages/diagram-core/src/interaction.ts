@@ -1,8 +1,8 @@
-import { createEntityGeometry, inflateRect, rectFromPoints as boundsFromPoints, resolveEndpoint } from "./geometry.js"
+import { createEntityGeometry, diagramPortHostId, inflateRect, rectFromPoints as boundsFromPoints, resolveEndpoint } from "./geometry.js"
 import { routeOrthogonalConnector } from "./geometry.js"
 import { clampViewportToBounds } from "./viewport.js"
 import type { DiagramEngine } from "./DiagramEngine.js"
-import type { DiagramCommand, DiagramDynamicInputState, DiagramEdgeCreationPreview, DiagramEdgeEndpoint, DiagramId, DiagramGeometry, DiagramInteractionSnapOptions, DiagramInteractionSnapshot, DiagramInteractionTool, DiagramMarqueeMode, DiagramPointerEvent, DiagramPoint, DiagramRect, DiagramResizeEntry, DiagramResizeHandle, DiagramSnapCandidate, DiagramSnapGuide, DiagramSnapResult, DiagramViewportConstraints, DiagramOrthogonalRouteOptions, DiagramShape, DiagramTableResizeAxis, DiagramTableResizePreview } from "./types.js"
+import type { DiagramCommand, DiagramDynamicInputState, DiagramEdgeCreationPreview, DiagramEdgeEndpoint, DiagramId, DiagramGeometry, DiagramInteractionSnapOptions, DiagramInteractionSnapshot, DiagramInteractionTool, DiagramMarqueeMode, DiagramPointerEvent, DiagramPoint, DiagramPort, DiagramRect, DiagramResizeEntry, DiagramResizeHandle, DiagramSnapCandidate, DiagramSnapGuide, DiagramSnapResult, DiagramViewportConstraints, DiagramOrthogonalRouteOptions, DiagramShape, DiagramTableResizeAxis, DiagramTableResizePreview } from "./types.js"
 
 type ScheduleFrame = (callback: () => void) => void
 const AXIS_LOCK_ACTIVATION_TOLERANCE_PX = 4
@@ -112,7 +112,7 @@ export class DiagramInteractionController {
         let targetId = hit.id
         if (hit.kind === "port") {
           const port = this.engine.getScene().entities.portsById.get(hit.id)
-          targetId = port?.nodeId ?? ""
+          targetId = port ? diagramPortHostId(port) : ""
           if (!targetId || !this.engine.canMove([targetId])) {
             this.tool = "select"
             return
@@ -531,6 +531,18 @@ export class DiagramInteractionController {
   /** Returns renderer-ready geometry for active move and table resize previews. */
   getPreviewGeometry(id: DiagramId): DiagramGeometry | null {
     const geometry = this.engine.getGeometrySnapshot(id)
+    if (geometry?.kind === "port") {
+      const port = this.engine.getScene().entities.portsById.get(id)
+      const hostId = port ? diagramPortHostId(port) : ""
+      const hostGeometry = hostId ? this.getPreviewGeometry(hostId) : null
+      const committedHostGeometry = hostId ? this.engine.getGeometrySnapshot(hostId) : null
+      if (port && hostGeometry && committedHostGeometry && hostGeometry !== committedHostGeometry) {
+        const point = this.resolvePreviewPortPoint(port, hostGeometry, committedHostGeometry)
+        const radius = port.radius ?? 4
+        const bounds = { x: point.x - radius, y: point.y - radius, width: radius * 2, height: radius * 2 }
+        return Object.freeze({ ...geometry, point, bounds, hitBounds: inflateRect(bounds, 4) })
+      }
+    }
     if (geometry?.kind === "edge" && this.pathVertexPreview?.id === id && this.vertexDragKind === "edge") {
       const edge = this.engine.getScene().entities.edgesById.get(id)
       if (edge) {
@@ -586,27 +598,6 @@ export class DiagramInteractionController {
     if (this.tool === "resize-selection") {
       const directEntry = this.resizePreviewEntries.find((entry) => entry.id === id)
       if (directEntry && geometry && geometry.kind !== "edge" && geometry.kind !== "port") return resizePreviewGeometry(geometry, directEntry)
-      if (geometry?.kind === "port") {
-        const port = this.engine.getScene().entities.portsById.get(id)
-        const node = port ? this.engine.getScene().entities.nodesById.get(port.nodeId) : undefined
-        const nodeGeometry = node ? this.engine.getGeometrySnapshot(node.id) : null
-        const nodeEntry = node && nodeGeometry ? this.resizeEntryForEntity(node.id, nodeGeometry) : null
-        if (port && node && nodeEntry) {
-          const width = nodeEntry.width ?? node.width
-          const height = nodeEntry.height ?? node.height
-          const portX = node.width === 0 ? port.x : port.x / node.width * width
-          const portY = node.height === 0 ? port.y : port.y / node.height * height
-          const local = {
-            x: node.flipX ? width - portX : portX,
-            y: node.flipY ? height - portY : portY,
-          }
-          const center = { x: (nodeEntry.x ?? node.x) + width / 2, y: (nodeEntry.y ?? node.y) + height / 2 }
-          const point = rotatePoint({ x: (nodeEntry.x ?? node.x) + local.x, y: (nodeEntry.y ?? node.y) + local.y }, center, node.rotation ?? 0)
-          const radius = port.radius ?? 4
-          const bounds = { x: point.x - radius, y: point.y - radius, width: radius * 2, height: radius * 2 }
-          return Object.freeze({ ...geometry, point, bounds, hitBounds: inflateRect(bounds, 4) })
-        }
-      }
       const scene = this.engine.getScene()
       const group = [...scene.entities.groupsById.values()].find((candidate) => candidate.childIds.includes(id))
       const groupEntry = group ? this.resizePreviewEntries.find((entry) => entry.id === group.id) : undefined
@@ -634,14 +625,6 @@ export class DiagramInteractionController {
         }
       }
     }
-    if (geometry?.kind === "port" && this.tool === "drag-selection" && this.previewDelta) {
-      const port = this.engine.getScene().entities.portsById.get(id)
-      if (port && this.isDraggedEntity(port.nodeId)) {
-        const point = { x: geometry.point!.x + this.previewDelta.x, y: geometry.point!.y + this.previewDelta.y }
-        const bounds = { x: point.x - (port.radius ?? 4), y: point.y - (port.radius ?? 4), width: (port.radius ?? 4) * 2, height: (port.radius ?? 4) * 2 }
-        return Object.freeze({ ...geometry, point, bounds, hitBounds: inflateRect(bounds, 4) })
-      }
-    }
     if (!geometry || this.tool !== "drag-selection" || !this.previewDelta) return geometry
     const scene = this.engine.getScene()
     const edge = scene.entities.edgesById.get(id)
@@ -652,7 +635,7 @@ export class DiagramInteractionController {
         ? moved.has(id)
         : endpoint.kind === "node"
           ? moved.has(endpoint.nodeId)
-          : moved.has(scene.entities.portsById.get(endpoint.portId)?.nodeId ?? "")
+          : moved.has(scene.entities.portsById.get(endpoint.portId) ? diagramPortHostId(scene.entities.portsById.get(endpoint.portId)!) : "")
       const path = geometry.path?.map((point, index) => {
         const isSource = index === 0
         const isTarget = index === (geometry.path?.length ?? 0) - 1
@@ -909,6 +892,18 @@ export class DiagramInteractionController {
     if (endpoint.kind === "port") return this.engine.getGeometrySnapshot(endpoint.portId)?.point ?? null
     const bounds = this.engine.getGeometrySnapshot(endpoint.nodeId)?.bounds
     return bounds ? { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 } : null
+  }
+
+  private resolvePreviewPortPoint(port: DiagramPort, host: DiagramGeometry, committedHost: DiagramGeometry): DiagramPoint {
+    if ("anchor" in port && port.anchor?.kind === "vertex") return host.path?.[port.anchor.index] ?? host.point ?? { x: host.bounds.x, y: host.bounds.y }
+    const bounds = host.unrotatedBounds ?? host.bounds
+    const originalBounds = committedHost.unrotatedBounds ?? committedHost.bounds
+    const scaleX = originalBounds.width === 0 ? 1 : bounds.width / originalBounds.width
+    const scaleY = originalBounds.height === 0 ? 1 : bounds.height / originalBounds.height
+    const x = ("nodeId" in port && port.nodeId ? port.x : "anchor" in port && port.anchor?.kind === "local" ? port.anchor.x : 0) * scaleX
+    const y = ("nodeId" in port && port.nodeId ? port.y : "anchor" in port && port.anchor?.kind === "local" ? port.anchor.y : 0) * scaleY
+    const localPoint = { x: bounds.x + (host.flipX ? bounds.width - x : x), y: bounds.y + (host.flipY ? bounds.height - y : y) }
+    return host.kind === "group" ? localPoint : rotatePoint(localPoint, { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 }, host.rotation ?? 0)
   }
 
   private createResizePreviewEntries(delta: DiagramPoint): ReadonlyArray<DiagramResizeEntry> {

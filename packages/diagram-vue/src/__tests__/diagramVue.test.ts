@@ -27,6 +27,20 @@ const scene: DiagramSceneInput = {
 }
 
 describe("diagram-vue", () => {
+  it("projects anchored port identity and transformed geometry from Core", () => {
+    const controller = useDiagramEngine({
+      shapes: [{ id: "host", kind: "shape", shape: "rect", x: 10, y: 20, width: 80, height: 40, rotation: 90, flipX: true }],
+      ports: [{ id: "anchor", kind: "port", hostId: "host", anchor: { kind: "local", x: 0, y: 10 } }],
+      viewport: { x: 0, y: 0, width: 200, height: 120, zoom: 2 },
+    })
+    const visible = useDiagramVisibleEntities(controller)
+    const entity = visible.projection.value.ports[0]!
+    const props = getSvgEntityProps(entity)
+    expect(props).toMatchObject({ "data-port-host-id": "host", "data-port-anchor-kind": "local", "data-port-anchor-x": 0, "data-port-anchor-y": 10 })
+    expect({ x: props.cx, y: props.cy }).toEqual(controller.engine.getGeometrySnapshot("anchor")?.point)
+    controller.dispose()
+  })
+
   it("renders pointer move and resize previews without mutating the committed table scene", async () => {
     const frames: Array<FrameRequestCallback> = []
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { frames.push(callback); return frames.length })

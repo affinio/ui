@@ -30,6 +30,8 @@ Render static diagram text as SVG `<text>`/`<tspan>` elements in world space. Us
 
 Core `flipEntities` commands are reflected by `getSvgEntityProps()` and `getDomEntityStyle()` through the geometry's `flipX`/`flipY` flags. The built-in table view mirrors its cell layout and keeps toolbar and active input controls readable.
 
+Ports render and hit-test from the same Core geometry snapshot as other entities. `getSvgEntityProps()` exposes `data-port-host-id`, `data-port-anchor-kind`, and the anchor's local coordinates or vertex index for consumers that need to label or inspect terminals. Core owns transformed positions, preview, snapping, and endpoint attachment; the Vue adapter does not keep a duplicate anchor model. Existing node-relative ports continue to render unchanged.
+
 Rectangular `DiagramShape` geometry exposes `cornerRadius` (world units) to renderers. `getSvgEntityProps()` maps it to SVG `rx`/`ry`; render the shape as `<rect>`. Omitted radius projects as zero, and Core rejects a value above half the smaller rectangle side. Other shape kinds are unchanged.
 
 Core group rotation publishes updated member geometry and selection bounds through the existing scene controller. `getSvgEntityProps()` and `DiagramTableView` apply the resulting rotation, so Vue toolbar capability checks based on `engine.canRotate(selection.ids)` and group selection overlays react to the command.

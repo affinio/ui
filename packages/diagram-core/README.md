@@ -107,6 +107,17 @@ const savedDocument = engine.serializeDocument({ includeView: false })
 const sceneInput = deserializeDiagramDocument(savedDocument)
 ```
 
+Ports retain the legacy node-relative `{ nodeId, x, y }` form and also support entity-local anchors. Use `{ hostId, anchor: { kind: "local", x, y } }` for nodes, shapes, text, tables, or groups, and `{ hostId, anchor: { kind: "vertex", index } }` for line/path vertices. `getGeometrySnapshot(portId)` exposes the stable host/anchor plus transformed world `point`; edge endpoints still reference the stable port ID. Anchors are validated against host bounds or existing path vertices. `insertPathVertex` shifts later vertex-anchor indexes atomically; a referenced vertex cannot be removed or replaced.
+
+Group ports are not automatically assigned to child geometry on ungroup. `ungroupEntities` is rejected if a group hosts ports unless the caller supplies a valid `portRemaps` entry for every such port. Each remap names a direct child and its valid local anchor. The remapping and ungroup are one undoable change. Clipboard paste remaps selected hosts, ports, and attached edge references together.
+
+```ts
+engine.dispatch({ type: "createPort", port: { id: "contact-tip", kind: "port", hostId: "contact-line", anchor: { kind: "vertex", index: 0 } } })
+engine.dispatch({ type: "ungroupEntities", ids: ["assembly"], portRemaps: {
+  "assembly-terminal": { hostId: "contact-line", anchor: { kind: "local", x: 20, y: 10 } },
+} })
+```
+
 ## Engineering snaps and connectors
 
 `getSnapCandidates()` is a read-only indexed query. Its `tolerancePx` is screen pixels and is converted with the current viewport zoom. Candidate order is stable: port, endpoint, intersection, midpoint, center, perpendicular, nearest, alignment, equal spacing, grid; ties use screen distance, target ID, then coordinates. `excludeIds` filters self-snaps. Text bounds are not snap geometry. In the current generic model, endpoint/midpoint/nearest/perpendicular/intersection candidates come from edge paths and visible line/rectangle/ellipse outlines; table cell grid lines are not electrical anchors.

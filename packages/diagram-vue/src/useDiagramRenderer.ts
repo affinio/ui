@@ -26,6 +26,11 @@ export function getSvgEntityProps(entity: DiagramRenderEntity): SvgEntityProps {
       cx: point.x,
       cy: point.y,
       r: geometry.bounds.width / 2,
+      "data-port-host-id": geometry.hostId,
+      "data-port-anchor-kind": geometry.anchor?.kind,
+      "data-port-anchor-x": geometry.anchor?.kind === "local" ? geometry.anchor.x : undefined,
+      "data-port-anchor-y": geometry.anchor?.kind === "local" ? geometry.anchor.y : undefined,
+      "data-port-anchor-index": geometry.anchor?.kind === "vertex" ? geometry.anchor.index : undefined,
     }
   }
   if (entity.kind === "shape" || entity.kind === "node" || entity.kind === "table") {

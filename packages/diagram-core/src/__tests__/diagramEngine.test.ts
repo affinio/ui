@@ -582,6 +582,128 @@ describe("DiagramEngine", () => {
     expect(engine.getScene().entities.nodesById.get("n")?.portIds).toEqual(["p"])
   })
 
+  it("anchors ports to line vertices, transformed shapes, and groups with stable point geometry", () => {
+    const engine = createDiagramEngine({
+      shapes: [
+        { id: "line", kind: "shape", shape: "line", x: 0, y: 0, width: 80, height: 0 },
+        { id: "path", kind: "shape", shape: "line", x: 100, y: 30, width: 80, height: 30, points: [{ x: 0, y: 0 }, { x: 40, y: 0 }, { x: 80, y: 30 }] },
+        { id: "transformed", kind: "shape", shape: "rect", x: 250, y: 0, width: 40, height: 20, rotation: 90, flipX: true },
+        { id: "g-a", kind: "shape", shape: "rect", x: 350, y: 0, width: 20, height: 20 },
+        { id: "g-b", kind: "shape", shape: "rect", x: 380, y: 0, width: 20, height: 20 },
+      ],
+      groups: [{ id: "group", kind: "group", childIds: ["g-a", "g-b"] }],
+      ports: [
+        { id: "line-start", kind: "port", hostId: "line", anchor: { kind: "vertex", index: 0 } },
+        { id: "path-bend", kind: "port", hostId: "path", anchor: { kind: "vertex", index: 1 } },
+        { id: "rotated-point", kind: "port", hostId: "transformed", anchor: { kind: "local", x: 0, y: 5 } },
+        { id: "group-point", kind: "port", hostId: "group", anchor: { kind: "local", x: 10, y: 5 } },
+      ],
+    })
+    expect(engine.getGeometrySnapshot("line-start")).toMatchObject({ point: { x: 0, y: 0 }, hostId: "line", anchor: { kind: "vertex", index: 0 } })
+    expect(engine.getGeometrySnapshot("path-bend")?.point).toEqual({ x: 140, y: 30 })
+    expect(engine.getGeometrySnapshot("rotated-point")?.point).toEqual({ x: 275, y: 30 })
+    expect(engine.getGeometrySnapshot("group-point")?.point).toEqual({ x: 360, y: 5 })
+    expect(() => createDiagramEngine({ shapes: [{ id: "s", kind: "shape", shape: "rect", x: 0, y: 0, width: 20, height: 20 }], ports: [{ id: "dangling", kind: "port", hostId: "missing", anchor: { kind: "local", x: 0, y: 0 } }] })).toThrow(/Invalid port anchor/)
+    expect(() => createDiagramEngine({ shapes: [{ id: "s", kind: "shape", shape: "rect", x: 0, y: 0, width: 20, height: 20 }], ports: [{ id: "outside", kind: "port", hostId: "s", anchor: { kind: "local", x: 21, y: 0 } }] })).toThrow(/Invalid port anchor/)
+    expect(engine.dispatch({ type: "createPort", port: { id: "bad-index", kind: "port", hostId: "path", anchor: { kind: "vertex", index: 3 } } }).changed).toBe(false)
+  })
+
+  it("anchors ports to nodes, text, and tables and resolves attached edge geometry", () => {
+    const engine = createDiagramEngine({
+      nodes: [{ id: "node", kind: "node", x: 0, y: 0, width: 20, height: 10 }],
+      texts: [{ id: "label", kind: "text", x: 40, y: 0, width: 30, height: 12, text: "x" }],
+      tables: [{ id: "table", kind: "table", x: 90, y: 0, width: 40, height: 20, rowCount: 1, columnCount: 1 }],
+      ports: [
+        { id: "node-anchor", kind: "port", hostId: "node", anchor: { kind: "local", x: 20, y: 5 } },
+        { id: "text-anchor", kind: "port", hostId: "label", anchor: { kind: "local", x: 30, y: 6 } },
+        { id: "table-anchor", kind: "port", hostId: "table", anchor: { kind: "local", x: 40, y: 10 } },
+      ],
+      edges: [{ id: "wire", kind: "edge", source: { kind: "port", portId: "table-anchor" }, target: { kind: "port", portId: "node-anchor" } }],
+    })
+    expect(engine.getGeometrySnapshot("node-anchor")?.point).toEqual({ x: 20, y: 5 })
+    expect(engine.getGeometrySnapshot("text-anchor")?.point).toEqual({ x: 70, y: 6 })
+    expect(engine.getGeometrySnapshot("table-anchor")?.point).toEqual({ x: 130, y: 10 })
+    expect(engine.getGeometrySnapshot("wire")?.path).toEqual([{ x: 130, y: 10 }, { x: 20, y: 5 }])
+    expect(engine.dispatch({ type: "createPort", port: { id: "invalid", kind: "port", hostId: "table", anchor: { kind: "local", x: Number.NaN, y: 0 } } }).changed).toBe(false)
+  })
+
+  it("updates vertex port indexes on insertion and rejects removal of an anchored vertex", () => {
+    const engine = createDiagramEngine({
+      shapes: [{ id: "path", kind: "shape", shape: "line", x: 0, y: 0, width: 100, height: 0, points: [{ x: 0, y: 0 }, { x: 50, y: 0 }, { x: 100, y: 0 }] }],
+      ports: [{ id: "middle", kind: "port", hostId: "path", anchor: { kind: "vertex", index: 1 } }],
+    })
+    const original = engine.getGeometrySnapshot("middle")?.point
+    expect(engine.dispatch({ type: "insertPathVertex", id: "path", index: 1, point: { x: 25, y: 10 } }).changed).toBe(true)
+    expect(engine.getScene().entities.portsById.get("middle")).toMatchObject({ anchor: { kind: "vertex", index: 2 } })
+    expect(engine.getGeometrySnapshot("middle")?.point).toEqual(original)
+    expect(engine.dispatch({ type: "removePathVertex", id: "path", index: 2 }).changed).toBe(false)
+    engine.dispatch({ type: "undo" })
+    expect(engine.getScene().entities.portsById.get("middle")).toMatchObject({ anchor: { kind: "vertex", index: 1 } })
+    expect(engine.getGeometrySnapshot("middle")?.point).toEqual(original)
+    engine.dispatch({ type: "redo" })
+    expect(engine.getScene().entities.portsById.get("middle")).toMatchObject({ anchor: { kind: "vertex", index: 2 } })
+  })
+
+  it("keeps anchored edge ports attached through host move, resize, rotation, flip, and undo", () => {
+    const engine = createDiagramEngine({
+      shapes: [{ id: "contact", kind: "shape", shape: "rect", x: 10, y: 20, width: 80, height: 40 }],
+      ports: [{ id: "terminal", kind: "port", hostId: "contact", anchor: { kind: "local", x: 80, y: 20 } }],
+      edges: [{ id: "wire", kind: "edge", source: { kind: "port", portId: "terminal" }, target: { kind: "point", point: { x: 160, y: 40 } } }],
+    })
+    const frames: Array<() => void> = []
+    const interaction = createDiagramInteractionController(engine, { snap: { enabled: false }, scheduleFrame: (callback) => frames.push(callback) })
+    expect(interaction.beginResizeHandle("contact", "se", { id: 1, point: { x: 90, y: 60 } })).toBe(true)
+    interaction.pointerMove({ id: 1, point: { x: 110, y: 70 } })
+    frames.shift()?.()
+    const preview = interaction.getPreviewGeometry("terminal")?.point
+    expect(preview).toEqual({ x: 110, y: 45 })
+    interaction.pointerUp({ id: 1, point: { x: 110, y: 70 } })
+    expect(engine.getGeometrySnapshot("terminal")?.point).toEqual(preview)
+    expect(engine.getGeometrySnapshot("wire")?.path?.[0]).toEqual(preview)
+    engine.dispatch({ type: "moveEntities", ids: ["contact"], delta: { x: 5, y: 7 } })
+    expect(engine.getGeometrySnapshot("wire")?.path?.[0]).toEqual({ x: 115, y: 52 })
+    engine.dispatch({ type: "rotateEntities", entries: [{ id: "contact", rotation: 90 }] })
+    const rotatedPoint = engine.getGeometrySnapshot("terminal")?.point
+    expect(engine.getGeometrySnapshot("wire")?.path?.[0]).toEqual(rotatedPoint)
+    engine.dispatch({ type: "flipEntities", ids: ["contact"], axis: "horizontal" })
+    const flippedPoint = engine.getGeometrySnapshot("terminal")?.point
+    expect(engine.getGeometrySnapshot("wire")?.path?.[0]).toEqual(flippedPoint)
+    engine.dispatch({ type: "undo" })
+    expect(engine.getGeometrySnapshot("terminal")?.point).toEqual(rotatedPoint)
+    engine.dispatch({ type: "undo" })
+    expect(engine.getGeometrySnapshot("terminal")?.point).toEqual({ x: 115, y: 52 })
+  })
+
+  it("requires explicit atomic remaps for group-host ports and preserves their identity through paste and history", () => {
+    const engine = createDiagramEngine({
+      shapes: [
+        { id: "a", kind: "shape", shape: "rect", x: 0, y: 0, width: 20, height: 20 },
+        { id: "b", kind: "shape", shape: "rect", x: 40, y: 0, width: 20, height: 20 },
+      ],
+      groups: [{ id: "g", kind: "group", childIds: ["a", "b"] }],
+      ports: [{ id: "gp", kind: "port", hostId: "g", anchor: { kind: "local", x: 20, y: 10 } }],
+      edges: [{ id: "wire", kind: "edge", source: { kind: "port", portId: "gp" }, target: { kind: "point", point: { x: 100, y: 10 } } }],
+    })
+    const history = engine.getDiagnostics().undoDepth
+    expect(engine.dispatch({ type: "ungroupEntities", ids: ["g"] }).changed).toBe(false)
+    expect(engine.getDiagnostics().undoDepth).toBe(history)
+    expect(engine.dispatch({ type: "ungroupEntities", ids: ["g"], portRemaps: { gp: { hostId: "a", anchor: { kind: "local", x: 20, y: 10 } } } }).changed).toBe(true)
+    expect(engine.getScene().entities.portsById.get("gp")).toMatchObject({ hostId: "a", anchor: { kind: "local", x: 20, y: 10 } })
+    engine.dispatch({ type: "undo" })
+    expect(engine.getScene().entities.portsById.get("gp")).toMatchObject({ hostId: "g", anchor: { kind: "local", x: 20, y: 10 } })
+    const restored = createDiagramEngine(deserializeDiagramDocument(engine.serializeDocument()))
+    expect(restored.getGeometrySnapshot("wire")?.path?.[0]).toEqual(engine.getGeometrySnapshot("gp")?.point)
+    engine.dispatch({ type: "setSelection", selection: { ids: ["g"], primaryId: "g" } })
+    const clipboard = engine.exportSelection()
+    engine.importClipboard(clipboard)
+    const pastedPort = [...engine.getScene().entities.portsById.values()].find((port) => port.id !== "gp")!
+    const pastedWire = [...engine.getScene().entities.edgesById.values()].find((edge) => edge.id !== "wire")!
+    expect(pastedPort.id).not.toBe("gp")
+    expect("hostId" in pastedPort && pastedPort.hostId).not.toBe("g")
+    expect(pastedWire.source).toEqual({ kind: "port", portId: pastedPort.id })
+    expect(engine.getGeometrySnapshot(pastedWire.id)?.path?.[0]).toEqual(engine.getGeometrySnapshot(pastedPort.id)?.point)
+  })
+
   it("round-trips versioned diagram content independently from view state", () => {
     const engine = createDiagramEngine(scene)
     const document = engine.serializeDocument({ includeView: false })

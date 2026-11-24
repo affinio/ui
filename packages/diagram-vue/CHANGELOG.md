@@ -1,5 +1,12 @@
 # @affino/diagram-vue
 
+## 0.19.0
+
+### Minor Changes
+
+- Exposed anchored port host and anchor descriptors through the SVG renderer projection while rendering and hit targets continue to use Core geometry snapshots.
+- Updated the workspace dependency to `@affino/diagram-core` 0.20.0.
+
 ## 0.18.0
 
 ### Minor Changes

@@ -1,4 +1,4 @@
-import type { DiagramEdge, DiagramEdgeEndpoint, DiagramEntities, DiagramGeometry, DiagramId, DiagramOrthogonalRouteOptions, DiagramOrthogonalRouteResult, DiagramPoint, DiagramPort, DiagramRect, DiagramTable, DiagramTableCellPosition } from "./types.js"
+import type { DiagramEdge, DiagramEdgeEndpoint, DiagramEntities, DiagramGeometry, DiagramId, DiagramOrthogonalRouteOptions, DiagramOrthogonalRouteResult, DiagramPoint, DiagramPort, DiagramPortAnchor, DiagramRect, DiagramTable, DiagramTableCellPosition } from "./types.js"
 import { flattenPathContour, pathContourBoundsPoints, transformPathContour, translatePathContour } from "./pathOperations.js"
 
 export function rectIntersects(a: DiagramRect, b: DiagramRect): boolean {
@@ -110,7 +110,7 @@ export function createEntityGeometry(id: DiagramId, entities: DiagramEntities): 
     const point = resolvePortPoint(port, entities)
     const radius = port.radius ?? 4
     const bounds = { x: point.x - radius, y: point.y - radius, width: radius * 2, height: radius * 2 }
-    return { id, kind: "port", bounds, hitBounds: inflateRect(bounds, 4), point }
+    return { id, kind: "port", bounds, hitBounds: inflateRect(bounds, 4), point, hostId: diagramPortHostId(port), ...("anchor" in port && port.anchor ? { anchor: port.anchor } : {}) }
   }
   const edge = entities.edgesById.get(id)
   if (edge) {
@@ -183,15 +183,67 @@ export function resolveEndpoint(endpoint: DiagramEdgeEndpoint, entities: Diagram
 }
 
 export function resolvePortPoint(port: DiagramPort, entities: DiagramEntities): DiagramPoint {
-  const node = entities.nodesById.get(port.nodeId)
-  if (!node) {
-    return { x: port.x, y: port.y }
+  if ("nodeId" in port && port.nodeId) {
+    const node = entities.nodesById.get(port.nodeId)
+    if (!node) return { x: port.x, y: port.y }
+    const point = { x: node.x + (node.flipX ? node.width - port.x : port.x), y: node.y + (node.flipY ? node.height - port.y : port.y) }
+    return rotatePoint(point, rectCenter({ x: node.x, y: node.y, width: node.width, height: node.height }), node.rotation ?? 0)
   }
-  const point = {
-    x: node.x + (node.flipX ? node.width - port.x : port.x),
-    y: node.y + (node.flipY ? node.height - port.y : port.y),
+  const host = "hostId" in port ? port.hostId : undefined
+  const anchor = "anchor" in port ? port.anchor : undefined
+  if (!host || !anchor) return { x: 0, y: 0 }
+  if (anchor.kind === "vertex") return resolveShapeVertex(host, anchor.index, entities) ?? { x: 0, y: 0 }
+  const bounds = getPortHostBounds(host, entities)
+  if (!bounds) return { x: anchor.x, y: anchor.y }
+  const entity = entities.nodesById.get(host) ?? entities.shapesById.get(host) ?? entities.textsById.get(host) ?? entities.tablesById.get(host)
+  let local = { x: bounds.x + anchor.x, y: bounds.y + anchor.y }
+  if (entity && "width" in entity && "height" in entity) {
+    local = { x: bounds.x + (entity.flipX ? bounds.width - anchor.x : anchor.x), y: bounds.y + (entity.flipY ? bounds.height - anchor.y : anchor.y) }
+    return rotatePoint(local, rectCenter(bounds), entity.rotation ?? 0)
   }
-  return rotatePoint(point, rectCenter({ x: node.x, y: node.y, width: node.width, height: node.height }), node.rotation ?? 0)
+  return local
+}
+
+export function diagramPortHostId(port: DiagramPort): DiagramId {
+  if ("nodeId" in port && typeof port.nodeId === "string") return port.nodeId
+  return (port as Extract<DiagramPort, { hostId: DiagramId }>).hostId ?? ""
+}
+
+export function isValidDiagramPortAnchor(hostId: DiagramId, anchor: DiagramPortAnchor, entities: DiagramEntities): boolean {
+  if (!anchor || typeof anchor !== "object") return false
+  if (anchor.kind === "vertex") {
+    const shape = entities.shapesById.get(hostId)
+    const vertices = shape?.points ?? (shape?.shape === "line" ? [{ x: 0, y: 0 }, { x: shape.width, y: shape.height }] : null)
+    return Boolean(vertices && Number.isInteger(anchor.index) && anchor.index >= 0 && anchor.index < vertices.length)
+  }
+  if (![anchor.x, anchor.y].every(Number.isFinite)) return false
+  const bounds = getPortHostBounds(hostId, entities)
+  return Boolean(bounds && anchor.x >= 0 && anchor.y >= 0 && anchor.x <= bounds.width && anchor.y <= bounds.height)
+}
+
+function getPortHostBounds(hostId: DiagramId, entities: DiagramEntities): DiagramRect | null {
+  const node = entities.nodesById.get(hostId)
+  if (node) return { x: node.x, y: node.y, width: node.width, height: node.height }
+  const shape = entities.shapesById.get(hostId)
+  if (shape) return { x: shape.x, y: shape.y, width: shape.width, height: shape.height }
+  const text = entities.textsById.get(hostId)
+  if (text) return { x: text.x, y: text.y, width: text.width ?? Math.max(1, text.text.length) * (text.fontSize ?? 12) * 0.6, height: text.height ?? (text.fontSize ?? 12) * 1.2 }
+  const table = entities.tablesById.get(hostId)
+  if (table) return { x: table.x, y: table.y, width: table.width, height: table.height }
+  const group = entities.groupsById.get(hostId)
+  if (group) return unionRects(group.childIds.map((id) => createEntityGeometry(id, entities)?.bounds).filter((rect): rect is DiagramRect => Boolean(rect)))
+  return null
+}
+
+function resolveShapeVertex(hostId: DiagramId, index: number, entities: DiagramEntities): DiagramPoint | null {
+  const shape = entities.shapesById.get(hostId)
+  if (!shape) return null
+  const vertices = shape.points ?? (shape.shape === "line" ? [{ x: 0, y: 0 }, { x: shape.width, y: shape.height }] : null)
+  const point = vertices?.[index]
+  if (!point) return null
+  const center = { x: shape.x + shape.width / 2, y: shape.y + shape.height / 2 }
+  const worldPoint = { x: shape.x + (shape.flipX ? shape.width - point.x : point.x), y: shape.y + (shape.flipY ? shape.height - point.y : point.y) }
+  return rotatePoint(worldPoint, center, shape.rotation ?? 0)
 }
 
 function rectGeometry(id: DiagramId, kind: "node" | "shape" | "text" | "table", bounds: DiagramRect, rotation: number, hitPadding: number, flipX = false, flipY = false, cornerRadius = 0): DiagramGeometry {

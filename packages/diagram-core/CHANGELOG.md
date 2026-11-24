@@ -1,5 +1,14 @@
 # @affino/diagram-core
 
+## 0.20.0
+
+### Minor Changes
+
+- Added typed entity-local ports for nodes, shapes/paths, text, tables, and groups while preserving legacy node-relative `nodeId`/`x`/`y` ports.
+- Anchored port geometry follows host transforms and is available to hit testing, snapping, endpoint references, history, documents, and clipboard remapping.
+- Added undoable path vertex insertion with stable vertex-port index updates; deleting or replacing an anchored vertex is rejected.
+- Ungrouping a group with hosted ports now requires explicit `portRemaps`; successful remaps are atomic and undoable.
+
 ## 0.19.0
 
 ### Minor Changes
