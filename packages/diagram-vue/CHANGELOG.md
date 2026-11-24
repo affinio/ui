@@ -1,5 +1,13 @@
 # @affino/diagram-vue
 
+## 0.18.0
+
+### Minor Changes
+
+- Forwarded live Shift constraints through click-to-place line and path interactions.
+- Rendered table title vertical alignment and added an accessible alignment control.
+- Updated the workspace dependency to `@affino/diagram-core` 0.19.0.
+
 ## 0.17.0
 
 ### Minor Changes

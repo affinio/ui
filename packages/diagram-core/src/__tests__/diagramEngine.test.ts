@@ -123,13 +123,15 @@ describe("DiagramEngine", () => {
     const revision = engine.getDocumentRevision()
     expect(legacy.tables?.[0]).not.toHaveProperty("header")
     expect(engine.getGeometrySnapshot("table")?.bounds).toEqual({ x: 20, y: 40, width: 100, height: 40 })
-    expect(engine.dispatch({ type: "updateTableHeader", id: "table", header: { text: "Panel", height: 20, horizontalAlign: "center" } }).changed).toBe(true)
+    expect(engine.dispatch({ type: "updateTableHeader", id: "table", header: { text: "Panel", height: 20, horizontalAlign: "center", verticalAlign: "top" } }).changed).toBe(true)
     expect(engine.getDocumentRevision()).toBe(revision + 1)
-    expect(engine.dispatch({ type: "updateTableHeader", id: "table", header: { text: "Updated panel", height: 24, horizontalAlign: "right" } }).changed).toBe(true)
+    expect(engine.dispatch({ type: "updateTableHeader", id: "table", header: { text: "Updated panel", height: 24, horizontalAlign: "right", verticalAlign: "bottom" } }).changed).toBe(true)
     engine.dispatch({ type: "undo" })
-    expect(engine.getScene().entities.tablesById.get("table")?.header).toEqual({ text: "Panel", height: 20, horizontalAlign: "center" })
+    expect(engine.getScene().entities.tablesById.get("table")?.header).toEqual({ text: "Panel", height: 20, horizontalAlign: "center", verticalAlign: "top" })
     engine.dispatch({ type: "redo" })
-    expect(engine.getScene().entities.tablesById.get("table")?.header?.text).toBe("Updated panel")
+    expect(engine.getScene().entities.tablesById.get("table")?.header).toEqual({ text: "Updated panel", height: 24, horizontalAlign: "right", verticalAlign: "bottom" })
+    const headerRoundTrip = createDiagramEngine(deserializeScene(engine.serialize()))
+    expect(headerRoundTrip.getScene().entities.tablesById.get("table")?.header).toEqual(engine.getScene().entities.tablesById.get("table")?.header)
     engine.dispatch({ type: "undo" })
     let table = engine.getScene().entities.tablesById.get("table")!
     expect(table.rowCount).toBe(1)
@@ -2422,6 +2424,65 @@ describe("DiagramEngine", () => {
     expect(engine.getGeometrySnapshot("path")?.path?.[1]).toEqual({ x: 35, y: 12 })
     engine.dispatch({ type: "undo" })
     expect(engine.getGeometrySnapshot("path")?.path?.[1]).toEqual({ x: 30, y: 10 })
+  })
+
+  it("locks click-to-place path segments to a live Shift cardinal from the last vertex", () => {
+    const engine = createDiagramEngine()
+    const interaction = createDiagramInteractionController(engine, { snap: { enabled: false }, scheduleFrame: (callback) => callback() })
+    expect(interaction.beginPathCreation("shift-path", { id: 1, point: { x: 10, y: 10 } })).toBe(true)
+
+    interaction.pointerMove({ id: 1, point: { x: 30, y: 20 }, shiftKey: true })
+    expect(interaction.getSnapshot().pathCreationPreview?.current?.x).toBeCloseTo(10 + Math.hypot(20, 10))
+    expect(interaction.getSnapshot().pathCreationPreview?.current?.y).toBe(10)
+    interaction.pointerDown({ id: 1, point: { x: 30, y: 20 }, shiftKey: true })
+    interaction.pointerUp({ id: 1, point: { x: 30, y: 20 }, shiftKey: true })
+    const firstEndX = 10 + Math.hypot(20, 10)
+    expect(interaction.getSnapshot().pathCreationPreview?.vertices).toEqual([{ x: 10, y: 10 }, { x: firstEndX, y: 10 }])
+
+    // The next segment uses its newly committed vertex as the angle origin.
+    interaction.pointerMove({ id: 1, point: { x: 40, y: 40 }, shiftKey: true })
+    expect(interaction.getSnapshot().pathCreationPreview?.current?.x).toBe(firstEndX)
+    expect(interaction.getSnapshot().pathCreationPreview?.current?.y).toBeCloseTo(10 + Math.hypot(40 - firstEndX, 30))
+    // Releasing Shift immediately restores the unsnapped preview.
+    interaction.pointerMove({ id: 1, point: { x: 40, y: 45 }, shiftKey: false })
+    expect(interaction.getSnapshot().pathCreationPreview?.current).toEqual({ x: 40, y: 45 })
+    interaction.pointerDown({ id: 1, point: { x: 40, y: 45 }, shiftKey: false })
+    interaction.pointerUp({ id: 1, point: { x: 40, y: 45 }, shiftKey: false, clickCount: 2 })
+
+    expect(engine.getGeometrySnapshot("shift-path")?.path).toEqual([{ x: 10, y: 10 }, { x: firstEndX, y: 10 }, { x: 40, y: 45 }])
+    expect(engine.getDiagnostics().undoDepth).toBe(1)
+  })
+
+  it("re-latches Shift after release and Enter finishes only confirmed path vertices", () => {
+    const engine = createDiagramEngine()
+    const interaction = createDiagramInteractionController(engine, { snap: { enabled: false }, scheduleFrame: (callback) => callback() })
+    interaction.beginPathCreation("enter-path", { id: 1, point: { x: 0, y: 0 } })
+    interaction.pointerMove({ id: 1, point: { x: 20, y: 10 }, shiftKey: true })
+    expect(interaction.getSnapshot().pathCreationPreview?.current?.x).toBeCloseTo(Math.hypot(20, 10))
+    expect(interaction.getSnapshot().pathCreationPreview?.current?.y).toBe(0)
+    interaction.pointerMove({ id: 1, point: { x: 20, y: 10 }, shiftKey: false })
+    expect(interaction.getSnapshot().pathCreationPreview?.current).toEqual({ x: 20, y: 10 })
+    interaction.pointerDown({ id: 1, point: { x: 20, y: 10 }, shiftKey: false })
+    interaction.pointerUp({ id: 1, point: { x: 20, y: 10 }, shiftKey: false })
+    interaction.pointerMove({ id: 1, point: { x: 10, y: 30 }, shiftKey: true })
+    expect(interaction.getSnapshot().pathCreationPreview?.current?.x).toBe(20)
+    expect(interaction.getSnapshot().pathCreationPreview?.current?.y).toBeCloseTo(10 + Math.hypot(10, 20))
+    interaction.pointerMove({ id: 1, point: { x: 10, y: 30 }, shiftKey: false })
+    expect(interaction.confirmDynamicInput()).toBe(true)
+    expect(engine.getGeometrySnapshot("enter-path")?.path).toEqual([{ x: 0, y: 0 }, { x: 20, y: 10 }])
+  })
+
+  it("uses the same Shift-constrained endpoint for click-to-place lines and their commit", () => {
+    const engine = createDiagramEngine()
+    const interaction = createDiagramInteractionController(engine, { snap: { enabled: false }, scheduleFrame: (callback) => callback() })
+    interaction.beginPathCreation("click-line", { id: 1, point: { x: 5, y: 5 } }, "line")
+    interaction.pointerMove({ id: 1, point: { x: 20, y: 15 }, shiftKey: true })
+    const preview = interaction.getSnapshot().pathCreationPreview!
+    expect(preview.current.y).toBe(5)
+    interaction.pointerDown({ id: 1, point: { x: 20, y: 15 }, shiftKey: true })
+    interaction.pointerUp({ id: 1, point: { x: 20, y: 15 }, shiftKey: true })
+    expect(engine.getGeometrySnapshot("click-line")?.path).toEqual([preview.vertices[0], preview.current])
+    expect(engine.getDiagnostics().undoDepth).toBe(1)
   })
 
   it("routes click-to-place edges through bends and edits a waypoint as one undoable change", () => {

@@ -1405,9 +1405,10 @@ function validateDiagramTable(source: DiagramTable): void {
 }
 
 function isValidDiagramTableHeader(header: DiagramTableHeader): boolean {
-  return Boolean(header && Object.keys(header).every((key) => ["text", "height", "horizontalAlign"].includes(key))
+  return Boolean(header && Object.keys(header).every((key) => ["text", "height", "horizontalAlign", "verticalAlign"].includes(key))
     && typeof header.text === "string" && Number.isFinite(header.height) && header.height > 0
-    && (header.horizontalAlign === undefined || ["left", "center", "right"].includes(header.horizontalAlign)))
+    && (header.horizontalAlign === undefined || ["left", "center", "right"].includes(header.horizontalAlign))
+    && (header.verticalAlign === undefined || ["top", "middle", "bottom"].includes(header.verticalAlign)))
 }
 
 function validFlipFlags(entity: { flipX?: unknown; flipY?: unknown }): boolean {

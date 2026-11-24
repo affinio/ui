@@ -145,6 +145,7 @@ export type DiagramTableHeader = Readonly<{
   /** Header band height in world units; it extends above the grid. */
   height: number
   horizontalAlign?: DiagramTableHorizontalAlignment
+  verticalAlign?: DiagramTableVerticalAlignment
 }>
 export type DiagramTable = DiagramEntityBase & Readonly<{
   kind: "table"

@@ -425,6 +425,44 @@ describe("diagram-vue", () => {
     controller.dispose()
   })
 
+  it("positions table titles vertically and exposes an accessible alignment control", async () => {
+    const controller = useDiagramEngine({
+      tables: [{ id: "align-title", kind: "table", x: 20, y: 50, width: 120, height: 60, rowCount: 1, columnCount: 1, header: { text: "Panel", height: 24 } }],
+      selection: { ids: ["align-title"], primaryId: "align-title" },
+    })
+    const mount = document.createElement("div")
+    document.body.append(mount)
+    const app = createApp({ render: () => h("svg", [h(DiagramTableView, { controller, id: "align-title" })]) })
+    app.mount(mount)
+    const title = () => mount.querySelector<SVGTextElement>("[data-table-header-text]")!
+    const alignment = mount.querySelector<HTMLSelectElement>('select[aria-label="Title vertical alignment"]')!
+    const dispatch = vi.spyOn(controller, "dispatch")
+    expect(alignment.value).toBe("middle")
+    expect(title().getAttribute("dominant-baseline")).toBe("middle")
+    expect(title().getAttribute("y")).toBe("38")
+
+    alignment.value = "top"
+    alignment.dispatchEvent(new Event("change", { bubbles: true }))
+    await nextTick()
+    expect(dispatch).toHaveBeenCalled()
+    expect(dispatch.mock.calls.at(-1)?.[0]).toMatchObject({ type: "updateTableHeader", id: "align-title", header: { verticalAlign: "top" } })
+    expect(dispatch.mock.results.at(-1)?.value.changed).toBe(true)
+    expect(controller.scene.value.entities.tablesById.get("align-title")?.header?.verticalAlign).toBe("top")
+    expect(title().getAttribute("dominant-baseline")).toBe("hanging")
+    expect(title().getAttribute("y")).toBe("34")
+
+    const refreshedAlignment = mount.querySelector<HTMLSelectElement>('select[aria-label="Title vertical alignment"]')!
+    refreshedAlignment.value = "bottom"
+    refreshedAlignment.dispatchEvent(new Event("change", { bubbles: true }))
+    await nextTick()
+    expect(controller.scene.value.entities.tablesById.get("align-title")?.header?.verticalAlign).toBe("bottom")
+    expect(title().getAttribute("dominant-baseline")).toBe("text-after-edge")
+    expect(title().getAttribute("y")).toBe("42")
+    app.unmount()
+    mount.remove()
+    controller.dispose()
+  })
+
   it("keeps a titled table preview transient and commits its body and title bounds together", async () => {
     const frames: Array<FrameRequestCallback> = []
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { frames.push(callback); return frames.length })

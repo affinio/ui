@@ -141,8 +141,11 @@ export const DiagramTableView = defineComponent({
         const headerY = table.y - header.height
         const headerAnchor = header.horizontalAlign === "center" ? "middle" : header.horizontalAlign === "right" ? "end" : "start"
         const headerTextX = headerAnchor === "start" ? table.x + padding : headerAnchor === "end" ? table.x + table.width - padding : table.x + table.width / 2
+        const headerVertical = header.verticalAlign ?? "middle"
+        const headerTextY = headerVertical === "top" ? headerY + padding : headerVertical === "bottom" ? headerY + header.height - padding : headerY + header.height / 2
+        const headerBaseline = headerVertical === "top" ? "hanging" : headerVertical === "bottom" ? "text-after-edge" : "middle"
         children.push(h("rect", { x: table.x, y: headerY, width: table.width, height: header.height, fill: "transparent", role: "button", tabindex: 0, "aria-label": `Table title: ${header.text || "empty"}`, "data-table-header": "true", onClick: (event: Event) => { event.stopPropagation(); beginHeaderEdit(table) }, onDblclick: (event: Event) => { event.stopPropagation(); beginHeaderEdit(table) }, onKeydown: (event: KeyboardEvent) => onHeaderKey(event, beginHeaderEdit, table) }))
-        children.push(h("text", { x: headerTextX, y: headerY + header.height / 2, "text-anchor": headerAnchor, "dominant-baseline": "middle", fill: "var(--affino-diagram-table-text, currentColor)", "font-size": 14, "pointer-events": "none" }, header.text))
+        children.push(h("text", { x: headerTextX, y: headerTextY, "text-anchor": headerAnchor, "dominant-baseline": headerBaseline, "data-table-header-text": "true", fill: "var(--affino-diagram-table-text, currentColor)", "font-size": 14, "pointer-events": "none" }, header.text))
         if (style.grid.visible) children.push(h("line", { x1: table.x, y1: table.y, x2: table.x + table.width, y2: table.y, stroke: style.grid.stroke.color, "stroke-width": style.grid.stroke.width, "stroke-dasharray": dash(style.grid.stroke.style), "vector-effect": "non-scaling-stroke", "pointer-events": "none" }))
       }
       if (style.grid.visible) {
@@ -236,6 +239,7 @@ export const DiagramTableView = defineComponent({
 function toolbar(table: DiagramTable, style: DiagramTableStyle, cell: { row: number; column: number }, model: ReturnType<typeof useDiagramTable>, button: (label: string, action: () => void) => VNodeChild, select: (label: string, value: string, values: ReadonlyArray<string>, update: (value: string) => void) => VNodeChild, checkbox: (label: string, checked: boolean, update: (value: boolean) => void) => VNodeChild, numberInput: (label: string, value: number, update: (value: number) => void, min?: number) => VNodeChild, stopToolbarEvent: (event: Event) => void): VNodeChild {
   const controls: VNodeChild[] = [
     button(table.header ? "Remove table title" : "Add table title", () => model.updateHeader(table.header ? null : { text: "", height: 28, horizontalAlign: "left" })),
+    ...(table.header ? [select("Title vertical alignment", table.header.verticalAlign ?? "middle", ["top", "middle", "bottom"], (value) => model.updateHeader({ ...table.header!, verticalAlign: value as DiagramTableVerticalAlignment }))] : []),
     button("Insert row", () => model.insertRow(cell.row + 1)),
     button("Delete row", () => model.deleteRow(cell.row)),
     button("Insert column", () => model.insertColumn(cell.column + 1)),

@@ -1,5 +1,12 @@
 # @affino/diagram-core
 
+## 0.19.0
+
+### Minor Changes
+
+- Applied live Shift cardinal constraints to click-to-place line and path previews relative to each last confirmed vertex, with matching committed geometry.
+- Added optional `DiagramTableHeader.verticalAlign` with a backward-compatible `middle` rendering default and undoable serialization support.
+
 ## 0.18.0
 
 ### Minor Changes

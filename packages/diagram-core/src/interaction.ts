@@ -92,7 +92,7 @@ export class DiagramInteractionController {
     if (this.tool === "draw-path" && this.pathCreationId) {
       this.activePointer = event
       this.latestPoint = event.point
-      this.latestShiftKey = event.shiftKey === true
+      this.updateShiftAxis(event.shiftKey === true, event.point)
       return
     }
     this.gestureGeneration += 1
@@ -287,6 +287,8 @@ export class DiagramInteractionController {
     this.tool = "draw-path"
     this.pathCreationId = id
     this.clickToPlaceLine = mode === "line"
+    this.latestShiftKey = event.shiftKey === true
+    this.edgeEndpointCardinalAngle = null
     const start = this.snapEndpoint(event.point, event.point)
     const point = this.endpointPoint(start) ?? event.point
     this.pathVertices = [point]
@@ -308,6 +310,8 @@ export class DiagramInteractionController {
     if (last.x !== vertex.x || last.y !== vertex.y) this.pathVertices.push(vertex)
     this.pathCurrentPoint = vertex
     this.previewDynamicInput = dynamicInputFor(vertex, vertex)
+    this.shiftAxis = null
+    this.edgeEndpointCardinalAngle = null
     if (this.clickToPlaceLine || finish) return this.finishPathCreation()
     return true
   }
@@ -356,6 +360,7 @@ export class DiagramInteractionController {
     }
     if (this.tool === "draw-path" && this.pathCreationId) {
       this.latestPoint = event.point
+      this.updateShiftAxis(event.shiftKey === true, event.point)
       this.scheduleCreationPreview()
       return
     }
@@ -403,7 +408,7 @@ export class DiagramInteractionController {
   }
 
   confirmDynamicInput(): boolean {
-    if (this.tool === "draw-path" && this.pathCreationId && this.latestPoint) return this.addPathVertex(this.latestPoint, this.clickToPlaceLine)
+    if (this.tool === "draw-path" && this.pathCreationId && this.latestPoint) return this.clickToPlaceLine ? this.addPathVertex(this.latestPoint, true) : this.finishPathCreation()
     if (this.tool === "connect-edge" && this.edgeClickPlacement) return this.finishEdgePathCreation(this.latestPoint ?? undefined)
     if (!this.activePointer || !this.latestPoint) return false
     this.pointerUp({ ...this.activePointer, point: this.latestPoint, shiftKey: this.latestShiftKey })
@@ -447,7 +452,9 @@ export class DiagramInteractionController {
       return
     }
     if (this.tool === "draw-path" && this.pathCreationId) {
-      this.addPathVertex(event.point, (event.clickCount ?? 0) >= 2)
+      this.updateShiftAxis(event.shiftKey === true, event.point)
+      this.pathCurrentPoint = this.resolvePathPoint(event.point)
+      this.addPathVertex(this.pathCurrentPoint, (event.clickCount ?? 0) >= 2)
       this.activePointer = null
       return
     }
@@ -727,7 +734,7 @@ export class DiagramInteractionController {
       return
     }
     if (this.tool === "draw-path" && this.pathCreationId) {
-      this.pathCurrentPoint = this.resolveFreeSnap(this.latestPoint, this.pathVertices[this.pathVertices.length - 1]!)
+      this.pathCurrentPoint = this.resolvePathPoint(this.latestPoint)
       this.previewDynamicInput = dynamicInputFor(this.pathVertices[this.pathVertices.length - 1]!, this.pathCurrentPoint)
       return
     }
@@ -890,6 +897,11 @@ export class DiagramInteractionController {
     })
     this.snapResult = snap
     return snap.point
+  }
+
+  private resolvePathPoint(point: DiagramPoint): DiagramPoint {
+    const origin = this.pathVertices[this.pathVertices.length - 1] ?? this.startPoint ?? point
+    return this.endpointPoint(this.snapEndpoint(point, origin)) ?? point
   }
 
   private endpointPoint(endpoint: DiagramEdgeEndpoint): DiagramPoint | null {
@@ -1100,9 +1112,9 @@ export class DiagramInteractionController {
       this.shiftAxis = null
       this.edgeEndpointCardinalAngle = null
     }
-    if (this.tool === "drag-edge-endpoint" || this.tool === "connect-edge" || this.tool === "draw-line") {
-      const angleOrigin = this.edgeEndpointOppositeStart ?? (this.tool === "connect-edge" || this.tool === "draw-line" ? this.startPoint : null)
-      if (this.edgeEndpointCardinalAngle === null && angleOrigin && this.startPoint && this.isPastAxisActivation(point, this.startPoint)) {
+    if (this.tool === "drag-edge-endpoint" || this.tool === "connect-edge" || this.tool === "draw-line" || this.tool === "draw-path") {
+      const angleOrigin = this.edgeEndpointOppositeStart ?? (this.tool === "draw-path" ? this.pathVertices[this.pathVertices.length - 1] ?? this.startPoint : this.tool === "connect-edge" || this.tool === "draw-line" ? this.startPoint : null)
+      if (this.edgeEndpointCardinalAngle === null && angleOrigin && this.isPastAxisActivation(point, angleOrigin)) {
         this.edgeEndpointCardinalAngle = nearestCardinalAngle(point, angleOrigin)
       }
       return
