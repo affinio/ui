@@ -879,6 +879,76 @@ describe("DiagramEngine", () => {
     runPan({ x: -100, y: -100 }, { x: 70, y: 60 })
   })
 
+  it("keeps viewport updates out of undo history and preserves the redo branch", () => {
+    const engine = createDiagramEngine({
+      nodes: [{ id: "n", kind: "node", x: 0, y: 0, width: 20, height: 20 }],
+      viewport: { x: 0, y: 0, width: 200, height: 100, zoom: 1 },
+    })
+    engine.dispatch({ type: "moveNode", id: "n", delta: { x: 12, y: 4 }, historyKey: "move:n" })
+    engine.dispatch({ type: "moveNode", id: "n", delta: { x: 8, y: 6 }, historyKey: "move:n" })
+    expect(engine.getDiagnostics().undoDepth).toBe(1)
+
+    engine.dispatch({ type: "setViewport", viewport: { x: 10 } })
+    engine.dispatch({ type: "setViewport", viewport: { x: 20, zoom: 2 } })
+    engine.dispatch({ type: "undo" })
+    expect(engine.getScene().entities.nodesById.get("n")).toMatchObject({ x: 0, y: 0 })
+    expect(engine.getScene().viewport).toMatchObject({ x: 20, zoom: 2 })
+
+    const undoDepth = engine.getDiagnostics().undoDepth
+    const redoDepth = engine.getDiagnostics().redoDepth
+    engine.dispatch({ type: "setViewport", viewport: { x: 35, zoom: 1.5 } })
+    engine.dispatch({ type: "setViewport", viewport: { y: 15 } })
+    expect(engine.getDiagnostics()).toMatchObject({ undoDepth, redoDepth })
+    engine.dispatch({ type: "redo" })
+    expect(engine.getScene().entities.nodesById.get("n")).toMatchObject({ x: 20, y: 10 })
+    expect(engine.getScene().viewport).toMatchObject({ x: 35, y: 15, zoom: 1.5 })
+    expect(engine.serialize().viewport).toMatchObject({ x: 35, y: 15, zoom: 1.5 })
+  })
+
+  it("keeps pan and fit operations out of undo and redo history", () => {
+    const engine = createDiagramEngine({
+      nodes: [{ id: "n", kind: "node", x: 20, y: 30, width: 40, height: 20 }],
+      viewport: { x: 0, y: 0, width: 200, height: 100, zoom: 1 },
+    })
+    engine.dispatch({ type: "moveNode", id: "n", delta: { x: 10, y: 0 } })
+    engine.dispatch({ type: "undo" })
+    expect(engine.canRedo()).toBe(true)
+    const depths = { undoDepth: engine.getDiagnostics().undoDepth, redoDepth: engine.getDiagnostics().redoDepth }
+
+    const controller = createDiagramInteractionController(engine)
+    controller.setTool("pan")
+    controller.pointerDown({ id: 1, point: { x: 0, y: 0 } })
+    controller.pointerMove({ id: 1, point: { x: 25, y: 10 } })
+    controller.pointerUp({ id: 1, point: { x: 25, y: 10 } })
+    engine.fitBounds({ x: 0, y: 0, width: 100, height: 80 })
+    engine.dispatch({ type: "setSelection", selection: { ids: ["n"], primaryId: "n" } })
+    engine.fitSelection()
+    engine.fitScene()
+
+    expect(engine.getDiagnostics()).toMatchObject(depths)
+    expect(engine.canRedo()).toBe(true)
+    const viewport = engine.getScene().viewport
+    engine.dispatch({ type: "redo" })
+    expect(engine.getScene().entities.nodesById.get("n")?.x).toBe(30)
+    expect(engine.getScene().viewport).toEqual(viewport)
+  })
+
+  it("keeps viewport commands in mixed batches out of the document history patch", () => {
+    const engine = createDiagramEngine({ nodes: [{ id: "n", kind: "node", x: 0, y: 0, width: 20, height: 20 }] })
+    engine.dispatch({ type: "moveNode", id: "n", delta: { x: 10, y: 0 } })
+    engine.dispatch({ type: "undo" })
+
+    const batch = engine.dispatchBatch([
+      { type: "setViewport", viewport: { x: 45, zoom: 1.25 } },
+      { type: "moveNode", id: "n", delta: { x: 5, y: 0 } },
+    ])
+    expect(batch.ok).toBe(true)
+    expect(engine.getDiagnostics()).toMatchObject({ undoDepth: 1, redoDepth: 0 })
+    engine.dispatch({ type: "undo" })
+    expect(engine.getScene().entities.nodesById.get("n")?.x).toBe(0)
+    expect(engine.getScene().viewport).toMatchObject({ x: 45, zoom: 1.25 })
+  })
+
   it("preserves CSS size when fitting at common zoom levels", () => {
     for (const zoom of [0.25, 1, 2.5]) {
       const engine = createDiagramEngine({ viewport: { x: 0, y: 0, width: 1000, height: 600, zoom } })
@@ -963,7 +1033,7 @@ describe("DiagramEngine", () => {
     expect(engine.queryEntities()).toEqual([])
   })
 
-  it("publishes committed history state and rejects locked text edits", () => {
+  it("publishes viewport updates without making them undoable and rejects locked text edits", () => {
     const engine = createDiagramEngine({
       texts: [{ id: "locked-text", kind: "text", x: 0, y: 0, text: "before", metadata: { locked: true } }],
     })
@@ -973,7 +1043,7 @@ describe("DiagramEngine", () => {
     expect(engine.getScene().entities.textsById.get("locked-text")?.text).toBe("before")
 
     engine.dispatch({ type: "setViewport", viewport: { x: 1 } })
-    expect(states.at(-1)).toBe(true)
+    expect(states.at(-1)).toBe(false)
   })
 
   it("tracks changed ids and invalidates only dependent geometry", () => {

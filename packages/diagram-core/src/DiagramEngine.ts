@@ -147,7 +147,7 @@ export class DiagramEngine {
       this.lastCommandMs = now() - startedAt
       return { changed: false, revision: this.state.revision }
     }
-    const transaction = this.commitPatch(patch, command.type !== "setSelection", "historyKey" in command ? command.historyKey ?? null : null)
+    const transaction = this.commitPatch(patch, command.type !== "setSelection" && command.type !== "setViewport", "historyKey" in command ? command.historyKey ?? null : null)
     result = { changed: transaction.changedIds.size > 0, revision: this.state.revision }
     this.lastCommandMs = now() - startedAt
     return result
@@ -182,6 +182,7 @@ export class DiagramEngine {
     draft.state.documentRevision = this.state.documentRevision
     draft.state.orderRevision = this.state.orderRevision
     const patches: Patch[] = []
+    const historyPatches: Patch[] = []
     const affected = new Set<DiagramId>()
     for (let index = 0; index < commands.length; index += 1) {
       const command = commands[index]!
@@ -196,6 +197,7 @@ export class DiagramEngine {
       const changed = draft.commitPatch(patch, false, null).changedIds
       if (changed.size) {
         patches.push(patch)
+        if (command.type !== "setSelection" && command.type !== "setViewport") historyPatches.push(patch)
         for (const id of changed) affected.add(id)
       }
     }
@@ -205,7 +207,14 @@ export class DiagramEngine {
     let inverse = patches[patches.length - 1]!.inverse
     for (let index = patches.length - 2; index >= 0; index -= 1) inverse = composePatches(inverse, patches[index]!.inverse)
     combined.inverse = inverse
-    const changed = this.commitPatch(combined, true, null).changedIds
+    let historyPatch = historyPatches[0]
+    if (historyPatch) {
+      for (let index = 1; index < historyPatches.length; index += 1) historyPatch = composePatches(historyPatch, historyPatches[index]!)
+      let historyInverse = historyPatches[historyPatches.length - 1]!.inverse
+      for (let index = historyPatches.length - 2; index >= 0; index -= 1) historyInverse = composePatches(historyInverse, historyPatches[index]!.inverse)
+      historyPatch.inverse = historyInverse
+    }
+    const changed = this.commitPatch(combined, historyPatch !== undefined, null, historyPatch).changedIds
     return finish({ ok: true, changed: changed.size > 0, revision: this.state.revision, documentRevision: this.state.documentRevision, failedCommandIndex: null, reason: null, affectedIds: [...affected] })
   }
 
@@ -763,7 +772,7 @@ export class DiagramEngine {
     return { changed: result.changedIds.size > 0, revision: this.state.revision }
   }
 
-  private commitPatch(patch: Patch, recordHistory: boolean, historyKey: string | null): TransactionResult {
+  private commitPatch(patch: Patch, recordHistory: boolean, historyKey: string | null, historyPatch: Patch = patch): TransactionResult {
     const changedIds = patch.apply(this.state)
     if (!changedIds.size) {
       return { changedIds, invalidatedIds: new Set() }
@@ -785,7 +794,7 @@ export class DiagramEngine {
       invalidatedGeometryIds.filter((id) => !this.hasEntity(id)),
     )
     if (recordHistory) {
-      this.history.record(patch, historyKey, composePatches)
+      this.history.record(historyPatch, historyKey, composePatches)
     }
     this.store.publish(changedIds, invalidatedIds)
     return { changedIds, invalidatedIds }

@@ -295,6 +295,13 @@ engine.fitScene(48)
 
 Fit helpers preserve the viewport screen size invariant: `viewport.width * viewport.zoom` and `viewport.height * viewport.zoom` stay stable, while world bounds and zoom change together. DOM label layers should use the same `viewport.zoom` as SVG overlays.
 
+Viewport is presentation state, not document content. `setViewport`, interaction-controller pan, zoom, `fitBounds`, `fitSelection`, and `fitScene` update and serialize the current view but never add to or clear undo/redo history. Undo and redo affect document commands only and preserve the current viewport. Selection changes follow the same non-historical rule. This also applies when viewport or selection commands are included in `dispatchBatch()`; only document edits in the batch are recorded.
+
+```ts
+engine.dispatch({ type: "setViewport", viewport: { x: 120, y: 40, zoom: 1.5 } })
+// The scene renders and serializes with this viewport; the document undo stack is unchanged.
+```
+
 ## Diagnostics
 
 ```ts

@@ -1,5 +1,11 @@
 # @affino/diagram-core
 
+## 0.21.2
+
+### Patch Changes
+
+- Keep viewport updates, pan, zoom, and fit operations outside undo/redo history; these changes preserve the redo branch and document-edit grouping.
+
 ## 0.21.1
 
 ### Patch Changes
