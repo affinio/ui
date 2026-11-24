@@ -1,5 +1,11 @@
 # @affino/diagram-vue
 
+## 0.21.1
+
+### Patch Changes
+
+- Preserve camera position and zoom when ResizeObserver updates the viewport extent; page constraints no longer cause incremental camera drift during layout changes.
+
 ## 0.21.0
 
 ### Minor Changes

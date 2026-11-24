@@ -63,7 +63,9 @@ export function useDiagramViewport(controller: DiagramEngineController, options:
       const rect = entries[0]?.contentRect
       if (rect && rect.width > 0 && rect.height > 0) {
         const current = controller.scene.value.viewport
-        setViewport({ width: rect.width / current.zoom, height: rect.height / current.zoom })
+        // Element measurement changes the visible world extent, not the camera origin.
+        // Re-clamping x/y here makes repeated resize observations move the page incrementally.
+        controller.dispatch({ type: "setViewport", viewport: { width: rect.width / current.zoom, height: rect.height / current.zoom } })
       }
     })
     observer.observe(element)

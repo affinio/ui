@@ -693,6 +693,38 @@ describe("diagram-vue", () => {
     controller.dispose()
   })
 
+  it("preserves camera position across constrained ResizeObserver changes and document undo/redo", () => {
+    const controller = useDiagramEngine({
+      nodes: [{ id: "node", kind: "node", x: 0, y: 0, width: 20, height: 20 }],
+      viewport: { x: 200, y: 220, width: 400, height: 300, zoom: 1 },
+    })
+    let callback!: (entries: ReadonlyArray<{ contentRect: { width: number; height: number } }>) => void
+    class FakeResizeObserver { constructor(next: typeof callback) { callback = next } observe() {} disconnect() {} }
+    const viewport = useDiagramViewport(controller, {
+      element: document.createElement("div"),
+      resizeObserver: FakeResizeObserver,
+      viewportConstraints: { bounds: { x: 0, y: 0, width: 1000, height: 900 }, margin: 40 },
+    })
+    viewport.setViewport({ x: 620, y: 630, zoom: 2 })
+    const camera = { x: viewport.viewport.value.x, y: viewport.viewport.value.y, zoom: viewport.viewport.value.zoom }
+    expect(controller.dispatch({ type: "moveNode", id: "node", delta: { x: 10, y: 5 } }).changed).toBe(true)
+    controller.dispatch({ type: "undo" })
+    expect(controller.engine.canRedo()).toBe(true)
+
+    for (const [width, height] of [[998, 798], [1002, 802], [996, 796], [1000, 800]]) {
+      callback([{ contentRect: { width, height } }])
+      expect(viewport.viewport.value).toMatchObject({ ...camera, width: width / camera.zoom, height: height / camera.zoom })
+      expect(controller.engine.canRedo()).toBe(true)
+    }
+    controller.dispatch({ type: "redo" })
+    expect(controller.scene.value.entities.nodesById.get("node")).toMatchObject({ x: 10, y: 5 })
+    expect(viewport.viewport.value).toMatchObject(camera)
+    expect(controller.engine.getDiagnostics().undoDepth).toBe(1)
+    expect(controller.engine.getDiagnostics().redoDepth).toBe(0)
+    viewport.dispose()
+    controller.dispose()
+  })
+
   it("applies configured viewport constraints to pan preview and commit", () => {
     const frames: Array<FrameRequestCallback> = []
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { frames.push(callback); return frames.length })
@@ -713,6 +745,7 @@ describe("diagram-vue", () => {
       props.onPointerup(event(100, 100))
       expect(controller.scene.value.viewport).toMatchObject({ x: -10, y: -10 })
       expect(controller.engine.getDocumentRevision()).toBe(0)
+      expect(controller.engine.canUndo()).toBe(false)
     } finally {
       pointer.dispose()
       controller.dispose()

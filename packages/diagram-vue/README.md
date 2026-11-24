@@ -172,6 +172,8 @@ Do not put domain rules, snapping decisions, hit testing, undo/redo, or geometry
 
 `ResizeObserver.contentRect` is CSS pixels. `useDiagramViewport()` converts them to world extent by dividing by the current zoom and ignores `0×0` measurements, so a restored camera is not overwritten by a hidden tab. The SVG viewBox should be `x y width height` from the core viewport—do not divide width or height by zoom again.
 
+Resize measurements update only the viewport's world width and height. They preserve camera `x`, `y`, and `zoom`, even when page constraints are configured; constraints remain active for explicit viewport changes and interaction gestures. This prevents repeated layout changes, including those caused by document undo/redo, from incrementally shifting the camera.
+
 For DOM overlays call `getDomEntityStyle(entity, viewport.viewport.value)`; text editor positioning already applies the same transform. Use core `zoomViewportAt()` for cursor focus and `zoomViewportCentered()` for toolbar zoom. Minimap dimensions use the world scene bounds and the same camera transform.
 
 Preview geometry remains transient until pointerup. Start endpoint gestures with `interaction.beginEdgeEndpointHandle(handle.ownerId, "source" | "target", event)` and render `interaction.getPreviewGeometry(edgeId)` while the gesture is active. Entity IDs are opaque strings and may contain `:`. Use `handle.ownerId`, never parse `handle.id`. Escape/pointercancel cancels without history; pointerup commits one undo operation.
