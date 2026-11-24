@@ -1,5 +1,21 @@
 # @affino/diagram-vue
 
+## 0.16.0
+
+### Minor Changes
+
+- Exposed click-to-place line, path, and connector methods and reactive Core preview snapshots through `useDiagramPointerController()`.
+- Projected selected path vertices and connector waypoints as typed editing handles.
+- Updated the workspace dependency to `@affino/diagram-core` 0.17.0.
+
+## 0.15.0
+
+### Minor Changes
+
+- Render Core rectangle corner radii through SVG `rx`/`ry` projection.
+- Render and edit optional table titles through `DiagramTableView` and `useDiagramTable`, without treating titles as data rows or cells.
+- Updated the `@affino/diagram-core` workspace dependency to 0.16.0.
+
 ## 0.14.0
 
 ### Minor Changes

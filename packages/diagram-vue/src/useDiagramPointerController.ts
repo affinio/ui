@@ -12,7 +12,14 @@ export type DiagramPointerController = Readonly<{
   confirmDynamicInput: () => boolean
   cancelDynamicInput: () => void
   beginEdgeCreation: (id: string, event: PointerEvent, routeOptions?: DiagramOrthogonalRouteOptions) => boolean
+  beginEdgePathCreation: (id: string, event: PointerEvent, routeOptions?: DiagramOrthogonalRouteOptions) => boolean
+  finishEdgePathCreation: (point?: DiagramPoint) => boolean
   beginLineCreation: (id: string, event: PointerEvent) => boolean
+  beginPathCreation: (id: string, event: PointerEvent, mode?: "line" | "path") => boolean
+  beginPathVertexHandle: (id: string, index: number, event: PointerEvent) => boolean
+  beginEdgeWaypointHandle: (id: string, index: number, event: PointerEvent) => boolean
+  addPathVertex: (point?: DiagramPoint, finish?: boolean) => boolean
+  finishPathCreation: () => boolean
   beginTableResizeHandle: (id: DiagramId, axis: DiagramTableResizeAxis, index: number, event: PointerEvent) => boolean
   cancel: () => void
   getSvgPointerProps: () => {
@@ -61,7 +68,7 @@ export function useDiagramPointerController(controller: DiagramEngineController,
     lastSnapshot = next
     state.value = next
   }
-  const toEvent = (event: PointerEvent) => ({ id: event.pointerId, point: toWorldPoint(event, options.toWorldPoint), shiftKey: event.shiftKey })
+  const toEvent = (event: PointerEvent) => ({ id: event.pointerId, point: toWorldPoint(event, options.toWorldPoint), shiftKey: event.shiftKey, clickCount: event.detail })
   const api: DiagramPointerController = {
     interaction,
     state,
@@ -91,12 +98,24 @@ export function useDiagramPointerController(controller: DiagramEngineController,
       refresh()
       return accepted
     },
+    beginEdgePathCreation: (id, event, routeOptions) => { options.setPointerCapture?.(event); const accepted = interaction.beginEdgePathCreation(id, toEvent(event), routeOptions); refresh(); return accepted },
+    finishEdgePathCreation: (point) => { const accepted = interaction.finishEdgePathCreation(point); refresh(); return accepted },
     beginLineCreation: (id, event) => {
       options.setPointerCapture?.(event)
       const accepted = interaction.beginLineCreation(id, toEvent(event))
       refresh()
       return accepted
     },
+    beginPathCreation: (id, event, mode) => {
+      options.setPointerCapture?.(event)
+      const accepted = interaction.beginPathCreation(id, toEvent(event), mode)
+      refresh()
+      return accepted
+    },
+    beginPathVertexHandle: (id, index, event) => { const accepted = interaction.beginPathVertexHandle(id, index, toEvent(event)); refresh(); return accepted },
+    beginEdgeWaypointHandle: (id, index, event) => { const accepted = interaction.beginEdgeWaypointHandle(id, index, toEvent(event)); refresh(); return accepted },
+    addPathVertex: (point, finish) => { const accepted = interaction.addPathVertex(point, finish); refresh(); return accepted },
+    finishPathCreation: () => { const accepted = interaction.finishPathCreation(); refresh(); return accepted },
     beginTableResizeHandle: (id, axis, index, event) => {
       if (options.setPointerCapture) options.setPointerCapture(event)
       else (event.currentTarget as Element | null)?.setPointerCapture?.(event.pointerId)
@@ -158,6 +177,9 @@ function sameSnapshot(previous: DiagramInteractionSnapshot, next: DiagramInterac
     && previous.dynamicInput === next.dynamicInput
     && previous.edgeCreationPreview === next.edgeCreationPreview
     && previous.shapeCreationPreview === next.shapeCreationPreview
+    && previous.pathCreationPreview === next.pathCreationPreview
+    && previous.edgeWaypointPreview === next.edgeWaypointPreview
+    && previous.pathVertexPreview === next.pathVertexPreview
     && previous.shapeCreationPreview === next.shapeCreationPreview
     && previous.marquee === next.marquee
 }

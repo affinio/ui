@@ -13,7 +13,7 @@ export type DiagramRenderEntity = Readonly<{
 export type DiagramHandle = Readonly<{
   id: string
   ownerId: DiagramId
-  kind: "resize" | "port" | "edge-endpoint"
+  kind: "resize" | "port" | "edge-endpoint" | "waypoint" | "path-vertex"
   point: DiagramPoint
 }>
 

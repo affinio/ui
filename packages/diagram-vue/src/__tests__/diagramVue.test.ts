@@ -386,6 +386,89 @@ describe("diagram-vue", () => {
     expect(getSvgEntityProps(node)).toMatchObject({ x: 0, y: 0, width: 100, height: 60 })
   })
 
+  it("renders rounded rectangle geometry reactively and edits a table title separately from cells", async () => {
+    const controller = useDiagramEngine({
+      shapes: [{ id: "rounded", kind: "shape", shape: "rect", x: 0, y: 0, width: 60, height: 30, cornerRadius: 8 }],
+      tables: [{ id: "title-table", kind: "table", x: 20, y: 50, width: 120, height: 60, rowCount: 1, columnCount: 1, cells: [[{ text: "data" }]], header: { text: "Panel", height: 24, horizontalAlign: "center" } }],
+      viewport: { x: 0, y: 0, width: 300, height: 200, zoom: 1 },
+    })
+    const visible = useDiagramVisibleEntities(controller)
+    expect(getSvgEntityProps(visible.projection.value.shapes[0]!)).toMatchObject({ rx: 8, ry: 8 })
+    expect(controller.dispatch({ type: "updateShape", id: "rounded", cornerRadius: 12 }).changed).toBe(true)
+    await nextTick()
+    expect(getSvgEntityProps(visible.projection.value.shapes[0]!)).toMatchObject({ rx: 12, ry: 12 })
+
+    const mount = document.createElement("div")
+    document.body.append(mount)
+    let bubbledArrow = false
+    const app = createApp({ render: () => h("svg", { onKeydown: (event: KeyboardEvent) => { if (event.key === "ArrowRight") bubbledArrow = true } }, [h(DiagramTableView, { controller, id: "title-table", showToolbar: false })]) })
+    app.mount(mount)
+    const titleHit = mount.querySelector<SVGRectElement>("[data-table-header]")!
+    expect(titleHit.getAttribute("aria-label")).toBe("Table title: Panel")
+    expect(mount.querySelector("[role=grid]")?.getAttribute("aria-rowcount")).toBe("1")
+    titleHit.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true, cancelable: true }))
+    expect(bubbledArrow).toBe(false)
+    titleHit.dispatchEvent(new KeyboardEvent("keydown", { key: "x", bubbles: true, cancelable: true }))
+    await nextTick()
+    const input = mount.querySelector<HTMLInputElement>('input[aria-label="Edit table title"]')!
+    expect(input.value).toBe("x")
+    input.value = "New title"
+    input.dispatchEvent(new Event("input", { bubbles: true }))
+    await nextTick()
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }))
+    await nextTick()
+    expect(controller.scene.value.entities.tablesById.get("title-table")?.header?.text).toBe("New title")
+    expect(controller.scene.value.entities.tablesById.get("title-table")?.cells?.[0]?.[0]?.text).toBe("data")
+    expect([...mount.querySelectorAll('[data-diagram-id="title-table"] text')].some((text) => text.textContent === "New title")).toBe(true)
+    app.unmount()
+    mount.remove()
+    controller.dispose()
+  })
+
+  it("keeps a titled table preview transient and commits its body and title bounds together", async () => {
+    const frames: Array<FrameRequestCallback> = []
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { frames.push(callback); return frames.length })
+    const controller = useDiagramEngine({
+      tables: [{ id: "preview-title", kind: "table", x: 10, y: 40, width: 100, height: 50, rowCount: 1, columnCount: 1, header: { text: "Title", height: 20 } }],
+      selection: { ids: ["preview-title"], primaryId: "preview-title" },
+      viewport: { x: 0, y: 0, width: 300, height: 200, zoom: 1 },
+    })
+    const pointer = useDiagramPointerController(controller, { snap: { enabled: false }, toWorldPoint: (event) => ({ x: event.clientX, y: event.clientY }) })
+    const mount = document.createElement("div")
+    document.body.append(mount)
+    const props = pointer.getSvgPointerProps()
+    const app = createApp({ render: () => h("svg", props, [h(DiagramTableView, { controller, pointer, id: "preview-title", showToolbar: false })]) })
+    app.mount(mount)
+    const outerRect = () => mount.querySelector<SVGRectElement>('[data-diagram-id="preview-title"] > g > rect')!
+    const serialized = controller.engine.serialize()
+    const revision = controller.engine.getDocumentRevision()
+    const history = controller.engine.getDiagnostics().undoDepth
+    props.onPointerdown({ pointerId: 71, clientX: 20, clientY: 50, shiftKey: false } as PointerEvent)
+    props.onPointermove({ pointerId: 71, clientX: 40, clientY: 70, shiftKey: false } as PointerEvent)
+    frames.shift()?.(0)
+    await nextTick()
+    expect(outerRect().getAttribute("y")).toBe("40")
+    expect(controller.engine.serialize()).toEqual(serialized)
+    expect(controller.engine.getDocumentRevision()).toBe(revision)
+    props.onPointercancel()
+    await nextTick()
+    expect(outerRect().getAttribute("y")).toBe("20")
+    expect(controller.engine.getDiagnostics().undoDepth).toBe(history)
+    props.onPointerdown({ pointerId: 72, clientX: 20, clientY: 50, shiftKey: false } as PointerEvent)
+    props.onPointermove({ pointerId: 72, clientX: 40, clientY: 70, shiftKey: false } as PointerEvent)
+    frames.shift()?.(1)
+    await nextTick()
+    props.onPointerup({ pointerId: 72, clientX: 40, clientY: 70, shiftKey: false } as PointerEvent)
+    await nextTick()
+    const table = controller.scene.value.entities.tablesById.get("preview-title")!
+    expect(table).toMatchObject({ x: 30, y: 60, header: { text: "Title", height: 20 } })
+    expect(outerRect().getAttribute("y")).toBe("40")
+    app.unmount()
+    mount.remove()
+    controller.dispose()
+    vi.unstubAllGlobals()
+  })
+
   it("uses one active text editor overlay and commits edits through core", async () => {
     const controller = useDiagramEngine({
       ...scene,
@@ -722,6 +805,13 @@ describe("diagram-vue", () => {
     expect(pointer.state.value.shapeCreationPreview).toMatchObject({ id: "line", shape: "line", width: 20, height: 0 })
     pointer.getSvgPointerProps().onPointerup(event(25, 5))
     expect(diagram.scene.value.entities.shapesById.get("line")).toMatchObject({ shape: "line", width: 20, height: 0 })
+    expect(pointer.beginPathCreation("click-line", event(10, 80), "line")).toBe(true)
+    pointer.getSvgPointerProps().onPointermove(event(35, 95))
+    callbacks.shift()?.(2)
+    expect(pointer.state.value.pathCreationPreview).toMatchObject({ current: { x: 35, y: 95 } })
+    pointer.getSvgPointerProps().onPointerdown(event(35, 95))
+    pointer.getSvgPointerProps().onPointerup(event(35, 95))
+    expect(diagram.scene.value.entities.shapesById.get("click-line")?.points).toEqual([{ x: 0, y: 0 }, { x: 25, y: 15 }])
     pointer.dispose()
     diagram.dispose()
     vi.unstubAllGlobals()

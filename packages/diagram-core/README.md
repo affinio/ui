@@ -33,6 +33,16 @@ const boundedEngine = createDiagramEngine({}, { history: { maxEntries: 200 } })
 
 `updateEntities` applies metadata updates to existing entities in one undoable command. Metadata is merged by key, so omitted keys remain unchanged. The command does not remove metadata keys; assigning `undefined` stores an `undefined` value. Unknown IDs are ignored, and updates with no effective changes create no history entry. Use `setEntityMetadata` to replace the complete metadata object.
 
+### Rectangle corner radius
+
+`DiagramShape.cornerRadius` is an optional world-unit radius for `shape: "rect"`; omission is equivalent to `0`. A radius must be finite and in `0..min(width,height)/2`. Non-rectangular shapes accept only `0` (or an omitted radius). Update it through one undoable command:
+
+```ts
+engine.dispatch({ type: "updateShape", id: "housing", cornerRadius: 8 })
+```
+
+The field is part of normal scene/document serialization and clipboard copies. A direct resize command that would make the stored radius exceed half the new smaller side is rejected; pointer-handle resizing clamps its minimum size to preserve the radius. Set a smaller radius first to permit tighter resizing. Geometry snapshots expose `cornerRadius` for renderers. Core hit testing continues to use the rectangle bounds, so rounded visual corners do not remove the rectangular hit area.
+
 Shapes can also be created through an undoable command. A `line` shape stores its endpoints as `(x, y)` and `(x + width, y + height)`; negative direction is represented by `flipX`/`flipY` while width and height remain non-negative.
 
 ```ts
@@ -56,7 +66,7 @@ Group and ungroup commands participate in undo/redo. `serialize()`, `DiagramScen
 
 ### Visual tables
 
-`DiagramTable` is a plain text table object, not a spreadsheet. It stores a stable ID, world bounds, cells, row/column sizes, per-cell alignment, and table-level grid/border styles. Missing cell content defaults to empty text; omitted row and column sizes are initialized evenly. Tables are included in scene/document serialization, render order, hit testing, selection, move/resize, z-order, history, batch commands, copy/paste, duplicate, and delete.
+`DiagramTable` is a plain text table object, not a spreadsheet. It stores a stable ID, world bounds, cells, row/column sizes, per-cell alignment, table-level grid/border styles, and an optional title header. Missing cell content defaults to empty text; omitted row and column sizes are initialized evenly. Tables are included in scene/document serialization, render order, hit testing, selection, move/resize, z-order, history, batch commands, copy/paste, duplicate, and delete.
 
 ```ts
 engine.dispatch({ type: "createTable", table: {
@@ -67,9 +77,13 @@ engine.dispatch({ type: "createTable", table: {
 engine.dispatch({ type: "insertTableRow", id: "notes", index: 1 }) // zero-based insertion point, including rowCount
 engine.dispatch({ type: "updateTableCell", id: "notes", row: 1, column: 0, cell: { text: "Breaker", verticalAlign: "middle" } })
 engine.dispatch({ type: "updateTableStyle", id: "notes", style: { grid: { visible: true }, border: { radius: 8 } } })
+engine.dispatch({ type: "updateTableHeader", id: "notes", header: { text: "Distribution panel", height: 28, horizontalAlign: "left" } })
+engine.dispatch({ type: "updateTableHeader", id: "notes", header: null }) // explicitly remove the title
 ```
 
-Row/column indexes are zero-based. Insert accepts indexes `0..count`; delete and resize accept `0..count-1`. Deleting the last row or column is rejected as a no-op. Empty text is valid. Tables and row/column dimensions must be finite and positive; row heights and column widths must sum to the outer table size. Alignment is `left|center|right` and `top|middle|bottom`. Line style is `solid|dashed|dotted`; colors must be non-empty strings; stroke widths, cell padding, and corner radius must be finite and non-negative. Invalid constructor/deserialization input throws `TypeError`; invalid commands return `changed: false` and create no history entry. Table cell hit testing is available through `getDiagramTableCellAt(table, worldPoint)`.
+Row/column indexes are zero-based. Insert accepts indexes `0..count`; delete and resize accept `0..count-1`. Deleting the last row or column is rejected as a no-op. Empty text is valid. Tables and row/column dimensions must be finite and positive; row heights and column widths sum to the data-grid body height and width. Alignment is `left|center|right` and `top|middle|bottom`. Line style is `solid|dashed|dotted`; colors must be non-empty strings; stroke widths, cell padding, and corner radius must be finite and non-negative. Invalid constructor/deserialization input throws `TypeError`; invalid commands return `changed: false` and create no history entry. Table cell hit testing is available through `getDiagramTableCellAt(table, worldPoint)`.
+
+`header` is omitted on legacy tables. When present, its `height` is a positive world-unit band above the data grid. The existing `table.y` and `table.height` continue to describe the grid body, while geometry bounds, hit testing, selection, and outer-border rendering include the header band. Resizing the whole table scales the header band and data rows proportionally; row/column edit commands affect only data cells. `getDiagramTableCellAt()` returns `null` for the header region and maps grid points through the table rotation/reflection. Header text may be empty; clearing the title is explicit with `header: null`. Existing scene/document format version 1 accepts both old tables without headers and new tables with headers.
 
 Cell edits are dispatched as one `updateTableCell` command. The Vue adapter keeps keystrokes in a local active editor and commits once on Enter, blur, or cell navigation; Escape discards the draft.
 
@@ -111,6 +125,10 @@ const resolved = engine.snapPoint({ x: 315, y: 142 }, { tolerancePx: 8, kinds: [
 Legacy `radius` in `snapPoint()` remains in world units. New callers should use `tolerancePx`. Use `origin` for polar constraints; angular projection preserves vector length from that origin. `ortho` is a 90-degree angular constraint. Selection movement and endpoint edits apply configured grid/object snaps and angle constraints to transient previews, then commit those resolved coordinates.
 
 `routeOrthogonalConnector(source, target, { terminalLead, firstAxis })` returns stable waypoints plus diagnostics when terminal leads overlap. It creates a local orthogonal route only; it does not promise obstacle avoidance. `beginEdgeCreation(id, pointer, routeOptions)` provides a frame-batched route preview and commits one `createEdge` command. `beginLineCreation(id, pointer)` provides a snapped transient line-shape preview and commits one `createShape` command. Ports are retained as endpoint references when snapped for connectors. Endpoint reattachment during endpoint dragging is opt-in with `snap.endpointMode: "reattach"`; the default keeps the existing free-point editing contract.
+
+For click placement, use `beginPathCreation(id, firstClick, "line")` for a two-click free line or `beginPathCreation(id, firstClick)` for a free polyline. Read `getSnapshot().pathCreationPreview` while moving; subsequent `pointerDown`/`pointerUp` pairs add vertices, while `finishPathCreation()` (Enter) or `clickCount: 2` ends the path. `cancel()` (Escape or pointercancel) drops the transient path. The public `createPath` command accepts world-space `DiagramPath` vertices; Core stores the result as a line `DiagramShape` with local-coordinate `points`, preserving the existing scene schema. A path is visual only and never creates electrical connectivity. `beginEdgePathCreation()` similarly starts a connector: clicks add bends and snapping to a port completes the edge; `finishEdgePathCreation()` confirms a free target. Its source/target remain `DiagramEdgeEndpoint` references.
+
+Selected path shapes expose one handle per vertex and selected edges expose handles for intermediate waypoints through the Vue visible projection. Core `beginPathVertexHandle()` and `beginEdgeWaypointHandle()` provide transient previews; pointerup commits one undoable vertex update. `removePathVertex` removes only interior path vertices and refuses to leave fewer than two points. Existing drag creation methods remain unchanged.
 
 Dynamic input is renderer-neutral and operates on the active gesture preview:
 

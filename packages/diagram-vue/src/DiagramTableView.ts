@@ -41,20 +41,25 @@ export const DiagramTableView = defineComponent({
       const geometry = pointer.interaction.getPreviewGeometry(props.id)
       if (!geometry || geometry.kind !== "table") return table
       const bounds = geometry.unrotatedBounds ?? geometry.bounds
+      const headerHeight = table.header?.height ?? 0
+      const previousOuterHeight = table.height + headerHeight
       const scaleX = table.width === 0 ? 1 : bounds.width / table.width
-      const scaleY = table.height === 0 ? 1 : bounds.height / table.height
+      const scaleY = previousOuterHeight === 0 ? 1 : bounds.height / previousOuterHeight
+      const nextHeaderHeight = headerHeight * scaleY
       return {
         ...table,
         x: bounds.x,
-        y: bounds.y,
+        y: bounds.y + nextHeaderHeight,
         width: bounds.width,
-        height: bounds.height,
+        height: bounds.height - nextHeaderHeight,
         columnWidths: table.columnWidths?.map((size) => size * scaleX),
         rowHeights: table.rowHeights?.map((size) => size * scaleY),
+        ...(table.header ? { header: { ...table.header, height: nextHeaderHeight } } : {}),
       }
     })
     const selectedCell = ref<DiagramTableCellPosition>(props.activeCell ?? { row: 0, column: 0 })
     const editing = ref<{ row: number; column: number; text: string } | null>(null)
+    const headerEditing = ref<string | null>(null)
     const input = ref<HTMLInputElement | null>(null)
     const tableRoot = ref<SVGGElement | null>(null)
     const clampCell = (cell: DiagramTableCellPosition, table: DiagramTable | null): DiagramTableCellPosition => table
@@ -74,6 +79,7 @@ export const DiagramTableView = defineComponent({
       if (next.row !== selectedCell.value.row || next.column !== selectedCell.value.column) setActiveCell(next)
     })
     watch(editing, (value) => { if (value) void nextTick(() => input.value?.focus()) })
+    watch(headerEditing, (value) => { if (value !== null) void nextTick(() => input.value?.focus()) })
     const focusCell = (row: number, column: number) => { void nextTick(() => tableRoot.value?.querySelector<SVGRectElement>(`[data-table-row="${row}"][data-table-column="${column}"]`)?.focus()) }
 
     const currentCell = (table: DiagramTable, row: number, column: number): DiagramTableCell => table.cells?.[row]?.[column] ?? table.defaultCell ?? { text: "" }
@@ -90,6 +96,15 @@ export const DiagramTableView = defineComponent({
       setActiveCell({ row, column }, table)
       editing.value = { row, column, text: initialText ?? currentCell(table, row, column).text }
     }
+    const beginHeaderEdit = (table: DiagramTable, initialText?: string) => { headerEditing.value = initialText ?? table.header?.text ?? "" }
+    const commitHeaderEdit = (expected?: string) => {
+      if (headerEditing.value === null || (expected !== undefined && headerEditing.value !== expected)) return false
+      const text = headerEditing.value
+      headerEditing.value = null
+      const header = model.table.value?.header
+      return header ? model.updateHeader({ ...header, text }) : false
+    }
+    const cancelHeaderEdit = () => { headerEditing.value = null }
     const navigateEdit = (table: DiagramTable, rowDelta: number, columnDelta: number, expected?: { row: number; column: number; text: string }) => {
       commitEdit(expected)
       const row = Math.max(0, Math.min(table.rowCount - 1, selectedCell.value.row + rowDelta))
@@ -116,9 +131,20 @@ export const DiagramTableView = defineComponent({
       const columnOffsets = offsets(table.columnWidths ?? [], table.x)
       const rowOffsets = offsets(table.rowHeights ?? [], table.y)
       const padding = style.cellPadding ?? 8
+      const headerHeight = table.header?.height ?? 0
+      const outerBounds = { x: table.x, y: table.y - headerHeight, width: table.width, height: table.height + headerHeight }
       const children: VNodeChild[] = [
-        h("rect", { x: table.x, y: table.y, width: table.width, height: table.height, rx: style.border.radius, fill: "var(--affino-diagram-table-surface, var(--affino-surface, #ffffff))", stroke: "none" }),
+        h("rect", { x: outerBounds.x, y: outerBounds.y, width: outerBounds.width, height: outerBounds.height, rx: style.border.radius, fill: "var(--affino-diagram-table-surface, var(--affino-surface, #ffffff))", stroke: "none" }),
       ]
+      if (table.header) {
+        const header = table.header
+        const headerY = table.y - header.height
+        const headerAnchor = header.horizontalAlign === "center" ? "middle" : header.horizontalAlign === "right" ? "end" : "start"
+        const headerTextX = headerAnchor === "start" ? table.x + padding : headerAnchor === "end" ? table.x + table.width - padding : table.x + table.width / 2
+        children.push(h("rect", { x: table.x, y: headerY, width: table.width, height: header.height, fill: "transparent", role: "button", tabindex: 0, "aria-label": `Table title: ${header.text || "empty"}`, "data-table-header": "true", onClick: (event: Event) => { event.stopPropagation(); beginHeaderEdit(table) }, onDblclick: (event: Event) => { event.stopPropagation(); beginHeaderEdit(table) }, onKeydown: (event: KeyboardEvent) => onHeaderKey(event, beginHeaderEdit, table) }))
+        children.push(h("text", { x: headerTextX, y: headerY + header.height / 2, "text-anchor": headerAnchor, "dominant-baseline": "middle", fill: "var(--affino-diagram-table-text, currentColor)", "font-size": 14, "pointer-events": "none" }, header.text))
+        if (style.grid.visible) children.push(h("line", { x1: table.x, y1: table.y, x2: table.x + table.width, y2: table.y, stroke: style.grid.stroke.color, "stroke-width": style.grid.stroke.width, "stroke-dasharray": dash(style.grid.stroke.style), "vector-effect": "non-scaling-stroke", "pointer-events": "none" }))
+      }
       if (style.grid.visible) {
         for (let column = 1; column < table.columnCount; column += 1) children.push(h("line", { x1: columnOffsets[column], y1: table.y, x2: columnOffsets[column], y2: table.y + table.height, stroke: style.grid.stroke.color, "stroke-width": style.grid.stroke.width, "stroke-dasharray": dash(style.grid.stroke.style), "vector-effect": "non-scaling-stroke", "pointer-events": "none" }))
         for (let row = 1; row < table.rowCount; row += 1) children.push(h("line", { x1: table.x, y1: rowOffsets[row], x2: table.x + table.width, y2: rowOffsets[row], stroke: style.grid.stroke.color, "stroke-width": style.grid.stroke.width, "stroke-dasharray": dash(style.grid.stroke.style), "vector-effect": "non-scaling-stroke", "pointer-events": "none" }))
@@ -162,8 +188,8 @@ export const DiagramTableView = defineComponent({
           children.push(h("rect", { x: table.x, y: y - hitSize / 2, width: table.width, height: hitSize, fill: "transparent", cursor: "row-resize", role: "separator", "aria-orientation": "horizontal", "aria-label": `Resize row ${row}`, tabindex: 0, "data-table-resize": "row", "data-table-boundary": row, onPointerdown: (event: PointerEvent) => startTableResize(event, "row", row - 1), onKeydown: cancelTableResize }))
         }
       }
-      if (style.border.visible) children.push(h("rect", { x: table.x + style.border.stroke.width / 2, y: table.y + style.border.stroke.width / 2, width: Math.max(0, table.width - style.border.stroke.width), height: Math.max(0, table.height - style.border.stroke.width), rx: style.border.radius, fill: "none", stroke: style.border.stroke.color, "stroke-width": style.border.stroke.width, "stroke-dasharray": dash(style.border.stroke.style), "vector-effect": "non-scaling-stroke", "pointer-events": "none" }))
-      const tableTransform = svgTransform(table.rotation ?? 0, table.flipX === true, table.flipY === true, table)
+      if (style.border.visible) children.push(h("rect", { x: outerBounds.x + style.border.stroke.width / 2, y: outerBounds.y + style.border.stroke.width / 2, width: Math.max(0, outerBounds.width - style.border.stroke.width), height: Math.max(0, outerBounds.height - style.border.stroke.width), rx: style.border.radius, fill: "none", stroke: style.border.stroke.color, "stroke-width": style.border.stroke.width, "stroke-dasharray": dash(style.border.stroke.style), "vector-effect": "non-scaling-stroke", "pointer-events": "none" }))
+      const tableTransform = svgTransform(table.rotation ?? 0, table.flipX === true, table.flipY === true, outerBounds)
       const visualChildren = children.splice(0, children.length)
       children.push(h("style", tableCellFocusStyles), h("g", { transform: tableTransform }, visualChildren))
       const activeEdit = editing.value
@@ -190,6 +216,17 @@ export const DiagramTableView = defineComponent({
           style: { boxSizing: "border-box", width: "100%", height: "100%", border: "2px solid var(--affino-accent, #3b82f6)", borderRadius: "2px", padding: `${padding}px`, background: "var(--affino-surface, #fff)", color: "var(--affino-text, #111827)", font: "inherit", outline: "none" },
         })]))
       }
+      if (headerEditing.value !== null && table.header) {
+        const editorBounds = projectTableCellBounds(table, { x: table.x, y: table.y - table.header.height, width: table.width, height: table.header.height })
+        const activeHeaderEdit = headerEditing.value
+        children.push(h("foreignObject", editorBounds, [h("input", {
+          value: activeHeaderEdit, "aria-label": "Edit table title", onPointerdown: stopToolbarEvent, onClick: stopToolbarEvent,
+          onInput: (event: Event) => { if (headerEditing.value !== null) headerEditing.value = (event.target as HTMLInputElement).value },
+          onBlur: () => commitHeaderEdit(activeHeaderEdit),
+            onKeydown: (event: KeyboardEvent) => { event.stopPropagation(); if (event.key === "Escape" && !event.isComposing) { event.preventDefault(); cancelHeaderEdit() } else if (event.key === "Enter" && !event.isComposing && event.keyCode !== 229) { event.preventDefault(); commitHeaderEdit(activeHeaderEdit) } },
+          style: { boxSizing: "border-box", width: "100%", height: "100%", border: "2px solid var(--affino-accent, #3b82f6)", background: "var(--affino-surface, #fff)", color: "var(--affino-text, #111827)", font: "inherit", outline: "none" },
+        })]))
+      }
       if (selected.value && props.showToolbar) children.push(toolbar(table, style, selectedCell.value, model, button, select, checkbox, numberInput, stopToolbarEvent))
       return h("g", { ref: tableRoot, "data-diagram-id": table.id, "data-diagram-kind": "table", role: "grid", "aria-label": `Table ${table.id}`, "aria-rowcount": table.rowCount, "aria-colcount": table.columnCount, "data-selected": selected.value || undefined }, children)
     }
@@ -198,6 +235,7 @@ export const DiagramTableView = defineComponent({
 
 function toolbar(table: DiagramTable, style: DiagramTableStyle, cell: { row: number; column: number }, model: ReturnType<typeof useDiagramTable>, button: (label: string, action: () => void) => VNodeChild, select: (label: string, value: string, values: ReadonlyArray<string>, update: (value: string) => void) => VNodeChild, checkbox: (label: string, checked: boolean, update: (value: boolean) => void) => VNodeChild, numberInput: (label: string, value: number, update: (value: number) => void, min?: number) => VNodeChild, stopToolbarEvent: (event: Event) => void): VNodeChild {
   const controls: VNodeChild[] = [
+    button(table.header ? "Remove table title" : "Add table title", () => model.updateHeader(table.header ? null : { text: "", height: 28, horizontalAlign: "left" })),
     button("Insert row", () => model.insertRow(cell.row + 1)),
     button("Delete row", () => model.deleteRow(cell.row)),
     button("Insert column", () => model.insertColumn(cell.column + 1)),
@@ -216,7 +254,21 @@ function toolbar(table: DiagramTable, style: DiagramTableStyle, cell: { row: num
     select("Border line style", style.border.stroke.style, ["solid", "dashed", "dotted"], (value) => model.updateStyle({ border: { stroke: { style: value as DiagramTableStyle["border"]["stroke"]["style"] } } })),
     numberInput("Border corner radius", style.border.radius, (radius) => model.updateStyle({ border: { radius } })),
   ]
-  return h("foreignObject", { x: table.x, y: table.y - 42, width: 660, height: 40 }, [h("div", { role: "toolbar", "aria-label": "Table formatting", onPointerdown: (event: Event) => event.stopPropagation(), onClick: (event: Event) => event.stopPropagation(), style: toolbarStyle }, controls)])
+  return h("foreignObject", { x: table.x, y: table.y - (table.header?.height ?? 0) - 42, width: 660, height: 40 }, [h("div", { role: "toolbar", "aria-label": "Table formatting", onPointerdown: (event: Event) => event.stopPropagation(), onClick: (event: Event) => event.stopPropagation(), style: toolbarStyle }, controls)])
+}
+
+function onHeaderKey(event: KeyboardEvent, beginEdit: (table: DiagramTable, initialText?: string) => void, table: DiagramTable): void {
+  if (["Enter", "F2", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)) {
+    event.preventDefault()
+    event.stopPropagation()
+    if ((event.key === "Enter" || event.key === "F2") && table) beginEdit(table)
+    return
+  }
+  if (isPrintableCellInput(event) && table) {
+    event.preventDefault()
+    event.stopPropagation()
+    beginEdit(table, event.key)
+  }
 }
 
 function onCellKey(event: KeyboardEvent, table: DiagramTable, row: number, column: number, beginEdit: (table: DiagramTable, row: number, column: number, initialText?: string) => void, setActiveCell: (cell: DiagramTableCellPosition, table?: DiagramTable) => void): void {
@@ -248,7 +300,8 @@ function isPrintableCellInput(event: KeyboardEvent): boolean {
 }
 function currentCellValue(table: DiagramTable, cell: { row: number; column: number }): DiagramTableCell { return table.cells?.[cell.row]?.[cell.column] ?? table.defaultCell ?? { text: "" } }
 function projectTableCellBounds(table: DiagramTable, cell: { x: number; y: number; width: number; height: number }): { x: number; y: number; width: number; height: number } {
-  const center = { x: table.x + table.width / 2, y: table.y + table.height / 2 }
+  const outer = { x: table.x, y: table.y - (table.header?.height ?? 0), width: table.width, height: table.height + (table.header?.height ?? 0) }
+  const center = { x: outer.x + outer.width / 2, y: outer.y + outer.height / 2 }
   const project = (point: { x: number; y: number }) => {
     const local = { x: center.x + (point.x - center.x) * (table.flipX ? -1 : 1), y: center.y + (point.y - center.y) * (table.flipY ? -1 : 1) }
     return rotatePoint(local, center, table.rotation ?? 0)

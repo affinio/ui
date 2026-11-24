@@ -30,10 +30,12 @@ export function getSvgEntityProps(entity: DiagramRenderEntity): SvgEntityProps {
   if (entity.kind === "shape" || entity.kind === "node" || entity.kind === "table") {
     return {
       ...common,
+      ...(entity.kind === "shape" && geometry.path ? { points: geometry.path.map((point) => `${point.x},${point.y}`).join(" ") } : {}),
       x: bounds.x,
       y: bounds.y,
       width: bounds.width,
       height: bounds.height,
+      ...(entity.kind === "shape" ? { rx: geometry.cornerRadius ?? 0, ry: geometry.cornerRadius ?? 0 } : {}),
       transform,
     }
   }

@@ -105,8 +105,15 @@ export type DiagramShape = DiagramEntityBase & Readonly<{
   rotation?: number
   flipX?: boolean
   flipY?: boolean
+  /** Rectangle-only corner radius in world units; omitted means zero. */
+  cornerRadius?: number
+  /** Optional local-coordinate vertices for a free polyline shape. Never creates connectivity. */
+  points?: ReadonlyArray<DiagramPoint>
   shape: "rect" | "ellipse" | "line" | string
 }>
+
+/** Free, non-electrical polyline defined by world-space vertices. */
+export type DiagramPath = DiagramEntityBase & Readonly<{ kind: "path"; points: ReadonlyArray<DiagramPoint>; metadata?: DiagramMetadata }>
 
 export type DiagramTableHorizontalAlignment = "left" | "center" | "right"
 export type DiagramTableVerticalAlignment = "top" | "middle" | "bottom"
@@ -127,6 +134,12 @@ export type DiagramTableStyleUpdate = Readonly<{
   border?: Readonly<{ visible?: boolean; stroke?: Partial<DiagramTableStroke>; radius?: number }>
   cellPadding?: number
 }>
+export type DiagramTableHeader = Readonly<{
+  text: string
+  /** Header band height in world units; it extends above the grid. */
+  height: number
+  horizontalAlign?: DiagramTableHorizontalAlignment
+}>
 export type DiagramTable = DiagramEntityBase & Readonly<{
   kind: "table"
   x: number
@@ -140,6 +153,8 @@ export type DiagramTable = DiagramEntityBase & Readonly<{
   columnWidths?: ReadonlyArray<number>
   defaultCell?: DiagramTableCell
   style?: DiagramTableStyle
+  /** Optional title band above the grid. rowCount and height continue to describe data rows only. */
+  header?: DiagramTableHeader
   rotation?: number
   flipX?: boolean
   flipY?: boolean
@@ -295,6 +310,7 @@ export type DiagramGeometry = Readonly<{
   rotation?: number
   flipX?: boolean
   flipY?: boolean
+  cornerRadius?: number
   path?: ReadonlyArray<DiagramPoint>
   point?: DiagramPoint
 }>
@@ -322,6 +338,10 @@ export type DiagramSubscriber = (scene: DiagramScene, change: DiagramChange) => 
 export type DiagramCommand =
   | Readonly<{ type: "createNode"; node: DiagramNode; historyKey?: string }>
   | Readonly<{ type: "createShape"; shape: DiagramShape; historyKey?: string }>
+  | Readonly<{ type: "createPath"; path: DiagramPath; historyKey?: string }>
+  | Readonly<{ type: "movePathVertex"; id: DiagramId; index: number; point: DiagramPoint; historyKey?: string }>
+  | Readonly<{ type: "removePathVertex"; id: DiagramId; index: number; historyKey?: string }>
+  | Readonly<{ type: "updateShape"; id: DiagramId; cornerRadius: number; historyKey?: string }>
   | Readonly<{ type: "createTable"; table: DiagramTable; historyKey?: string }>
   | Readonly<{ type: "insertTableRow"; id: DiagramId; index: number; cells?: ReadonlyArray<DiagramTableCell>; historyKey?: string }>
   | Readonly<{ type: "deleteTableRow"; id: DiagramId; index: number; historyKey?: string }>
@@ -331,6 +351,7 @@ export type DiagramCommand =
   | Readonly<{ type: "resizeTableColumn"; id: DiagramId; index: number; width: number; historyKey?: string }>
   | Readonly<{ type: "updateTableCell"; id: DiagramId; row: number; column: number; cell: Partial<DiagramTableCell>; historyKey?: string }>
   | Readonly<{ type: "updateTableStyle"; id: DiagramId; style: DiagramTableStyleUpdate; historyKey?: string }>
+  | Readonly<{ type: "updateTableHeader"; id: DiagramId; header: DiagramTableHeader | null; historyKey?: string }>
   | Readonly<{ type: "groupEntities"; id: DiagramId; ids?: ReadonlyArray<DiagramId>; historyKey?: string }>
   | Readonly<{ type: "ungroupEntities"; ids: ReadonlyArray<DiagramId>; historyKey?: string }>
   | Readonly<{ type: "createPort"; port: DiagramPort; historyKey?: string }>
@@ -389,7 +410,7 @@ export type DiagramBatchOptions = Readonly<{ expectedRevision?: number; operatio
 export type DiagramBatchPreviewResult = DiagramBatchResult & Readonly<{ scene?: SerializedDiagramScene }>
 export type DiagramValidationIssue = Readonly<{ code: string; severity: "error" | "warning"; entityIds: ReadonlyArray<DiagramId>; message: string }>
 
-export type DiagramInteractionTool = "pan" | "select" | "marquee" | "drag-selection" | "resize-selection" | "resize-table-axis" | "drag-edge-endpoint" | "connect-edge" | "draw-line" | "edit-text"
+export type DiagramInteractionTool = "pan" | "select" | "marquee" | "drag-selection" | "resize-selection" | "resize-table-axis" | "drag-edge-endpoint" | "drag-path-vertex" | "connect-edge" | "draw-line" | "draw-path" | "edit-text"
 
 export type DiagramResizeHandle = "nw" | "ne" | "se" | "sw"
 
@@ -397,6 +418,8 @@ export type DiagramPointerEvent = Readonly<{
   id: number
   point: DiagramPoint
   shiftKey?: boolean
+  /** Native click detail; a value >= 2 completes click-to-place paths. */
+  clickCount?: number
 }>
 
 export type DiagramTableResizeAxis = "row" | "column"
@@ -428,6 +451,9 @@ export type DiagramInteractionSnapshot = Readonly<{
   dynamicInput: DiagramDynamicInputState | null
   edgeCreationPreview: DiagramEdgeCreationPreview | null
   shapeCreationPreview: DiagramShape | null
+  pathCreationPreview: Readonly<{ id: DiagramId; vertices: ReadonlyArray<DiagramPoint>; current: DiagramPoint }> | null
+  edgeWaypointPreview: Readonly<{ id: DiagramId; points: ReadonlyArray<DiagramPoint> }> | null
+  pathVertexPreview: Readonly<{ id: DiagramId; index: number; point: DiagramPoint }> | null
   marquee: DiagramRect | null
 }>
 

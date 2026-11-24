@@ -1,5 +1,20 @@
 # @affino/diagram-core
 
+## 0.17.0
+
+### Minor Changes
+
+- Added click-to-place free paths and connector routing with transient snapped previews and one undoable commit per completed drawing.
+- Added path vertex and edge waypoint preview/commit interactions and editable path vertex handles in the public interaction API.
+- Preserved `beginLineCreation()` and `beginEdgeCreation()` drag-to-draw behavior.
+
+## 0.16.0
+
+### Minor Changes
+
+- Added rectangle-only `cornerRadius` with validation, renderer geometry projection, and undoable `updateShape` updates.
+- Added optional table headers with explicit world-unit height, independent editing command, extended object bounds/hit testing, and transform/resize/clipboard/document support.
+
 ## 0.15.0
 
 ### Minor Changes

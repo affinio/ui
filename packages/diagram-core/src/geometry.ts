@@ -72,6 +72,15 @@ function dedupeAdjacentPoints(points: ReadonlyArray<DiagramPoint>): DiagramPoint
 
 /** Returns the zero-based table cell at a world-space point, or null when outside the table. */
 export function getDiagramTableCellAt(table: DiagramTable, point: DiagramPoint): DiagramTableCellPosition | null {
+  const headerHeight = table.header?.height ?? 0
+  const bounds = { x: table.x, y: table.y - headerHeight, width: table.width, height: table.height + headerHeight }
+  const center = rectCenter(bounds)
+  let local = rotatePoint(point, center, -(table.rotation ?? 0))
+  local = {
+    x: center.x + (local.x - center.x) * (table.flipX ? -1 : 1),
+    y: center.y + (local.y - center.y) * (table.flipY ? -1 : 1),
+  }
+  point = local
   if (point.x < table.x || point.y < table.y || point.x > table.x + table.width || point.y > table.y + table.height) return null
   const columnWidths = table.columnWidths ?? Array(table.columnCount).fill(table.width / table.columnCount) as number[]
   const rowHeights = table.rowHeights ?? Array(table.rowCount).fill(table.height / table.rowCount) as number[]
@@ -116,7 +125,16 @@ export function createEntityGeometry(id: DiagramId, entities: DiagramEntities): 
   }
   const shape = entities.shapesById.get(id)
   if (shape) {
-    return rectGeometry(id, "shape", { x: shape.x, y: shape.y, width: shape.width, height: shape.height }, shape.rotation ?? 0, 3, shape.flipX, shape.flipY)
+    if (shape.shape === "line" && shape.points?.length) {
+      const center = { x: shape.x + shape.width / 2, y: shape.y + shape.height / 2 }
+      const path = shape.points.map((point) => {
+        const local = { x: shape.x + (shape.flipX ? shape.width - point.x : point.x), y: shape.y + (shape.flipY ? shape.height - point.y : point.y) }
+        return rotatePoint(local, center, shape.rotation ?? 0)
+      })
+      const bounds = rectFromPoints(path)
+      return { id, kind: "shape", bounds, hitBounds: inflateRect(bounds, 6), path, rotation: shape.rotation ?? 0, flipX: shape.flipX, flipY: shape.flipY }
+    }
+    return rectGeometry(id, "shape", { x: shape.x, y: shape.y, width: shape.width, height: shape.height }, shape.rotation ?? 0, 3, shape.flipX, shape.flipY, shape.shape === "rect" ? shape.cornerRadius ?? 0 : 0)
   }
   const group = entities.groupsById.get(id)
   if (group) {
@@ -128,7 +146,10 @@ export function createEntityGeometry(id: DiagramId, entities: DiagramEntities): 
     return { id, kind: "group", bounds, unrotatedBounds: bounds, rotation: 0, hitBounds: inflateRect(bounds, 6) }
   }
   const table = entities.tablesById.get(id)
-  if (table) return rectGeometry(id, "table", { x: table.x, y: table.y, width: table.width, height: table.height }, table.rotation ?? 0, 3, table.flipX, table.flipY)
+  if (table) {
+    const headerHeight = table.header?.height ?? 0
+    return rectGeometry(id, "table", { x: table.x, y: table.y - headerHeight, width: table.width, height: table.height + headerHeight }, table.rotation ?? 0, 3, table.flipX, table.flipY)
+  }
   return null
 }
 
@@ -164,14 +185,14 @@ export function resolvePortPoint(port: DiagramPort, entities: DiagramEntities): 
   return rotatePoint(point, rectCenter({ x: node.x, y: node.y, width: node.width, height: node.height }), node.rotation ?? 0)
 }
 
-function rectGeometry(id: DiagramId, kind: "node" | "shape" | "text" | "table", bounds: DiagramRect, rotation: number, hitPadding: number, flipX = false, flipY = false): DiagramGeometry {
+function rectGeometry(id: DiagramId, kind: "node" | "shape" | "text" | "table", bounds: DiagramRect, rotation: number, hitPadding: number, flipX = false, flipY = false, cornerRadius = 0): DiagramGeometry {
   const normalizedRotation = normalizeRotation(rotation)
   if (!normalizedRotation) {
-    return { id, kind, bounds, hitBounds: inflateRect(bounds, hitPadding), unrotatedBounds: bounds, rotation: 0, flipX, flipY }
+    return { id, kind, bounds, hitBounds: inflateRect(bounds, hitPadding), unrotatedBounds: bounds, rotation: 0, flipX, flipY, ...(kind === "shape" ? { cornerRadius } : {}) }
   }
   const corners = rotatedRectCorners(bounds, normalizedRotation)
   const rotatedBounds = rectFromPoints(corners)
-  return { id, kind, bounds: rotatedBounds, hitBounds: inflateRect(rotatedBounds, hitPadding), unrotatedBounds: bounds, corners, rotation: normalizedRotation, flipX, flipY }
+  return { id, kind, bounds: rotatedBounds, hitBounds: inflateRect(rotatedBounds, hitPadding), unrotatedBounds: bounds, corners, rotation: normalizedRotation, flipX, flipY, ...(kind === "shape" ? { cornerRadius } : {}) }
 }
 
 export function rotatedRectCorners(rect: DiagramRect, rotation: number): ReadonlyArray<DiagramPoint> {

@@ -91,6 +91,7 @@ function buildProjection(
   const anchorGeometries = activeGeometries.filter((geometry) => geometry.kind !== "edge")
   const activeHandles = [
     ...(anchorGeometries.length > 1 ? createGroupHandles(anchorGeometries) : activeGeometries.flatMap(createHandles)),
+    ...activeGeometries.flatMap((geometry) => geometry.kind === "edge" ? createEdgeWaypointHandles(geometry) : geometry.kind === "shape" ? createPathVertexHandles(geometry) : []),
     ...activeGeometries.filter((geometry) => geometry.kind === "edge").flatMap(createEdgeEndpointHandles),
   ]
   return Object.freeze({
@@ -138,6 +139,16 @@ function createEdgeEndpointHandles(geometry: DiagramGeometry): DiagramHandle[] {
     { id: `${geometry.id}:source`, ownerId: geometry.id, kind: "edge-endpoint", point: geometry.path[0]! },
     { id: `${geometry.id}:target`, ownerId: geometry.id, kind: "edge-endpoint", point: geometry.path[geometry.path.length - 1]! },
   ]
+}
+
+function createEdgeWaypointHandles(geometry: DiagramGeometry): DiagramHandle[] {
+  if (geometry.kind !== "edge" || !geometry.path || geometry.path.length < 3) return []
+  return geometry.path.slice(1, -1).map((point, index) => ({ id: `${geometry.id}:waypoint:${index}`, ownerId: geometry.id, kind: "waypoint", point }))
+}
+
+function createPathVertexHandles(geometry: DiagramGeometry): DiagramHandle[] {
+  if (geometry.kind !== "shape" || !geometry.path || geometry.path.length < 2) return []
+  return geometry.path.map((point, index) => ({ id: `${geometry.id}:vertex:${index}`, ownerId: geometry.id, kind: "path-vertex", point }))
 }
 
 function createGroupHandles(geometries: ReadonlyArray<DiagramGeometry>): DiagramHandle[] {

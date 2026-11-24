@@ -1,6 +1,6 @@
 import { computed } from "vue"
 import type { ComputedRef } from "vue"
-import type { DiagramId, DiagramTable, DiagramTableCell, DiagramTableStyleUpdate } from "@affino/diagram-core"
+import type { DiagramId, DiagramTable, DiagramTableCell, DiagramTableHeader, DiagramTableStyleUpdate } from "@affino/diagram-core"
 import type { DiagramEngineController } from "./useDiagramEngine.js"
 
 export type DiagramTableController = Readonly<{
@@ -13,6 +13,7 @@ export type DiagramTableController = Readonly<{
   resizeColumn: (index: number, width: number) => boolean
   updateCell: (row: number, column: number, cell: Partial<DiagramTableCell>) => boolean
   updateStyle: (style: DiagramTableStyleUpdate) => boolean
+  updateHeader: (header: DiagramTableHeader | null) => boolean
 }>
 
 export function useDiagramTable(controller: DiagramEngineController, id: DiagramId): DiagramTableController {
@@ -28,5 +29,6 @@ export function useDiagramTable(controller: DiagramEngineController, id: Diagram
     resizeColumn: (index, width) => dispatch({ type: "resizeTableColumn", id, index, width }),
     updateCell: (row, column, cell) => dispatch({ type: "updateTableCell", id, row, column, cell }),
     updateStyle: (style) => dispatch({ type: "updateTableStyle", id, style }),
+    updateHeader: (header) => dispatch({ type: "updateTableHeader", id, header }),
   }
 }

@@ -50,8 +50,17 @@ export class DiagramInteractionController {
   private edgeCreationSource: DiagramEdgeEndpoint | null = null
   private edgeCreationPreview: DiagramEdgeCreationPreview | null = null
   private edgeRouteOptions: DiagramOrthogonalRouteOptions = {}
+  private edgeClickPlacement = false
+  private edgeCreationWaypoints: DiagramPoint[] = []
   private lineCreationId: DiagramId | null = null
   private lineCreationPreview: DiagramShape | null = null
+  private pathCreationId: DiagramId | null = null
+  private pathVertices: DiagramPoint[] = []
+  private pathCurrentPoint: DiagramPoint | null = null
+  private clickToPlaceLine = false
+  private pathVertexPreview: Readonly<{ id: DiagramId; index: number; point: DiagramPoint }> | null = null
+  private vertexDragKind: "path" | "edge" | null = null
+  private vertexDragStart: DiagramPoint | null = null
   private framePending = false
   private pendingMoveCount = 0
   private commitCount = 0
@@ -75,6 +84,17 @@ export class DiagramInteractionController {
   }
 
   pointerDown(event: DiagramPointerEvent): void {
+    if (this.tool === "connect-edge" && this.edgeClickPlacement) {
+      this.activePointer = event
+      this.latestPoint = event.point
+      return
+    }
+    if (this.tool === "draw-path" && this.pathCreationId) {
+      this.activePointer = event
+      this.latestPoint = event.point
+      this.latestShiftKey = event.shiftKey === true
+      return
+    }
     this.gestureGeneration += 1
     this.activePointer = event
     this.startPoint = event.point
@@ -179,6 +199,34 @@ export class DiagramInteractionController {
     return true
   }
 
+  beginPathVertexHandle(ownerId: DiagramId, index: number, event: DiagramPointerEvent): boolean {
+    const shape = this.engine.getScene().entities.shapesById.get(ownerId)
+    const geometry = this.engine.getGeometrySnapshot(ownerId)
+    const point = geometry?.path?.[index]
+    if (!shape?.points || shape.shape !== "line" || !point || !Number.isInteger(index) || !this.engine.canMove([ownerId])) return false
+    this.cancel()
+    this.tool = "drag-path-vertex"
+    this.activePointer = event; this.startPoint = event.point; this.latestPoint = event.point
+    this.pathVertexPreview = { id: ownerId, index, point }
+    this.vertexDragStart = point; this.vertexDragKind = "path"
+    return true
+  }
+
+  beginEdgeWaypointHandle(ownerId: DiagramId, index: number, event: DiagramPointerEvent): boolean {
+    const edge = this.engine.getScene().entities.edgesById.get(ownerId)
+    const geometry = this.engine.getGeometrySnapshot(ownerId)
+    const point = edge?.points?.[index]
+    if (!edge || !point || !geometry || !Number.isInteger(index) || !this.engine.canMove([ownerId])) return false
+    this.cancel()
+    this.tool = "drag-path-vertex"
+    this.activePointer = event; this.startPoint = event.point; this.latestPoint = event.point
+    this.vertexDragStart = point; this.vertexDragKind = "edge"
+    this.edgeEndpointId = ownerId
+    this.edgeWaypointPreview = [...(edge.points ?? [])]
+    this.pathVertexPreview = { id: ownerId, index, point }
+    return true
+  }
+
   /** Starts a transient connector drawing gesture. The caller supplies the stable ID before committing. */
   beginEdgeCreation(id: DiagramId, event: DiagramPointerEvent, routeOptions: DiagramOrthogonalRouteOptions = {}): boolean {
     if (!id || this.engine.getGeometrySnapshot(id) || ![event.point.x, event.point.y].every(Number.isFinite)
@@ -198,6 +246,26 @@ export class DiagramInteractionController {
     return true
   }
 
+  /** Starts click-to-place connector routing; clicks add bends and `finishEdgePathCreation` commits once. */
+  beginEdgePathCreation(id: DiagramId, event: DiagramPointerEvent, routeOptions: DiagramOrthogonalRouteOptions = {}): boolean {
+    if (!this.beginEdgeCreation(id, event, routeOptions)) return false
+    this.activePointer = null
+    this.edgeClickPlacement = true
+    this.edgeCreationWaypoints = []
+    return true
+  }
+
+  finishEdgePathCreation(point?: DiagramPoint): boolean {
+    if (!this.edgeClickPlacement || !this.edgeCreationId || !this.edgeCreationPreview) return false
+    if (point) this.latestPoint = point
+    this.updateEdgeCreationPreview()
+    const preview = this.edgeCreationPreview!
+    this.engine.dispatch({ type: "createEdge", edge: { id: preview.id, kind: "edge", source: preview.source, target: preview.target, points: preview.points }, historyKey: `connect:${preview.id}:${++this.gestureHistoryId}` })
+    this.commitCount += 1
+    this.cancel()
+    return true
+  }
+
   /** Starts a line-shape drawing gesture with the same transient snapping contract as connector creation. */
   beginLineCreation(id: DiagramId, event: DiagramPointerEvent): boolean {
     if (!id || this.engine.getGeometrySnapshot(id) || ![event.point.x, event.point.y].every(Number.isFinite)) return false
@@ -209,6 +277,47 @@ export class DiagramInteractionController {
     this.latestShiftKey = event.shiftKey === true
     this.lineCreationId = id
     this.updateLineCreationPreview()
+    return true
+  }
+
+  /** Starts a click-to-place free line (two clicks) or polyline (`finishPathCreation`). */
+  beginPathCreation(id: DiagramId, event: DiagramPointerEvent, mode: "line" | "path" = "path"): boolean {
+    if (!id || this.engine.getGeometrySnapshot(id) || ![event.point.x, event.point.y].every(Number.isFinite)) return false
+    this.cancel()
+    this.tool = "draw-path"
+    this.pathCreationId = id
+    this.clickToPlaceLine = mode === "line"
+    const start = this.snapEndpoint(event.point, event.point)
+    const point = this.endpointPoint(start) ?? event.point
+    this.pathVertices = [point]
+    this.pathCurrentPoint = point
+    this.startPoint = point
+    this.latestPoint = point
+    this.previewDynamicInput = dynamicInputFor(point, point)
+    return true
+  }
+
+  /** Commits the pending click as a vertex; pointer motion alone never adds vertices. */
+  addPathVertex(point?: DiagramPoint, finish = false): boolean {
+    if (this.tool !== "draw-path" || !this.pathCreationId || !this.pathVertices.length) return false
+    const candidate = point ?? this.latestPoint ?? this.pathCurrentPoint
+    if (!candidate || ![candidate.x, candidate.y].every(Number.isFinite)) return false
+    const snappedEndpoint = this.snapEndpoint(candidate, this.pathVertices[this.pathVertices.length - 1]!)
+    const vertex = this.endpointPoint(snappedEndpoint) ?? candidate
+    const last = this.pathVertices[this.pathVertices.length - 1]!
+    if (last.x !== vertex.x || last.y !== vertex.y) this.pathVertices.push(vertex)
+    this.pathCurrentPoint = vertex
+    this.previewDynamicInput = dynamicInputFor(vertex, vertex)
+    if (this.clickToPlaceLine || finish) return this.finishPathCreation()
+    return true
+  }
+
+  finishPathCreation(): boolean {
+    if (this.tool !== "draw-path" || !this.pathCreationId || this.pathVertices.length < 2) return false
+    const path = this.pathVertices
+    this.engine.dispatch({ type: "createPath", path: { id: this.pathCreationId, kind: "path", points: Object.freeze([...path]) }, historyKey: `draw-path:${this.pathCreationId}:${++this.gestureHistoryId}` })
+    this.commitCount += 1
+    this.cancel()
     return true
   }
 
@@ -240,10 +349,24 @@ export class DiagramInteractionController {
   }
 
   pointerMove(event: DiagramPointerEvent): void {
+    if (this.tool === "connect-edge" && this.edgeClickPlacement) {
+      this.latestPoint = event.point
+      this.scheduleCreationPreview()
+      return
+    }
+    if (this.tool === "draw-path" && this.pathCreationId) {
+      this.latestPoint = event.point
+      this.scheduleCreationPreview()
+      return
+    }
     if (!this.activePointer || this.activePointer.id !== event.id) {
       return
     }
     this.latestPoint = event.point
+    if (this.tool === "drag-path-vertex" && this.pathVertexPreview) {
+      this.scheduleCreationPreview()
+      return
+    }
     this.dynamicInput = null
     this.updateShiftAxis(event.shiftKey === true, event.point)
     this.pendingMoveCount += 1
@@ -259,25 +382,29 @@ export class DiagramInteractionController {
 
   /** Overrides the active gesture endpoint with finite world-space numeric input. */
   setDynamicInput(values: Partial<DiagramDynamicInputState>): boolean {
-    if (!this.activePointer || !this.startPoint || !this.latestPoint) return false
-    const current = this.dynamicInput ?? dynamicInputFor(this.startPoint, this.latestPoint)
+    const persistentDrawing = (this.tool === "draw-path" && this.pathCreationId) || (this.tool === "connect-edge" && this.edgeClickPlacement)
+    if ((!this.activePointer && !persistentDrawing) || !this.startPoint || !this.latestPoint) return false
+    const base = this.tool === "draw-path" ? this.pathVertices[this.pathVertices.length - 1] ?? this.startPoint : this.tool === "connect-edge" ? this.edgeCreationWaypoints[this.edgeCreationWaypoints.length - 1] ?? this.startPoint : this.startPoint
+    const current = this.dynamicInput ?? dynamicInputFor(base, this.latestPoint)
     const next = { ...current, ...values }
     if (!Object.values(next).every(Number.isFinite) || next.length < 0) return false
     let point = { x: next.x, y: next.y }
-    if (values.dx !== undefined || values.dy !== undefined) point = { x: this.startPoint.x + next.dx, y: this.startPoint.y + next.dy }
+    if (values.dx !== undefined || values.dy !== undefined) point = { x: base.x + next.dx, y: base.y + next.dy }
     if (values.length !== undefined || values.angle !== undefined) {
       const radians = next.angle * Math.PI / 180
-      point = { x: this.startPoint.x + Math.cos(radians) * next.length, y: this.startPoint.y + Math.sin(radians) * next.length }
+      point = { x: base.x + Math.cos(radians) * next.length, y: base.y + Math.sin(radians) * next.length }
     }
     if (![point.x, point.y].every(Number.isFinite)) return false
     this.latestPoint = point
-    this.dynamicInput = dynamicInputFor(this.startPoint, point)
+    this.dynamicInput = dynamicInputFor(base, point)
     this.previewDynamicInput = this.dynamicInput
     this.flushPointerMove()
     return true
   }
 
   confirmDynamicInput(): boolean {
+    if (this.tool === "draw-path" && this.pathCreationId && this.latestPoint) return this.addPathVertex(this.latestPoint, this.clickToPlaceLine)
+    if (this.tool === "connect-edge" && this.edgeClickPlacement) return this.finishEdgePathCreation(this.latestPoint ?? undefined)
     if (!this.activePointer || !this.latestPoint) return false
     this.pointerUp({ ...this.activePointer, point: this.latestPoint, shiftKey: this.latestShiftKey })
     return true
@@ -288,10 +415,42 @@ export class DiagramInteractionController {
   }
 
   pointerUp(event: DiagramPointerEvent): void {
+    if (this.tool === "connect-edge" && this.edgeClickPlacement && this.activePointer?.id === event.id) {
+      this.activePointer = null
+      this.latestPoint = event.point
+      const endpoint = this.snapEndpoint(event.point, this.edgeCreationWaypoints[this.edgeCreationWaypoints.length - 1] ?? this.startPoint!)
+      if (endpoint.kind === "port" || (event.clickCount ?? 0) >= 2) this.finishEdgePathCreation(event.point)
+      else {
+        const snapped = this.endpointPoint(endpoint) ?? event.point
+        const previous = this.edgeCreationWaypoints[this.edgeCreationWaypoints.length - 1] ?? this.endpointPoint(this.edgeCreationSource!)!
+        if (previous.x !== snapped.x || previous.y !== snapped.y) this.edgeCreationWaypoints.push(snapped)
+        this.previewDynamicInput = dynamicInputFor(snapped, snapped)
+        this.updateEdgeCreationPreview()
+      }
+      return
+    }
     if (!this.activePointer || this.activePointer.id !== event.id) {
       return
     }
     this.latestPoint = event.point
+    if (this.tool === "drag-path-vertex" && this.pathVertexPreview) {
+      this.pathVertexPreview = { ...this.pathVertexPreview, point: this.resolveFreeSnap(event.point, this.vertexDragStart ?? event.point) }
+      if (this.vertexDragKind === "edge" && this.edgeWaypointPreview) {
+        const points = [...this.edgeWaypointPreview]; points[this.pathVertexPreview.index] = this.pathVertexPreview.point; this.edgeWaypointPreview = points
+      }
+      const preview = this.pathVertexPreview
+      if (this.vertexDragKind === "edge") this.engine.dispatch({ type: "moveEdgeWaypoint", id: preview.id, index: preview.index, point: preview.point })
+      else this.engine.dispatch({ type: "movePathVertex", id: preview.id, index: preview.index, point: preview.point })
+      this.commitCount += 1
+      this.clearGesture()
+      this.tool = "select"
+      return
+    }
+    if (this.tool === "draw-path" && this.pathCreationId) {
+      this.addPathVertex(event.point, (event.clickCount ?? 0) >= 2)
+      this.activePointer = null
+      return
+    }
     this.updateShiftAxis(event.shiftKey === true, event.point)
     this.flushPointerMove()
     if (this.tool === "resize-table-axis" && this.tableResizePreview && this.tableResizePreview.size !== this.tableResizeStart?.size) {
@@ -365,6 +524,20 @@ export class DiagramInteractionController {
   /** Returns renderer-ready geometry for active move and table resize previews. */
   getPreviewGeometry(id: DiagramId): DiagramGeometry | null {
     const geometry = this.engine.getGeometrySnapshot(id)
+    if (geometry?.kind === "edge" && this.pathVertexPreview?.id === id && this.vertexDragKind === "edge") {
+      const edge = this.engine.getScene().entities.edgesById.get(id)
+      if (edge) {
+        const path = [...(geometry.path ?? [])]
+        if (path[this.pathVertexPreview.index + 1]) path[this.pathVertexPreview.index + 1] = this.pathVertexPreview.point
+        const bounds = boundsFromPoints(path)
+        return Object.freeze({ ...geometry, path: Object.freeze(path), bounds, hitBounds: inflateRect(bounds, 6) })
+      }
+    }
+    if (geometry?.kind === "shape" && this.pathVertexPreview?.id === id && this.vertexDragKind === "path" && geometry.path) {
+      const path = [...geometry.path]; path[this.pathVertexPreview.index] = this.pathVertexPreview.point
+      const bounds = boundsFromPoints(path)
+      return Object.freeze({ ...geometry, path: Object.freeze(path), bounds, hitBounds: inflateRect(bounds, 6) })
+    }
     if (geometry?.kind === "table") {
       if (this.tableResizePreview?.id === id) {
         const scene = this.engine.getScene()
@@ -500,7 +673,7 @@ export class DiagramInteractionController {
   }
 
   getSnapshot(): DiagramInteractionSnapshot {
-    const hasPreview = this.previewDelta !== null || this.resizePreviewEntries.length > 0 || this.edgeEndpointPreview !== null || this.edgeCreationPreview !== null || this.lineCreationPreview !== null
+    const hasPreview = this.previewDelta !== null || this.resizePreviewEntries.length > 0 || this.edgeEndpointPreview !== null || this.edgeCreationPreview !== null || this.lineCreationPreview !== null || this.pathCreationId !== null || this.pathVertexPreview !== null
     const endpointOrigin = this.edgeEndpointOppositeStart ?? (this.tool === "connect-edge" || this.tool === "draw-line" ? this.startPoint : null)
     const endpointAngle = (this.tool === "drag-edge-endpoint" || this.tool === "connect-edge" || this.tool === "draw-line") && endpointOrigin && this.latestPoint
       ? (this.latestShiftKey ? this.edgeEndpointCardinalAngle : this.configuredAngle(this.latestPoint, endpointOrigin))
@@ -516,7 +689,7 @@ export class DiagramInteractionController {
           : null
     return {
       tool: this.tool,
-      active: this.activePointer !== null,
+      active: this.activePointer !== null || this.pathCreationId !== null || this.edgeClickPlacement,
       previewDelta: this.previewDelta,
       resizePreview: this.resizePreview,
       resizePreviewEntries: this.resizePreviewEntries,
@@ -531,6 +704,11 @@ export class DiagramInteractionController {
       dynamicInput: this.dynamicInput ?? this.previewDynamicInput,
       edgeCreationPreview: this.edgeCreationPreview,
       shapeCreationPreview: this.lineCreationPreview,
+      pathCreationPreview: this.pathCreationId && this.pathVertices.length && this.pathCurrentPoint
+        ? { id: this.pathCreationId, vertices: Object.freeze([...this.pathVertices]), current: this.pathCurrentPoint }
+        : null,
+      edgeWaypointPreview: this.edgeEndpointId && this.edgeWaypointPreview ? { id: this.edgeEndpointId, points: this.edgeWaypointPreview } : null,
+      pathVertexPreview: this.pathVertexPreview,
       marquee: this.marquee,
     }
   }
@@ -546,6 +724,22 @@ export class DiagramInteractionController {
   private flushPointerMove(): void {
     this.framePending = false
     if (!this.startPoint || !this.latestPoint) {
+      return
+    }
+    if (this.tool === "draw-path" && this.pathCreationId) {
+      this.pathCurrentPoint = this.resolveFreeSnap(this.latestPoint, this.pathVertices[this.pathVertices.length - 1]!)
+      this.previewDynamicInput = dynamicInputFor(this.pathVertices[this.pathVertices.length - 1]!, this.pathCurrentPoint)
+      return
+    }
+    if (this.tool === "connect-edge" && this.edgeClickPlacement) {
+      this.updateEdgeCreationPreview()
+      return
+    }
+    if (this.tool === "drag-path-vertex" && this.pathVertexPreview) {
+      this.pathVertexPreview = { ...this.pathVertexPreview, point: this.resolveFreeSnap(this.latestPoint, this.vertexDragStart ?? this.latestPoint) }
+      if (this.vertexDragKind === "edge" && this.edgeWaypointPreview) {
+        const points = [...this.edgeWaypointPreview]; points[this.pathVertexPreview.index] = this.pathVertexPreview.point; this.edgeWaypointPreview = points
+      }
       return
     }
     this.previewDynamicInput = dynamicInputFor(this.startPoint, this.latestPoint)
@@ -669,6 +863,42 @@ export class DiagramInteractionController {
     }
   }
 
+  private scheduleCreationPreview(): void {
+    this.pendingMoveCount += 1
+    if (this.framePending) return
+    this.framePending = true
+    const generation = this.gestureGeneration
+    this.scheduleFrame(() => {
+      if (generation !== this.gestureGeneration) return
+      this.flushPointerMove()
+    })
+  }
+
+  private resolveFreeSnap(point: DiagramPoint, origin: DiagramPoint): DiagramPoint {
+    const zoom = this.engine.getScene().viewport.zoom || 1
+    const snap = this.engine.snapPoint(point, {
+      radius: (this.snapOptions.tolerancePx ?? 6) / zoom,
+      gridSize: this.snapOptions.gridSize,
+      snapToPorts: this.snapOptions.snapToPorts,
+      snapToAlignment: this.snapOptions.snapToAlignment,
+      kinds: this.snapOptions.kinds,
+      tolerancePx: this.snapOptions.kinds ? this.snapOptions.tolerancePx : undefined,
+      origin,
+      angleIncrement: this.snapOptions.angleIncrement,
+      additionalAngles: this.snapOptions.additionalAngles,
+      ortho: this.snapOptions.ortho,
+    })
+    this.snapResult = snap
+    return snap.point
+  }
+
+  private endpointPoint(endpoint: DiagramEdgeEndpoint): DiagramPoint | null {
+    if (endpoint.kind === "point") return endpoint.point
+    if (endpoint.kind === "port") return this.engine.getGeometrySnapshot(endpoint.portId)?.point ?? null
+    const bounds = this.engine.getGeometrySnapshot(endpoint.nodeId)?.bounds
+    return bounds ? { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 } : null
+  }
+
   private createResizePreviewEntries(delta: DiagramPoint): ReadonlyArray<DiagramResizeEntry> {
     if (this.resizeSelectionIds.length) {
       return this.createSelectionResizePreviewEntries(delta)
@@ -732,17 +962,20 @@ export class DiagramInteractionController {
 
   private updateEdgeCreationPreview(): void {
     if (!this.edgeCreationId || !this.edgeCreationSource || !this.startPoint || !this.latestPoint) return
-    const target = this.snapEndpoint(this.latestPoint, this.startPoint)
+    const target = this.snapEndpoint(this.latestPoint, this.edgeCreationWaypoints[this.edgeCreationWaypoints.length - 1] ?? this.startPoint)
     const entities = this.engine.getScene().entities
     const sourcePoint = resolveEndpoint(this.edgeCreationSource, entities)
     const targetPoint = resolveEndpoint(target, entities)
-    const route = routeOrthogonalConnector(sourcePoint, targetPoint, this.edgeRouteOptions)
+    const stops = [sourcePoint, ...this.edgeCreationWaypoints, targetPoint]
+    const routes = stops.slice(1).map((next, index) => routeOrthogonalConnector(stops[index]!, next, this.edgeRouteOptions))
+    const routePath = routes.flatMap((route, index) => index ? route.path.slice(1) : route.path)
+    const routePoints = [...this.edgeCreationWaypoints, ...routes.flatMap((route) => route.points)]
     this.edgeCreationPreview = Object.freeze({
       id: this.edgeCreationId,
       source: this.edgeCreationSource,
       target,
-      points: Object.freeze(route.points.map((point) => Object.freeze(point))),
-      path: Object.freeze(route.path.map((point) => Object.freeze(point))),
+      points: Object.freeze(routePoints.map((point) => Object.freeze(point))),
+      path: Object.freeze(routePath.map((point) => Object.freeze(point))),
     })
   }
 
@@ -763,7 +996,7 @@ export class DiagramInteractionController {
 
   private createSelectionResizePreviewEntries(delta: DiagramPoint): ReadonlyArray<DiagramResizeEntry> {
     if (!this.resizeHandle || !this.resizeStartBounds) return Object.freeze([])
-    const nextBounds = resizeBoundsByHandle(this.resizeStartBounds, this.resizeHandle, delta, 8, this.latestShiftKey, this.resizeGridSize())
+    const nextBounds = resizeBoundsByHandle(this.resizeStartBounds, this.resizeHandle, delta, this.minimumResizeSize(this.resizeSelectionIds, this.resizeStartBounds), this.latestShiftKey, this.resizeGridSize())
     const scaleX = this.resizeStartBounds.width ? nextBounds.width / this.resizeStartBounds.width : 1
     const scaleY = this.resizeStartBounds.height ? nextBounds.height / this.resizeStartBounds.height : 1
     const entries: DiagramResizeEntry[] = []
@@ -786,7 +1019,7 @@ export class DiagramInteractionController {
     if (!this.resizeOwnerId || !this.resizeHandle || !this.resizeStartBounds) return null
     const bounds = this.resizeStartBounds
     const localDelta = rotateDelta(delta, -this.resizeStartRotation)
-    const minSize = 8
+    const minSize = this.minimumResizeSize([this.resizeOwnerId], bounds)
     const nextBounds = resizeBoundsByHandle(bounds, this.resizeHandle, localDelta, minSize, this.latestShiftKey, this.resizeGridSize())
     const { x, y, width, height } = nextBounds
 
@@ -804,6 +1037,25 @@ export class DiagramInteractionController {
 
   private resizeGridSize(): number | undefined {
     return this.snapOptions.enabled === false ? undefined : this.snapOptions.gridSize
+  }
+
+  private minimumResizeSize(ids: ReadonlyArray<DiagramId>, overallBounds: DiagramRect): number {
+    const entities = this.engine.getScene().entities
+    let minimum = 8
+    for (const id of ids) {
+      const childIds = entities.groupsById.get(id)?.childIds ?? [id]
+      for (const childId of childIds) {
+        const shape = entities.shapesById.get(childId)
+        if (shape?.shape === "rect" && shape.cornerRadius) {
+          const geometry = this.engine.getGeometrySnapshot(childId)
+          const bounds = geometry?.unrotatedBounds ?? geometry?.bounds
+          const scaleX = bounds?.width ? overallBounds.width / bounds.width : 1
+          const scaleY = bounds?.height ? overallBounds.height / bounds.height : 1
+          minimum = Math.max(minimum, shape.cornerRadius * 2 * scaleX, shape.cornerRadius * 2 * scaleY)
+        }
+      }
+    }
+    return minimum
   }
 
   private expandedDragSelectionIds(): DiagramId[] {
@@ -957,7 +1209,16 @@ export class DiagramInteractionController {
     this.edgeCreationPreview = null
     this.lineCreationId = null
     this.lineCreationPreview = null
+    this.pathCreationId = null
+    this.pathVertices = []
+    this.pathCurrentPoint = null
+    this.clickToPlaceLine = false
+    this.pathVertexPreview = null
+    this.vertexDragKind = null
+    this.vertexDragStart = null
     this.edgeRouteOptions = {}
+    this.edgeClickPlacement = false
+    this.edgeCreationWaypoints = []
     this.edgeEndpointId = null
     this.edgeEndpointKind = null
     this.edgeEndpointStart = null

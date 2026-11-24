@@ -30,6 +30,8 @@ Render static diagram text as SVG `<text>`/`<tspan>` elements in world space. Us
 
 Core `flipEntities` commands are reflected by `getSvgEntityProps()` and `getDomEntityStyle()` through the geometry's `flipX`/`flipY` flags. The built-in table view mirrors its cell layout and keeps toolbar and active input controls readable.
 
+Rectangular `DiagramShape` geometry exposes `cornerRadius` (world units) to renderers. `getSvgEntityProps()` maps it to SVG `rx`/`ry`; render the shape as `<rect>`. Omitted radius projects as zero, and Core rejects a value above half the smaller rectangle side. Other shape kinds are unchanged.
+
 Core group rotation publishes updated member geometry and selection bounds through the existing scene controller. `getSvgEntityProps()` and `DiagramTableView` apply the resulting rotation, so Vue toolbar capability checks based on `engine.canRotate(selection.ids)` and group selection overlays react to the command.
 
 ```vue
@@ -62,6 +64,8 @@ const textEditor = useDiagramTextEditor(diagram)
 
 For a free line shape, call `pointer.beginLineCreation(id, event)`; render `pointer.state.value.shapeCreationPreview` transiently, then let the same controller commit the shape on pointerup. Connector creation uses `beginEdgeCreation()` and exposes endpoint references plus route waypoints in `edgeCreationPreview`.
 
+Click-to-place drawing is available through `useDiagramPointerController()`: `beginPathCreation(id, event, "line")` places a two-click line; omit the mode for a multipoint free path, then finish with `finishPathCreation()` (Enter) or a double click. Use `beginEdgePathCreation(id, event, options)` for a connector whose later clicks add route bends; finish with `finishEdgePathCreation()` or snap its target to a port. The reactive `state.value.pathCreationPreview` and `edgeCreationPreview` are transient Core projections. Selected path vertices and edge waypoints appear as `activeHandles` (`path-vertex` and `waypoint`); pass them to `beginPathVertexHandle()` or `beginEdgeWaypointHandle()` to edit. Existing drag-to-draw methods remain supported.
+
 ```ts
 const pointer = useDiagramPointerController(diagram, {
   toWorldPoint: (event) => screenToWorld(diagram.scene.value.viewport, { x: event.clientX, y: event.clientY }),
@@ -87,7 +91,8 @@ import type { DiagramTableCellPosition } from "@affino/diagram-core"
 
 const diagram = useDiagramEngine({
   tables: [{ id: "notes", kind: "table", x: 40, y: 40, width: 320, height: 120, rowCount: 2, columnCount: 2,
-    cells: [[{ text: "Item", horizontalAlign: "center" }, { text: "Value" }], [{ text: "Relay" }, { text: "R1" }]] }],
+    cells: [[{ text: "Item", horizontalAlign: "center" }, { text: "Value" }], [{ text: "Relay" }, { text: "R1" }]],
+    header: { text: "Distribution panel", height: 28, horizontalAlign: "center" } }],
   viewport: { x: 0, y: 0, width: 900, height: 600, zoom: 1 },
 })
 const pointer = useDiagramPointerController(diagram)
@@ -102,6 +107,8 @@ const activeCell = ref<DiagramTableCellPosition | null>(null)
 ```
 
 Double-click a cell or focus it and press Enter/F2 to edit. Typing a printable key starts editing with that character replacing the previous cell text; IME composition and Ctrl/Meta/Alt shortcuts do not trigger replacement. Enter commits and returns focus to the cell; Escape discards; blur commits; Up/Down move to the adjacent cell, and Left/Right move when the text caret is at the corresponding edge. Keyboard-focused cells use a subtle `--affino-focus-ring-color`/`--affino-accent` ring that adapts to the active theme and does not alter grid strokes. While selected, the accessible table toolbar exposes row/column insertion and deletion, row/column sizes, cell alignment, grid visibility/color/width/style, and outer border visibility/color/width/style/radius. Set `showToolbar` to `false` to hide only that built-in toolbar and expose commands in an external inspector through `useDiagramTable(diagram, id)`; cell editing and diagram interactions remain enabled. Toolbar/editor pointer events stop at the controls; the table surface continues to bubble pointer gestures to the diagram controller.
+
+An optional `DiagramTable.header` is rendered as a title band above the grid. `height` is in world units; existing `table.y` and `table.height` continue to identify the data-grid body, so `rowCount` and active-cell coordinates never include the title. Focus the title and press Enter/F2 or type a printable character to edit it; Enter and blur commit one `updateTableHeader` command, while Escape cancels. Arrow keys on the title are isolated from cell navigation and diagram keyboard handlers. `useDiagramTable().updateHeader(header)` updates the Core-owned model; pass `null` to remove it. The built-in toolbar also offers add/remove title controls. Old tables without headers render as before.
 
 `activeCell` is zero-based UI state and is never serialized or added to history. Without a supplied value, the first cell (`{ row: 0, column: 0 }`) is active; focus, click, and keyboard navigation emit `update:activeCell`, and row/column deletion clamps it to valid indexes. The active cell exposes `aria-selected`, a roving tabindex, a theme-aware fill through `--affino-diagram-table-active-cell`, and a focus ring without changing grid strokes.
 

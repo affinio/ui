@@ -27,6 +27,7 @@ import type {
   DiagramTableCell,
   DiagramTableStyle,
   DiagramTableStyleUpdate,
+  DiagramTableHeader,
   DiagramEntityKind,
   DiagramMetadata,
   DiagramGeometry,
@@ -34,6 +35,7 @@ import type {
   DiagramHitTestOptions,
   DiagramId,
   DiagramPoint,
+  DiagramPath,
   DiagramQueryOptions,
   DiagramRect,
   DiagramRenderOrderOptions,
@@ -459,7 +461,7 @@ export class DiagramEngine {
       let points = geometry.kind === "edge" ? geometry.path : undefined
       if (geometry.kind === "shape") {
         const shape = this.state.entities.shapesById.get(id)
-        if (shape?.shape === "line") points = [{ x: shape.x, y: shape.y }, { x: shape.x + shape.width, y: shape.y + shape.height }]
+        if (shape?.shape === "line") points = geometry.path ?? [{ x: shape.x, y: shape.y }, { x: shape.x + shape.width, y: shape.y + shape.height }]
         else if (shape?.shape === "rect") points = geometry.corners ? [...geometry.corners, geometry.corners[0]!] : [
           { x: shape.x, y: shape.y }, { x: shape.x + shape.width, y: shape.y },
           { x: shape.x + shape.width, y: shape.y + shape.height }, { x: shape.x, y: shape.y + shape.height },
@@ -920,6 +922,14 @@ export class DiagramEngine {
         return createCreateEntityPatch(this.state, command.node)
       case "createShape":
         return createCreateShapePatch(this.state, command.shape)
+      case "createPath":
+        return createCreatePathPatch(this.state, command.path)
+      case "movePathVertex":
+        return createPathVertexPatch(this.state, command.id, command.index, command.point, false)
+      case "removePathVertex":
+        return createPathVertexPatch(this.state, command.id, command.index, null, true)
+      case "updateShape":
+        return createUpdateShapePatch(this.state, command.id, command.cornerRadius)
       case "createTable":
         return createCreateTablePatch(this.state, command.table)
       case "insertTableRow":
@@ -938,6 +948,8 @@ export class DiagramEngine {
         return createUpdateTableCellPatch(this.state, command.id, command.row, command.column, command.cell)
       case "updateTableStyle":
         return createUpdateTableStylePatch(this.state, command.id, command.style)
+      case "updateTableHeader":
+        return createUpdateTableHeaderPatch(this.state, command.id, command.header)
       case "groupEntities":
         return createGroupEntitiesPatch(this.state, command.id, command.ids ?? this.state.selection.ids)
       case "ungroupEntities":
@@ -1222,6 +1234,14 @@ export class DiagramEngine {
 
 
 function isBatchNoOp(state: InternalState, command: DiagramCommand): boolean {
+  if (command.type === "updateShape") {
+    const shape = state.entities.shapesById.get(command.id)
+    return Boolean(shape && (shape.cornerRadius ?? 0) === command.cornerRadius)
+  }
+  if (command.type === "updateTableHeader") {
+    const table = state.entities.tablesById.get(command.id)
+    return Boolean(table && JSON.stringify(table.header) === JSON.stringify(command.header ?? undefined))
+  }
   if (command.type === "updateEntities" && command.updates.every((update) => {
     if (!hasEntity(state, update.id)) return false
     const current = getEntityMetadata(state, update.id) ?? {}
@@ -1350,7 +1370,7 @@ function normalizeTable(table: DiagramTable): DiagramTable {
   const cells = Array.from({ length: table.rowCount }, (_, row) => Array.from({ length: table.columnCount }, (_, column) => normalizeTableCell(table.cells?.[row]?.[column] ?? defaultCell)))
   const rowHeights = table.rowHeights ? [...table.rowHeights] : Array(table.rowCount).fill(table.height / table.rowCount) as number[]
   const columnWidths = table.columnWidths ? [...table.columnWidths] : Array(table.columnCount).fill(table.width / table.columnCount) as number[]
-  return { ...table, cells, rowHeights, columnWidths, defaultCell, style: normalizeTableStyle(table.style) }
+  return { ...table, cells, rowHeights, columnWidths, defaultCell, style: normalizeTableStyle(table.style), ...(table.header ? { header: { ...table.header } } : {}) }
 }
 
 function normalizeTableCell(cell: DiagramTableCell): DiagramTableCell { return { text: cell.text, ...(cell.horizontalAlign ? { horizontalAlign: cell.horizontalAlign } : {}), ...(cell.verticalAlign ? { verticalAlign: cell.verticalAlign } : {}) } }
@@ -1368,10 +1388,18 @@ function validateDiagramTable(source: DiagramTable): void {
   if (source.cells !== undefined && (!Array.isArray(source.cells) || source.cells.length !== source.rowCount || source.cells.some((row) => !Array.isArray(row) || row.length !== source.columnCount))) throw new TypeError(`Invalid cell matrix for table ${source.id}`)
   for (const row of source.cells ?? []) for (const cell of row) validateTableCell(cell, source.id)
   if (source.defaultCell) validateTableCell(source.defaultCell, source.id)
+  if (source.header !== undefined && !isValidDiagramTableHeader(source.header)) throw new TypeError(`Invalid header for table ${source.id}`)
+  if (source.header && (![source.y - source.header.height, source.height + source.header.height].every(Number.isFinite))) throw new TypeError(`Invalid header geometry for table ${source.id}`)
   if (source.rowHeights && (!validSizes(source.rowHeights, source.rowCount) || !sizesMatch(source.rowHeights, source.height))) throw new TypeError(`Invalid row heights for table ${source.id}`)
   if (source.columnWidths && (!validSizes(source.columnWidths, source.columnCount) || !sizesMatch(source.columnWidths, source.width))) throw new TypeError(`Invalid column widths for table ${source.id}`)
   if (source.style && !validTableStyleShape(source.style)) throw new TypeError(`Invalid style for table ${source.id}`)
   validateDiagramTableStyle(normalizeTableStyle(source.style), source.id)
+}
+
+function isValidDiagramTableHeader(header: DiagramTableHeader): boolean {
+  return Boolean(header && Object.keys(header).every((key) => ["text", "height", "horizontalAlign"].includes(key))
+    && typeof header.text === "string" && Number.isFinite(header.height) && header.height > 0
+    && (header.horizontalAlign === undefined || ["left", "center", "right"].includes(header.horizontalAlign)))
 }
 
 function validFlipFlags(entity: { flipX?: unknown; flipY?: unknown }): boolean {
@@ -1438,7 +1466,7 @@ function validateSceneInput(scene: DiagramSceneInput): DiagramSceneInput {
   for (const port of portsInput) if (!nodes.has(port.nodeId) || ![port.x, port.y, port.radius ?? 0].every(Number.isFinite)) throw new TypeError(`Invalid port ${port.id}`)
   for (const node of nodesInput) if ((node.portIds ?? []).some((id) => ports.get(id)?.nodeId !== node.id)) throw new TypeError(`Invalid port reference on node ${node.id}`)
   for (const text of textsInput) if (![text.x, text.y, text.width ?? 0, text.height ?? 0, text.fontSize ?? 0, text.rotation ?? 0].every(Number.isFinite) || !validFlipFlags(text)) throw new TypeError(`Invalid geometry for text ${text.id}`)
-  for (const shape of shapesInput) if (![shape.x, shape.y, shape.width, shape.height, shape.rotation ?? 0].every(Number.isFinite) || shape.width < 0 || shape.height < 0 || !validFlipFlags(shape)) throw new TypeError(`Invalid geometry for shape ${shape.id}`)
+  for (const shape of shapesInput) if (!isValidDiagramShape(shape)) throw new TypeError(`Invalid geometry for shape ${shape.id}`)
   for (const table of tablesInput) validateDiagramTable(table)
   for (const edge of edgesInput) {
     const validEndpoint = (endpoint: DiagramEdgeEndpoint) => endpoint.kind === "point" ? Number.isFinite(endpoint.point.x) && Number.isFinite(endpoint.point.y) : endpoint.kind === "node" ? nodes.has(endpoint.nodeId) : endpoint.kind === "port" && ports.has(endpoint.portId)
@@ -1696,6 +1724,7 @@ function createResizePatchForNonTableEntities(state: InternalState, entries: Rea
     const text = state.entities.textsById.get(entry.id)
     const entity = node ?? shape ?? text
     if (!entity) continue
+    if (shape && shape.shape === "rect" && !isValidCornerRadius({ ...shape, width: entry.width ?? shape.width, height: entry.height ?? shape.height }, shape.cornerRadius ?? 0)) return null
     previous.set(entry.id, { id: entry.id, x: entity.x, y: entity.y, width: entity.width, height: entity.height })
     nextEntries.push(entry)
     if (node) {
@@ -1738,7 +1767,15 @@ function applyResizeEntries(state: InternalState, entries: ReadonlyArray<Diagram
     }
     const shape = state.entities.shapesById.get(entry.id)
     if (shape) {
-      state.entities.shapesById.set(entry.id, { ...shape, ...definedRectPatch(entry) })
+      const nextWidth = entry.width ?? shape.width
+      const nextHeight = entry.height ?? shape.height
+      const scaleX = shape.width === 0 ? 1 : nextWidth / shape.width
+      const scaleY = shape.height === 0 ? 1 : nextHeight / shape.height
+      state.entities.shapesById.set(entry.id, {
+        ...shape,
+        ...definedRectPatch(entry),
+        ...(shape.points ? { points: shape.points.map((point) => ({ x: point.x * scaleX, y: point.y * scaleY })) } : {}),
+      })
       changed.add(entry.id)
       continue
     }
@@ -1851,7 +1888,7 @@ function rotateGroupChild(entity: DiagramRotationSnapshot, geometry: DiagramGeom
   const x = cleanRotatedValue(nextCenter.x - bounds.width / 2)
   const y = cleanRotatedValue(nextCenter.y - bounds.height / 2)
   const rotation = normalizeRotation((entity.rotation ?? 0) + delta)
-  return { ...entity, x, y, rotation }
+  return { ...entity, x, y: y + (entity.kind === "table" ? entity.header?.height ?? 0 : 0), rotation }
 }
 
 function cleanRotatedPoint(point: DiagramPoint): DiagramPoint {
@@ -1999,7 +2036,7 @@ function reflectDiagramEntity(entity: DiagramFlipSnapshot, geometry: DiagramGeom
   if (entity.kind === "node" || entity.kind === "shape" || entity.kind === "text") {
     return { ...entity, x, y, flipX, flipY, ...(rotation === undefined ? {} : { rotation }) }
   }
-  return { ...entity, x, y, flipX, flipY }
+  return { ...entity, x, y: y + (entity.kind === "table" ? entity.header?.height ?? 0 : 0), flipX, flipY }
 }
 
 function createOrderPatch(state: InternalState, ids: ReadonlyArray<DiagramId>, mode: "forward" | "backward" | "front" | "back"): Patch | null {
@@ -2181,12 +2218,62 @@ function createCreateEntityPatch(state: InternalState, node: import("./types.js"
 }
 
 function createCreateShapePatch(state: InternalState, shape: DiagramShape): Patch | null {
-  if (!isUniqueId(state, shape.id) || ![shape.x, shape.y, shape.width, shape.height, shape.rotation ?? 0].every(Number.isFinite) || shape.width < 0 || shape.height < 0) return null
+  if (!isUniqueId(state, shape.id) || !isValidDiagramShape(shape)) return null
   return {
     orderChanged: true,
     apply: (next) => { next.entities.shapesById.set(shape.id, shape); next.order.shapeIds.push(shape.id); next.versions.set(shape.id, 0); return new Set([shape.id]) },
     inverse: createDeleteEntitiesPatch([shape.id]),
   }
+}
+
+function createCreatePathPatch(state: InternalState, path: DiagramPath): Patch | null {
+  if (!path.id || !Array.isArray(path.points) || path.points.length < 2 || path.points.some((point) => ![point.x, point.y].every(Number.isFinite))) return null
+  const minX = Math.min(...path.points.map((point) => point.x)), minY = Math.min(...path.points.map((point) => point.y))
+  const maxX = Math.max(...path.points.map((point) => point.x)), maxY = Math.max(...path.points.map((point) => point.y))
+  return createCreateShapePatch(state, { id: path.id, kind: "shape", shape: "line", x: minX, y: minY, width: maxX - minX, height: maxY - minY, points: path.points.map((point) => ({ x: point.x - minX, y: point.y - minY })), ...(path.metadata ? { metadata: path.metadata } : {}) })
+}
+
+function createPathVertexPatch(state: InternalState, id: DiagramId, index: number, point: DiagramPoint | null, remove: boolean): Patch | null {
+  const shape = state.entities.shapesById.get(id)
+  const points = shape?.points ? [...shape.points] : null
+  if (!shape || shape.shape !== "line" || !points || isEntityLockedOrReadOnly(state, id) || !Number.isInteger(index) || index < 0 || index >= points.length) return null
+  if (remove && (points.length <= 2 || index === 0 || index === points.length - 1)) return null
+  if (!remove && (!point || ![point.x, point.y].every(Number.isFinite))) return null
+  const previous = shape
+  if (remove) points.splice(index, 1)
+  else {
+    const unrotated = rotatePoint(point!, { x: shape.x + shape.width / 2, y: shape.y + shape.height / 2 }, -(shape.rotation ?? 0))
+    const localX = unrotated.x - shape.x, localY = unrotated.y - shape.y
+    points[index] = { x: shape.flipX ? shape.width - localX : localX, y: shape.flipY ? shape.height - localY : localY }
+  }
+  const next = { ...shape, points }
+  const apply = (value: DiagramShape): Patch["apply"] => (draft) => { draft.entities.shapesById.set(id, value); return new Set([id]) }
+  return { apply: apply(next), inverse: { apply: apply(previous), inverse: undefined as unknown as Patch } }
+}
+
+function createUpdateShapePatch(state: InternalState, id: DiagramId, cornerRadius: number): Patch | null {
+  const shape = state.entities.shapesById.get(id)
+  if (!shape || isEntityLockedOrReadOnly(state, id) || !isValidCornerRadius(shape, cornerRadius)) return null
+  if ((shape.cornerRadius ?? 0) === cornerRadius) return null
+  const previous = shape
+  const next = { ...shape, cornerRadius }
+  return {
+    apply: (draft) => { draft.entities.shapesById.set(id, next); return new Set([id]) },
+    inverse: { apply: (draft) => { draft.entities.shapesById.set(id, previous); return new Set([id]) }, inverse: undefined as unknown as Patch },
+  }
+}
+
+function isValidCornerRadius(shape: DiagramShape, radius: number): boolean {
+  if (!Number.isFinite(radius) || radius < 0) return false
+  if (shape.shape !== "rect") return radius === 0
+  return radius <= Math.min(shape.width, shape.height) / 2
+}
+
+function isValidDiagramShape(shape: DiagramShape): boolean {
+  return Boolean(shape && [shape.x, shape.y, shape.width, shape.height, shape.rotation ?? 0].every(Number.isFinite)
+    && shape.width >= 0 && shape.height >= 0 && validFlipFlags(shape)
+    && isValidCornerRadius(shape, shape.cornerRadius ?? 0)
+    && (!shape.points || (shape.shape === "line" && shape.points.length >= 2 && shape.points.every((point) => [point.x, point.y].every(Number.isFinite)))))
 }
 
 function createTableSnapshotPatch(id: DiagramId, previous: DiagramTable, next: DiagramTable, orderChanged = false): Patch | null {
@@ -2298,6 +2385,20 @@ function createUpdateTableStylePatch(state: InternalState, id: DiagramId, update
   return createTableSnapshotPatch(id, table, { ...table, style })
 }
 
+function createUpdateTableHeaderPatch(state: InternalState, id: DiagramId, header: DiagramTableHeader | null): Patch | null {
+  const table = state.entities.tablesById.get(id)
+  if (!table || isEntityLockedOrReadOnly(state, id) || (header !== null && !isValidDiagramTableHeader(header))) return null
+  const nextHeader = header === null ? undefined : { ...header }
+  if (JSON.stringify(table.header) === JSON.stringify(nextHeader)) return null
+  const next = nextHeader ? { ...table, header: nextHeader } : withoutTableHeader(table)
+  return createTableSnapshotPatch(id, table, next)
+}
+
+function withoutTableHeader(table: DiagramTable): DiagramTable {
+  const { header: _header, ...next } = table
+  return next
+}
+
 function validTableStyleUpdateShape(update: unknown): update is DiagramTableStyleUpdate {
   if (!update || typeof update !== "object") return false
   const value = update as Record<string, unknown>
@@ -2311,10 +2412,15 @@ function validTableStyleUpdateShape(update: unknown): update is DiagramTableStyl
 
 function resizeTable(table: DiagramTable, entry: DiagramResizeEntry): DiagramTable {
   const width = entry.width ?? table.width
-  const height = entry.height ?? table.height
+  const headerHeight = table.header?.height ?? 0
+  const previousOuterHeight = table.height + headerHeight
+  const outerHeight = entry.height ?? previousOuterHeight
+  const sy = outerHeight / previousOuterHeight
+  const nextHeaderHeight = headerHeight * sy
+  const height = outerHeight - nextHeaderHeight
   const sx = width / table.width
-  const sy = height / table.height
-  return { ...table, x: entry.x ?? table.x, y: entry.y ?? table.y, width, height, columnWidths: table.columnWidths!.map((size) => size * sx), rowHeights: table.rowHeights!.map((size) => size * sy) }
+  const nextHeader = table.header ? { ...table.header, height: nextHeaderHeight } : undefined
+  return { ...table, x: entry.x ?? table.x, y: (entry.y ?? table.y - headerHeight) + nextHeaderHeight, width, height, ...(nextHeader ? { header: nextHeader } : {}), columnWidths: table.columnWidths!.map((size) => size * sx), rowHeights: table.rowHeights!.map((size) => size * sy) }
 }
 
 function createGroupEntitiesPatch(state: InternalState, id: DiagramId, ids: ReadonlyArray<DiagramId>): Patch | null {
@@ -2521,6 +2627,7 @@ function commandIds(command: DiagramCommand): DiagramId[] {
   if (command.type === "createEdge") return [command.edge.id]
   if (command.type === "createNode") return [command.node.id]
   if (command.type === "createShape") return [command.shape.id]
+  if (command.type === "createPath") return [command.path.id]
   if (command.type === "createPort") return [command.port.id, command.port.nodeId]
   if (command.type === "updateEntities") return command.updates.map((update) => update.id)
   return []
