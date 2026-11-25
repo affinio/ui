@@ -1,4 +1,4 @@
-import type { DiagramChange, DiagramEdge, DiagramGeometry, DiagramGroup, DiagramId, DiagramNode, DiagramPort, DiagramSceneInput, DiagramSelection, DiagramShape, DiagramTable, DiagramText, DiagramViewport } from "../types.js"
+import type { DiagramChange, DiagramEdge, DiagramGeometry, DiagramGroup, DiagramId, DiagramJunction, DiagramNode, DiagramPort, DiagramSceneInput, DiagramSelection, DiagramShape, DiagramTable, DiagramText, DiagramViewport } from "../types.js"
 
 export type MutableEntities = {
   nodesById: Map<DiagramId, DiagramNode>
@@ -6,6 +6,7 @@ export type MutableEntities = {
   textsById: Map<DiagramId, DiagramText>
   shapesById: Map<DiagramId, DiagramShape>
   portsById: Map<DiagramId, DiagramPort>
+  junctionsById: Map<DiagramId, DiagramJunction>
   groupsById: Map<DiagramId, DiagramGroup>
   tablesById: Map<DiagramId, DiagramTable>
 }

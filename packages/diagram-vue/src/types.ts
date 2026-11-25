@@ -1,4 +1,4 @@
-import type { DiagramConnectorBridge, DiagramEntityKind, DiagramGeometry, DiagramId, DiagramPoint, DiagramRect, DiagramResizeHandle } from "@affino/diagram-core"
+import type { DiagramConnectorBridge, DiagramEntityKind, DiagramGeometry, DiagramId, DiagramJunctionRenderGeometry, DiagramPoint, DiagramRect, DiagramResizeHandle } from "@affino/diagram-core"
 
 export type DiagramRenderLayer = "svg" | "dom"
 
@@ -46,5 +46,6 @@ export type DiagramConnectorRenderEntity = Readonly<{
   id: DiagramId
   pathData: string
   bridges: ReadonlyArray<DiagramConnectorBridge>
+  junctions: ReadonlyArray<DiagramJunctionRenderGeometry>
   selected: boolean
 }>

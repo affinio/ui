@@ -48,14 +48,26 @@ export function distance(a: DiagramPoint, b: DiagramPoint): number {
 
 /** Routes an orthogonal connector through an exact rectilinear visibility grid (not a raster approximation). */
 export function routeOrthogonalConnector(source: DiagramPoint, target: DiagramPoint, options: DiagramOrthogonalRouteOptions = {}): DiagramOrthogonalRouteResult {
-  const terminalLead = options.terminalLead ?? 12
-  const clearance = options.clearance ?? 0
-  const waypoints = options.waypoints ?? []
+  const requestedTerminalLead = options.terminalLead ?? 12
+  const requestedClearance = options.clearance ?? 0
+  const requestedWaypoints = options.waypoints ?? []
+  const strictSize = options.strictGrid === true ? options.gridSize : undefined
+  if (options.strictGrid && (!Number.isFinite(strictSize) || strictSize! <= 0)) throw new RangeError("Strict-grid connector routing requires a positive finite gridSize")
+  const grid = options.strictGrid ? strictSize! : undefined
+  const snap = (value: number) => grid ? Math.round(value / grid) * grid : value
+  const floor = (value: number) => grid ? Math.floor(value / grid) * grid : value
+  const ceil = (value: number) => grid ? Math.ceil(value / grid) * grid : value
+  const routeSource = source
+  const routeTarget = target
+  const terminalLead = grid ? ceil(requestedTerminalLead) : requestedTerminalLead
+  const clearance = grid ? ceil(requestedClearance) : requestedClearance
+  const waypoints = grid ? requestedWaypoints.map((point) => ({ x: snap(point.x), y: snap(point.y) })) : requestedWaypoints
   const validDirection = (direction: DiagramOrthogonalRouteOptions["sourceDirection"]) => direction === undefined || ["north", "east", "south", "west"].includes(direction)
   const validObstacle = (obstacle: NonNullable<DiagramOrthogonalRouteOptions["obstacles"]>[number]) => obstacle.bounds.width >= 0 && obstacle.bounds.height >= 0
   const existingRoutes = options.existingRoutes ?? []
-  if (![source.x, source.y, target.x, target.y, terminalLead, clearance, ...waypoints.flatMap((point) => [point.x, point.y]), ...(options.obstacles ?? []).flatMap(({ bounds }) => [bounds.x, bounds.y, bounds.width, bounds.height]), ...existingRoutes.flatMap((route) => route.points.flatMap((point) => [point.x, point.y]))].every(Number.isFinite)
-    || terminalLead < 0 || clearance < 0
+  if (![source.x, source.y, target.x, target.y, requestedTerminalLead, requestedClearance, strictSize ?? 1, ...requestedWaypoints.flatMap((point) => [point.x, point.y]), ...(options.obstacles ?? []).flatMap(({ bounds }) => [bounds.x, bounds.y, bounds.width, bounds.height]), ...existingRoutes.flatMap((route) => route.points.flatMap((point) => [point.x, point.y]))].every(Number.isFinite)
+    || requestedTerminalLead < 0 || requestedClearance < 0
+    || (options.maxBends !== undefined && (!Number.isInteger(options.maxBends) || options.maxBends < 0))
     || (options.firstAxis !== undefined && options.firstAxis !== "horizontal" && options.firstAxis !== "vertical")
     || (options.mode !== undefined && options.mode !== "auto" && options.mode !== "manual")
     || !validDirection(options.sourceDirection) || !validDirection(options.targetDirection)
@@ -63,38 +75,64 @@ export function routeOrthogonalConnector(source: DiagramPoint, target: DiagramPo
     || (options.obstacles ?? []).some((obstacle) => !validObstacle(obstacle))) {
     throw new RangeError("Connector points, clearance, and terminal lead must be finite; clearance and lead must be non-negative")
   }
-  const dx = target.x - source.x, dy = target.y - source.y
+  const dx = routeTarget.x - routeSource.x, dy = routeTarget.y - routeSource.y
   const inferredAxis = Math.abs(dx) >= Math.abs(dy) ? "horizontal" : "vertical"
   const firstAxis = options.firstAxis ?? axisForDirection(options.sourceDirection) ?? inferredAxis
   const sourceDirection = options.sourceDirection ?? axisDirection(firstAxis, dx, dy, false)
   const targetDirection = options.targetDirection ?? sourceDirection
-  const sourceStub = offsetInDirection(source, sourceDirection, terminalLead)
-  const targetStub = offsetInDirection(target, oppositeDirection(targetDirection), terminalLead)
-  const obstacles = (options.obstacles ?? []).map((obstacle) => inflateRect(obstacle.bounds, clearance))
-  if (obstacles.some((obstacle) => segmentCrossesRectInterior(source, sourceStub, obstacle) || segmentCrossesRectInterior(targetStub, target, obstacle))) {
-    return { points: [], path: [source, target], firstAxis, diagnostics: [{ code: "escape-direction-conflict", message: "A terminal lead crosses an inflated obstacle; adjust the escape direction or clearance." }] }
+  const sourceStub = offsetInDirection(routeSource, sourceDirection, terminalLead)
+  const targetStub = offsetInDirection(routeTarget, oppositeDirection(targetDirection), terminalLead)
+  const obstacles = (options.obstacles ?? []).map(({ bounds }) => {
+    const inflated = inflateRect(bounds, clearance)
+    if (!grid) return inflated
+    const left = floor(inflated.x), top = floor(inflated.y)
+    const right = ceil(inflated.x + inflated.width), bottom = ceil(inflated.y + inflated.height)
+    return { x: left, y: top, width: right - left, height: bottom - top }
+  })
+  if (obstacles.some((obstacle) => segmentCrossesRectInterior(routeSource, sourceStub, obstacle) || segmentCrossesRectInterior(targetStub, routeTarget, obstacle))) {
+    return { points: [], path: [routeSource, routeTarget], firstAxis, diagnostics: [{ code: "escape-direction-conflict", message: "A terminal lead crosses an inflated obstacle; adjust the escape direction or clearance." }] }
   }
   const stops = [sourceStub, ...waypoints, targetStub]
-  const routed: DiagramPoint[] = [source, sourceStub]
+  const routed: DiagramPoint[] = [routeSource, sourceStub]
   const diagnostics: DiagramOrthogonalRouteResult["diagnostics"][number][] = []
+  let usedBends = 0
   for (let index = 0; index < stops.length - 1; index += 1) {
     const start = stops[index]!, end = stops[index + 1]!
-    const route = routeVisibilityLeg(start, end, obstacles, options.existingRoutes, undefined, undefined, options.tieBreak)
+    const remainingBends = options.maxBends === undefined ? undefined : Math.max(0, options.maxBends - usedBends)
+    const route = routeVisibilityLeg(start, end, obstacles, options.existingRoutes, undefined, undefined, options.tieBreak, remainingBends)
     if (!route) {
-      diagnostics.push({ code: index === 0 ? "escape-direction-conflict" : waypoints.length ? "waypoint-blocked" : "no-route", message: "No collision-free orthogonal route satisfies the endpoint, waypoint, and obstacle constraints." })
-      return { points: [], path: [source, target], firstAxis, diagnostics }
+      const withoutBendCap = options.maxBends === undefined ? null : routeOrthogonalConnector(routeSource, routeTarget, { ...options, maxBends: undefined })
+      const bendCapRejected = Boolean(withoutBendCap?.path.length && !withoutBendCap.diagnostics.some((entry) => entry.code === "no-route" || entry.code === "escape-direction-conflict" || entry.code === "waypoint-blocked"))
+      diagnostics.push(bendCapRejected
+        ? { code: "bend-limit", message: `No collision-free orthogonal route satisfies maxBends=${options.maxBends}.` }
+        : { code: index === 0 ? "escape-direction-conflict" : waypoints.length ? "waypoint-blocked" : "no-route", message: "No collision-free orthogonal route satisfies the endpoint, waypoint, and obstacle constraints." })
+      return { points: [], path: [routeSource, routeTarget], firstAxis, diagnostics }
     }
     routed.push(...route.slice(1))
+    usedBends += countOrthogonalBends(route)
   }
-  routed.push(target)
+  routed.push(routeTarget)
   const path = dedupeAdjacentPoints(routed)
   if (distance(sourceStub, targetStub) < terminalLead * 2 && terminalLead > 0) diagnostics.push({ code: "terminal-leads-overlap", message: "Terminal lead segments overlap or reverse; reduce terminalLead or adjust the escape directions." })
   return { points: path.slice(1, -1), path, firstAxis, diagnostics }
 }
 
+function countOrthogonalBends(points: ReadonlyArray<DiagramPoint>): number {
+  let bends = 0
+  let previousAxis: "x" | "y" | null = null
+  for (let index = 1; index < points.length; index += 1) {
+    const first = points[index - 1]!, second = points[index]!
+    if (Math.abs(first.x - second.x) <= 1e-9 && Math.abs(first.y - second.y) <= 1e-9) continue
+    const axis = Math.abs(first.x - second.x) > 1e-9 ? "x" : "y"
+    if (previousAxis && previousAxis !== axis) bends += 1
+    previousAxis = axis
+  }
+  return bends
+}
+
 type RouteState = { node: number; axis: 0 | 1 | 2; firstAxis: 0 | 1 | 2; bends: number; length: number; crossings: number; previous: RouteState | null }
 
-function routeVisibilityLeg(start: DiagramPoint, end: DiagramPoint, obstacles: ReadonlyArray<DiagramRect>, existingRoutes: DiagramOrthogonalRouteOptions["existingRoutes"] = [], startDirection?: DiagramOrthogonalRouteOptions["sourceDirection"], endDirection?: DiagramOrthogonalRouteOptions["targetDirection"], tieBreak: DiagramOrthogonalRouteOptions["tieBreak"] = "coordinates"): DiagramPoint[] | null {
+function routeVisibilityLeg(start: DiagramPoint, end: DiagramPoint, obstacles: ReadonlyArray<DiagramRect>, existingRoutes: DiagramOrthogonalRouteOptions["existingRoutes"] = [], startDirection?: DiagramOrthogonalRouteOptions["sourceDirection"], endDirection?: DiagramOrthogonalRouteOptions["targetDirection"], tieBreak: DiagramOrthogonalRouteOptions["tieBreak"] = "coordinates", maxBends?: number): DiagramPoint[] | null {
   const xs = [...new Set([start.x, end.x, ...obstacles.flatMap((rect) => [rect.x, rect.x + rect.width])])].sort((a, b) => a - b)
   const ys = [...new Set([start.y, end.y, ...obstacles.flatMap((rect) => [rect.y, rect.y + rect.height])])].sort((a, b) => a - b)
   const points: DiagramPoint[] = []
@@ -143,6 +181,7 @@ function routeVisibilityLeg(start: DiagramPoint, end: DiagramPoint, obstacles: R
       if ((current.node === startIndex && startDirection && (next.axis !== initialAxis || !matchesDirection(from, to, startDirection)))
         || (next.node === endIndex && requiredEndAxis && (next.axis !== requiredEndAxis || !matchesDirection(from, to, endDirection!)))) continue
       const state: RouteState = { node: next.node, axis: next.axis, firstAxis: current.firstAxis || next.axis, bends: current.bends + (current.axis !== 0 && current.axis !== next.axis ? 1 : 0), length: current.length + next.length, crossings: current.crossings + countRouteCrossings(from, to, existingRoutes), previous: current }
+      if (maxBends !== undefined && state.bends > maxBends) continue
       const key = `${state.node}:${state.axis}`, existing = best.get(key)
       if (!existing || compareRouteStates(state, existing, tieBreak) < 0) { best.set(key, state); pushRouteState(pending, state, tieBreak) }
     }
@@ -277,6 +316,14 @@ export function createEntityGeometry(id: DiagramId, entities: DiagramEntities): 
     const bounds = { x: point.x - radius, y: point.y - radius, width: radius * 2, height: radius * 2 }
     return { id, kind: "port", bounds, hitBounds: inflateRect(bounds, 4), point, hostId: diagramPortHostId(port), ...("anchor" in port && port.anchor ? { anchor: port.anchor } : {}) }
   }
+  const junction = entities.junctionsById.get(id)
+  if (junction) {
+    const host = entities.edgesById.get(junction.hostEdgeId)
+    if (!host) return null
+    const point = pointAtRouteFraction(resolveEdgePath(host, entities), junction.anchor.fraction)
+    const bounds = { x: point.x - 3, y: point.y - 3, width: 6, height: 6 }
+    return { id, kind: "junction", bounds, hitBounds: inflateRect(bounds, 4), point, hostId: junction.hostEdgeId, anchor: junction.anchor }
+  }
   const edge = entities.edgesById.get(id)
   if (edge) {
     const path = resolveEdgePath(edge, entities)
@@ -365,11 +412,14 @@ export function resolveEdgePath(edge: DiagramEdge, entities: DiagramEntities): R
       .filter((candidate) => candidate.id !== edge.id && candidate.routing?.mode !== "auto")
       .map((candidate) => ({ id: candidate.id, points: resolveEdgePath(candidate, entities) }))
     const route = routeOrthogonalConnector(source, target, {
+      strictGrid: routing.strictGrid,
+      gridSize: routing.gridSize,
       firstAxis: routing.firstAxis,
       terminalLead: routing.terminalLead,
       sourceDirection: routing.sourceDirection,
       targetDirection: routing.targetDirection,
       clearance: routing.clearance,
+      maxBends: routing.maxBends,
       tieBreak: routing.tieBreak,
       waypoints: routing.waypoints,
       obstacles,
@@ -402,6 +452,11 @@ export function resolveEndpoint(endpoint: DiagramEdgeEndpoint, entities: Diagram
     const port = entities.portsById.get(endpoint.portId)
     return port ? resolvePortPoint(port, entities) : { x: 0, y: 0 }
   }
+  if (endpoint.kind === "junction") {
+    const junction = entities.junctionsById.get(endpoint.junctionId)
+    const host = junction ? entities.edgesById.get(junction.hostEdgeId) : undefined
+    return junction && host ? pointAtRouteFraction(resolveEdgePath(host, entities), junction.anchor.fraction) : { x: 0, y: 0 }
+  }
   const node = entities.nodesById.get(endpoint.nodeId)
   return node ? rectCenter({ x: node.x, y: node.y, width: node.width, height: node.height }) : { x: 0, y: 0 }
 }
@@ -417,6 +472,10 @@ export function resolvePortPoint(port: DiagramPort, entities: DiagramEntities): 
   const anchor = "anchor" in port ? port.anchor : undefined
   if (!host || !anchor) return { x: 0, y: 0 }
   if (anchor.kind === "vertex") return resolveShapeVertex(host, anchor.index, entities) ?? { x: 0, y: 0 }
+  if (anchor.kind === "route") {
+    const edge = entities.edgesById.get(host)
+    return edge ? pointAtRouteFraction(resolveEdgePath(edge, entities), anchor.fraction) : { x: 0, y: 0 }
+  }
   const bounds = getPortHostBounds(host, entities)
   if (!bounds) return { x: anchor.x, y: anchor.y }
   const entity = entities.nodesById.get(host) ?? entities.shapesById.get(host) ?? entities.textsById.get(host) ?? entities.tablesById.get(host)
@@ -440,6 +499,8 @@ export function isValidDiagramPortAnchor(hostId: DiagramId, anchor: DiagramPortA
     const vertices = shape?.points ?? (shape?.shape === "line" ? [{ x: 0, y: 0 }, { x: shape.width, y: shape.height }] : null)
     return Boolean(vertices && Number.isInteger(anchor.index) && anchor.index >= 0 && anchor.index < vertices.length)
   }
+  if (anchor.kind === "route") return entities.edgesById.has(hostId) && Number.isFinite(anchor.fraction) && anchor.fraction >= 0 && anchor.fraction <= 1
+  if (entities.edgesById.has(hostId)) return false
   if (![anchor.x, anchor.y].every(Number.isFinite)) return false
   const bounds = getPortHostBounds(hostId, entities)
   return Boolean(bounds && anchor.x >= 0 && anchor.y >= 0 && anchor.x <= bounds.width && anchor.y <= bounds.height)
@@ -456,7 +517,27 @@ function getPortHostBounds(hostId: DiagramId, entities: DiagramEntities): Diagra
   if (table) return { x: table.x, y: table.y, width: table.width, height: table.height }
   const group = entities.groupsById.get(hostId)
   if (group) return unionRects(group.childIds.map((id) => createEntityGeometry(id, entities)?.bounds).filter((rect): rect is DiagramRect => Boolean(rect)))
+  const edge = entities.edgesById.get(hostId)
+  if (edge) return rectFromPoints(resolveEdgePath(edge, entities))
   return null
+}
+
+export function pointAtRouteFraction(path: ReadonlyArray<DiagramPoint>, fraction: number): DiagramPoint {
+  if (path.length < 2) return path[0] ?? { x: 0, y: 0 }
+  const lengths = path.slice(1).map((point, index) => distance(path[index]!, point))
+  const total = lengths.reduce((sum, length) => sum + length, 0)
+  if (total <= 1e-9) return path[0]!
+  let offset = Math.max(0, Math.min(1, fraction)) * total
+  for (let index = 0; index < lengths.length; index += 1) {
+    const length = lengths[index]!
+    if (offset <= length || index === lengths.length - 1) {
+      const ratio = length > 0 ? Math.max(0, Math.min(1, offset / length)) : 0
+      const start = path[index]!, end = path[index + 1]!
+      return { x: start.x + (end.x - start.x) * ratio, y: start.y + (end.y - start.y) * ratio }
+    }
+    offset -= length
+  }
+  return path[path.length - 1]!
 }
 
 function resolveShapeVertex(hostId: DiagramId, index: number, entities: DiagramEntities): DiagramPoint | null {

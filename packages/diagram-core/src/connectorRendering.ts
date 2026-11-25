@@ -1,5 +1,5 @@
-import { createEntityGeometry } from "./geometry.js"
-import type { DiagramConnectorBridge, DiagramConnectorPathCommand, DiagramConnectorRenderGeometry, DiagramConnectorRenderOptions, DiagramEdge, DiagramPoint, DiagramScene } from "./types.js"
+import { createEntityGeometry, pointAtRouteFraction } from "./geometry.js"
+import type { DiagramConnectorBridge, DiagramConnectorPathCommand, DiagramConnectorRenderGeometry, DiagramConnectorRenderOptions, DiagramEdge, DiagramJunctionRenderGeometry, DiagramPoint, DiagramScene } from "./types.js"
 
 type Crossing = Readonly<{ point: DiagramPoint; lowerId: string; segmentIndex: number; t: number }>
 type RenderBridge = DiagramConnectorBridge & Readonly<{ segmentIndex: number; t: number }>
@@ -10,6 +10,9 @@ const EPSILON = 1e-9
 export function createConnectorRenderGeometry(scene: DiagramScene, options: DiagramConnectorRenderOptions = {}, orderedEdgeIds: ReadonlyArray<string> = scene.order.edgeIds): ReadonlyArray<DiagramConnectorRenderGeometry> {
   const cornerRadius = finiteNonNegative(options.cornerRadius ?? 0, "cornerRadius")
   const bridgeRadius = options.crossingBridge ? finiteNonNegative(options.crossingBridge.radius ?? 6, "crossingBridge.radius") : 0
+  const junctionAppearance = options.junctionAppearance ?? "filled-dot"
+  const junctionRadius = finiteNonNegative(options.junctionRadius ?? 3, "junctionRadius")
+  if (junctionAppearance !== "filled-dot" && junctionAppearance !== "none") throw new RangeError("junctionAppearance must be filled-dot or none")
   const edges: RenderableEdge[] = []
   for (const id of orderedEdgeIds) {
     const edge = scene.entities.edgesById.get(id)
@@ -17,6 +20,16 @@ export function createConnectorRenderGeometry(scene: DiagramScene, options: Diag
     if (edge && geometry?.kind === "edge" && geometry.path && geometry.path.length >= 2) edges.push({ edge, path: geometry.path })
   }
   const crossingsByUpper = new Map<string, Crossing[]>()
+  const junctionsByHost = new Map<string, DiagramJunctionRenderGeometry[]>()
+  for (const junction of scene.entities.junctionsById.values()) {
+    const host = scene.entities.edgesById.get(junction.hostEdgeId)
+    if (!host) continue
+    const path = createEntityGeometry(host.id, scene.entities)?.path
+    if (!path) continue
+    const values = junctionsByHost.get(host.id) ?? []
+    values.push({ id: junction.id, hostEdgeId: host.id, point: pointAtRouteFraction(path, junction.anchor.fraction), appearance: junctionAppearance, radius: junctionRadius })
+    junctionsByHost.set(host.id, values)
+  }
   if (bridgeRadius > 0) {
     for (let lower = 0; lower < edges.length; lower += 1) {
       for (let upper = lower + 1; upper < edges.length; upper += 1) {
@@ -25,7 +38,8 @@ export function createConnectorRenderGeometry(scene: DiagramScene, options: Diag
           const a = upperEdge.path[segmentIndex]!, b = upperEdge.path[segmentIndex + 1]!
           for (let underIndex = 0; underIndex < lowerEdge.path.length - 1; underIndex += 1) {
             const intersection = strictSegmentIntersection(a, b, lowerEdge.path[underIndex]!, lowerEdge.path[underIndex + 1]!)
-            if (!intersection || atAnyEndpoint(intersection.point, upperEdge.path) || atAnyEndpoint(intersection.point, lowerEdge.path)) continue
+            if (!intersection || atAnyEndpoint(intersection.point, upperEdge.path) || atAnyEndpoint(intersection.point, lowerEdge.path)
+              || [...(junctionsByHost.get(upperEdge.edge.id) ?? []), ...(junctionsByHost.get(lowerEdge.edge.id) ?? [])].some((junction) => samePoint(junction.point, intersection.point))) continue
             const entry = { point: intersection.point, lowerId: lowerEdge.edge.id, segmentIndex, t: intersection.t }
             const values = crossingsByUpper.get(upperEdge.edge.id) ?? []
             if (!values.some((value) => value.segmentIndex === segmentIndex && distanceSquared(value.point, entry.point) <= EPSILON * EPSILON)) values.push(entry)
@@ -39,7 +53,7 @@ export function createConnectorRenderGeometry(scene: DiagramScene, options: Diag
     const crossings = crossingsByUpper.get(edge.id) ?? []
     const renderBridges = createBridges(edge.id, crossings, path, bridgeRadius, cornerRadius)
     const bridges = renderBridges.map(({ segmentIndex: _segmentIndex, t: _t, ...bridge }) => bridge)
-    return Object.freeze({ id: edge.id, commands: Object.freeze(buildPath(path, cornerRadius, renderBridges)), bridges: Object.freeze(bridges) })
+    return Object.freeze({ id: edge.id, commands: Object.freeze(buildPath(path, cornerRadius, renderBridges)), bridges: Object.freeze(bridges), junctions: Object.freeze(junctionsByHost.get(edge.id) ?? []) })
   }))
 }
 

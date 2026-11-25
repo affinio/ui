@@ -20,6 +20,7 @@ export function useDiagramConnectorRendering(controller: DiagramEngineController
       id: geometry.id,
       pathData: connectorCommandsToSvgPath(geometry.commands),
       bridges: geometry.bridges,
+      junctions: geometry.junctions,
       selected: selected.has(geometry.id),
     })))
   }

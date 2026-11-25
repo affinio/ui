@@ -26,6 +26,18 @@ export function getSvgConnectorRenderProps(connector: Pick<DiagramConnectorRende
   }
 }
 
+export function getSvgJunctionRenderProps(junction: import("@affino/diagram-core").DiagramJunctionRenderGeometry): Readonly<Record<string, string | number>> | null {
+  if (junction.appearance === "none") return null
+  return {
+    cx: junction.point.x,
+    cy: junction.point.y,
+    r: junction.radius,
+    fill: "currentColor",
+    "data-diagram-junction-id": junction.id,
+    "data-diagram-host-edge-id": junction.hostEdgeId,
+  }
+}
+
 /** SVG circle attributes for rendering the transient Core port-placement marker. */
 export function getSvgPortCreationPreviewProps(preview: DiagramPortCreationPreview, radius = 5): SvgEntityProps {
   return {

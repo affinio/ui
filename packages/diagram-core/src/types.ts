@@ -1,6 +1,6 @@
 export type DiagramId = string
 
-export type DiagramEntityKind = "node" | "edge" | "text" | "shape" | "port" | "group" | "table"
+export type DiagramEntityKind = "node" | "edge" | "text" | "shape" | "port" | "junction" | "group" | "table"
 
 export type DiagramLayerRole = "background" | "normal" | "foreground"
 
@@ -72,6 +72,8 @@ export type DiagramNode = DiagramEntityBase & Readonly<{
 export type DiagramPortAnchor = Readonly<{ kind: "local"; x: number; y: number }>
   /** Vertex indices address DiagramShape.points, or the implicit endpoints of a line shape. */
   | Readonly<{ kind: "vertex"; index: number }>
+  /** Normalized arc-length position on a connector's currently resolved route. */
+  | Readonly<{ kind: "route"; fraction: number }>
 
 export type DiagramPortHost = Readonly<{ hostId: DiagramId; anchor: DiagramPortAnchor }>
 export type DiagramPort = DiagramEntityBase & Readonly<{ kind: "port"; radius?: number }> & (
@@ -86,6 +88,14 @@ export type DiagramEdgeEndpoint =
   | Readonly<{ kind: "point"; point: DiagramPoint }>
   | Readonly<{ kind: "node"; nodeId: DiagramId }>
   | Readonly<{ kind: "port"; portId: DiagramId }>
+  | Readonly<{ kind: "junction"; junctionId: DiagramId }>
+
+/** A stable topological connection hosted at a normalized position on a connector route. */
+export type DiagramJunction = DiagramEntityBase & Readonly<{
+  kind: "junction"
+  hostEdgeId: DiagramId
+  anchor: Readonly<{ kind: "route"; fraction: number }>
+}>
 
 export type DiagramEdge = DiagramEntityBase & Readonly<{
   kind: "edge"
@@ -192,6 +202,7 @@ export type DiagramEntities = Readonly<{
   textsById: ReadonlyMap<DiagramId, DiagramText>
   shapesById: ReadonlyMap<DiagramId, DiagramShape>
   portsById: ReadonlyMap<DiagramId, DiagramPort>
+  junctionsById: ReadonlyMap<DiagramId, DiagramJunction>
   groupsById: ReadonlyMap<DiagramId, DiagramGroup>
   tablesById: ReadonlyMap<DiagramId, DiagramTable>
 }>
@@ -285,6 +296,7 @@ export type DiagramSceneInput = Readonly<{
   texts?: ReadonlyArray<DiagramText>
   shapes?: ReadonlyArray<DiagramShape>
   ports?: ReadonlyArray<DiagramPort>
+  junctions?: ReadonlyArray<DiagramJunction>
   groups?: ReadonlyArray<DiagramGroup>
   tables?: ReadonlyArray<DiagramTable>
   selection?: Partial<DiagramSelection>
@@ -306,6 +318,7 @@ export type SerializedDiagramScene = Readonly<{
   texts: ReadonlyArray<DiagramText>
   shapes: ReadonlyArray<DiagramShape>
   ports: ReadonlyArray<DiagramPort>
+  junctions?: ReadonlyArray<DiagramJunction>
   groups?: ReadonlyArray<DiagramGroup>
   tables?: ReadonlyArray<DiagramTable>
   selection: DiagramSelection
@@ -344,6 +357,9 @@ export type DiagramConnectorRenderOptions = Readonly<{
   cornerRadius?: number
   /** Add a bridge to the higher-render-order connector at strict unconnected crossings. */
   crossingBridge?: Readonly<{ radius?: number }>
+  /** Marker shown at explicit junctions; defaults to a filled dot. */
+  junctionAppearance?: "filled-dot" | "none"
+  junctionRadius?: number
 }>
 
 export type DiagramConnectorPathCommand =
@@ -358,7 +374,9 @@ export type DiagramConnectorRenderGeometry = Readonly<{
   id: DiagramId
   commands: ReadonlyArray<DiagramConnectorPathCommand>
   bridges: ReadonlyArray<DiagramConnectorBridge>
+  junctions: ReadonlyArray<DiagramJunctionRenderGeometry>
 }>
+export type DiagramJunctionRenderGeometry = Readonly<{ id: DiagramId; hostEdgeId: DiagramId; point: DiagramPoint; appearance: "filled-dot" | "none"; radius: number }>
 
 export type DiagramHitTestOptions = Readonly<{
   kinds?: ReadonlyArray<DiagramEntityKind>
@@ -403,10 +421,11 @@ export type DiagramCommand =
   | Readonly<{ type: "groupEntities"; id: DiagramId; ids?: ReadonlyArray<DiagramId>; historyKey?: string }>
   | Readonly<{ type: "ungroupEntities"; ids: ReadonlyArray<DiagramId>; portRemaps?: Readonly<Record<DiagramId, DiagramPortRemap>>; historyKey?: string }>
   | Readonly<{ type: "createPort"; port: DiagramPort; historyKey?: string }>
+  | Readonly<{ type: "createJunction"; junction: DiagramJunction; historyKey?: string }>
   | Readonly<{ type: "deleteEntities"; ids: ReadonlyArray<DiagramId>; historyKey?: string }>
   | Readonly<{ type: "reconnectEdgeEndpoint"; id: DiagramId; endpoint: "source" | "target"; connection: DiagramEdgeEndpoint; historyKey?: string }>
   | Readonly<{ type: "updateEntities"; updates: ReadonlyArray<DiagramEntityUpdate>; historyKey?: string }>
-  | Readonly<{ type: "moveEntities"; ids: ReadonlyArray<DiagramId>; delta: DiagramPoint; historyKey?: string }>
+  | Readonly<{ type: "moveEntities"; ids: ReadonlyArray<DiagramId>; delta: DiagramPoint; snap?: DiagramGridSnapOptions; historyKey?: string }>
   | Readonly<{ type: "moveNode"; id: DiagramId; delta: DiagramPoint; historyKey?: string }>
   | Readonly<{ type: "moveEdgeEndpoint"; id: DiagramId; endpoint: "source" | "target"; point: DiagramPoint; historyKey?: string }>
   | Readonly<{ type: "insertEdgeWaypoint"; id: DiagramId; index: number; point: DiagramPoint; historyKey?: string }>
@@ -417,7 +436,7 @@ export type DiagramCommand =
   | Readonly<{ type: "deleteSelection"; historyKey?: string }>
   | Readonly<{ type: "duplicateSelection"; offset?: DiagramPoint; historyKey?: string }>
   | Readonly<{ type: "pasteClipboard"; clipboard: DiagramClipboard; offset?: DiagramPoint; historyKey?: string }>
-  | Readonly<{ type: "resizeEntities"; entries: ReadonlyArray<DiagramResizeEntry>; historyKey?: string }>
+  | Readonly<{ type: "resizeEntities"; entries: ReadonlyArray<DiagramResizeEntry>; snap?: DiagramGridSnapOptions; historyKey?: string }>
   | Readonly<{ type: "rotateEntities"; entries: ReadonlyArray<DiagramRotateEntry>; snap?: DiagramGridSnapOptions; historyKey?: string }>
   | Readonly<{ type: "flipEntities"; ids?: ReadonlyArray<DiagramId>; axis: DiagramFlipAxis; historyKey?: string }>
   | Readonly<{ type: "alignEntities"; ids: ReadonlyArray<DiagramId>; edge: DiagramAlignEdge; historyKey?: string }>
@@ -446,6 +465,8 @@ export type DiagramCommandResult = Readonly<{
   reason?: "scene-locked"
 }>
 
+export type DiagramSweepTrimSide = "directed" | "both"
+export type DiagramSweepTrimInput = Readonly<{ targetIds: ReadonlyArray<DiagramId>; stroke: ReadonlyArray<DiagramPoint>; tolerance: number; boundaryIds?: ReadonlyArray<DiagramId>; side?: DiagramSweepTrimSide }>
 export type DiagramSweepTrimFindingCode = "invalid-input" | "no-intersection" | "no-boundary" | "ambiguous-boundary" | "unsupported-boundary" | "ambiguous-intersection" | "self-intersecting-stroke" | "topology-ambiguous" | "unsupported-target" | "unsupported-geometry" | "connected-edge" | "locked-target" | "anchored-host"
 export type DiagramSweepTrimFinding = Readonly<{
   code: DiagramSweepTrimFindingCode
@@ -594,10 +615,14 @@ export type DiagramEdgeCreationPreview = Readonly<{
   points: ReadonlyArray<DiagramPoint>
   path: ReadonlyArray<DiagramPoint>
   diagnostics?: DiagramOrthogonalRouteResult["diagnostics"]
+  prospectiveJunctions?: ReadonlyArray<DiagramJunctionRenderGeometry>
 }>
 export type DiagramCardinalDirection = "north" | "east" | "south" | "west"
 export type DiagramEdgeRouting = Readonly<{
   mode: "auto"
+  /** Preserve grid-aligned generated route vertices when the host scene changes. */
+  strictGrid?: boolean
+  gridSize?: number
   clearance?: number
   terminalLead?: number
   firstAxis?: "horizontal" | "vertical"
@@ -605,12 +630,16 @@ export type DiagramEdgeRouting = Readonly<{
   targetDirection?: DiagramCardinalDirection
   /** Ordered fixed world-space constraints; generated route bends are not fed back as constraints. */
   waypoints?: ReadonlyArray<DiagramPoint>
+  maxBends?: number
   tieBreak?: "coordinates" | "horizontal-first" | "vertical-first"
 }>
 export type DiagramRouteObstacle = Readonly<{ id?: DiagramId; bounds: DiagramRect }>
 export type DiagramRouteCrossingCandidate = Readonly<{ id: DiagramId; points: ReadonlyArray<DiagramPoint> }>
 export type DiagramOrthogonalRouteOptions = Readonly<{
   mode?: "manual" | "auto"
+  /** Restrict endpoints, leads, waypoints, obstacle bounds, and generated bends to this grid. */
+  strictGrid?: boolean
+  gridSize?: number
   terminalLead?: number
   /** Legacy preference retained for callers that only want a single elbow. */
   firstAxis?: "horizontal" | "vertical"
@@ -619,6 +648,8 @@ export type DiagramOrthogonalRouteOptions = Readonly<{
   targetDirection?: DiagramCardinalDirection
   /** Ordered fixed intermediate points. Leads apply only at source and target. */
   waypoints?: ReadonlyArray<DiagramPoint>
+  /** Hard upper bound on generated bends; explicit waypoint corners are excluded. */
+  maxBends?: number
   obstacles?: ReadonlyArray<DiagramRouteObstacle>
   /** Existing manual connector paths are a soft preference: crossings are minimized after route length. */
   existingRoutes?: ReadonlyArray<DiagramRouteCrossingCandidate>
@@ -630,7 +661,7 @@ export type DiagramOrthogonalRouteResult = Readonly<{
   points: ReadonlyArray<DiagramPoint>
   path: ReadonlyArray<DiagramPoint>
   firstAxis: "horizontal" | "vertical"
-  diagnostics: ReadonlyArray<Readonly<{ code: "terminal-leads-overlap" | "no-route" | "escape-direction-conflict" | "waypoint-blocked"; message: string }>>
+  diagnostics: ReadonlyArray<Readonly<{ code: "terminal-leads-overlap" | "no-route" | "escape-direction-conflict" | "waypoint-blocked" | "bend-limit"; message: string }>>
 }>
 
 export type DiagramEdgeEndpointPreview = Readonly<{
@@ -638,6 +669,7 @@ export type DiagramEdgeEndpointPreview = Readonly<{
   endpoint: "source" | "target"
   point: DiagramPoint
   connection?: DiagramEdgeEndpoint
+  prospectiveJunction?: DiagramJunctionRenderGeometry
 }>
 
 export type DiagramSnapContext = Readonly<{
@@ -673,7 +705,7 @@ export type DiagramSnapResult = Readonly<{
   candidates?: ReadonlyArray<DiagramSnapCandidate>
 }>
 
-export type DiagramSnapKind = "grid" | "port" | "endpoint" | "midpoint" | "center" | "intersection" | "perpendicular" | "nearest" | "alignment" | "equal-spacing"
+export type DiagramSnapKind = "grid" | "port" | "connector" | "endpoint" | "midpoint" | "center" | "intersection" | "perpendicular" | "nearest" | "alignment" | "equal-spacing"
 
 export type DiagramSnapCandidate = Readonly<{
   kind: DiagramSnapKind
@@ -681,6 +713,7 @@ export type DiagramSnapCandidate = Readonly<{
   targetId?: DiagramId
   distancePx: number
 }>
+export type DiagramConnectorAttachment = Readonly<{ edgeId: DiagramId; point: DiagramPoint; fraction: number; distance: number }>
 
 export type DiagramSnapOptions = Readonly<{
   tolerancePx?: number
@@ -710,11 +743,14 @@ export type DiagramInteractionSnapOptions = Readonly<{
   tolerancePx?: number
   /** Connector endpoint capture radius for ports, in screen pixels. Defaults to tolerancePx. */
   portTolerancePx?: number
+  /** Connector route snap tolerance; falls back to tolerancePx. */
+  connectorTolerancePx?: number
   /** Grid spacing in world units. Omit to disable grid snapping. */
   gridSize?: number
   /** Grid wins over incompatible geometry snaps; requires an enabled snap and positive gridSize. */
   strictGrid?: boolean
   snapToPorts?: boolean
+  snapToConnectors?: boolean
   snapToAlignment?: boolean
   snapToEqualSpacing?: boolean
   kinds?: ReadonlyArray<DiagramSnapKind>

@@ -1,5 +1,12 @@
 # @affino/diagram-vue
 
+## 0.27.0
+
+### Minor Changes
+
+- Exposed Core connector attachment previews, including prospective junction markers, through the reactive pointer snapshot and connector rendering projection.
+- Added SVG junction marker props; applications can render filled junction dots or omit the marker without changing connector topology.
+
 ## 0.26.0
 
 ### Minor Changes
@@ -10,6 +17,7 @@
 
 ### Fixed
 
+- Documented strict-grid's expanded Core guarantee for group, path, hosted-port, and automatic-route geometry; the adapter continues to forward the typed `snap` policy without app-specific geometry.
 - Forwarded Enter to Core path creation so click-to-place paths finish through the public SVG pointer props.
 - Documented and exposed the drawing-only behavior of Core's `snap.ortho` interaction option; selection dragging remains unconstrained unless Shift is held.
 

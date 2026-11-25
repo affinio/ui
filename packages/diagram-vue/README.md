@@ -104,6 +104,8 @@ import { getSvgConnectorRenderProps, useDiagramConnectorRendering } from "@affin
 const connectors = useDiagramConnectorRendering(diagram, {
   cornerRadius: 8, // world units
   crossingBridge: { radius: 6 },
+  junctionAppearance: "filled-dot", // or "none"; visual only
+  junctionRadius: 3,
 })
 ```
 
@@ -117,7 +119,9 @@ const connectors = useDiagramConnectorRendering(diagram, {
 />
 ```
 
-Core determines crossing geometry and which edge is on top; Vue only formats its typed result as SVG. Bridges appear only at strict interior crossings and do not imply electrical junctions. Shared endpoint contacts, endpoint touches, and collinear overlaps are left unbridged. Call `connectors.dispose()` when managing the composable outside a Vue effect scope.
+Core determines crossing geometry, explicit junctions, and which edge is on top; Vue only formats its typed result as SVG. Bridges appear only at strict interior crossings and do not imply electrical junctions. Shared endpoint contacts, endpoint touches, and collinear overlaps are left unbridged. Explicit junctions are exposed as `connector.junctions`; render each with `getSvgJunctionRenderProps()`. The default is a filled dot. `"none"` hides its marker without changing connectivity, and bridges are suppressed at explicit junction points. Call `connectors.dispose()` when managing the composable outside a Vue effect scope.
+
+`useDiagramPointerController({ snap: { snapToConnectors: true, connectorTolerancePx } })` exposes `state.value.edgeCreationPreview.prospectiveJunctions` while drawing a branch onto a connector. Render these transient marker geometries in the same world-coordinate SVG group as the route preview. Core commits the new stable junction and branch edge atomically; preview/cancel do not change document state.
 
 Click-to-place drawing is available through `useDiagramPointerController()`: `beginPathCreation(id, event, "line")` places a two-click line; omit the mode for a multipoint free path, then finish with `finishPathCreation()` or Enter (when the SVG pointer props receive keydown) or a double click. Enter finishes an open path through its confirmed vertices; it does not close the contour back to its first vertex. Holding Shift constrains the preview segment to the nearest cardinal direction from the last confirmed vertex; releasing Shift resumes free placement. Use `beginEdgePathCreation(id, event, options)` for a connector whose later clicks add route bends; Shift constrains each preview segment from the latest bend. Finish with `finishEdgePathCreation()` or snap its target to a port. The reactive `state.value.pathCreationPreview` and `edgeCreationPreview` are transient Core projections. Selected path vertices, edge waypoints, endpoints, and orthogonal segments appear as `activeHandles` (`path-vertex`, `waypoint`, `edge-endpoint`, and `edge-segment`). Pass a segment handle's `segmentIndex` to `beginEdgeSegmentHandle(id, segmentIndex, event)`; `state.value.edgeSegmentPreview` and `getPreviewGeometry(id)` expose the live route until commit or cancel. Segment drags preserve attached endpoints and commit as one undo step. Existing drag-to-draw methods remain supported.
 
@@ -161,7 +165,7 @@ pointer.confirmDynamicInput()
 
 `snap.ortho: true` constrains creation of lines, paths, Bézier anchors, and connector endpoints to 90-degree increments. It does not constrain drag-selection or edits to existing geometry. Hold Shift to constrain those gestures; grid, port, alignment, and object snapping remain active.
 
-Set `snap.strictGrid: true` with a positive `gridSize` to make Core resolve incompatible geometry snaps in favor of the grid for pointer previews and commits. The Vue adapter passes the option through unchanged; Core owns the result. The same strict-grid API is available to direct Core snapping queries and `rotateEntities({ ..., snap: { gridSize, strictGrid: true } })`. Attached port anchors remain host-local when a host moves; automatic route bends remain governed by Core's obstacle-clearance router.
+Set `snap.strictGrid: true` with a positive `gridSize` to normalize persisted straight geometry to the world grid. Core applies the same policy to previews and commits, group members, path vertices, hosted port world positions, and automatic orthogonal route bends. The Vue adapter passes the option through unchanged and contains no separate snapping geometry. Group member offsets may change when independently aligning them; circular arcs retain their exact curve geometry.
 
 ### Visual table component
 

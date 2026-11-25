@@ -60,6 +60,7 @@ export class DiagramSceneStore {
         textsById: this.createReadonlyMap(this.state.entities.textsById, this.snapshot?.entities.textsById, changedIds),
         shapesById: this.createReadonlyMap(this.state.entities.shapesById, this.snapshot?.entities.shapesById, changedIds),
         portsById: this.createReadonlyMap(this.state.entities.portsById, this.snapshot?.entities.portsById, changedIds),
+        junctionsById: this.createReadonlyMap(this.state.entities.junctionsById, this.snapshot?.entities.junctionsById, changedIds),
         groupsById: this.createReadonlyMap(this.state.entities.groupsById, this.snapshot?.entities.groupsById, changedIds),
         tablesById: this.createReadonlyMap(this.state.entities.tablesById, this.snapshot?.entities.tablesById, changedIds),
       },
@@ -96,6 +97,7 @@ export function createInternalState(input: DiagramSceneInput): InternalState {
     textsById: toMap(input.texts ?? []),
     shapesById: toMap(input.shapes ?? []),
     portsById: toMap(input.ports ?? []),
+    junctionsById: toMap(input.junctions ?? []),
     groupsById: toMap(input.groups ?? []),
     tablesById: toMap(input.tables ?? []),
   }
@@ -105,6 +107,7 @@ export function createInternalState(input: DiagramSceneInput): InternalState {
     ...entities.textsById.keys(),
     ...entities.shapesById.keys(),
     ...entities.portsById.keys(),
+    ...entities.junctionsById.keys(),
     ...entities.groupsById.keys(),
     ...entities.tablesById.keys(),
   ]

@@ -1,5 +1,14 @@
 # @affino/diagram-core
 
+## 0.29.0
+
+### Minor Changes
+
+- Added stable connector junction entities and route-anchored ports. Connector endpoints can attach to junctions, branches create junctions and edges atomically, and host deletion cascades to dependent branches.
+- Added connector attachment snapping and hard maxBends route limits with a typed bend-limit diagnostic. Accepted port and connector attachments retain their exact coordinates while orthogonal routing handles the lead geometry.
+- Added route-fraction anchors for ports hosted by edges and included junctions in scene/document serialization, clipboard remapping, dependency invalidation, and undo/redo.
+- Preserved local port anchors when strict-grid movement snaps their host, so existing attachment identity and host-relative position are not silently rewritten.
+
 ## 0.28.0
 
 ### Minor Changes
@@ -10,6 +19,7 @@
 
 ### Fixed
 
+- Made strict-grid persistence cover every group member, resized line/path vertices and Bézier controls, hosted-port world positions, and automatic orthogonal route bends. Group offsets can change as members align independently.
 - Scoped interaction `snap.ortho` to drawing geometry so selected entities move freely while grid and object snapping remain active.
 
 ## 0.27.1

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 import { computed, createApp, effectScope, h, nextTick, shallowRef } from "vue"
 import { createCircularArc, createDiagramEngine, type DiagramSceneInput } from "@affino/diagram-core"
 import { createDiagramInteractionController } from "@affino/diagram-core"
-import { DiagramBezierOverlay, DiagramTableView, getDomEntityStyle, getSvgConnectorRenderProps, getSvgEntityProps, getSvgPortCreationPreviewProps, useDiagramConnectorRendering, useDiagramEngine, useDiagramPointerController, useDiagramSelection, useDiagramTable, useDiagramTextEditor, useDiagramViewport, useDiagramVisibleEntities } from ".."
+import { DiagramBezierOverlay, DiagramTableView, getDomEntityStyle, getSvgConnectorRenderProps, getSvgEntityProps, getSvgJunctionRenderProps, getSvgPortCreationPreviewProps, useDiagramConnectorRendering, useDiagramEngine, useDiagramPointerController, useDiagramSelection, useDiagramTable, useDiagramTextEditor, useDiagramViewport, useDiagramVisibleEntities } from ".."
 import { beginDiagramHandleInteraction } from "../../../demo-vue/src/pages/diagramHandleInteractions"
 
 const scene: DiagramSceneInput = {
@@ -43,6 +43,28 @@ describe("diagram-vue", () => {
     const movedOver = render.connectors.value.find((edge) => edge.id === "horizontal")!
     expect(movedOver.bridges[0]).toMatchObject({ overId: "horizontal", underId: "vertical" })
     expect(controller.engine.getDiagnostics().undoDepth).toBe(undoDepth + 1)
+    render.dispose()
+    controller.dispose()
+  })
+
+  it("projects explicit connector junctions and exposes their marker appearance", async () => {
+    const controller = useDiagramEngine({
+      edges: [
+        { id: "trunk", kind: "edge", source: { kind: "point", point: { x: 0, y: 40 } }, target: { kind: "point", point: { x: 100, y: 40 } } },
+        { id: "branch", kind: "edge", source: { kind: "junction", junctionId: "j1" }, target: { kind: "point", point: { x: 50, y: 80 } } },
+      ],
+      junctions: [{ id: "j1", kind: "junction", hostEdgeId: "trunk", anchor: { kind: "route", fraction: 0.5 } }],
+    })
+    const render = useDiagramConnectorRendering(controller, { crossingBridge: { radius: 5 } })
+    let trunk = render.connectors.value.find((edge) => edge.id === "trunk")!
+    expect(trunk.junctions).toMatchObject([{ id: "j1", point: { x: 50, y: 40 }, appearance: "filled-dot" }])
+    expect(getSvgJunctionRenderProps(trunk.junctions[0]!)).toMatchObject({ cx: 50, cy: 40, fill: "currentColor", "data-diagram-junction-id": "j1" })
+    expect(getSvgJunctionRenderProps({ ...trunk.junctions[0]!, appearance: "none" })).toBeNull()
+    controller.engine.dispatch({ type: "moveEntities", ids: ["trunk"], delta: { x: 20, y: 10 } })
+    await nextTick()
+    trunk = render.connectors.value.find((edge) => edge.id === "trunk")!
+    expect(trunk.junctions[0]?.point).toEqual({ x: 70, y: 50 })
+    expect(render.connectors.value.find((edge) => edge.id === "branch")?.pathData.startsWith("M 70 50")).toBe(true)
     render.dispose()
     controller.dispose()
   })
