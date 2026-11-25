@@ -890,12 +890,52 @@ describe("DiagramEngine", () => {
     subscription.unsubscribe()
   })
 
+  it("guards batch preview and commit with explicit document revisions while allowing view changes", () => {
+    const engine = createDiagramEngine()
+    const expectedDocumentRevision = engine.getDocumentRevision()
+    const commands = [{ type: "createNode", node: { id: "guarded", kind: "node" as const, x: 0, y: 0, width: 20, height: 20 } }] as const
+    const preview = engine.previewBatch(commands, { expectedDocumentRevision })
+    expect(preview.ok).toBe(true)
+    engine.dispatch({ type: "setViewport", viewport: { x: 15 } })
+    engine.dispatch({ type: "setSelection", selection: { ids: [], primaryId: null } })
+    const commit = engine.dispatchBatch(commands, { expectedDocumentRevision })
+    expect(commit.ok).toBe(true)
+    expect(engine.getScene().entities.nodesById.has("guarded")).toBe(true)
+    expect(engine.serialize().nodes).toEqual(preview.scene?.nodes)
+    const contentRevision = engine.getDocumentRevision()
+    const noOpRevision = engine.getDiagnostics().revision
+    expect(engine.dispatchBatch([], { expectedRevision: contentRevision, expectedDocumentRevision: contentRevision }).changed).toBe(false)
+    expect(engine.getDocumentRevision()).toBe(contentRevision)
+    expect(engine.getDiagnostics().revision).toBe(noOpRevision)
+
+    const stale = engine.previewBatch([{ type: "createNode", node: { id: "stale-preview", kind: "node", x: 0, y: 0, width: 10, height: 10 } }], { expectedDocumentRevision })
+    expect(stale).toMatchObject({ ok: false, reason: "revision-mismatch" })
+    const beforeStaleCommit = engine.getScene()
+    const beforeUndoDepth = engine.getDiagnostics().undoDepth
+    let publications = 0
+    const subscription = engine.subscribe(() => { publications += 1 })
+    const publicationsBeforeCommit = publications
+    const staleCommit = engine.dispatchBatch([{ type: "createNode", node: { id: "stale-commit", kind: "node", x: 0, y: 0, width: 10, height: 10 } }], { expectedDocumentRevision })
+    expect(staleCommit).toMatchObject({ ok: false, reason: "revision-mismatch" })
+    expect(engine.getScene()).toBe(beforeStaleCommit)
+    expect(engine.getDiagnostics().undoDepth).toBe(beforeUndoDepth)
+    expect(publications).toBe(publicationsBeforeCommit)
+    subscription.unsubscribe()
+    const beforeUndoRevision = engine.getDocumentRevision()
+    engine.dispatch({ type: "undo" })
+    expect(engine.getDocumentRevision()).toBe(beforeUndoRevision + 1)
+    engine.dispatch({ type: "redo" })
+    expect(engine.getDocumentRevision()).toBe(beforeUndoRevision + 2)
+  })
+
   it("makes caller-identified batches idempotent and rejects reused IDs with different content", () => {
     const engine = createDiagramEngine()
     const commands = [{ type: "createNode", node: { id: "once", kind: "node", x: 0, y: 0, width: 20, height: 20 } }] as const
     const first = engine.dispatchBatch(commands, { operationId: "request-42" })
     const duplicate = engine.dispatchBatch(commands, { operationId: "request-42" })
     expect(duplicate).toEqual(first)
+    const preconditionConflict = engine.dispatchBatch(commands, { operationId: "request-42", expectedDocumentRevision: 0 })
+    expect(preconditionConflict).toMatchObject({ ok: false, reason: "operation-id-conflict" })
     expect(engine.getDiagnostics().undoDepth).toBe(1)
     const conflict = engine.dispatchBatch([{ type: "createNode", node: { id: "other", kind: "node", x: 0, y: 0, width: 20, height: 20 } }], { operationId: "request-42" })
     expect(conflict).toMatchObject({ ok: false, reason: "operation-id-conflict" })
@@ -941,6 +981,59 @@ describe("DiagramEngine", () => {
     engine.dispatch({ type: "redo" })
     engine.dispatch({ type: "undo" })
     expect(engine.getRenderOrder({ includePorts: true })).toEqual(order)
+  })
+
+  it("keeps vertex ports on their original vertex through insert, remap, history, and load", () => {
+    const engine = createDiagramEngine({
+      shapes: [{ id: "host-path", kind: "shape", shape: "line", x: 0, y: 0, width: 100, height: 20, points: [{ x: 0, y: 0 }, { x: 50, y: 0 }, { x: 100, y: 0 }] }],
+      ports: [{ id: "vertex-port", kind: "port", hostId: "host-path", anchor: { kind: "vertex", index: 1 } }],
+      edges: [{ id: "wire", kind: "edge", source: { kind: "port", portId: "vertex-port" }, target: { kind: "point", point: { x: 80, y: 40 } } }],
+    })
+    expect(engine.getGeometrySnapshot("vertex-port")?.point).toEqual({ x: 50, y: 0 })
+    expect(engine.dispatch({ type: "insertPathVertex", id: "host-path", index: 1, point: { x: 25, y: 0 } }).changed).toBe(true)
+    expect(engine.getScene().entities.portsById.get("vertex-port")?.anchor).toEqual({ kind: "vertex", index: 2 })
+    expect(engine.getGeometrySnapshot("vertex-port")?.point).toEqual({ x: 50, y: 0 })
+    const saved = engine.serialize()
+    expect(createDiagramEngine(deserializeScene(saved)).getGeometrySnapshot("vertex-port")?.point).toEqual({ x: 50, y: 0 })
+
+    expect(engine.dispatch({ type: "removePathVertex", id: "host-path", index: 2 }).changed).toBe(false)
+    const revision = engine.getDocumentRevision()
+    expect(engine.dispatch({ type: "removePathVertex", id: "host-path", index: 2, portRemaps: { "vertex-port": { hostId: "host-path", anchor: { kind: "vertex", index: 1 } } } }).changed).toBe(true)
+    expect(engine.getScene().entities.portsById.get("vertex-port")?.anchor).toEqual({ kind: "vertex", index: 1 })
+    engine.dispatch({ type: "undo" })
+    expect(engine.getScene().entities.portsById.get("vertex-port")?.anchor).toEqual({ kind: "vertex", index: 2 })
+    engine.dispatch({ type: "redo" })
+    expect(engine.getScene().entities.edgesById.get("wire")?.source).toEqual({ kind: "port", portId: "vertex-port" })
+    expect(engine.getDocumentRevision()).toBeGreaterThan(revision)
+    const replacement = [{ x: 0, y: 0 }, { x: 75, y: 10 }]
+    expect(engine.dispatch({ type: "updateShapePath", id: "host-path", points: replacement }).changed).toBe(false)
+    expect(engine.dispatch({ type: "updateShapePath", id: "host-path", points: replacement, portRemaps: { "vertex-port": { hostId: "host-path", anchor: { kind: "vertex", index: 1 } } } }).changed).toBe(true)
+    expect(engine.getGeometrySnapshot("vertex-port")?.point).toEqual({ x: 75, y: 10 })
+    engine.dispatch({ type: "undo" })
+    expect(engine.getScene().entities.portsById.get("vertex-port")?.anchor).toEqual({ kind: "vertex", index: 1 })
+  })
+
+  it("treats port owner links as canonical and diagnoses stale node port order hints", () => {
+    const scene = {
+      nodes: [
+        { id: "n1", kind: "node" as const, x: 0, y: 0, width: 20, height: 20, portIds: ["p2", "stale"] },
+        { id: "n2", kind: "node" as const, x: 40, y: 0, width: 20, height: 20, portIds: ["p1"] },
+      ],
+      ports: [
+        { id: "p1", kind: "port" as const, nodeId: "n1", x: 20, y: 10 },
+        { id: "p2", kind: "port" as const, nodeId: "n2", x: 0, y: 10 },
+      ],
+    }
+    expect(validateDiagramScene(scene)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: "port-owner-hint-conflict", severity: "warning", entityIds: ["n1", "p2"] }),
+      expect.objectContaining({ code: "port-owner-hint-conflict", severity: "warning", entityIds: ["n1", "stale"] }),
+      expect.objectContaining({ code: "port-owner-hint-conflict", severity: "warning", entityIds: ["n2", "p1"] }),
+    ]))
+    const engine = createDiagramEngine(scene)
+    expect(engine.getScene().entities.nodesById.get("n1")?.portIds).toEqual(["p1"])
+    expect(engine.getScene().entities.nodesById.get("n2")?.portIds).toEqual(["p2"])
+    expect(engine.getGeometrySnapshot("p1")?.hostId).toBe("n1")
+    expect(engine.getGeometrySnapshot("p2")?.hostId).toBe("n2")
   })
 
   it("removes a port from its owner and restores the graph consistently", () => {
@@ -3756,6 +3849,62 @@ describe("DiagramEngine", () => {
     expect(engine.getGeometrySnapshot("auto")?.path).toEqual(initialPath)
   })
 
+  it("commits an auto connector segment drag with the preview route and moved endpoints", () => {
+    const engine = createDiagramEngine({ edges: [{ id: "edge", kind: "edge", source: { kind: "point", point: { x: 0, y: 0 } }, target: { kind: "point", point: { x: 80, y: 80 } }, routing: { mode: "auto", terminalLead: 12, clearance: 8, maxRouteBends: 2 } }] })
+    const initialPath = engine.getGeometrySnapshot("edge")!.path!
+    const interaction = createDiagramInteractionController(engine, { snap: { enabled: false }, scheduleFrame: (callback) => callback() })
+    expect(engine.getGeometrySnapshot("edge")?.path?.slice(1).every((point, index, rest) => {
+      const previous = index === 0 ? engine.getGeometrySnapshot("edge")!.path![0]! : rest[index - 1]!
+      return point.x === previous.x || point.y === previous.y
+    })).toBe(true)
+    expect(interaction.beginEdgeSegmentHandle("edge", 0, { id: 1, point: { x: 34, y: 0 } })).toBe(true)
+    interaction.pointerMove({ id: 1, point: { x: 34, y: 25 } })
+    const preview = interaction.getSnapshot().edgeSegmentPreview!
+    expect(preview.path.slice(1).every((point, index) => point.x === preview.path[index]!.x || point.y === preview.path[index]!.y)).toBe(true)
+    interaction.pointerUp({ id: 1, point: { x: 34, y: 25 } })
+    const committed = engine.getGeometrySnapshot("edge")!.path!
+    expect(committed).toEqual(preview.path)
+    expect(committed.slice(1).every((point, index) => point.x === committed[index]!.x || point.y === committed[index]!.y)).toBe(true)
+    expect(engine.getDiagnostics().undoDepth).toBe(1)
+    expect(engine.getConnectorRenderGeometry({ cornerRadius: 6 }).find((item) => item.id === "edge")?.commands.some((command) => command.kind === "quadraticTo" || command.kind === "cubicTo")).toBe(true)
+    engine.dispatch({ type: "undo" })
+    expect(engine.getGeometrySnapshot("edge")?.path).toEqual(initialPath)
+  })
+
+  it("reports no-route for an auto segment drag that exceeds the route-wide bend limit", () => {
+    const engine = createDiagramEngine({ edges: [{ id: "limited", kind: "edge", source: { kind: "point", point: { x: 0, y: 0 } }, target: { kind: "point", point: { x: 80, y: 80 } }, routing: { mode: "auto", terminalLead: 12, clearance: 8, maxRouteBends: 2 } }] })
+    const interaction = createDiagramInteractionController(engine, { snap: { enabled: false }, scheduleFrame: (callback) => callback() })
+    expect(interaction.beginEdgeSegmentHandle("limited", 0, { id: 1, point: { x: 34, y: 0 } })).toBe(true)
+    engine.dispatch({ type: "updateEdgeRouting", id: "limited", routing: { ...engine.getScene().entities.edgesById.get("limited")!.routing!, maxRouteBends: 1 } })
+    const initial = engine.serialize()
+    const undoDepth = engine.getDiagnostics().undoDepth
+    interaction.pointerMove({ id: 1, point: { x: 34, y: 25 } })
+    const preview = interaction.getSnapshot().edgeSegmentPreview!
+    expect(preview.diagnostics).toEqual([expect.objectContaining({ code: "no-route" })])
+    expect(preview.path).toEqual([])
+    expect(interaction.pointerUp({ id: 1, point: { x: 34, y: 25 } })).toMatchObject({ status: "no-route", diagnostics: [expect.objectContaining({ code: "no-route" })] })
+    expect(engine.serialize()).toEqual(initial)
+    expect(engine.getDiagnostics().undoDepth).toBe(undoDepth)
+  })
+
+  it("keeps an attached endpoint fixed while committing an auto segment drag", () => {
+    const engine = createDiagramEngine({
+      nodes: [{ id: "host", kind: "node", x: 0, y: 0, width: 20, height: 20, portIds: ["port"] }],
+      ports: [{ id: "port", kind: "port", nodeId: "host", x: 20, y: 10 }],
+      edges: [{ id: "attached-auto", kind: "edge", source: { kind: "port", portId: "port" }, target: { kind: "point", point: { x: 150, y: 10 } }, routing: { mode: "auto", terminalLead: 12, maxRouteBends: 2 } }],
+    })
+    const interaction = createDiagramInteractionController(engine, { snap: { enabled: false }, scheduleFrame: (callback) => callback() })
+    const originalEndpoint = engine.getGeometrySnapshot("attached-auto")!.path![0]
+    expect(interaction.beginEdgeSegmentHandle("attached-auto", 0, { id: 1, point: { x: 80, y: 10 } })).toBe(true)
+    interaction.pointerMove({ id: 1, point: { x: 80, y: 30 } })
+    const preview = interaction.getSnapshot().edgeSegmentPreview!
+    expect(preview.source).toEqual({ kind: "port", portId: "port" })
+    expect(preview.path[0]).toEqual(originalEndpoint)
+    expect(interaction.pointerUp({ id: 1, point: { x: 80, y: 30 } })).toEqual({ status: "committed" })
+    expect(engine.getScene().entities.edgesById.get("attached-auto")?.source).toEqual({ kind: "port", portId: "port" })
+    expect(engine.getGeometrySnapshot("attached-auto")?.path).toEqual(preview.path)
+  })
+
   it("uses a port-only screen tolerance consistently across viewport zoom levels", () => {
     for (const zoom of [0.5, 1, 2]) {
       const engine = createDiagramEngine({
@@ -4210,6 +4359,73 @@ describe("DiagramEngine", () => {
     expect(engine.getGeometrySnapshot("line")?.path).toEqual([{ x: 0, y: 0 }, { x: 100, y: 0 }])
   })
 
+  it("stores createPath as a canonical shape and validates world-space contour replacement", () => {
+    const outer = { closed: true, segments: [{ kind: "cubic" as const, start: { x: 10, y: 10 }, control1: { x: 10, y: 0 }, control2: { x: 30, y: 0 }, end: { x: 30, y: 10 } }, { kind: "line" as const, start: { x: 30, y: 10 }, end: { x: 10, y: 10 } }] }
+    const hole = { closed: true, hole: true, segments: [{ kind: "line" as const, start: { x: 15, y: 5 }, end: { x: 25, y: 5 } }, { kind: "line" as const, start: { x: 25, y: 5 }, end: { x: 15, y: 5 } }] }
+    const engine = createDiagramEngine()
+    expect(engine.dispatch({ type: "createPath", path: { id: "contract-path", kind: "path", contours: [outer, hole] } }).changed).toBe(true)
+    expect(engine.getScene().entities.shapesById.has("contract-path")).toBe(true)
+    expect(engine.getGeometrySnapshot("contract-path")?.kind).toBe("shape")
+    expect(engine.queryEntities({ kinds: ["shape"] })).toContain("contract-path")
+    expect(engine.hitTest({ x: 20, y: 2 }, { radius: 2 })?.kind).toBe("shape")
+    const saved = engine.serialize()
+    expect(saved.shapes.find((shape) => shape.id === "contract-path")?.pathContours?.[1]?.hole).toBe(true)
+    const restored = createDiagramEngine(deserializeScene(saved))
+    expect(restored.getScene().entities.shapesById.get("contract-path")?.id).toBe("contract-path")
+    expect(restored.getGeometrySnapshot("contract-path")?.bounds).toEqual(engine.getGeometrySnapshot("contract-path")?.bounds)
+    expect(engine.getGeometrySnapshot("contract-path")?.style?.fillRule).toBe("evenodd")
+
+    const transformed = createDiagramEngine({ shapes: [{ id: "rotated", kind: "shape", shape: "line", x: 20, y: 30, width: 40, height: 20, rotation: 35, flipX: true, flipY: true, points: [{ x: 0, y: 0 }, { x: 40, y: 20 }] }] })
+    const replacement = [{ closed: false, segments: [{ kind: "cubic" as const, start: { x: 50, y: 60 }, control1: { x: 65, y: 45 }, control2: { x: 85, y: 75 }, end: { x: 100, y: 60 } }] }]
+    expect(transformed.dispatch({ type: "updateShapePath", id: "rotated", pathContours: replacement, worldSpace: true }).changed).toBe(true)
+    const canonical = transformed.getScene().entities.shapesById.get("rotated")!
+    expect(canonical.rotation).toBe(0)
+    expect(canonical.flipX).toBe(false)
+    expect(transformed.getGeometrySnapshot("rotated")?.pathContours?.[0]?.segments[0]?.start).toEqual(replacement[0]!.segments[0]!.start)
+    const after = transformed.getGeometrySnapshot("rotated")?.bounds
+    transformed.dispatch({ type: "undo" })
+    transformed.dispatch({ type: "redo" })
+    expect(transformed.getGeometrySnapshot("rotated")?.bounds).toEqual(after)
+
+    const beforeRevision = engine.getDocumentRevision()
+    const beforeEntities = engine.getScene().entities
+    expect(engine.dispatch({ type: "createPath", path: { id: "empty-path", kind: "path", contours: [] } }).changed).toBe(false)
+    expect(engine.dispatch({ type: "createPath", path: { id: "ambiguous-path", kind: "path", points: [{ x: 0, y: 0 }, { x: 1, y: 1 }], contours: [outer] } }).changed).toBe(false)
+    expect(engine.getScene().entities).toBe(beforeEntities)
+    expect(engine.getDocumentRevision()).toBe(beforeRevision)
+
+    const legacy = createDiagramEngine({ shapes: [{ id: "legacy-both", kind: "shape", shape: "line", x: 0, y: 0, width: 10, height: 10, points: [{ x: 0, y: 0 }, { x: 10, y: 10 }], pathContours: [{ segments: [{ kind: "line", start: { x: 0, y: 0 }, end: { x: 10, y: 0 } }] }] }] })
+    expect(legacy.getGeometrySnapshot("legacy-both")?.pathContours?.[0]?.segments[0]).toMatchObject({ start: { x: 0, y: 0 }, end: { x: 10, y: 0 } })
+  })
+
+  it("resolves typed styles over legacy metadata and preserves cross-type render order", () => {
+    const engine = createDiagramEngine({
+      shapes: [
+        { id: "shape-back", kind: "shape", shape: "rect", x: 0, y: 0, width: 20, height: 20, metadata: { zIndex: 0 } },
+        { id: "shape-front", kind: "shape", shape: "rect", x: 40, y: 0, width: 20, height: 20, metadata: { zIndex: 20 }, visualStyle: { fill: "blue", fillRule: "nonzero", strokeWidth: 3 } },
+      ],
+      texts: [{ id: "between", kind: "text", x: 25, y: 0, text: "label", metadata: { zIndex: 10, fill: "red", stroke: "black", strokeDasharray: "4 2" } }],
+    })
+    expect(engine.getRenderOrder()).toEqual(["shape-back", "between", "shape-front"])
+    expect(engine.getGeometrySnapshot("shape-front")?.style).toMatchObject({ fill: "blue", fillRule: "nonzero", strokeWidth: 3 })
+    expect(engine.getGeometrySnapshot("between")?.style).toMatchObject({ fill: "red", stroke: "black", strokeDasharray: "4 2" })
+    const saved = engine.serialize()
+    const restored = createDiagramEngine(deserializeScene(saved))
+    expect(restored.getRenderOrder()).toEqual(engine.getRenderOrder())
+    expect(restored.getGeometrySnapshot("shape-front")?.style).toEqual(engine.getGeometrySnapshot("shape-front")?.style)
+    engine.dispatch({ type: "updateEntityStyle", id: "shape-front", visualStyle: { fill: "green", strokeWidth: 4 } })
+    expect(engine.getGeometrySnapshot("shape-front")?.style).toMatchObject({ fill: "green", strokeWidth: 4 })
+    engine.dispatch({ type: "undo" })
+    expect(engine.getGeometrySnapshot("shape-front")?.style).toMatchObject({ fill: "blue", strokeWidth: 3 })
+    engine.dispatch({ type: "redo" })
+    expect(engine.getGeometrySnapshot("shape-front")?.style).toMatchObject({ fill: "green", strokeWidth: 4 })
+    engine.dispatch({ type: "undo" })
+    engine.dispatch({ type: "setEntityMetadata", id: "between", metadata: { zIndex: 30, fill: "red", stroke: "black", strokeDasharray: "4 2" } })
+    expect(engine.getRenderOrder()).toEqual(["shape-back", "shape-front", "between"])
+    engine.dispatch({ type: "undo" })
+    expect(engine.getRenderOrder()).toEqual(["shape-back", "between", "shape-front"])
+  })
+
   it("creates major circular arcs through three points and preserves them through scene round trips", () => {
     const arc = createCircularArc({ x: 10, y: 0 }, { x: -10, y: 0 }, { x: 0, y: 10 })
     expect(arc.ok).toBe(true)
@@ -4624,6 +4840,62 @@ describe("DiagramEngine", () => {
     expect(engine.getScene().entities.edgesById.has("trunk")).toBe(true)
     expect(engine.getScene().entities.edgesById.has("branch")).toBe(true)
     pointer.dispose()
+  })
+
+  it("rejects direct and indirect route anchor dependency cycles", () => {
+    const direct = {
+      edges: [{ id: "a", kind: "edge" as const, source: { kind: "point" as const, point: { x: 0, y: 0 } }, target: { kind: "junction" as const, junctionId: "ja" } }],
+      junctions: [{ id: "ja", kind: "junction" as const, hostEdgeId: "a", anchor: { kind: "route" as const, fraction: 0.5 } }],
+    }
+    expect(() => createDiagramEngine(direct)).toThrow(/route cycle/)
+    const indirect = {
+      edges: [
+        { id: "a", kind: "edge" as const, source: { kind: "point" as const, point: { x: 0, y: 0 } }, target: { kind: "junction" as const, junctionId: "jb" } },
+        { id: "b", kind: "edge" as const, source: { kind: "point" as const, point: { x: 20, y: 0 } }, target: { kind: "junction" as const, junctionId: "ja" } },
+      ],
+      junctions: [
+        { id: "ja", kind: "junction" as const, hostEdgeId: "a", anchor: { kind: "route" as const, fraction: 0.5 } },
+        { id: "jb", kind: "junction" as const, hostEdgeId: "b", anchor: { kind: "route" as const, fraction: 0.5 } },
+      ],
+    }
+    expect(() => createDiagramEngine(indirect)).toThrow(/route cycle/)
+  })
+
+  it("keeps fixed junctions on automatic host routes and rejects impossible reroutes atomically", () => {
+    const engine = createDiagramEngine({ edges: [
+      { id: "auto-host", kind: "edge", source: { kind: "point", point: { x: 0, y: 0 } }, target: { kind: "point", point: { x: 200, y: 0 } }, routing: { mode: "auto", terminalLead: 0, clearance: 0 } },
+    ] })
+    expect(engine.dispatch({ type: "createJunction", junction: { id: "fixed-j", kind: "junction", hostEdgeId: "auto-host", anchor: { kind: "fixed", point: { x: 80, y: 0 } } } }).changed).toBe(true)
+    expect(engine.dispatch({ type: "createEdge", edge: { id: "branch-fixed", kind: "edge", source: { kind: "junction", junctionId: "fixed-j" }, target: { kind: "point", point: { x: 80, y: 80 } } } }).changed).toBe(true)
+    expect(engine.getGeometrySnapshot("branch-fixed")?.path?.[0]).toEqual({ x: 80, y: 0 })
+    const depth = engine.getDiagnostics().undoDepth
+    expect(engine.dispatch({ type: "createShape", shape: { id: "detour", kind: "shape", shape: "rect", x: 100, y: -20, width: 40, height: 40 } }).changed).toBe(true)
+    const route = engine.getGeometrySnapshot("auto-host")?.path ?? []
+    expect(route).toContainEqual({ x: 80, y: 0 })
+    expect(engine.getScene().entities.edgesById.get("branch-fixed")?.source).toEqual({ kind: "junction", junctionId: "fixed-j" })
+    expect(engine.getDiagnostics().undoDepth).toBe(depth + 1)
+
+    const revision = engine.getDocumentRevision()
+    const scene = engine.getScene()
+    const undoDepth = engine.getDiagnostics().undoDepth
+    const rejected = engine.dispatchBatch([{ type: "createShape", shape: { id: "blocks-junction", kind: "shape", shape: "rect", x: 70, y: -10, width: 20, height: 20 } }])
+    expect(rejected).toMatchObject({ ok: false, reason: "invalid-command", diagnostic: expect.stringContaining("fixed junction") })
+    expect(engine.getScene()).toBe(scene)
+    expect(engine.getDocumentRevision()).toBe(revision)
+    expect(engine.getDiagnostics().undoDepth).toBe(undoDepth)
+  })
+
+  it("preserves route-fraction junction behavior on automatic reroutes", () => {
+    const engine = createDiagramEngine({ edges: [
+      { id: "route-host", kind: "edge", source: { kind: "point", point: { x: 0, y: 0 } }, target: { kind: "point", point: { x: 200, y: 0 } }, routing: { mode: "auto", terminalLead: 0, clearance: 0 } },
+    ], junctions: [{ id: "route-j", kind: "junction", hostEdgeId: "route-host", anchor: { kind: "route", fraction: 0.5 } }] })
+    const before = engine.getGeometrySnapshot("route-j")?.point
+    expect(before).toEqual({ x: 100, y: 0 })
+    expect(engine.dispatch({ type: "createEdge", edge: { id: "route-branch", kind: "edge", source: { kind: "junction", junctionId: "route-j" }, target: { kind: "point", point: { x: 100, y: 80 } } } }).changed).toBe(true)
+    expect(engine.dispatch({ type: "createShape", shape: { id: "route-block", kind: "shape", shape: "rect", x: 90, y: -20, width: 20, height: 40 } }).changed).toBe(true)
+    const after = engine.getGeometrySnapshot("route-j")?.point
+    expect(after).not.toEqual(before)
+    expect(engine.getScene().entities.edgesById.get("route-branch")?.source).toEqual({ kind: "junction", junctionId: "route-j" })
   })
 
   it("enforces maxBends and renders explicit junctions without crossing bridges", () => {

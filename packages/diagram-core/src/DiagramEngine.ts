@@ -19,6 +19,7 @@ import type {
   DiagramBatchPreviewResult,
   DiagramDiagnostics,
   DiagramEdge,
+  DiagramEntities,
   DiagramEdgeRouting,
   DiagramJunction,
   DiagramConnectorAttachment,
@@ -30,6 +31,7 @@ import type {
   DiagramPortAnchor,
   DiagramPortRemap,
   DiagramText,
+  DiagramVisualStyle,
   DiagramShape,
   DiagramFlipAxis,
   DiagramGroup,
@@ -179,6 +181,12 @@ export class DiagramEngine {
       this.lastCommandMs = now() - startedAt
       return { changed: false, revision: this.state.revision }
     }
+    if (commandMayAffectFixedJunctionRoutes(command) && [...this.state.entities.junctionsById.values()].some((junction) => junction.anchor.kind === "fixed")) {
+      const draft = new DiagramEngine(serializeScene(this.store.getSnapshot()))
+      draft.commitPatch(patch, false, null)
+      const invalid = fixedJunctionRouteFailure(draft.state.entities)
+      if (invalid) return { changed: false, revision: this.state.revision, reason: "invalid-command", diagnostic: invalid }
+    }
     const transaction = this.commitPatch(patch, command.type !== "setSelection" && command.type !== "setViewport", "historyKey" in command ? command.historyKey ?? null : null)
     result = { changed: transaction.changedIds.size > 0, revision: this.state.revision }
     this.lastCommandMs = now() - startedAt
@@ -195,7 +203,7 @@ export class DiagramEngine {
     let fingerprint = ""
     if (operationId) {
       if (!operationId.trim()) return failure("invalid-command", null)
-      try { fingerprint = JSON.stringify({ commands, expectedRevision: options.expectedRevision }) }
+      try { fingerprint = JSON.stringify({ commands, expectedRevision: options.expectedRevision, expectedDocumentRevision: options.expectedDocumentRevision }) }
       catch { return failure("invalid-command", null) }
       const previous = this.batchReceipts.get(operationId)
       if (previous) return previous.fingerprint === fingerprint ? previous.result : { ...failure("operation-id-conflict", null), affectedIds: [] }
@@ -207,7 +215,7 @@ export class DiagramEngine {
       }
       return result
     }
-    if (options.expectedRevision !== undefined && options.expectedRevision !== this.state.documentRevision) {
+    if ((options.expectedRevision !== undefined && options.expectedRevision !== this.state.documentRevision) || (options.expectedDocumentRevision !== undefined && options.expectedDocumentRevision !== this.state.documentRevision)) {
       return finish(failure("revision-mismatch", null))
     }
     const draft = new DiagramEngine(serializeScene(this.store.getSnapshot()))
@@ -234,6 +242,8 @@ export class DiagramEngine {
         for (const id of changed) affected.add(id)
       }
     }
+    const routeFailure = fixedJunctionRouteFailure(draft.state.entities)
+    if (routeFailure) return finish({ ...failure("invalid-command", commands.length ? commands.length - 1 : null, fixedJunctionHostIds(draft.state.entities)), diagnostic: routeFailure })
     if (!patches.length) return finish({ ok: true, changed: false, revision: this.state.revision, documentRevision: this.state.documentRevision, failedCommandIndex: null, reason: null, affectedIds: [] })
     let combined = patches[0]!
     for (let index = 1; index < patches.length; index += 1) combined = composePatches(combined, patches[index]!)
@@ -258,7 +268,7 @@ export class DiagramEngine {
       failedCommandIndex: index, reason, affectedIds: [...new Set(ids)],
     })
     if (this.editingLocked) return failure("scene-locked", null)
-    if (options.expectedRevision !== undefined && options.expectedRevision !== this.state.documentRevision) return failure("revision-mismatch", null)
+    if ((options.expectedRevision !== undefined && options.expectedRevision !== this.state.documentRevision) || (options.expectedDocumentRevision !== undefined && options.expectedDocumentRevision !== this.state.documentRevision)) return failure("revision-mismatch", null)
     const draft = new DiagramEngine(serializeScene(this.store.getSnapshot()))
     draft.state.revision = this.state.revision
     draft.state.documentRevision = this.state.documentRevision
@@ -276,6 +286,8 @@ export class DiagramEngine {
       }
       for (const id of draft.commitPatch(patch, false, null).changedIds) affected.add(id)
     }
+    const routeFailure = fixedJunctionRouteFailure(draft.state.entities)
+    if (routeFailure) return { ...failure("invalid-command", commands.length ? commands.length - 1 : null, fixedJunctionHostIds(draft.state.entities)), diagnostic: routeFailure }
     return {
       ok: true,
       changed: affected.size > 0,
@@ -952,6 +964,14 @@ export class DiagramEngine {
         if (group.childIds.includes(id)) invalidated.add(group.id)
       }
     }
+    for (const id of [...invalidated]) {
+      if (!this.state.entities.edgesById.has(id)) continue
+      for (const junction of this.state.entities.junctionsById.values()) {
+        if (junction.hostEdgeId !== id) continue
+        invalidated.add(junction.id)
+        for (const branchId of this.edgeIdsByJunction.get(junction.id) ?? []) invalidated.add(branchId)
+      }
+    }
     return invalidated
   }
 
@@ -1083,13 +1103,13 @@ export class DiagramEngine {
         return arc.ok ? createCreatePathPatch(this.state, { id: command.id, kind: "path", contours: [arc.value], ...(command.metadata ? { metadata: command.metadata } : {}) }) : null
       }
       case "updateShapePath":
-        return createUpdateShapePathPatch(this.state, command.id, command.points, command.pathContours, command.worldSpace)
+        return createUpdateShapePathPatch(this.state, command.id, command.points, command.pathContours, command.worldSpace, command.portRemaps)
       case "insertPathVertex":
-        return createPathVertexPatch(this.state, command.id, command.index, command.point, "insert")
+        return createPathVertexPatch(this.state, command.id, command.index, command.point, "insert", command.portRemaps)
       case "movePathVertex":
-        return createPathVertexPatch(this.state, command.id, command.index, command.point, "move")
+        return createPathVertexPatch(this.state, command.id, command.index, command.point, "move", command.portRemaps)
       case "removePathVertex":
-        return createPathVertexPatch(this.state, command.id, command.index, null, "remove")
+        return createPathVertexPatch(this.state, command.id, command.index, null, "remove", command.portRemaps)
       case "updateShape":
         return createUpdateShapePatch(this.state, command.id, command.cornerRadius)
       case "createTable":
@@ -1120,6 +1140,8 @@ export class DiagramEngine {
         return createCreatePortPatch(this.state, command.port)
       case "createJunction":
         return createCreateJunctionPatch(this.state, command.junction)
+      case "updateJunction":
+        return createUpdateJunctionPatch(this.state, command.id, command.anchor)
       case "deleteEntities":
         return createDeleteEntitiesCommandPatch(this.state, command.ids)
       case "reconnectEdgeEndpoint":
@@ -1163,6 +1185,8 @@ export class DiagramEngine {
         return createLayerPatch(this.state, command.ids, command.layer, command.layerRole)
       case "setEntityMetadata":
         return createEntityMetadataPatch(this.state, command.id, command.metadata)
+      case "updateEntityStyle":
+        return createEntityStylePatch(this.state, command.id, command.visualStyle)
       case "updateEntities":
         return createEntityUpdatesPatch(this.state, command.updates)
       case "keyboard":
@@ -1401,6 +1425,10 @@ export class DiagramEngine {
 
 
 function isBatchNoOp(state: InternalState, command: DiagramCommand): boolean {
+  if (command.type === "updateEntityStyle") {
+    const entity = getStyleEntity(state, command.id)
+    return Boolean(entity && JSON.stringify(entity.visualStyle) === JSON.stringify(command.visualStyle))
+  }
   if (command.type === "updateShape") {
     const shape = state.entities.shapesById.get(command.id)
     return Boolean(shape && (shape.cornerRadius ?? 0) === command.cornerRadius)
@@ -1622,12 +1650,13 @@ function sizesMatch(values: ReadonlyArray<number>, total: number): boolean { ret
 export function validateDiagramScene(scene: DiagramSceneInput): ReadonlyArray<DiagramValidationIssue> {
   try {
     validateSceneInput(scene)
-    return Object.freeze([])
+    return Object.freeze(portOwnerHintIssues(scene))
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     const entityMatch = message.match(/(?:geometry for (?:node|text|shape|table)|port |edge |group |table |node )(.+?)(?::|$)/i)
     const code = message.includes("globally unique") ? "duplicate-id"
       : message.includes("Invalid geometry") ? "invalid-geometry"
+        : message.includes("visual style") ? "invalid-visual-style"
         : message.includes("Invalid port") || message.includes("port reference") ? "invalid-port-reference"
           : message.includes("Invalid edge") ? "invalid-edge-reference"
             : message.includes("Invalid group") ? "invalid-group"
@@ -1651,6 +1680,7 @@ function validateSceneInput(scene: DiagramSceneInput): DiagramSceneInput {
   const ids = new Set<string>()
   for (const entity of [...nodesInput, ...edgesInput, ...textsInput, ...shapesInput, ...portsInput, ...junctionsInput, ...groupsInput, ...tablesInput]) {
     if (!entity || typeof entity.id !== "string" || !entity.id || ids.has(entity.id)) throw new TypeError("Diagram entity IDs must be non-empty and globally unique")
+    if (!isValidVisualStyle(entity.visualStyle)) throw new TypeError(`Invalid visual style for entity ${entity.id}`)
     ids.add(entity.id)
   }
   const nodes = new Set(nodesInput.map((node) => node.id))
@@ -1658,7 +1688,10 @@ function validateSceneInput(scene: DiagramSceneInput): DiagramSceneInput {
   const edges = new Map(edgesInput.map((edge) => [edge.id, edge]))
   const junctions = new Map(junctionsInput.map((junction) => [junction.id, junction]))
   for (const junction of junctionsInput) {
-    if (junction.kind !== "junction" || !edges.has(junction.hostEdgeId) || junction.hostEdgeId === junction.id || junction.anchor?.kind !== "route" || !Number.isFinite(junction.anchor.fraction) || junction.anchor.fraction < 0 || junction.anchor.fraction > 1) throw new TypeError(`Invalid junction ${junction.id}`)
+    const anchorValid = junction.anchor?.kind === "route"
+      ? Number.isFinite(junction.anchor.fraction) && junction.anchor.fraction >= 0 && junction.anchor.fraction <= 1
+      : junction.anchor?.kind === "fixed" && Number.isFinite(junction.anchor.point?.x) && Number.isFinite(junction.anchor.point?.y)
+    if (junction.kind !== "junction" || !edges.has(junction.hostEdgeId) || junction.hostEdgeId === junction.id || !anchorValid) throw new TypeError(`Invalid junction ${junction.id}`)
   }
   for (const node of nodesInput) if (![node.x, node.y, node.width, node.height, node.rotation ?? 0].every(Number.isFinite) || node.width < 0 || node.height < 0 || !validFlipFlags(node)) throw new TypeError(`Invalid geometry for node ${node.id}`)
   for (const port of portsInput) {
@@ -1711,11 +1744,33 @@ function validateSceneInput(scene: DiagramSceneInput): DiagramSceneInput {
     const anchored = port as Extract<DiagramPort, { hostId: DiagramId }>
     if (!anchored.hostId || !isValidDiagramPortAnchor(anchored.hostId, anchored.anchor, portEntities)) throw new TypeError(`Invalid port anchor ${port.id}`)
   }
-  for (const node of nodesInput) if ((node.portIds ?? []).some((id) => !ports.has(id) || diagramPortHostId(ports.get(id)!) !== node.id)) throw new TypeError(`Invalid port reference on node ${node.id}`)
+  const fixedJunctionFailure = fixedJunctionRouteFailure(portEntities)
+  if (fixedJunctionFailure) throw new TypeError(fixedJunctionFailure)
   if (scene.viewport && (![scene.viewport.x, scene.viewport.y, scene.viewport.width, scene.viewport.height, scene.viewport.zoom].filter((value) => value !== undefined).every(Number.isFinite) || (scene.viewport.zoom !== undefined && scene.viewport.zoom <= 0))) throw new TypeError("Invalid diagram viewport")
   const selectionIds = scene.selection?.ids ?? []
   if (selectionIds.some((id) => !ids.has(id))) throw new TypeError("Diagram selection contains an unknown entity")
-  return { ...scene, nodes: nodesInput, edges: edgesInput, texts: textsInput, shapes: shapesInput, ports: portsInput, junctions: junctionsInput, groups: groupsInput, tables: tablesInput.map(normalizeTable) }
+  return { ...scene, nodes: normalizeNodePortHints(nodesInput, portsInput), edges: edgesInput, texts: textsInput, shapes: shapesInput, ports: portsInput, junctions: junctionsInput, groups: groupsInput, tables: tablesInput.map(normalizeTable) }
+}
+
+function normalizeNodePortHints(nodes: ReadonlyArray<DiagramNode>, ports: ReadonlyArray<DiagramPort>): DiagramNode[] {
+  const portsById = new Map(ports.map((port) => [port.id, port]))
+  return nodes.map((node) => {
+    const owned = ports.filter((port) => diagramPortHostId(port) === node.id).map((port) => port.id)
+    const orderHint = (node.portIds ?? []).filter((id, index, all) => all.indexOf(id) === index && diagramPortHostIdSafe(portsById.get(id)) === node.id)
+    const portIds = [...orderHint, ...owned.filter((id) => !orderHint.includes(id))]
+    return portIds.length || node.portIds !== undefined ? { ...node, portIds } : node
+  })
+}
+
+function portOwnerHintIssues(scene: DiagramSceneInput): DiagramValidationIssue[] {
+  const nodes = scene.nodes ?? []
+  const portsById = new Map((scene.ports ?? []).map((port) => [port.id, port]))
+  return nodes.flatMap((node) => (node.portIds ?? []).flatMap((id) =>
+    diagramPortHostIdSafe(portsById.get(id)) === node.id ? [] : [{ code: "port-owner-hint-conflict", severity: "warning" as const, entityIds: [node.id, id], message: `Node ${node.id} portIds contains stale or contradictory hint ${id}; the port's nodeId/hostId remains authoritative.` }]))
+}
+
+function diagramPortHostIdSafe(port: DiagramPort | undefined): DiagramId | undefined {
+  return port ? diagramPortHostId(port) : undefined
 }
 
 function createMovePatch(state: InternalState, ids: ReadonlyArray<DiagramId>, delta: DiagramPoint, snap: DiagramGridSnapOptions = {}): Patch | null {
@@ -2424,6 +2479,29 @@ function snapshotEntities(state: InternalState) {
   }
 }
 
+function fixedJunctionHostIds(entities: DiagramEntities): DiagramId[] {
+  return [...new Set([...entities.junctionsById.values()].filter((junction) => junction.anchor.kind === "fixed").map((junction) => junction.hostEdgeId))]
+}
+
+function commandMayAffectFixedJunctionRoutes(command: DiagramCommand): boolean {
+  return command.type !== "setViewport" && command.type !== "setSelection" && command.type !== "setEntityMetadata"
+    && command.type !== "updateEntityStyle" && command.type !== "updateTableCell" && command.type !== "updateTableStyle"
+    && command.type !== "updateTableHeader" && command.type !== "editText"
+}
+
+function fixedJunctionRouteFailure(entities: DiagramEntities): string | null {
+  for (const junction of entities.junctionsById.values()) {
+    const anchor = junction.anchor
+    if (anchor.kind !== "fixed") continue
+    const host = entities.edgesById.get(junction.hostEdgeId)
+    if (!host) return `Fixed junction ${junction.id} has no host edge.`
+    const route = resolveEdgePath(host, entities)
+    const onRoute = route.some((point, index) => index > 0 && distanceToSegment(anchor.point, route[index - 1]!, point) <= 1e-6)
+    if (!onRoute) return `Host route ${host.id} cannot preserve fixed junction ${junction.id} at (${anchor.point.x}, ${anchor.point.y}).`
+  }
+  return null
+}
+
 function normalizeRotation(rotation: number): number {
   const normalized = rotation % 360
   return normalized < 0 ? normalized + 360 : normalized
@@ -2624,6 +2702,32 @@ function createEntityUpdatesPatch(
   )
 }
 
+function createEntityStylePatch(state: InternalState, id: DiagramId, visualStyle?: DiagramVisualStyle): Patch | null {
+  if (!hasEntity(state, id) || isEntityLockedOrReadOnly(state, id) || !isValidVisualStyle(visualStyle)) return null
+  const previous = getStyleEntity(state, id)
+  if (!previous || JSON.stringify(previous.visualStyle) === JSON.stringify(visualStyle)) return null
+  const next = { ...previous, ...(visualStyle ? { visualStyle } : { visualStyle: undefined }) }
+  const apply = (entity: NonNullable<typeof previous>): Patch["apply"] => (draft) => {
+    const maps = draft.entities
+    if (maps.nodesById.has(id)) maps.nodesById.set(id, entity as DiagramNode)
+    else if (maps.edgesById.has(id)) maps.edgesById.set(id, entity as DiagramEdge)
+    else if (maps.textsById.has(id)) maps.textsById.set(id, entity as DiagramText)
+    else if (maps.shapesById.has(id)) maps.shapesById.set(id, entity as DiagramShape)
+    else if (maps.portsById.has(id)) maps.portsById.set(id, entity as DiagramPort)
+    else if (maps.junctionsById.has(id)) maps.junctionsById.set(id, entity as DiagramJunction)
+    else if (maps.groupsById.has(id)) maps.groupsById.set(id, entity as DiagramGroup)
+    else if (maps.tablesById.has(id)) maps.tablesById.set(id, entity as DiagramTable)
+    return new Set([id])
+  }
+  return { apply: apply(next), inverse: { apply: apply(previous), inverse: undefined as unknown as Patch } }
+}
+
+function getStyleEntity(state: InternalState, id: DiagramId) {
+  return state.entities.nodesById.get(id) ?? state.entities.edgesById.get(id) ?? state.entities.textsById.get(id)
+    ?? state.entities.shapesById.get(id) ?? state.entities.portsById.get(id) ?? state.entities.junctionsById.get(id)
+    ?? state.entities.groupsById.get(id) ?? state.entities.tablesById.get(id)
+}
+
 function metadataEqual(
   first: Readonly<Record<string, unknown>> | undefined,
   second: Readonly<Record<string, unknown>> | undefined,
@@ -2722,7 +2826,7 @@ function createCreateEdgePatch(state: InternalState, edge: DiagramEdge): Patch |
 }
 
 function createCreateEntityPatch(state: InternalState, node: import("./types.js").DiagramNode): Patch | null {
-  if (!isUniqueId(state, node.id) || Boolean(node.portIds?.length) || ![node.x, node.y, node.width, node.height, node.rotation ?? 0].every(Number.isFinite) || node.width < 0 || node.height < 0) return null
+  if (!isUniqueId(state, node.id) || !isValidVisualStyle(node.visualStyle) || Boolean(node.portIds?.length) || ![node.x, node.y, node.width, node.height, node.rotation ?? 0].every(Number.isFinite) || node.width < 0 || node.height < 0) return null
   return {
     orderChanged: true,
     apply: (next) => { next.entities.nodesById.set(node.id, node); next.order.nodeIds.push(node.id); next.versions.set(node.id, 0); return new Set([node.id]) },
@@ -2740,13 +2844,15 @@ function createCreateShapePatch(state: InternalState, shape: DiagramShape): Patc
 }
 
 function createCreatePathPatch(state: InternalState, path: DiagramPath): Patch | null {
-  if (!path.id || (!path.points && !path.contours) || (path.points && (path.points.length < 2 || path.points.some((point) => ![point.x, point.y].every(Number.isFinite))))) return null
+  const hasPoints = Array.isArray(path.points)
+  const hasContours = Array.isArray(path.contours)
+  if (!path.id || hasPoints === hasContours || (hasPoints && (path.points!.length < 2 || path.points!.some((point) => ![point.x, point.y].every(Number.isFinite))))) return null
   if (path.contours && !validPathContours(path.contours)) return null
   const allPoints = [...(path.points ?? []), ...(path.contours ?? []).flatMap((contour) => [...pathContourBoundsPoints(contour)])]
   if (allPoints.length < 2) return null
   const minX = Math.min(...allPoints.map((point) => point.x)), minY = Math.min(...allPoints.map((point) => point.y))
   const maxX = Math.max(...allPoints.map((point) => point.x)), maxY = Math.max(...allPoints.map((point) => point.y))
-  return createCreateShapePatch(state, { id: path.id, kind: "shape", shape: "line", x: minX, y: minY, width: maxX - minX, height: maxY - minY, ...(path.points ? { points: path.points.map((point) => ({ x: point.x - minX, y: point.y - minY })) } : {}), ...(path.contours ? { pathContours: path.contours.map((contour) => translatePathContour(contour, -minX, -minY)) } : {}), ...(path.metadata ? { metadata: path.metadata } : {}) })
+  return createCreateShapePatch(state, { id: path.id, kind: "shape", shape: "line", x: minX, y: minY, width: maxX - minX, height: maxY - minY, ...(path.points ? { points: path.points.map((point) => ({ x: point.x - minX, y: point.y - minY })) } : {}), ...(path.contours ? { pathContours: path.contours.map((contour) => translatePathContour(contour, -minX, -minY)) } : {}), ...(path.metadata ? { metadata: path.metadata } : {}), ...(path.visualStyle ? { visualStyle: path.visualStyle } : {}) })
 }
 
 function validPathContours(contours: ReadonlyArray<DiagramPathContour>): boolean {
@@ -2783,14 +2889,20 @@ function isVertexPortForHost(port: DiagramPort, hostId: DiagramId): port is Diag
   return diagramPortHostId(port) === hostId && "hostId" in port && (port as Extract<DiagramPort, { hostId: DiagramId }>).anchor.kind === "vertex"
 }
 
-function createUpdateShapePathPatch(state: InternalState, id: DiagramId, points?: ReadonlyArray<DiagramPoint>, contours?: ReadonlyArray<DiagramPathContour>, worldSpace = false): Patch | null {
+function createUpdateShapePathPatch(state: InternalState, id: DiagramId, points?: ReadonlyArray<DiagramPoint>, contours?: ReadonlyArray<DiagramPathContour>, worldSpace = false, portRemaps: Readonly<Record<DiagramId, DiagramPortRemap>> = {}): Patch | null {
   const previous = state.entities.shapesById.get(id)
-  if (!previous || isEntityLockedOrReadOnly(state, id) || (!points && !contours)) return null
-  if (worldSpace && [...state.entities.portsById.values()].some((port) => ("hostId" in port ? port.hostId : port.nodeId) === id)) return null
+  if (!previous || isEntityLockedOrReadOnly(state, id) || Boolean(points) === Boolean(contours)) return null
   if (points && (points.length < 2 || points.some((point) => ![point.x, point.y].every(Number.isFinite)))) return null
   if (contours && !validPathContours(contours)) return null
-  if ([...state.entities.portsById.values()].some((port) => isVertexPortForHost(port, id) && (points?.length ?? 0) <= port.anchor.index)) return null
-  const world = [...(points ?? []).map((point) => ({ x: previous.x + point.x, y: previous.y + point.y })), ...(contours ?? []).flatMap((contour) => pathContourBoundsPoints(contour))]
+  const vertexPorts = [...state.entities.portsById.values()].filter((port) => isVertexPortForHost(port, id))
+  const hostPorts = [...state.entities.portsById.values()].filter((port) => diagramPortHostId(port) === id)
+  const oldPointCount = previous.points?.length ?? (previous.shape === "line" ? 2 : 0)
+  const newPointCount = points?.length ?? (previous.shape === "line" ? 2 : 0)
+  if (Object.keys(portRemaps).some((portId) => !hostPorts.some((port) => port.id === portId))) return null
+  if (worldSpace && hostPorts.some((port) => !portRemaps[port.id])) return null
+  if (vertexPorts.some((port) => !portRemaps[port.id] && (oldPointCount !== newPointCount || port.anchor.index >= newPointCount))) return null
+  const worldPoints = points?.map((point) => worldSpace ? point : ({ x: previous.x + point.x, y: previous.y + point.y })) ?? []
+  const world = [...worldPoints, ...(contours ?? []).flatMap((contour) => pathContourBoundsPoints(contour))]
   if (world.length < 2) return null
   const minX = Math.min(...world.map((point) => point.x)), minY = Math.min(...world.map((point) => point.y))
   const maxX = Math.max(...world.map((point) => point.x)), maxY = Math.max(...world.map((point) => point.y))
@@ -2802,14 +2914,31 @@ function createUpdateShapePathPatch(state: InternalState, id: DiagramId, points?
     width: maxX - minX,
     height: maxY - minY,
     ...(worldSpace ? { rotation: 0, flipX: false, flipY: false } : {}),
-    points: points ? points.map((point) => ({ x: point.x + previous.x - minX, y: point.y + previous.y - minY })) : undefined,
+    points: points ? worldPoints.map((point) => ({ x: point.x - minX, y: point.y - minY })) : undefined,
     pathContours: contours?.map((contour) => translatePathContour(contour, -minX, -minY)),
   }
-  const apply = (value: DiagramShape): Patch["apply"] => (draft) => { draft.entities.shapesById.set(id, value); return new Set([id]) }
-  return { apply: apply(next), inverse: { apply: apply(previous), inverse: undefined as unknown as Patch } }
+  const shapePatch = createEntitySnapshotPatch([id], new Map([[id, previous]]), new Map([[id, next]]), (draft, entityId, value) => draft.entities.shapesById.set(entityId, value))
+  const previousPorts = new Map<DiagramId, DiagramPort>()
+  const nextPorts = new Map<DiagramId, DiagramPort>()
+  const projected = { ...snapshotEntities(state), shapesById: new Map(state.entities.shapesById).set(id, next) }
+  for (const port of hostPorts) {
+    const remap = portRemaps[port.id]
+    if (!remap) {
+      if (worldSpace && isVertexPortForHost(port, id)) {
+        const before = createEntityGeometry(id, state.entities)?.path
+        if (!before || !points || !samePathPoint(before[port.anchor.index]!, worldPoints[port.anchor.index]!)) return null
+      }
+      continue
+    }
+    if (!hasEntity(state, remap.hostId) || isEntityLockedOrReadOnly(state, port.id) || !isValidDiagramPortAnchor(remap.hostId, remap.anchor, projected)) return null
+    previousPorts.set(port.id, port)
+    nextPorts.set(port.id, { id: port.id, kind: "port", metadata: port.metadata, radius: port.radius, hostId: remap.hostId, anchor: remap.anchor })
+  }
+  const portPatch = nextPorts.size ? createEntitySnapshotPatch([...nextPorts.keys()], previousPorts, nextPorts, (draft, portId, value) => draft.entities.portsById.set(portId, value)) : null
+  return portPatch ? composeUndoablePatches(shapePatch, portPatch) : shapePatch
 }
 
-function createPathVertexPatch(state: InternalState, id: DiagramId, index: number, point: DiagramPoint | null, operation: "insert" | "move" | "remove"): Patch | null {
+function createPathVertexPatch(state: InternalState, id: DiagramId, index: number, point: DiagramPoint | null, operation: "insert" | "move" | "remove", portRemaps: Readonly<Record<DiagramId, DiagramPortRemap>> = {}): Patch | null {
   const shape = state.entities.shapesById.get(id)
   const points = shape ? [...(shape.points ?? (shape.shape === "line" ? [{ x: 0, y: 0 }, { x: shape.width, y: shape.height }] : []))] : null
   if (!shape || shape.shape !== "line" || !points?.length || isEntityLockedOrReadOnly(state, id) || !Number.isInteger(index)) return null
@@ -2817,7 +2946,9 @@ function createPathVertexPatch(state: InternalState, id: DiagramId, index: numbe
   if (operation === "remove" && (points.length <= 2 || index === 0 || index === points.length - 1)) return null
   if (operation !== "remove" && (!point || ![point.x, point.y].every(Number.isFinite))) return null
   const vertexPorts = [...state.entities.portsById.values()].filter((port) => isVertexPortForHost(port, id))
-  if (operation === "remove" && vertexPorts.some((port) => port.anchor.index === index)) return null
+  const removedPorts = operation === "remove" ? vertexPorts.filter((port) => port.anchor.index === index) : []
+  if (removedPorts.some((port) => !portRemaps[port.id])) return null
+  if (Object.keys(portRemaps).some((portId) => !removedPorts.some((port) => port.id === portId))) return null
   const previous = shape
   if (operation === "remove") points.splice(index, 1)
   else {
@@ -2835,6 +2966,14 @@ function createPathVertexPatch(state: InternalState, id: DiagramId, index: numbe
   for (const port of vertexPorts) {
     const anchor = port.anchor
     const anchored = port
+    if (removedPorts.some((removed) => removed.id === port.id)) {
+      const remap = portRemaps[port.id]!
+      const projected = { ...snapshotEntities(state), shapesById: new Map(state.entities.shapesById).set(id, next) }
+      if (!hasEntity(state, remap.hostId) || !isValidDiagramPortAnchor(remap.hostId, remap.anchor, projected)) return null
+      previousPorts.set(port.id, port)
+      nextPorts.set(port.id, { id: port.id, kind: "port", metadata: port.metadata, radius: port.radius, hostId: remap.hostId, anchor: remap.anchor })
+      continue
+    }
     if (anchor.kind !== "vertex" || (operation === "remove" && anchor.index < index) || (operation === "insert" && anchor.index < index)) continue
     previousPorts.set(port.id, port)
     const nextIndex = operation === "insert" ? anchor.index + 1 : anchor.index - 1
@@ -2862,8 +3001,18 @@ function isValidCornerRadius(shape: DiagramShape, radius: number): boolean {
   return radius <= Math.min(shape.width, shape.height) / 2
 }
 
+function isValidVisualStyle(style?: DiagramVisualStyle): boolean {
+  if (style === undefined) return true
+  if (!style || typeof style !== "object" || Object.keys(style).some((key) => !["fill", "stroke", "strokeWidth", "strokeDasharray", "fillRule", "color", "fontFamily", "fontSize", "fontWeight", "fontStyle"].includes(key))) return false
+  return [style.fill, style.stroke, style.strokeDasharray, style.color, style.fontFamily, style.fontStyle].every((value) => value === undefined || typeof value === "string")
+    && (style.strokeWidth === undefined || Number.isFinite(style.strokeWidth) && style.strokeWidth >= 0)
+    && (style.fillRule === undefined || style.fillRule === "nonzero" || style.fillRule === "evenodd")
+    && (style.fontSize === undefined || Number.isFinite(style.fontSize) && style.fontSize > 0)
+    && (style.fontWeight === undefined || typeof style.fontWeight === "string" || Number.isFinite(style.fontWeight))
+}
+
 function isValidDiagramShape(shape: DiagramShape): boolean {
-  return Boolean(shape && [shape.x, shape.y, shape.width, shape.height, shape.rotation ?? 0].every(Number.isFinite)
+  return Boolean(shape && isValidVisualStyle(shape.visualStyle) && [shape.x, shape.y, shape.width, shape.height, shape.rotation ?? 0].every(Number.isFinite)
     && shape.width >= 0 && shape.height >= 0 && validFlipFlags(shape)
     && isValidCornerRadius(shape, shape.cornerRadius ?? 0)
     && (!shape.points || (shape.shape === "line" && shape.points.length >= 2 && shape.points.every((point) => [point.x, point.y].every(Number.isFinite))))
@@ -3122,7 +3271,7 @@ function createCreatePortPatch(state: InternalState, port: import("./types.js").
   const validAnchor = "nodeId" in port && port.nodeId
     ? Number.isFinite(port.x) && Number.isFinite(port.y)
     : "hostId" in port && Boolean(port.hostId) && isValidDiagramPortAnchor((port as Extract<DiagramPort, { hostId: DiagramId }>).hostId, (port as Extract<DiagramPort, { hostId: DiagramId }>).anchor, state.entities)
-  if (!hostId || !hasEntity(state, hostId) || isEntityLockedOrReadOnly(state, hostId) || !isUniqueId(state, port.id) || !validAnchor || (port.radius !== undefined && (!Number.isFinite(port.radius) || port.radius < 0))) return null
+  if (!hostId || !hasEntity(state, hostId) || isEntityLockedOrReadOnly(state, hostId) || !isUniqueId(state, port.id) || !isValidVisualStyle(port.visualStyle) || !validAnchor || (port.radius !== undefined && (!Number.isFinite(port.radius) || port.radius < 0))) return null
   const previousPorts = owner?.portIds ?? []
   const nextPorts = owner ? [...new Set([...previousPorts, port.id])] : null
   return {
@@ -3143,12 +3292,32 @@ function createCreatePortPatch(state: InternalState, port: import("./types.js").
 
 function createCreateJunctionPatch(state: InternalState, junction: DiagramJunction): Patch | null {
   if (junction.kind !== "junction" || !isUniqueId(state, junction.id) || !state.entities.edgesById.has(junction.hostEdgeId)
-    || junction.anchor?.kind !== "route" || !Number.isFinite(junction.anchor.fraction) || junction.anchor.fraction < 0 || junction.anchor.fraction > 1
-    || isEntityLockedOrReadOnly(state, junction.hostEdgeId)) return null
+    || !isValidVisualStyle(junction.visualStyle) || !isValidJunctionAnchor(junction.anchor) || isEntityLockedOrReadOnly(state, junction.hostEdgeId)) return null
+  if (junction.anchor.kind === "fixed") {
+    const entities = { ...snapshotEntities(state), junctionsById: new Map(state.entities.junctionsById).set(junction.id, junction) }
+    if (fixedJunctionRouteFailure(entities)) return null
+  }
   return {
     apply: (next) => { next.entities.junctionsById.set(junction.id, junction); next.versions.set(junction.id, 0); return new Set([junction.id, junction.hostEdgeId]) },
     inverse: { apply: (next) => { next.entities.junctionsById.delete(junction.id); next.versions.delete(junction.id); return new Set([junction.id, junction.hostEdgeId]) }, inverse: undefined as unknown as Patch },
   }
+}
+
+function createUpdateJunctionPatch(state: InternalState, id: DiagramId, anchor: DiagramJunction["anchor"]): Patch | null {
+  const previous = state.entities.junctionsById.get(id)
+  if (!previous || !isValidJunctionAnchor(anchor) || isEntityLockedOrReadOnly(state, id) || isEntityLockedOrReadOnly(state, previous.hostEdgeId)) return null
+  const next = { ...previous, anchor }
+  const entities = { ...snapshotEntities(state), junctionsById: new Map(state.entities.junctionsById).set(id, next) }
+  if (anchor.kind === "fixed" && fixedJunctionRouteFailure(entities)) return null
+  if ([...entities.edgesById.values()].some((edge) => hasRouteAttachmentCycle(edge, entities.edgesById, entities.junctionsById, entities.portsById))) return null
+  const apply = (value: DiagramJunction): Patch["apply"] => (draft) => { draft.entities.junctionsById.set(id, value); return new Set([id, value.hostEdgeId]) }
+  return { apply: apply(next), inverse: { apply: apply(previous), inverse: undefined as unknown as Patch } }
+}
+
+function isValidJunctionAnchor(anchor: DiagramJunction["anchor"]): boolean {
+  return anchor?.kind === "route"
+    ? Number.isFinite(anchor.fraction) && anchor.fraction >= 0 && anchor.fraction <= 1
+    : anchor?.kind === "fixed" && Number.isFinite(anchor.point?.x) && Number.isFinite(anchor.point?.y)
 }
 
 function createDeleteEntitiesCommandPatch(state: InternalState, ids: ReadonlyArray<DiagramId>): Patch | null {
@@ -3251,7 +3420,7 @@ function isValidEndpoint(state: InternalState, endpoint: DiagramEdgeEndpoint): b
   return Boolean(port && hasEntity(state, diagramPortHostId(port)))
 }
 function isValidEdge(state: InternalState, edge: DiagramEdge): boolean {
-  return isValidEndpoint(state, edge.source) && isValidEndpoint(state, edge.target)
+  return isValidVisualStyle(edge.visualStyle) && isValidEndpoint(state, edge.source) && isValidEndpoint(state, edge.target)
     && (edge.points ?? []).every((point) => Number.isFinite(point.x) && Number.isFinite(point.y))
     && (edge.routing === undefined || isValidEdgeRouting(edge.routing))
 }
@@ -3266,7 +3435,10 @@ function hasRouteAttachmentCycle(
   const visited = new Set<DiagramId>()
   const edgeFor = (id: DiagramId) => id === candidate.id ? candidate : edges.get(id)
   const hostEdge = (endpoint: DiagramEdgeEndpoint): DiagramId | null => {
-    if (endpoint.kind === "junction") return junctions.get(endpoint.junctionId)?.hostEdgeId ?? null
+    if (endpoint.kind === "junction") {
+      const junction = junctions.get(endpoint.junctionId)
+      return junction?.anchor.kind === "route" ? junction.hostEdgeId : null
+    }
     if (endpoint.kind !== "port") return null
     const port = ports.get(endpoint.portId)
     if (!port || !("hostId" in port) || typeof port.hostId !== "string") return null
@@ -3289,6 +3461,7 @@ function hasRouteAttachmentCycle(
   return visit(candidate.id)
 }
 function commandIds(command: DiagramCommand): DiagramId[] {
+  if (command.type === "updateJunction") return [command.id]
   if (command.type === "createTable") return [command.table.id]
   if (command.type === "groupEntities") return [command.id, ...(command.ids ?? [])]
   if (command.type === "ungroupEntities") return [...command.ids, ...Object.keys(command.portRemaps ?? {})]

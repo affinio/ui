@@ -3,7 +3,7 @@ import { pathContourBoundsPoints } from "./pathOperations.js"
 import { clampViewportToBounds } from "./viewport.js"
 import { transformPathContour, translatePathContour } from "./pathOperations.js"
 import type { DiagramEngine } from "./DiagramEngine.js"
-import type { DiagramBezierAnchor, DiagramBezierHandleKind, DiagramBezierHandlePreview, DiagramBezierCreationOptions, DiagramBezierCreationPreview, DiagramPathCreationOptions, DiagramCommand, DiagramDynamicInputState, DiagramEdge, DiagramEdgeCreationPreview, DiagramEdgeEndpoint, DiagramEdgeSegmentPreview, DiagramEntities, DiagramId, DiagramGeometry, DiagramInteractionSnapOptions, DiagramInteractionSnapshot, DiagramInteractionTool, DiagramJunction, DiagramJunctionRenderGeometry, DiagramMarqueeMode, DiagramPointerEvent, DiagramPoint, DiagramPort, DiagramPortAnchor, DiagramPortCreationOptions, DiagramPortCreationPreview, DiagramRect, DiagramResizeEntry, DiagramResizeHandle, DiagramSnapCandidate, DiagramSnapGuide, DiagramSnapResult, DiagramViewportConstraints, DiagramOrthogonalRouteOptions, DiagramShape, DiagramTableResizeAxis, DiagramTableResizePreview, DiagramPathContour, DiagramPathSegment } from "./types.js"
+import type { DiagramBezierAnchor, DiagramBezierHandleKind, DiagramBezierHandlePreview, DiagramBezierCreationOptions, DiagramBezierCreationPreview, DiagramPathCreationOptions, DiagramCommand, DiagramDynamicInputState, DiagramEdge, DiagramEdgeCreationPreview, DiagramEdgeEndpoint, DiagramEdgeSegmentPreview, DiagramEdgeSegmentCommitResult, DiagramEntities, DiagramId, DiagramGeometry, DiagramInteractionSnapOptions, DiagramInteractionSnapshot, DiagramInteractionTool, DiagramJunction, DiagramJunctionRenderGeometry, DiagramMarqueeMode, DiagramPointerEvent, DiagramPoint, DiagramPort, DiagramPortAnchor, DiagramPortCreationOptions, DiagramPortCreationPreview, DiagramRect, DiagramResizeEntry, DiagramResizeHandle, DiagramSnapCandidate, DiagramSnapGuide, DiagramSnapResult, DiagramViewportConstraints, DiagramOrthogonalRouteOptions, DiagramShape, DiagramTableResizeAxis, DiagramTableResizePreview, DiagramPathContour, DiagramPathSegment } from "./types.js"
 
 type ScheduleFrame = (callback: () => void) => void
 const AXIS_LOCK_ACTIVATION_TOLERANCE_PX = 4
@@ -48,6 +48,7 @@ export class DiagramInteractionController {
   private edgeWaypointPreview: ReadonlyArray<DiagramPoint> | null = null
   private edgeSegmentDrag: EdgeSegmentDrag | null = null
   private edgeSegmentPreview: DiagramEdgeSegmentPreview | null = null
+  private edgeSegmentRoutingPreview: DiagramEdge["routing"] | null = null
   private dragSelectionIds: ReadonlyArray<DiagramId> = Object.freeze([])
   private snapGuides: ReadonlyArray<DiagramSnapGuide> = Object.freeze([])
   private snapResult: DiagramSnapResult | null = null
@@ -687,7 +688,7 @@ export class DiagramInteractionController {
     this.cancel()
   }
 
-  pointerUp(event: DiagramPointerEvent): void {
+  pointerUp(event: DiagramPointerEvent): DiagramEdgeSegmentCommitResult | void {
     if (this.engine.isEditingLocked()) { this.cancel(); return }
     if (this.tool === "connect-edge" && this.edgeClickPlacement && this.activePointer?.id === event.id) {
       this.activePointer = null
@@ -827,15 +828,17 @@ export class DiagramInteractionController {
       const preview = this.edgeSegmentPreview
       const edge = this.engine.getScene().entities.edgesById.get(drag.id)
       if (preview && edge?.routing?.mode === "auto") {
-        if (!samePoints(drag.path.slice(1, -1), preview.points)) {
-          const first = preview.path[drag.segmentIndex]!, second = preview.path[drag.segmentIndex + 1]!
-          const movedConstraint = { x: (first.x + second.x) / 2, y: (first.y + second.y) / 2 }
-          const waypoints = [...(edge.routing.waypoints ?? [])]
-          if (drag.waypointIndex !== undefined && drag.waypointIndex < waypoints.length) waypoints[drag.waypointIndex] = movedConstraint
-          else if (!waypoints.some((point) => samePoint(point, movedConstraint))) waypoints.push(movedConstraint)
-          const result = this.engine.dispatch({ type: "updateEdgeRouting", id: drag.id, routing: { ...edge.routing, waypoints } })
-          if (result.changed) this.commitCount += 1
+        if (preview.diagnostics?.length) {
+          const result: DiagramEdgeSegmentCommitResult = { status: "no-route", diagnostics: preview.diagnostics }
+          this.clearGesture()
+          this.tool = "select"
+          return result
         }
+        const commands: DiagramCommand[] = []
+        if (drag.source.kind === "point" && preview.source.kind === "point" && !samePoint(drag.source.point, preview.source.point)) commands.push({ type: "moveEdgeEndpoint", id: drag.id, endpoint: "source", point: preview.source.point })
+        if (drag.target.kind === "point" && preview.target.kind === "point" && !samePoint(drag.target.point, preview.target.point)) commands.push({ type: "moveEdgeEndpoint", id: drag.id, endpoint: "target", point: preview.target.point })
+        if (this.edgeSegmentRoutingPreview && JSON.stringify(this.edgeSegmentRoutingPreview) !== JSON.stringify(edge.routing)) commands.push({ type: "updateEdgeRouting", id: drag.id, routing: this.edgeSegmentRoutingPreview })
+        if (commands.length && this.engine.dispatchBatch(commands).changed) this.commitCount += 1
       } else if (preview) {
         const oldPoints = edge?.points ?? []
         if (!samePoints(oldPoints, preview.points) || !sameEndpoint(drag.source, preview.source) || !sameEndpoint(drag.target, preview.target)) {
@@ -849,7 +852,7 @@ export class DiagramInteractionController {
       }
       this.clearGesture()
       this.tool = "select"
-      return
+      return preview ? { status: "committed" } : undefined
     }
     if (this.tool === "drag-edge-endpoint" && this.edgeEndpointId && this.edgeEndpointKind && this.edgeEndpointPreview
       && (this.edgeEndpointPreview.x !== this.edgeEndpointStart?.x || this.edgeEndpointPreview.y !== this.edgeEndpointStart?.y || this.edgeEndpointConnection !== null)) {
@@ -1463,16 +1466,37 @@ export class DiagramInteractionController {
     if (drag.lastSegment === lastPathIndex - 1 && !targetMoves && movedLastVertex) nextPath.push(orthogonalConnectorElbow(movedLastVertex, nextTarget.kind === "point" ? nextTarget.point : path[lastPathIndex]!, drag.axis, false))
     nextPath.push(nextTarget.kind === "point" ? nextTarget.point : path[lastPathIndex]!)
     const cleanPath = simplifyOrthogonalEditPath(nextPath)
-    const points = cleanPath.slice(1, -1)
+    let resolvedPath = cleanPath
+    let diagnostics: DiagramEdgeSegmentPreview["diagnostics"]
+    this.edgeSegmentRoutingPreview = null
+    const edge = this.engine.getScene().entities.edgesById.get(drag.id)
+    if (edge?.routing?.mode === "auto") {
+      const movedConstraint = move(midpoint)
+      const waypoints = [...(edge.routing.waypoints ?? [])]
+      if (drag.waypointIndex !== undefined && drag.waypointIndex < waypoints.length) waypoints[drag.waypointIndex] = movedConstraint
+      else if (!waypoints.some((point) => samePoint(point, movedConstraint))) waypoints.push(movedConstraint)
+      this.edgeSegmentRoutingPreview = { ...edge.routing, waypoints }
+      const routedEdge = { ...edge, source: nextSource, target: nextTarget, routing: this.edgeSegmentRoutingPreview }
+      const entities = this.engine.getScene().entities
+      const edgesById = new Map(entities.edgesById)
+      edgesById.set(edge.id, routedEdge)
+      resolvedPath = resolveEdgePath(routedEdge, { ...entities, edgesById }) as DiagramPoint[]
+      if (resolvedPath.length < 2) {
+        diagnostics = [{ code: "no-route", message: "No collision-free orthogonal route satisfies the segment drag constraints." }]
+        resolvedPath = []
+      }
+    }
+    const points = resolvedPath.slice(1, -1)
     this.edgeWaypointPreview = points
     this.edgeSegmentPreview = Object.freeze({
       id: drag.id,
       segmentIndex: drag.segmentIndex,
       axis: drag.axis,
-      path: Object.freeze(cleanPath.map((point) => Object.freeze({ ...point }))),
+      path: Object.freeze(resolvedPath.map((point) => Object.freeze({ ...point }))),
       points: Object.freeze(points.map((point) => Object.freeze({ ...point }))),
       source: nextSource,
       target: nextTarget,
+      ...(diagnostics ? { diagnostics } : {}),
     })
   }
 
@@ -1626,7 +1650,7 @@ export class DiagramInteractionController {
     if (endpoint.kind === "junction") {
       const junction = this.edgeCreationJunctions.get(endpoint.junctionId) ?? this.engine.getScene().entities.junctionsById.get(endpoint.junctionId)
       const path = junction ? this.engine.getGeometrySnapshot(junction.hostEdgeId)?.path : undefined
-      return junction && path ? pointAtRouteFraction(path, junction.anchor.fraction) : null
+      return junction ? junction.anchor.kind === "fixed" ? junction.anchor.point : path ? pointAtRouteFraction(path, junction.anchor.fraction) : null : null
     }
     const bounds = this.engine.getGeometrySnapshot(endpoint.nodeId)?.bounds
     return bounds ? { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 } : null
@@ -1914,7 +1938,7 @@ export class DiagramInteractionController {
     const junction = this.edgeCreationJunctions.get(id)
     const path = junction ? this.engine.getGeometrySnapshot(junction.hostEdgeId)?.path : undefined
     if (!junction || !path) return null
-    return { id, hostEdgeId: junction.hostEdgeId, point: pointAtRouteFraction(path, junction.anchor.fraction), appearance: "filled-dot", radius: 3 }
+    return { id, hostEdgeId: junction.hostEdgeId, point: junction.anchor.kind === "fixed" ? junction.anchor.point : pointAtRouteFraction(path, junction.anchor.fraction), appearance: "filled-dot", radius: 3 }
   }
 
   private updateLineCreationPreview(): void {
@@ -2331,6 +2355,7 @@ export class DiagramInteractionController {
     this.edgeWaypointPreview = null
     this.edgeSegmentDrag = null
     this.edgeSegmentPreview = null
+    this.edgeSegmentRoutingPreview = null
     this.framePending = false
     this.pendingMoveCount = 0
   }

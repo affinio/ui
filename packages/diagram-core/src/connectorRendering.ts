@@ -3,7 +3,7 @@ import type { DiagramConnectorBridge, DiagramConnectorPathCommand, DiagramConnec
 
 type Crossing = Readonly<{ point: DiagramPoint; lowerId: string; segmentIndex: number; t: number }>
 type RenderBridge = DiagramConnectorBridge & Readonly<{ segmentIndex: number; t: number }>
-type RenderableEdge = Readonly<{ edge: DiagramEdge; path: ReadonlyArray<DiagramPoint> }>
+type RenderableEdge = Readonly<{ edge: DiagramEdge; path: ReadonlyArray<DiagramPoint>; style?: import("./types.js").DiagramResolvedStyle }>
 const EPSILON = 1e-9
 
 /** Builds renderer-neutral connector paths from the current scene and render order. */
@@ -17,7 +17,7 @@ export function createConnectorRenderGeometry(scene: DiagramScene, options: Diag
   for (const id of orderedEdgeIds) {
     const edge = scene.entities.edgesById.get(id)
     const geometry = edge ? createEntityGeometry(id, scene.entities) : null
-    if (edge && geometry?.kind === "edge" && geometry.path && geometry.path.length >= 2) edges.push({ edge, path: geometry.path })
+    if (edge && geometry?.kind === "edge" && geometry.path && geometry.path.length >= 2) edges.push({ edge, path: geometry.path, style: geometry.style })
   }
   const crossingsByUpper = new Map<string, Crossing[]>()
   const junctionsByHost = new Map<string, DiagramJunctionRenderGeometry[]>()
@@ -27,7 +27,7 @@ export function createConnectorRenderGeometry(scene: DiagramScene, options: Diag
     const path = createEntityGeometry(host.id, scene.entities)?.path
     if (!path) continue
     const values = junctionsByHost.get(host.id) ?? []
-    values.push({ id: junction.id, hostEdgeId: host.id, point: pointAtRouteFraction(path, junction.anchor.fraction), appearance: junctionAppearance, radius: junctionRadius })
+    values.push({ id: junction.id, hostEdgeId: host.id, point: junction.anchor.kind === "fixed" ? junction.anchor.point : pointAtRouteFraction(path, junction.anchor.fraction), appearance: junctionAppearance, radius: junctionRadius })
     junctionsByHost.set(host.id, values)
   }
   if (bridgeRadius > 0) {
@@ -49,11 +49,11 @@ export function createConnectorRenderGeometry(scene: DiagramScene, options: Diag
       }
     }
   }
-  return Object.freeze(edges.map(({ edge, path }) => {
+  return Object.freeze(edges.map(({ edge, path, style }) => {
     const crossings = crossingsByUpper.get(edge.id) ?? []
     const renderBridges = createBridges(edge.id, crossings, path, bridgeRadius, cornerRadius)
     const bridges = renderBridges.map(({ segmentIndex: _segmentIndex, t: _t, ...bridge }) => bridge)
-    return Object.freeze({ id: edge.id, commands: Object.freeze(buildPath(path, cornerRadius, renderBridges)), bridges: Object.freeze(bridges), junctions: Object.freeze(junctionsByHost.get(edge.id) ?? []) })
+    return Object.freeze({ id: edge.id, ...(style ? { style } : {}), commands: Object.freeze(buildPath(path, cornerRadius, renderBridges)), bridges: Object.freeze(bridges), junctions: Object.freeze(junctionsByHost.get(edge.id) ?? []) })
   }))
 }
 

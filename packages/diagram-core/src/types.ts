@@ -17,6 +17,20 @@ export type DiagramPoint = Readonly<{
   y: number
 }>
 
+export type DiagramVisualStyle = Readonly<{
+  fill?: string
+  stroke?: string
+  strokeWidth?: number
+  strokeDasharray?: string
+  fillRule?: "nonzero" | "evenodd"
+  color?: string
+  fontFamily?: string
+  fontSize?: number
+  fontWeight?: string | number
+  fontStyle?: string
+}>
+export type DiagramResolvedStyle = DiagramVisualStyle
+
 export type DiagramPathSegment = Readonly<{ kind: "line"; start: DiagramPoint; end: DiagramPoint }>
   | Readonly<{ kind: "arc"; center: DiagramPoint; radius: number; startAngle: number; sweepAngle: number }>
   | Readonly<{ kind: "cubic"; start: DiagramPoint; control1: DiagramPoint; control2: DiagramPoint; end: DiagramPoint }>
@@ -54,6 +68,8 @@ export type DiagramSelection = Readonly<{
 export type DiagramEntityBase = Readonly<{
   id: DiagramId
   metadata?: DiagramMetadata
+  /** Typed presentation fields override legacy equivalents in metadata. */
+  visualStyle?: DiagramVisualStyle
 }>
 
 export type DiagramNode = DiagramEntityBase & Readonly<{
@@ -94,7 +110,8 @@ export type DiagramEdgeEndpoint =
 export type DiagramJunction = DiagramEntityBase & Readonly<{
   kind: "junction"
   hostEdgeId: DiagramId
-  anchor: Readonly<{ kind: "route"; fraction: number }>
+  /** Route anchors preserve normalized arc-length behavior for existing diagrams; fixed anchors pin an explicit world-space point. */
+  anchor: Readonly<{ kind: "route"; fraction: number }> | Readonly<{ kind: "fixed"; point: DiagramPoint }>
 }>
 
 export type DiagramEdge = DiagramEntityBase & Readonly<{
@@ -134,12 +151,12 @@ export type DiagramShape = DiagramEntityBase & Readonly<{
   cornerRadius?: number
   /** Optional local-coordinate vertices for a free polyline shape. Never creates connectivity. */
   points?: ReadonlyArray<DiagramPoint>
-  /** Exact line/circular-arc contours in shape-local coordinates. */
+  /** Exact line, circular-arc, and cubic contours in shape-local coordinates. `closed` adds an implicit final segment; `hole` marks a closed interior contour. */
   pathContours?: ReadonlyArray<DiagramPathContour>
   shape: "rect" | "ellipse" | "line" | string
 }>
 
-/** Free, non-electrical polyline defined by world-space vertices. */
+/** Input to `createPath`; use exactly one non-empty representation. Coordinates are world-space and become local to the stored DiagramShape. */
 export type DiagramPath = DiagramEntityBase & Readonly<{ kind: "path"; points?: ReadonlyArray<DiagramPoint>; contours?: ReadonlyArray<DiagramPathContour>; metadata?: DiagramMetadata }>
 
 export type DiagramTableHorizontalAlignment = "left" | "center" | "right"
@@ -349,6 +366,7 @@ export type DiagramGeometry = Readonly<{
   /** Present for port geometry; the point's resolved world position is `point`. */
   hostId?: DiagramId
   anchor?: DiagramPortAnchor
+  style?: DiagramResolvedStyle
 }>
 
 /** Transient rendering settings for connectors. Values are world units and are never serialized. */
@@ -372,6 +390,7 @@ export type DiagramConnectorBridge = Readonly<{ point: DiagramPoint; overId: Dia
 
 export type DiagramConnectorRenderGeometry = Readonly<{
   id: DiagramId
+  style?: DiagramResolvedStyle
   commands: ReadonlyArray<DiagramConnectorPathCommand>
   bridges: ReadonlyArray<DiagramConnectorBridge>
   junctions: ReadonlyArray<DiagramJunctionRenderGeometry>
@@ -403,10 +422,10 @@ export type DiagramCommand =
   | Readonly<{ type: "createShape"; shape: DiagramShape; historyKey?: string }>
   | Readonly<{ type: "createPath"; path: DiagramPath; historyKey?: string }>
   | Readonly<{ type: "createArc"; id: DiagramId; start: DiagramPoint; through: DiagramPoint; end: DiagramPoint; metadata?: DiagramMetadata; historyKey?: string }>
-  | Readonly<{ type: "updateShapePath"; id: DiagramId; points?: ReadonlyArray<DiagramPoint>; pathContours?: ReadonlyArray<DiagramPathContour>; /** Treat pathContours as world-space and canonicalize the resulting shape without rotation/flips. */ worldSpace?: boolean; historyKey?: string }>
-  | Readonly<{ type: "insertPathVertex"; id: DiagramId; index: number; point: DiagramPoint; historyKey?: string }>
-  | Readonly<{ type: "movePathVertex"; id: DiagramId; index: number; point: DiagramPoint; historyKey?: string }>
-  | Readonly<{ type: "removePathVertex"; id: DiagramId; index: number; historyKey?: string }>
+  | Readonly<{ type: "updateShapePath"; id: DiagramId; points?: ReadonlyArray<DiagramPoint>; pathContours?: ReadonlyArray<DiagramPathContour>; /** Treat the supplied path representation as world-space and canonicalize the resulting shape without rotation/flips. Exactly one of points/pathContours is required. */ worldSpace?: boolean; portRemaps?: Readonly<Record<DiagramId, DiagramPortRemap>>; historyKey?: string }>
+  | Readonly<{ type: "insertPathVertex"; id: DiagramId; index: number; point: DiagramPoint; portRemaps?: Readonly<Record<DiagramId, DiagramPortRemap>>; historyKey?: string }>
+  | Readonly<{ type: "movePathVertex"; id: DiagramId; index: number; point: DiagramPoint; portRemaps?: Readonly<Record<DiagramId, DiagramPortRemap>>; historyKey?: string }>
+  | Readonly<{ type: "removePathVertex"; id: DiagramId; index: number; portRemaps?: Readonly<Record<DiagramId, DiagramPortRemap>>; historyKey?: string }>
   | Readonly<{ type: "updateShape"; id: DiagramId; cornerRadius: number; historyKey?: string }>
   | Readonly<{ type: "createTable"; table: DiagramTable; historyKey?: string }>
   | Readonly<{ type: "insertTableRow"; id: DiagramId; index: number; cells?: ReadonlyArray<DiagramTableCell>; historyKey?: string }>
@@ -422,6 +441,7 @@ export type DiagramCommand =
   | Readonly<{ type: "ungroupEntities"; ids: ReadonlyArray<DiagramId>; portRemaps?: Readonly<Record<DiagramId, DiagramPortRemap>>; historyKey?: string }>
   | Readonly<{ type: "createPort"; port: DiagramPort; historyKey?: string }>
   | Readonly<{ type: "createJunction"; junction: DiagramJunction; historyKey?: string }>
+  | Readonly<{ type: "updateJunction"; id: DiagramId; anchor: DiagramJunction["anchor"]; historyKey?: string }>
   | Readonly<{ type: "deleteEntities"; ids: ReadonlyArray<DiagramId>; historyKey?: string }>
   | Readonly<{ type: "reconnectEdgeEndpoint"; id: DiagramId; endpoint: "source" | "target"; connection: DiagramEdgeEndpoint; historyKey?: string }>
   | Readonly<{ type: "updateEntities"; updates: ReadonlyArray<DiagramEntityUpdate>; historyKey?: string }>
@@ -446,6 +466,7 @@ export type DiagramCommand =
   | Readonly<{ type: "sendToBack"; ids: ReadonlyArray<DiagramId>; historyKey?: string }>
   | Readonly<{ type: "setLayer"; ids: ReadonlyArray<DiagramId>; layer?: string; layerRole?: DiagramLayerRole; historyKey?: string }>
   | Readonly<{ type: "setEntityMetadata"; id: DiagramId; metadata?: DiagramMetadata; historyKey?: string }>
+  | Readonly<{ type: "updateEntityStyle"; id: DiagramId; visualStyle?: DiagramVisualStyle; historyKey?: string }>
   | Readonly<{ type: "keyboard"; command: DiagramKeyboardCommand; options?: DiagramKeyboardOptions; historyKey?: string }>
   | Readonly<{ type: "setSelection"; selection: DiagramSelection; mode?: "replace" | "add" | "toggle"; historyKey?: string }>
   | Readonly<{ type: "editText"; id: DiagramId; text: string; historyKey?: string }>
@@ -462,7 +483,8 @@ export type DiagramEntityUpdate = Readonly<{
 export type DiagramCommandResult = Readonly<{
   changed: boolean
   revision: number
-  reason?: "scene-locked"
+  reason?: "scene-locked" | "invalid-command"
+  diagnostic?: string
 }>
 
 export type DiagramSweepTrimSide = "directed" | "both"
@@ -514,8 +536,10 @@ export type DiagramBatchResult = Readonly<{
   failedCommandIndex: number | null
   reason: DiagramBatchFailureReason | null
   affectedIds: ReadonlyArray<DiagramId>
+  diagnostic?: string
 }>
-export type DiagramBatchOptions = Readonly<{ expectedRevision?: number; operationId?: string }>
+/** `expectedRevision` retains its historical documentRevision semantics; `expectedDocumentRevision` is the explicit equivalent. If both are supplied, both must match the current documentRevision. */
+export type DiagramBatchOptions = Readonly<{ expectedRevision?: number; expectedDocumentRevision?: number; operationId?: string }>
 export type DiagramBatchPreviewResult = DiagramBatchResult & Readonly<{ scene?: SerializedDiagramScene }>
 export type DiagramValidationIssue = Readonly<{ code: string; severity: "error" | "warning"; entityIds: ReadonlyArray<DiagramId>; message: string }>
 
@@ -611,7 +635,13 @@ export type DiagramEdgeSegmentPreview = Readonly<{
   points: ReadonlyArray<DiagramPoint>
   source: DiagramEdgeEndpoint
   target: DiagramEdgeEndpoint
+  diagnostics?: DiagramOrthogonalRouteResult["diagnostics"]
 }>
+
+export type DiagramEdgeSegmentCommitResult = Readonly<
+  | { status: "committed" }
+  | { status: "no-route"; diagnostics: DiagramOrthogonalRouteResult["diagnostics"] }
+>
 
 export type DiagramDynamicInputState = Readonly<{ x: number; y: number; dx: number; dy: number; length: number; angle: number }>
 export type DiagramEdgeCreationPreview = Readonly<{

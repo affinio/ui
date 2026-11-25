@@ -1,5 +1,6 @@
 import type { DiagramEdge, DiagramEdgeEndpoint, DiagramEntities, DiagramGeometry, DiagramId, DiagramOrthogonalRouteOptions, DiagramOrthogonalRouteResult, DiagramPoint, DiagramPort, DiagramPortAnchor, DiagramRect, DiagramTable, DiagramTableCellPosition } from "./types.js"
 import { flattenPathContour, pathContourBoundsPoints, transformPathContour, translatePathContour } from "./pathOperations.js"
+import { resolveDiagramStyle } from "./renderStyle.js"
 
 export function rectIntersects(a: DiagramRect, b: DiagramRect): boolean {
   return a.x <= b.x + b.width && a.x + a.width >= b.x && a.y <= b.y + b.height && a.y + a.height >= b.y
@@ -309,6 +310,21 @@ function findCellIndex(offset: number, sizes: ReadonlyArray<number>, total: numb
 }
 
 export function createEntityGeometry(id: DiagramId, entities: DiagramEntities): DiagramGeometry | null {
+  const geometry = createEntityGeometryRaw(id, entities)
+  if (!geometry) return null
+  const entity = entities.nodesById.get(id) ?? entities.edgesById.get(id) ?? entities.textsById.get(id)
+    ?? entities.shapesById.get(id) ?? entities.portsById.get(id) ?? entities.junctionsById.get(id)
+    ?? entities.groupsById.get(id) ?? entities.tablesById.get(id)
+  if (!entity) return geometry
+  let style = resolveDiagramStyle(entity)
+  if (entity.kind === "shape" && entity.pathContours?.length) {
+    style = { ...style, fillRule: entity.pathContours.some((contour) => contour.hole) ? "evenodd" : style.fillRule ?? "evenodd" }
+  }
+  if (entity.kind === "text" && entity.fontSize !== undefined && entity.visualStyle?.fontSize === undefined) return { ...geometry, style: { ...style, fontSize: entity.fontSize } }
+  return Object.keys(style).length ? { ...geometry, style } : geometry
+}
+
+function createEntityGeometryRaw(id: DiagramId, entities: DiagramEntities): DiagramGeometry | null {
   const node = entities.nodesById.get(id)
   if (node) {
     return rectGeometry(id, "node", { x: node.x, y: node.y, width: node.width, height: node.height }, node.rotation ?? 0, 4, node.flipX, node.flipY)
@@ -324,9 +340,9 @@ export function createEntityGeometry(id: DiagramId, entities: DiagramEntities): 
   if (junction) {
     const host = entities.edgesById.get(junction.hostEdgeId)
     if (!host) return null
-    const point = pointAtRouteFraction(resolveEdgePath(host, entities), junction.anchor.fraction)
+    const point = junction.anchor.kind === "fixed" ? junction.anchor.point : pointAtRouteFraction(resolveEdgePath(host, entities), junction.anchor.fraction)
     const bounds = { x: point.x - 3, y: point.y - 3, width: 6, height: 6 }
-    return { id, kind: "junction", bounds, hitBounds: inflateRect(bounds, 4), point, hostId: junction.hostEdgeId, anchor: junction.anchor }
+    return { id, kind: "junction", bounds, hitBounds: inflateRect(bounds, 4), point, hostId: junction.hostEdgeId }
   }
   const edge = entities.edgesById.get(id)
   if (edge) {
@@ -404,16 +420,19 @@ export function resolveEdgePath(edge: DiagramEdge, entities: DiagramEntities): R
         if (port) excluded.add(diagramPortHostId(port))
       }
     }
+    const fixedJunctions = [...entities.junctionsById.values()].flatMap((junction) =>
+      junction.hostEdgeId === edge.id && junction.anchor.kind === "fixed" ? [junction.anchor.point] : [])
+    const waypoints = [...(routing.waypoints ?? []), ...fixedJunctions]
     const obstacleIds = [
       ...entities.nodesById.keys(), ...entities.textsById.keys(), ...entities.tablesById.keys(),
       ...entities.shapesById.keys(),
     ].filter((id) => !excluded.has(id))
     const obstacles = obstacleIds.flatMap((id) => {
       const geometry = createEntityGeometry(id, entities)
-      return geometry && routeObstacleMayAffect(geometry.bounds, source, target, routing.waypoints ?? [], routing.clearance ?? 0, routing.terminalLead ?? 12) ? [{ id, bounds: geometry.bounds }] : []
+      return geometry && routeObstacleMayAffect(geometry.bounds, source, target, waypoints, routing.clearance ?? 0, routing.terminalLead ?? 12) ? [{ id, bounds: geometry.bounds }] : []
     })
     const existingRoutes = [...entities.edgesById.values()]
-      .filter((candidate) => candidate.id !== edge.id && candidate.routing?.mode !== "auto")
+      .filter((candidate) => candidate.id !== edge.id && candidate.routing?.mode !== "auto" && !routeDependsOnEdge(candidate, edge.id, entities))
       .map((candidate) => ({ id: candidate.id, points: resolveEdgePath(candidate, entities) }))
     const route = routeOrthogonalConnector(source, target, {
       strictGrid: routing.strictGrid,
@@ -426,17 +445,44 @@ export function resolveEdgePath(edge: DiagramEdge, entities: DiagramEntities): R
       maxBends: routing.maxBends,
       maxRouteBends: routing.maxRouteBends,
       tieBreak: routing.tieBreak,
-      waypoints: routing.waypoints,
+      waypoints,
       obstacles,
       existingRoutes,
     })
     if (!route.diagnostics.some((diagnostic) => diagnostic.code !== "terminal-leads-overlap")) return simplifyOrthogonalPath(route.path)
+    return []
   }
   return [
     resolveEndpoint(edge.source, entities),
     ...(edge.points ?? []),
     resolveEndpoint(edge.target, entities),
   ]
+}
+
+function routeDependsOnEdge(edge: DiagramEdge, targetEdgeId: DiagramId, entities: DiagramEntities): boolean {
+  const visited = new Set<DiagramId>()
+  const endpointHost = (endpoint: DiagramEdgeEndpoint): DiagramId | null => {
+    if (endpoint.kind === "junction") {
+      const junction = entities.junctionsById.get(endpoint.junctionId)
+      return junction?.anchor.kind === "route" ? junction.hostEdgeId : null
+    }
+    if (endpoint.kind !== "port") return null
+    const port = entities.portsById.get(endpoint.portId)
+    const hostId = port ? diagramPortHostId(port) : ""
+    return entities.edgesById.has(hostId) ? hostId : null
+  }
+  const visit = (candidate: DiagramEdge): boolean => {
+    if (visited.has(candidate.id)) return false
+    visited.add(candidate.id)
+    for (const endpoint of [candidate.source, candidate.target]) {
+      const hostId = endpointHost(endpoint)
+      if (hostId === targetEdgeId) return true
+      const host = hostId ? entities.edgesById.get(hostId) : undefined
+      if (host && visit(host)) return true
+    }
+    return false
+  }
+  return visit(edge)
 }
 
 function routeObstacleMayAffect(bounds: DiagramRect, source: DiagramPoint, target: DiagramPoint, waypoints: ReadonlyArray<DiagramPoint>, clearance: number, terminalLead: number): boolean {
@@ -460,7 +506,7 @@ export function resolveEndpoint(endpoint: DiagramEdgeEndpoint, entities: Diagram
   if (endpoint.kind === "junction") {
     const junction = entities.junctionsById.get(endpoint.junctionId)
     const host = junction ? entities.edgesById.get(junction.hostEdgeId) : undefined
-    return junction && host ? pointAtRouteFraction(resolveEdgePath(host, entities), junction.anchor.fraction) : { x: 0, y: 0 }
+    return junction && host ? junction.anchor.kind === "fixed" ? junction.anchor.point : pointAtRouteFraction(resolveEdgePath(host, entities), junction.anchor.fraction) : { x: 0, y: 0 }
   }
   const node = entities.nodesById.get(endpoint.nodeId)
   return node ? rectCenter({ x: node.x, y: node.y, width: node.width, height: node.height }) : { x: 0, y: 0 }
