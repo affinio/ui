@@ -24,6 +24,115 @@ const scene: DiagramSceneInput = {
 }
 
 describe("DiagramEngine", () => {
+  it("trims only to the nearest eligible geometry boundary and uses identical preview and commit", () => {
+    const engine = createDiagramEngine({ shapes: [
+      { id: "target", kind: "shape", shape: "line", x: 0, y: 20, width: 100, height: 0, metadata: { color: "red", tag: 4 } },
+      { id: "boundary", kind: "shape", shape: "line", x: 70, y: 0, width: 0, height: 40, metadata: { keep: true } },
+    ] })
+    const before = engine.serialize()
+    const untouchedBoundary = engine.getScene().entities.shapesById.get("boundary")
+    const result = trimSelectionByStroke(before, { targetIds: ["target"], stroke: [{ x: 30, y: 40 }, { x: 30, y: 0 }], tolerance: 0.01 })
+    expect(result.findings).toEqual([])
+    expect(result.targets[0]).toMatchObject({
+      changed: true,
+      sweepCrossings: [{ x: 30, y: 20 }],
+      cutPoints: [{ x: 30, y: 20 }],
+      boundaryIntersections: [{ point: { x: 70, y: 20 }, boundaryId: "boundary" }],
+    })
+    expect(result.targets[0]?.retained).toEqual([
+      { segments: [{ kind: "line", start: { x: 0, y: 20 }, end: { x: 30, y: 20 } }], closed: false },
+      { segments: [{ kind: "line", start: { x: 70, y: 20 }, end: { x: 100, y: 20 } }], closed: false },
+    ])
+    const batch = engine.dispatchBatch(result.updates)
+    expect(batch).toMatchObject({ ok: true, changed: true, affectedIds: ["target"] })
+    expect(engine.getGeometrySnapshot("target")?.pathContours).toEqual(createDiagramEngine({ shapes: [result.targets[0]!.preview!] }).getGeometrySnapshot("target")?.pathContours)
+    expect(engine.getScene().entities.shapesById.get("boundary")).toBe(untouchedBoundary)
+    expect(engine.getDiagnostics().undoDepth).toBe(1)
+    engine.dispatch({ type: "undo" })
+    expect(engine.serialize()).toEqual(before)
+    engine.dispatch({ type: "redo" })
+    expect(engine.getGeometrySnapshot("target")?.pathContours).toEqual(createDiagramEngine({ shapes: [result.targets[0]!.preview!] }).getGeometrySnapshot("target")?.pathContours)
+  })
+
+  it("reports missing, ambiguous, and unsupported trim boundaries without modifying targets", () => {
+    const base = createDiagramEngine({ shapes: [{ id: "line", kind: "shape", shape: "line", x: 0, y: 20, width: 100, height: 0 }] }).serialize()
+    const stroke = [{ x: 30, y: 40 }, { x: 30, y: 0 }]
+    expect(trimSelectionByStroke(base, { targetIds: ["line"], stroke, tolerance: 0.01 }).targets[0]).toMatchObject({ changed: false, finding: { code: "no-boundary" }, sweepCrossings: [{ x: 30, y: 20 }] })
+    const ambiguous = { ...base, shapes: [...base.shapes, { id: "boundary-a", kind: "shape" as const, shape: "line", x: 70, y: 0, width: 0, height: 40 }, { id: "boundary-b", kind: "shape" as const, shape: "line", x: 70, y: 0, width: 0, height: 40 }] }
+    expect(trimSelectionByStroke(ambiguous, { targetIds: ["line"], stroke, tolerance: 0.01 }).targets[0]).toMatchObject({ changed: false, finding: { code: "ambiguous-boundary" }, boundaryIntersections: [] })
+    const unsupported = { ...base, shapes: [...base.shapes, { id: "ellipse", kind: "shape" as const, shape: "ellipse", x: 60, y: 0, width: 20, height: 40 }] }
+    expect(trimSelectionByStroke(unsupported, { targetIds: ["line"], stroke, tolerance: 0.01, boundaryIds: ["ellipse"] }).targets[0]?.finding?.code).toBe("unsupported-boundary")
+    const malformed = { ...base, shapes: [...base.shapes, { id: "bad-boundary", kind: "shape" as const, shape: "line", x: Number.NaN, y: 0, width: 0, height: 40 }] }
+    expect(trimSelectionByStroke(malformed, { targetIds: ["line"], stroke, tolerance: 0.01, boundaryIds: ["bad-boundary"] }).targets[0]?.finding?.code).toBe("invalid-input")
+    expect(trimSelectionByStroke(base, { targetIds: ["line"], stroke: [{ x: 1, y: 1 }, { x: 2, y: 2 }], tolerance: 0.01 }).targets[0]?.finding?.code).toBe("no-intersection")
+  })
+
+  it("uses exact line-arc intersections as trim boundaries in either orientation", () => {
+    const lineTarget = createDiagramEngine({ shapes: [
+      { id: "line-target", kind: "shape", shape: "line", x: 0, y: 0, width: 100, height: 0 },
+      { id: "arc-boundary", kind: "shape", shape: "line", x: 0, y: 0, width: 100, height: 40, pathContours: [{ closed: false, segments: [{ kind: "arc", center: { x: 70, y: 0 }, radius: 20, startAngle: Math.PI / 2, sweepAngle: Math.PI }] }] },
+    ] })
+    const lineResult = trimSelectionByStroke(lineTarget.serialize(), { targetIds: ["line-target"], stroke: [{ x: 30, y: 10 }, { x: 30, y: -10 }], tolerance: 0.01 })
+    expect(lineResult.targets[0]?.boundaryIntersections[0]?.point.x).toBeCloseTo(50)
+    expect(lineResult.targets[0]?.retained.flatMap((contour) => contour.segments)).toHaveLength(2)
+
+    const arcTarget = createDiagramEngine({ shapes: [
+      { id: "arc-target", kind: "shape", shape: "line", x: 0, y: 0, width: 100, height: 100, pathContours: [{ closed: false, segments: [{ kind: "arc", center: { x: 50, y: 50 }, radius: 40, startAngle: 0, sweepAngle: Math.PI }] }] },
+      { id: "line-boundary", kind: "shape", shape: "line", x: 0, y: 60, width: 100, height: 0 },
+    ] })
+    const arcResult = trimSelectionByStroke(arcTarget.serialize(), { targetIds: ["arc-target"], stroke: [{ x: 80, y: 100 }, { x: 80, y: 0 }], tolerance: 0.01 })
+    expect(arcResult.targets[0]?.boundaryIntersections[0]?.point.y).toBeCloseTo(60)
+    expect(arcResult.targets[0]?.retained.flatMap((contour) => contour.segments).every((segment) => segment.kind === "arc")).toBe(true)
+  })
+
+  it("builds rounded connector paths and bridges only strict unconnected crossings on the upper edge", () => {
+    const engine = createDiagramEngine({ edges: [
+      { id: "horizontal", kind: "edge", source: { kind: "point", point: { x: 0, y: 50 } }, target: { kind: "point", point: { x: 100, y: 50 } }, points: [{ x: 25, y: 50 }, { x: 75, y: 50 }] },
+      { id: "vertical", kind: "edge", source: { kind: "point", point: { x: 50, y: 0 } }, target: { kind: "point", point: { x: 50, y: 100 } }, points: [{ x: 50, y: 25 }, { x: 50, y: 75 }] },
+      { id: "bend", kind: "edge", source: { kind: "point", point: { x: 120, y: 0 } }, target: { kind: "point", point: { x: 180, y: 60 } }, points: [{ x: 180, y: 0 }] },
+    ] })
+    const straight = engine.getConnectorRenderGeometry()
+    expect(straight.find((edge) => edge.id === "vertical")?.commands.some((command) => command.kind === "cubicTo" || command.kind === "quadraticTo")).toBe(false)
+    const rendered = engine.getConnectorRenderGeometry({ cornerRadius: 12, crossingBridge: { radius: 8 } })
+    const vertical = rendered.find((edge) => edge.id === "vertical")!
+    expect(vertical.bridges).toEqual([{ point: { x: 50, y: 50 }, overId: "vertical", underId: "horizontal", radius: 8 }])
+    expect(vertical.commands.some((command) => command.kind === "cubicTo")).toBe(true)
+    expect(rendered.find((edge) => edge.id === "bend")?.commands.some((command) => command.kind === "quadraticTo")).toBe(true)
+    const clamped = engine.getConnectorRenderGeometry({ cornerRadius: 80 }).find((edge) => edge.id === "bend")!
+    expect(clamped.commands).toContainEqual({ kind: "lineTo", point: { x: 150, y: 0 } })
+    expect(clamped.commands).toContainEqual({ kind: "quadraticTo", control: { x: 180, y: 0 }, point: { x: 180, y: 30 } })
+    expect(engine.getDiagnostics().undoDepth).toBe(0)
+
+    engine.dispatch({ type: "bringToFront", ids: ["horizontal"] })
+    const reordered = engine.getConnectorRenderGeometry({ crossingBridge: { radius: 8 } })
+    expect(reordered.find((edge) => edge.id === "horizontal")?.bridges[0]).toMatchObject({ overId: "horizontal", underId: "vertical" })
+    engine.dispatch({ type: "moveEdgeWaypoint", id: "horizontal", index: 0, point: { x: 25, y: 30 } })
+    const moved = engine.getConnectorRenderGeometry({ crossingBridge: { radius: 8 } })
+    expect(moved.find((edge) => edge.id === "horizontal")?.bridges[0]?.point).toEqual({ x: 50, y: 40 })
+
+    const touching = createDiagramEngine({ edges: [
+      { id: "a", kind: "edge", source: { kind: "point", point: { x: 0, y: 0 } }, target: { kind: "point", point: { x: 10, y: 10 } } },
+      { id: "b", kind: "edge", source: { kind: "point", point: { x: 10, y: 10 } }, target: { kind: "point", point: { x: 20, y: 0 } } },
+      { id: "c", kind: "edge", source: { kind: "point", point: { x: 0, y: 20 } }, target: { kind: "point", point: { x: 20, y: 20 } } },
+    ] })
+    expect(touching.getConnectorRenderGeometry({ crossingBridge: { radius: 5 } }).flatMap((edge) => edge.bridges)).toEqual([])
+    const overlap = createDiagramEngine({ edges: [
+      { id: "overlap-a", kind: "edge", source: { kind: "point", point: { x: 0, y: 5 } }, target: { kind: "point", point: { x: 20, y: 5 } } },
+      { id: "overlap-b", kind: "edge", source: { kind: "point", point: { x: 10, y: 5 } }, target: { kind: "point", point: { x: 30, y: 5 } } },
+    ] })
+    expect(overlap.getConnectorRenderGeometry({ crossingBridge: { radius: 5 } }).flatMap((edge) => edge.bridges)).toEqual([])
+    const sharedPort = createDiagramEngine({
+      nodes: [{ id: "host", kind: "node", x: 0, y: 0, width: 20, height: 20, portIds: ["shared"] }],
+      ports: [{ id: "shared", kind: "port", nodeId: "host", x: 10, y: 10 }],
+      edges: [
+        { id: "port-a", kind: "edge", source: { kind: "port", portId: "shared" }, target: { kind: "point", point: { x: 100, y: 10 } } },
+        { id: "port-b", kind: "edge", source: { kind: "port", portId: "shared" }, target: { kind: "point", point: { x: 10, y: 100 } } },
+      ],
+    })
+    expect(sharedPort.getConnectorRenderGeometry({ crossingBridge: { radius: 5 } }).flatMap((edge) => edge.bridges)).toEqual([])
+    expect(() => engine.getConnectorRenderGeometry({ cornerRadius: Number.NaN })).toThrow(RangeError)
+  })
+
   it("draws an exact cubic Bézier contour with transient preview and one undoable commit", () => {
     const engine = createDiagramEngine({ viewport: { x: 0, y: 0, width: 300, height: 200, zoom: 1 } })
     const frames: Array<() => void> = []
@@ -2594,6 +2703,61 @@ describe("DiagramEngine", () => {
     expect(engine.getScene().entities.nodesById.get("n2")?.y).toBe(80)
   })
 
+  it("rotates free straight edges around their center and preserves selection through undo and redo", () => {
+    const engine = createDiagramEngine({
+      edges: [
+        { id: "free-edge", kind: "edge", source: { kind: "point", point: { x: 20, y: 40 } }, target: { kind: "point", point: { x: 120, y: 40 } } },
+        { id: "locked-edge", kind: "edge", source: { kind: "point", point: { x: 0, y: 0 } }, target: { kind: "point", point: { x: 10, y: 0 } }, metadata: { locked: true } },
+        { id: "readonly-edge", kind: "edge", source: { kind: "point", point: { x: 0, y: 10 } }, target: { kind: "point", point: { x: 10, y: 10 } }, metadata: { readOnly: true } },
+      ],
+      selection: { ids: ["free-edge"], primaryId: "free-edge" },
+    })
+    expect(engine.canRotate()).toBe(true)
+    expect(engine.canRotate(["locked-edge"])).toBe(false)
+    expect(engine.canRotate(["readonly-edge"])).toBe(false)
+    expect(engine.dispatch({ type: "rotateEntities", entries: [{ id: "free-edge", rotation: 90 }] }).changed).toBe(true)
+    expect(engine.getScene().entities.edgesById.get("free-edge")).toMatchObject({
+      source: { kind: "point", point: { x: 70, y: -10 } },
+      target: { kind: "point", point: { x: 70, y: 90 } },
+      rotation: 90,
+    })
+    expect(engine.getScene().selection).toEqual({ ids: ["free-edge"], primaryId: "free-edge" })
+    expect(engine.getGeometrySnapshot("free-edge")?.bounds).toEqual({ x: 70, y: -10, width: 0, height: 100 })
+    const rotated = engine.getScene().entities.edgesById.get("free-edge")
+    engine.dispatch({ type: "undo" })
+    expect(engine.getScene().entities.edgesById.get("free-edge")?.source).toEqual({ kind: "point", point: { x: 20, y: 40 } })
+    expect(engine.getScene().selection).toEqual({ ids: ["free-edge"], primaryId: "free-edge" })
+    engine.dispatch({ type: "redo" })
+    expect(engine.getScene().entities.edgesById.get("free-edge")).toEqual(rotated)
+    expect(engine.getScene().selection).toEqual({ ids: ["free-edge"], primaryId: "free-edge" })
+  })
+
+  it("rotates free multi-waypoint routes deterministically and keeps connected references attached", () => {
+    const engine = createDiagramEngine({
+      nodes: [{ id: "host", kind: "node", x: 200, y: 0, width: 20, height: 20, portIds: ["port"] }],
+      ports: [{ id: "port", kind: "port", nodeId: "host", x: 0, y: 10 }],
+      edges: [
+        { id: "routed", kind: "edge", source: { kind: "point", point: { x: 20, y: 40 } }, target: { kind: "point", point: { x: 120, y: 40 } }, points: [{ x: 40, y: 80 }, { x: 80, y: 100 }] },
+        { id: "connected", kind: "edge", source: { kind: "port", portId: "port" }, target: { kind: "point", point: { x: 140, y: 10 } }, points: [{ x: 160, y: 30 }] },
+      ],
+      groups: [{ id: "connected-group", kind: "group", childIds: ["host", "connected"] }],
+    })
+    expect(engine.canRotate(["routed"])).toBe(true)
+    expect(engine.canRotate(["connected"])).toBe(false)
+    engine.dispatch({ type: "rotateEntities", entries: [{ id: "routed", rotation: 90 }] })
+    expect(engine.getScene().entities.edgesById.get("routed")).toMatchObject({
+      source: { kind: "point", point: { x: 100, y: 20 } },
+      target: { kind: "point", point: { x: 100, y: 120 } },
+      points: [{ x: 60, y: 40 }, { x: 40, y: 80 }],
+    })
+    const connectedBefore = engine.getScene().entities.edgesById.get("connected")!
+    expect(engine.dispatch({ type: "rotateEntities", entries: [{ id: "connected", rotation: 90 }] }).changed).toBe(false)
+    expect(engine.getScene().entities.edgesById.get("connected")).toEqual(connectedBefore)
+    expect(engine.dispatch({ type: "rotateEntities", entries: [{ id: "connected-group", rotation: 90 }] }).changed).toBe(true)
+    expect(engine.getScene().entities.edgesById.get("connected")?.source).toEqual(connectedBefore.source)
+    expect(engine.getGeometrySnapshot("connected")?.path?.[0]).toEqual(engine.getGeometrySnapshot("port")?.point)
+  })
+
   it("rotates a selected group around its shared bounds center and supports both quarter-turn directions", () => {
     const createEngine = () => {
       const engine = createDiagramEngine({
@@ -3359,14 +3523,18 @@ describe("DiagramEngine", () => {
       { id: "first", kind: "shape", shape: "line", x: 0, y: 20, width: 100, height: 0, metadata: { stroke: "red", custom: 7 } },
       { id: "second", kind: "shape", shape: "line", x: 0, y: 40, width: 100, height: 0 },
       { id: "untouched", kind: "shape", shape: "line", x: 0, y: 60, width: 100, height: 0 },
+      { id: "boundary", kind: "shape", shape: "line", x: 70, y: 0, width: 0, height: 55 },
     ] })
     const originalUntouched = engine.getScene().entities.shapesById.get("untouched")
-    const input = { targetIds: ["first", "second"], stroke: [{ x: 40, y: 0 }, { x: 40, y: 50 }], tolerance: 0.25 }
+    const input = { targetIds: ["first", "second"], stroke: [{ x: 40, y: 50 }, { x: 40, y: 0 }], tolerance: 0.25 }
     const result = trimSelectionByStroke(engine.serialize(), input)
     expect(result.findings).toEqual([])
     expect(result.updates).toHaveLength(2)
     expect(result.targets[0]).toMatchObject({ changed: true, cutPoints: [{ x: 40, y: 20 }] })
-    expect(result.targets[0]?.retained[0]?.segments).toEqual([{ kind: "line", start: { x: 40, y: 20 }, end: { x: 100, y: 20 } }])
+    expect(result.targets[0]?.retained).toEqual([
+      { segments: [{ kind: "line", start: { x: 0, y: 20 }, end: { x: 40, y: 20 } }], closed: false },
+      { segments: [{ kind: "line", start: { x: 70, y: 20 }, end: { x: 100, y: 20 } }], closed: false },
+    ])
 
     const batch = engine.dispatchBatch(result.updates)
     expect(batch).toMatchObject({ ok: true, changed: true, affectedIds: ["first", "second"] })
@@ -3383,59 +3551,45 @@ describe("DiagramEngine", () => {
     expect(engine.getGeometrySnapshot("first")?.pathContours).toEqual(createDiagramEngine({ shapes: [result.targets[0]!.preview!] }).getGeometrySnapshot("first")?.pathContours)
   })
 
-  it("trims selected rectangle outlines into deterministic open contours and preserves scene identity through history", () => {
+  it("requires a separate trim boundary for a selected rectangle and leaves it unchanged when missing", () => {
     const engine = createDiagramEngine({ shapes: [
       { id: "selected-rect", kind: "shape", shape: "rect", x: 0, y: 0, width: 100, height: 80, fill: "#abc", stroke: "#123", metadata: { equipment: "Q1" } },
       { id: "unselected-rect", kind: "shape", shape: "rect", x: 120, y: 0, width: 100, height: 80 },
     ] })
     const before = engine.serialize()
     const result = trimSelectionByStroke(before, { targetIds: ["selected-rect"], stroke: [{ x: 50, y: -10 }, { x: 50, y: 90 }], tolerance: 0.01 })
-    expect(result.findings).toEqual([])
-    expect(result.targets[0]).toMatchObject({ changed: true, cutPoints: [{ x: 50, y: 0 }, { x: 50, y: 80 }] })
-    expect(result.targets[0]?.retained).toHaveLength(1)
-    expect(result.targets[0]?.retained[0]).toMatchObject({ closed: false, segments: [
-      { kind: "line", start: { x: 50, y: 0 }, end: { x: 100, y: 0 } },
-      { kind: "line", start: { x: 100, y: 0 }, end: { x: 100, y: 80 } },
-      { kind: "line", start: { x: 100, y: 80 }, end: { x: 50, y: 80 } },
-    ] })
-    expect(result.targets[0]?.preview).toMatchObject({ id: "selected-rect", shape: "line", fill: "#abc", stroke: "#123", metadata: { equipment: "Q1" } })
+    expect(result.targets[0]).toMatchObject({ changed: false, finding: { code: "unsupported-target" } })
+    expect(result.updates).toEqual([])
     expect(engine.getScene().entities.shapesById.get("unselected-rect")).toEqual(before.shapes?.find((shape) => shape.id === "unselected-rect"))
-    expect(engine.dispatchBatch(result.updates)).toMatchObject({ ok: true, changed: true })
-    expect(engine.getDiagnostics().undoDepth).toBe(1)
-    const committed = engine.serialize().shapes?.find((shape) => shape.id === "selected-rect")
-    expect(engine.getGeometrySnapshot("selected-rect")?.pathContours).toEqual(createDiagramEngine({ shapes: [result.targets[0]!.preview!] }).getGeometrySnapshot("selected-rect")?.pathContours)
-    engine.dispatch({ type: "undo" })
     expect(engine.serialize()).toEqual(before)
-    engine.dispatch({ type: "redo" })
-    expect(engine.serialize().shapes?.find((shape) => shape.id === "selected-rect")).toEqual(committed)
   })
 
   it("intersects and splits cubic segments exactly with matching preview and commit geometry", () => {
-    const engine = createDiagramEngine({ shapes: [{ id: "curve", kind: "shape", shape: "line", x: 0, y: 0, width: 100, height: 75, pathContours: [{ closed: false, segments: [{ kind: "cubic", start: { x: 0, y: 0 }, control1: { x: 0, y: 100 }, control2: { x: 100, y: 100 }, end: { x: 100, y: 0 } }] }] }] })
+    const engine = createDiagramEngine({ shapes: [
+      { id: "curve", kind: "shape", shape: "line", x: 0, y: 0, width: 100, height: 75, pathContours: [{ closed: false, segments: [{ kind: "cubic", start: { x: 0, y: 0 }, control1: { x: 0, y: 100 }, control2: { x: 100, y: 100 }, end: { x: 100, y: 0 } }] }] },
+      { id: "boundary", kind: "shape", shape: "line", x: 25, y: -10, width: 0, height: 100 },
+    ] })
     const result = trimSelectionByStroke(engine.serialize(), { targetIds: ["curve"], stroke: [{ x: 50, y: -10 }, { x: 50, y: 110 }], tolerance: 0.01 })
     expect(result.findings).toEqual([])
     expect(result.targets[0]?.cutPoints[0]).toMatchObject({ x: 50, y: 75 })
     const kept = result.targets[0]?.retained[0]?.segments[0]
-    expect(kept).toMatchObject({ kind: "cubic", start: { x: 50, y: 75 }, control1: { x: 75, y: 75 }, control2: { x: 100, y: 50 }, end: { x: 100, y: 0 } })
+    expect(kept?.kind).toBe("cubic")
+    expect(result.targets[0]?.boundaryIntersections[0]?.point.x).toBeCloseTo(25)
     expect(engine.dispatchBatch(result.updates).ok).toBe(true)
     expect(engine.getGeometrySnapshot("curve")?.pathContours).toEqual(createDiagramEngine({ shapes: [result.targets[0]!.preview!] }).getGeometrySnapshot("curve")?.pathContours)
   })
 
-  it("trims circular and transformed rectangle outlines in world coordinates", () => {
+  it("returns no-boundary or unsupported-target findings for circular and native rectangle targets", () => {
     const circle = createDiagramEngine({ shapes: [{ id: "circle", kind: "shape", shape: "line", x: 0, y: 0, width: 100, height: 100, pathContours: [{ closed: true, segments: [{ kind: "arc", center: { x: 50, y: 50 }, radius: 40, startAngle: 0, sweepAngle: Math.PI * 2 }] }] }] })
     const circleResult = trimSelectionByStroke(circle.serialize(), { targetIds: ["circle"], stroke: [{ x: 50, y: 0 }, { x: 50, y: 100 }], tolerance: 0.01 })
-    expect(circleResult.targets[0]).toMatchObject({ changed: true, cutPoints: [{ x: 50, y: 10 }, { x: 50, y: 90 }] })
-    expect(circleResult.targets[0]?.retained[0]?.closed).toBe(false)
-    expect(circleResult.targets[0]?.retained[0]?.segments.every((segment) => segment.kind === "arc")).toBe(true)
+    expect(circleResult.targets[0]).toMatchObject({ changed: false, finding: { code: "no-boundary" }, sweepCrossings: [{ x: 50, y: 10 }, { x: 50, y: 90 }] })
 
     const rotation = 37
     const center = { x: 60, y: 60 }
     const transform = (point: DiagramPoint) => rotatePoint(point, center, rotation)
     const transformed = createDiagramEngine({ shapes: [{ id: "rotated-rect", kind: "shape", shape: "rect", x: 10, y: 20, width: 100, height: 80, rotation, flipX: true }] })
     const transformedResult = trimSelectionByStroke(transformed.serialize(), { targetIds: ["rotated-rect"], stroke: [transform({ x: 60, y: 0 }), transform({ x: 60, y: 120 })], tolerance: 0.01 })
-    expect(transformedResult.targets[0]?.changed).toBe(true)
-    expect(transformed.dispatchBatch(transformedResult.updates).ok).toBe(true)
-    expect(transformed.getGeometrySnapshot("rotated-rect")?.pathContours).toEqual(createDiagramEngine({ shapes: [transformedResult.targets[0]!.preview!] }).getGeometrySnapshot("rotated-rect")?.pathContours)
+    expect(transformedResult.targets[0]).toMatchObject({ changed: false, finding: { code: "unsupported-target" } })
   })
 
   it("returns typed findings without changing ambiguous holes and self-crossing strokes", () => {
@@ -3445,7 +3599,7 @@ describe("DiagramEngine", () => {
     ] }] })
     const before = donut.serialize()
     const result = trimSelectionByStroke(before, { targetIds: ["donut"], stroke: [{ x: 50, y: -10 }, { x: 50, y: 110 }], tolerance: 0.01 })
-    expect(result.targets[0]).toMatchObject({ changed: false, finding: { code: "ambiguous-intersection" } })
+    expect(result.targets[0]).toMatchObject({ changed: false, finding: { code: "no-boundary" } })
     expect(result.updates).toEqual([])
     expect(donut.serialize()).toEqual(before)
     const crossingStroke = trimSelectionByStroke(before, { targetIds: ["donut"], stroke: [{ x: 0, y: 0 }, { x: 100, y: 100 }, { x: 0, y: 100 }, { x: 100, y: 0 }], tolerance: 0.01 })
@@ -3454,29 +3608,39 @@ describe("DiagramEngine", () => {
   })
 
   it("selects the first crossing in gesture direction and handles transformed lines and exact arcs", () => {
-    const multi = createDiagramEngine({ shapes: [{ id: "multi", kind: "shape", shape: "line", x: 0, y: 50, width: 100, height: 0 }] })
+    const multi = createDiagramEngine({ shapes: [
+      { id: "multi", kind: "shape", shape: "line", x: 0, y: 50, width: 100, height: 0 },
+      { id: "left-boundary", kind: "shape", shape: "line", x: 10, y: 40, width: 0, height: 20 },
+      { id: "right-boundary", kind: "shape", shape: "line", x: 90, y: 40, width: 0, height: 20 },
+    ] })
     const first = trimSelectionByStroke(multi.serialize(), { targetIds: ["multi"], stroke: [{ x: 20, y: 40 }, { x: 20, y: 60 }, { x: 80, y: 60 }, { x: 80, y: 40 }], tolerance: 0.01 })
-    expect(first.targets[0]?.cutPoints).toEqual([{ x: 20, y: 50 }])
+    expect(first.targets[0]?.sweepCrossings).toEqual([{ x: 20, y: 50 }, { x: 80, y: 50 }])
+    expect(first.targets[0]?.boundaryIntersections).toEqual([{ point: { x: 10, y: 50 }, boundaryId: "left-boundary" }, { point: { x: 90, y: 50 }, boundaryId: "right-boundary" }])
+    expect(first.targets[0]?.retained).toEqual([
+      { segments: [{ kind: "line", start: { x: 0, y: 50 }, end: { x: 10, y: 50 } }], closed: false },
+      { segments: [{ kind: "line", start: { x: 20, y: 50 }, end: { x: 80, y: 50 } }], closed: false },
+      { segments: [{ kind: "line", start: { x: 90, y: 50 }, end: { x: 100, y: 50 } }], closed: false },
+    ])
 
-    const transformed = createDiagramEngine({ shapes: [{ id: "rotated", kind: "shape", shape: "line", x: 0, y: 0, width: 100, height: 40, rotation: 90, flipX: true, points: [{ x: 0, y: 20 }, { x: 100, y: 20 }] }] })
+    const transformed = createDiagramEngine({ shapes: [
+      { id: "rotated", kind: "shape", shape: "line", x: 0, y: 0, width: 100, height: 40, rotation: 90, flipX: true, points: [{ x: 0, y: 20 }, { x: 100, y: 20 }] },
+      { id: "rotated-boundary", kind: "shape", shape: "line", x: 0, y: 50, width: 100, height: 0 },
+    ] })
     const transformedResult = trimSelectionByStroke(transformed.serialize(), { targetIds: ["rotated"], stroke: [{ x: 0, y: 20 }, { x: 100, y: 20 }], tolerance: 0.01 })
-    expect(transformedResult.targets[0]?.cutPoints[0]?.x).toBeCloseTo(50)
-    expect(transformedResult.targets[0]?.cutPoints[0]?.y).toBeCloseTo(20)
+    expect(transformedResult.targets[0]?.sweepCrossings[0]?.x).toBeCloseTo(50)
+    expect(transformedResult.targets[0]?.sweepCrossings[0]?.y).toBeCloseTo(20)
+    expect(transformedResult.targets[0]?.boundaryIntersections[0]?.point).toEqual({ x: 50, y: 50 })
     expect(transformed.dispatchBatch(transformedResult.updates).ok).toBe(true)
-    expect(transformed.getGeometrySnapshot("rotated")?.pathContours).toEqual(createDiagramEngine({ shapes: [transformedResult.targets[0]!.preview!] }).getGeometrySnapshot("rotated")?.pathContours)
 
     const arc = createDiagramEngine({ shapes: [{ id: "arc", kind: "shape", shape: "line", x: 0, y: 0, width: 100, height: 100, pathContours: [{ segments: [{ kind: "arc", center: { x: 50, y: 50 }, radius: 40, startAngle: 0, sweepAngle: Math.PI }], closed: false }] }] })
     const arcResult = trimSelectionByStroke(arc.serialize(), { targetIds: ["arc"], stroke: [{ x: 50, y: 0 }, { x: 50, y: 100 }], tolerance: 0.01 })
-    expect(arcResult.targets[0]?.cutPoints[0]?.y).toBeCloseTo(90)
-    expect(arcResult.targets[0]?.retained[0]?.segments[0]).toMatchObject({ kind: "arc", radius: 40, sweepAngle: Math.PI / 2 })
-    expect(arc.dispatchBatch(arcResult.updates).ok).toBe(true)
-    expect(arc.getGeometrySnapshot("arc")?.pathContours).toEqual(createDiagramEngine({ shapes: [arcResult.targets[0]!.preview!] }).getGeometrySnapshot("arc")?.pathContours)
+    expect(arcResult.targets[0]?.sweepCrossings[0]?.y).toBeCloseTo(90)
+    expect(arcResult.targets[0]?.finding?.code).toBe("no-boundary")
 
     const polyline = createDiagramEngine({ shapes: [{ id: "poly", kind: "shape", shape: "line", x: 0, y: 0, width: 100, height: 40, points: [{ x: 0, y: 10 }, { x: 100, y: 10 }, { x: 100, y: 30 }, { x: 0, y: 30 }] }] })
     const polylineResult = trimSelectionByStroke(polyline.serialize(), { targetIds: ["poly"], stroke: [{ x: 40, y: 0 }, { x: 40, y: 40 }], tolerance: 0.01 })
     expect(polylineResult.targets[0]?.cutPoints).toEqual([{ x: 40, y: 10 }, { x: 40, y: 30 }])
-    expect(polylineResult.targets[0]?.retained).toHaveLength(1)
-    expect(polylineResult.targets[0]?.retained[0]?.segments).toHaveLength(3)
+    expect(polylineResult.targets[0]?.finding?.code).toBe("no-boundary")
   })
 
   it("returns findings and leaves unsupported, connected, anchored, invalid, or untouched targets unchanged", () => {
@@ -3494,9 +3658,9 @@ describe("DiagramEngine", () => {
     const stroke = [{ x: 50, y: 0 }, { x: 50, y: 80 }]
     const result = trimSelectionByStroke(before, { targetIds: ["line", "box", "locked", "anchored", "wire", "missing"], stroke, tolerance: 0.01 })
     expect(result.findings.map(({ targetId, code }) => [targetId, code])).toEqual([
-      ["box", "no-intersection"], ["locked", "locked-target"], ["anchored", "anchored-host"], ["wire", "connected-edge"], ["missing", "unsupported-target"],
+      ["line", "no-boundary"], ["box", "unsupported-target"], ["locked", "locked-target"], ["anchored", "anchored-host"], ["wire", "connected-edge"], ["missing", "unsupported-target"],
     ])
-    expect(result.updates.map(({ id }) => id)).toEqual(["line"])
+    expect(result.updates).toEqual([])
     expect(trimSelectionByStroke(before, { targetIds: ["line"], stroke: [{ x: 10, y: 21 }, { x: 90, y: 21 }], tolerance: 0 }).targets[0]?.finding?.code).toBe("no-intersection")
     expect(trimSelectionByStroke(before, { targetIds: ["line"], stroke: [{ x: 20, y: 20 }, { x: 80, y: 20 }], tolerance: 0 }).targets[0]?.finding?.code).toBe("ambiguous-intersection")
     expect(trimSelectionByStroke(before, { targetIds: ["line"], stroke: [{ x: 0, y: 0 }], tolerance: 0 }).findings[0]?.code).toBe("invalid-input")
@@ -3577,9 +3741,14 @@ describe("DiagramEngine", () => {
       { kind: "line", start: { x: 0, y: 0 }, end: { x: 1, y: 0 } },
       { kind: "cubic", start: { x: 2, y: 0 }, control1: { x: 2, y: 1 }, control2: { x: 3, y: 1 }, end: { x: 3, y: 0 } },
     ] }] }] })).toThrow(TypeError)
-    const engine = createDiagramEngine({ shapes: [{ id: "curve", kind: "shape", shape: "line", x: 0, y: 0, width: 30, height: 0, pathContours: [{ closed: false, segments: [{ kind: "cubic", start: { x: 0, y: 0 }, control1: { x: 10, y: 20 }, control2: { x: 20, y: 20 }, end: { x: 30, y: 0 } }] }] }] })
-    const trim = trimSelectionByStroke(engine.serialize(), { targetIds: ["curve"], stroke: [{ x: 10, y: -5 }, { x: 10, y: 25 }], tolerance: 0.1 })
-    expect(trim.targets[0]).toMatchObject({ changed: true, retained: [{ segments: [{ kind: "cubic" }] }] })
+    const engine = createDiagramEngine({ shapes: [
+      { id: "curve", kind: "shape", shape: "line", x: 0, y: 0, width: 30, height: 0, pathContours: [{ closed: false, segments: [{ kind: "cubic", start: { x: 0, y: 0 }, control1: { x: 10, y: 20 }, control2: { x: 20, y: 20 }, end: { x: 30, y: 0 } }] }] },
+      { id: "boundary", kind: "shape", shape: "line", x: 25, y: -5, width: 0, height: 30 },
+    ] })
+    const trim = trimSelectionByStroke(engine.serialize(), { targetIds: ["curve"], stroke: [{ x: 10, y: 25 }, { x: 10, y: -5 }], tolerance: 0.1 })
+    expect(trim.targets[0]?.changed).toBe(true)
+    expect(trim.targets[0]?.retained).toHaveLength(2)
+    expect(trim.targets[0]?.retained.every((contour) => contour.segments.length === 1 && contour.segments[0]?.kind === "cubic")).toBe(true)
   })
 
   it("locks user edits and active gestures while allowing authoritative scene replacement", () => {

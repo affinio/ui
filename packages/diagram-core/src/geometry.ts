@@ -116,7 +116,10 @@ export function createEntityGeometry(id: DiagramId, entities: DiagramEntities): 
   if (edge) {
     const path = resolveEdgePath(edge, entities)
     const bounds = rectFromPoints(path)
-    return { id, kind: "edge", bounds, hitBounds: inflateRect(bounds, 6), path }
+    const corners = edge.source.kind === "point" && edge.target.kind === "point" && !edge.points?.length && path.length === 2
+      ? orientedLineFrameCorners(path[0]!, path[1]!, 6)
+      : undefined
+    return { id, kind: "edge", bounds, hitBounds: inflateRect(bounds, 6), path, ...(corners ? { corners } : {}) }
   }
   const text = entities.textsById.get(id)
   if (text) {
@@ -160,6 +163,16 @@ export function createEntityGeometry(id: DiagramId, entities: DiagramEntities): 
     return rectGeometry(id, "table", { x: table.x, y: table.y - headerHeight, width: table.width, height: table.height + headerHeight }, table.rotation ?? 0, 3, table.flipX, table.flipY)
   }
   return null
+}
+
+function orientedLineFrameCorners(start: DiagramPoint, end: DiagramPoint, padding: number): ReadonlyArray<DiagramPoint> | undefined {
+  const dx = end.x - start.x, dy = end.y - start.y, length = Math.hypot(dx, dy)
+  if (length <= 1e-8) return undefined
+  const nx = -dy / length * padding, ny = dx / length * padding
+  return [
+    { x: start.x + nx, y: start.y + ny }, { x: end.x + nx, y: end.y + ny },
+    { x: end.x - nx, y: end.y - ny }, { x: start.x - nx, y: start.y - ny },
+  ]
 }
 
 export function resolveEdgePath(edge: DiagramEdge, entities: DiagramEntities): ReadonlyArray<DiagramPoint> {

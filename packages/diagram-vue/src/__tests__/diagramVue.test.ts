@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 import { computed, createApp, effectScope, h, nextTick, shallowRef } from "vue"
 import { createCircularArc, createDiagramEngine, type DiagramSceneInput } from "@affino/diagram-core"
 import { createDiagramInteractionController } from "@affino/diagram-core"
-import { DiagramBezierOverlay, DiagramTableView, getDomEntityStyle, getSvgEntityProps, getSvgPortCreationPreviewProps, useDiagramEngine, useDiagramPointerController, useDiagramSelection, useDiagramTable, useDiagramTextEditor, useDiagramViewport, useDiagramVisibleEntities } from ".."
+import { DiagramBezierOverlay, DiagramTableView, getDomEntityStyle, getSvgConnectorRenderProps, getSvgEntityProps, getSvgPortCreationPreviewProps, useDiagramConnectorRendering, useDiagramEngine, useDiagramPointerController, useDiagramSelection, useDiagramTable, useDiagramTextEditor, useDiagramViewport, useDiagramVisibleEntities } from ".."
 import { beginDiagramHandleInteraction } from "../../../demo-vue/src/pages/diagramHandleInteractions"
 
 const scene: DiagramSceneInput = {
@@ -27,6 +27,26 @@ const scene: DiagramSceneInput = {
 }
 
 describe("diagram-vue", () => {
+  it("reactively exposes Core connector curves and bridges as standard SVG path props", async () => {
+    const controller = useDiagramEngine({ edges: [
+      { id: "horizontal", kind: "edge", source: { kind: "point", point: { x: 0, y: 40 } }, target: { kind: "point", point: { x: 100, y: 40 } }, points: [{ x: 25, y: 40 }, { x: 75, y: 40 }] },
+      { id: "vertical", kind: "edge", source: { kind: "point", point: { x: 50, y: 0 } }, target: { kind: "point", point: { x: 50, y: 80 } }, points: [{ x: 50, y: 25 }, { x: 50, y: 55 }] },
+    ] })
+    const render = useDiagramConnectorRendering(controller, { cornerRadius: 6, crossingBridge: { radius: 5 } })
+    const upper = render.connectors.value.find((edge) => edge.id === "vertical")!
+    expect(upper.pathData).toContain("C ")
+    expect(upper.bridges).toMatchObject([{ overId: "vertical", underId: "horizontal", point: { x: 50, y: 40 } }])
+    expect(getSvgConnectorRenderProps(upper)).toMatchObject({ d: upper.pathData, "data-diagram-id": "vertical", "data-connector-bridge-count": 1, fill: "none" })
+    const undoDepth = controller.engine.getDiagnostics().undoDepth
+    controller.engine.dispatch({ type: "bringToFront", ids: ["horizontal"] })
+    await nextTick()
+    const movedOver = render.connectors.value.find((edge) => edge.id === "horizontal")!
+    expect(movedOver.bridges[0]).toMatchObject({ overId: "horizontal", underId: "vertical" })
+    expect(controller.engine.getDiagnostics().undoDepth).toBe(undoDepth + 1)
+    render.dispose()
+    controller.dispose()
+  })
+
   it("publishes native cubic creation preview and renders zoom-stable editable handles", async () => {
     const frames: Array<FrameRequestCallback> = []
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { frames.push(callback); return frames.length })
@@ -925,6 +945,27 @@ describe("diagram-vue", () => {
     expect(visible.projection.value.edges.map((entity) => entity.id)).toContain("e1")
     expect(visible.projection.value.overlayAnchors.map((anchor) => anchor.id)).not.toContain("e1")
     expect(visible.projection.value.activeHandles.map((handle) => handle.id)).toEqual(["e1:source", "e1:target", "e1:segment:0"])
+  })
+
+  it("projects a free straight edge selection frame aligned with its rotated geometry", () => {
+    const controller = useDiagramEngine({
+      edges: [{ id: "free-line", kind: "edge", source: { kind: "point", point: { x: 20, y: 40 } }, target: { kind: "point", point: { x: 120, y: 40 } } }],
+      selection: { ids: ["free-line"], primaryId: "free-line" },
+    })
+    const visible = useDiagramVisibleEntities(controller)
+    const before = visible.projection.value.overlayAnchors.find((anchor) => anchor.id === "free-line")
+    expect(before?.corners).toEqual([
+      { x: 20, y: 46 }, { x: 120, y: 46 }, { x: 120, y: 34 }, { x: 20, y: 34 },
+    ])
+    expect(controller.engine.canRotate()).toBe(true)
+    controller.dispatch({ type: "rotateEntities", entries: [{ id: "free-line", rotation: 90 }] })
+    const after = visible.projection.value.overlayAnchors.find((anchor) => anchor.id === "free-line")
+    expect(after?.corners).toEqual([
+      { x: 64, y: -10 }, { x: 64, y: 90 }, { x: 76, y: 90 }, { x: 76, y: -10 },
+    ])
+    expect(controller.scene.value.selection).toEqual({ ids: ["free-line"], primaryId: "free-line" })
+    visible.dispose()
+    controller.dispose()
   })
 
   it("routes Vue endpoint handles through the public endpoint drag interaction", () => {

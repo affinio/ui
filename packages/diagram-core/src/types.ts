@@ -92,6 +92,8 @@ export type DiagramEdge = DiagramEntityBase & Readonly<{
   source: DiagramEdgeEndpoint
   target: DiagramEdgeEndpoint
   points?: ReadonlyArray<DiagramPoint>
+  /** Cumulative rotation applied to a free edge route; omitted for legacy/unrotated edges. */
+  rotation?: number
 }>
 
 export type DiagramText = DiagramEntityBase & Readonly<{
@@ -333,6 +335,28 @@ export type DiagramGeometry = Readonly<{
   anchor?: DiagramPortAnchor
 }>
 
+/** Transient rendering settings for connectors. Values are world units and are never serialized. */
+export type DiagramConnectorRenderOptions = Readonly<{
+  /** Radius used to round route corners. Omit or pass 0 to preserve straight segments. */
+  cornerRadius?: number
+  /** Add a bridge to the higher-render-order connector at strict unconnected crossings. */
+  crossingBridge?: Readonly<{ radius?: number }>
+}>
+
+export type DiagramConnectorPathCommand =
+  | Readonly<{ kind: "moveTo"; point: DiagramPoint }>
+  | Readonly<{ kind: "lineTo"; point: DiagramPoint }>
+  | Readonly<{ kind: "quadraticTo"; control: DiagramPoint; point: DiagramPoint }>
+  | Readonly<{ kind: "cubicTo"; control1: DiagramPoint; control2: DiagramPoint; point: DiagramPoint }>
+
+export type DiagramConnectorBridge = Readonly<{ point: DiagramPoint; overId: DiagramId; underId: DiagramId; radius: number }>
+
+export type DiagramConnectorRenderGeometry = Readonly<{
+  id: DiagramId
+  commands: ReadonlyArray<DiagramConnectorPathCommand>
+  bridges: ReadonlyArray<DiagramConnectorBridge>
+}>
+
 export type DiagramHitTestOptions = Readonly<{
   kinds?: ReadonlyArray<DiagramEntityKind>
   radius?: number
@@ -418,7 +442,7 @@ export type DiagramCommandResult = Readonly<{
   reason?: "scene-locked"
 }>
 
-export type DiagramSweepTrimFindingCode = "invalid-input" | "no-intersection" | "ambiguous-intersection" | "self-intersecting-stroke" | "topology-ambiguous" | "unsupported-target" | "unsupported-geometry" | "connected-edge" | "locked-target" | "anchored-host"
+export type DiagramSweepTrimFindingCode = "invalid-input" | "no-intersection" | "no-boundary" | "ambiguous-boundary" | "unsupported-boundary" | "ambiguous-intersection" | "self-intersecting-stroke" | "topology-ambiguous" | "unsupported-target" | "unsupported-geometry" | "connected-edge" | "locked-target" | "anchored-host"
 export type DiagramSweepTrimFinding = Readonly<{
   code: DiagramSweepTrimFindingCode
   targetId?: DiagramId
@@ -436,6 +460,11 @@ export type DiagramSweepTrimTargetResult = Readonly<{
   changed: boolean
   /** Exact retained contours in world coordinates, also used to construct preview. */
   retained: ReadonlyArray<DiagramPathContour>
+  /** Points where the freehand stroke crossed this target. Kept separately from resolved boundaries. */
+  sweepCrossings: ReadonlyArray<DiagramPoint>
+  /** Boundary crossings chosen along the target from each sweep crossing. */
+  boundaryIntersections: ReadonlyArray<Readonly<{ point: DiagramPoint; boundaryId: DiagramId }>>
+  /** @deprecated Use sweepCrossings. */
   cutPoints: ReadonlyArray<DiagramPoint>
   /** Renderer-ready canonical shape matching the result of `update`. */
   preview: DiagramShape | null

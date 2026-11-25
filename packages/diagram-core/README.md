@@ -43,6 +43,40 @@ engine.dispatch({ type: "updateShape", id: "housing", cornerRadius: 8 })
 
 The field is part of normal scene/document serialization and clipboard copies. A direct resize command that would make the stored radius exceed half the new smaller side is rejected; pointer-handle resizing clamps its minimum size to preserve the radius. Set a smaller radius first to permit tighter resizing. Geometry snapshots expose `cornerRadius` for renderers. Core hit testing continues to use the rectangle bounds, so rounded visual corners do not remove the rectangular hit area.
 
+### Connector rendering
+
+`engine.getConnectorRenderGeometry(options)` returns renderer-neutral path commands for each edge in render order. `cornerRadius` and `crossingBridge.radius` are world-unit display options; they are not written to edges, serialization, revision, or undo history. Rounded corners use quadratic commands and clamp their radius to adjacent segment lengths. A bridge is placed only at a strict interior crossing of two non-collinear edge segments, on the higher-render-order edge; endpoint touches, parallel/collinear overlaps, and shared endpoint coordinates are ignored. Bridges indicate visual crossings only and never alter port or endpoint connectivity. A zero or omitted corner radius keeps the existing straight route.
+
+```ts
+const renderPaths = engine.getConnectorRenderGeometry({
+  cornerRadius: 8,
+  crossingBridge: { radius: 6 },
+})
+// Each item contains { id, commands, bridges }; commands are typed M/L/Q/C-like values.
+```
+
+The API recomputes from current edge geometry and render order on each call. It rejects negative or non-finite radii with `RangeError`. A route with only two endpoints has no corner to round.
+
+### Selection sweep Trim
+
+`trimSelectionByStroke(scene, input)` is a pure geometry query. For every stroke crossing on an open line/path target, `cross(strokeDirection, targetTangent) > 0` selects forward traversal in contour order; a negative result selects backward traversal. Core removes only the interval between that crossing and the nearest transverse intersection with another eligible boundary. The remaining portions on both sides retain the target ID, metadata, and style. Pass its `updates` to `dispatchBatch()` once to commit all changed targets in one undo step; use the returned preview for the interaction overlay.
+
+```ts
+import { trimSelectionByStroke } from "@affino/diagram-core"
+
+const result = trimSelectionByStroke(engine.serialize(), {
+  targetIds: ["wire-1"],
+  stroke: [{ x: 30, y: 40 }, { x: 30, y: 0 }],
+  tolerance: 0.25, // world units
+  // boundaryIds: ["bus-1"], // optional; without it Core uses all eligible non-target shapes
+})
+if (result.updates.length) engine.dispatchBatch(result.updates)
+```
+
+By default, boundaries are eligible non-target `DiagramShape` objects sorted by stable ID, never by render order. Native lines, rectangle outlines, and `pathContours` provide boundary segments; native ellipse bounds and `DiagramEdge` routes are not implicit boundaries. Pass `boundaryIds` to make the candidate set explicit. Missing or unsupported explicit IDs return `unsupported-boundary`. A missing boundary returns `no-boundary`; ties between distinct boundary IDs at the same nearest location return `ambiguous-boundary`. Collinear overlap, tangency, or unsupported segment pairs are rejected without changing that target. The result reports `sweepCrossings`, resolved `boundaryIntersections`, retained world geometry, and compatibility alias `cutPoints` (same as sweep crossings).
+
+Line-line, line-arc, arc-arc, and line-cubic intersections are supported where the pair is transverse. Cubic-cubic and cubic-arc boundary pairs are reported as unsupported when their bounds overlap. Native rectangle primitives can act as boundaries but are not sweep targets; open line/path geometry is required. Connected `DiagramEdge` objects are rejected as targets, and no geometric intersection changes electrical connectivity.
+
 Shapes can also be created through an undoable command. A `line` shape stores its endpoints as `(x, y)` and `(x + width, y + height)`; negative direction is represented by `flipX`/`flipY` while width and height remain non-negative.
 
 ```ts
@@ -237,6 +271,7 @@ engine.dispatch({ type: "removeEdgeWaypoint", id: "e1", index: 0 })
 engine.dispatch({ type: "bringForward", ids: ["n1"] })
 engine.dispatch({ type: "setLayer", ids: ["n1"], layer: "equipment", layerRole: "normal" })
 engine.dispatch({ type: "rotateEntities", entries: [{ id: "n1", rotation: 90 }] }) // geometry exposes rotated bounds/corners
+engine.dispatch({ type: "rotateEntities", entries: [{ id: "free-edge", rotation: 90 }] }) // rotates a free edge route around its geometry center
 engine.dispatch({ type: "rotateEntities", entries: [{ id: "g1", rotation: 90 }] }) // rotates the group around its shared bounds center
 engine.dispatch({ type: "flipEntities", axis: "horizontal" }) // uses current selection; horizontal mirrors left/right
 engine.dispatch({ type: "flipEntities", ids: ["n1", "n2"], axis: "vertical" }) // vertical mirrors top/bottom around shared bounds center
@@ -244,6 +279,8 @@ engine.dispatch({ type: "alignEntities", ids: ["n1", "n2"], edge: "left" })
 ```
 
 Flips are undoable, preserve entity IDs, and serialize as `flipX`/`flipY` state on nodes, shapes, text, and tables. A single object reflects around its own center; multiple selected IDs or a selected group reflect around their combined geometry bounds. Node ports keep their node-relative coordinates but resolve to mirrored anchors. Shape and text orientation follows the reflected object. A table mirrors its cell layout while keeping row/column IDs and editing indices stable. Edges keep node/port endpoint references; free endpoints and waypoints reflect around the selection center. An edge with only attached endpoints and no waypoints has no independent geometry to flip, so it is unchanged when selected alone. Vue's `getSvgEntityProps()` includes flip transforms for renderer projections; custom renderers should honor `DiagramGeometry.flipX` and `flipY`.
+
+`rotateEntities` accepts free `DiagramEdge` routes whose source and target are both point endpoints. Core rotates both endpoints and all waypoints around the route bounds center, records the cumulative edge `rotation`, preserves the edge ID and current selection, and includes the update in normal undo/redo. Edges with node or port endpoint references are not directly rotatable, so those attachments cannot drift. A connected edge can rotate as a group member: Core rotates its free point endpoints and waypoints around the group center while retaining node/port references. Include referenced hosts in the group when their geometry should rotate with that route; the references remain attached either way. Edge geometry exposes oriented `corners` for free, straight two-point routes; multi-waypoint and connected routes do not claim a single aligned frame.
 
 Entities can be marked with metadata constraints. `locked` and `readOnly` entities cannot move, resize, or delete; `nonDeletable` entities can move but cannot be deleted. Front/back commands write `metadata.zIndex` so render order can cross entity kinds. Background layers are excluded from default render ordering unless explicitly requested.
 

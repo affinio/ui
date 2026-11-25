@@ -1,5 +1,17 @@
 # @affino/diagram-core
 
+## 0.26.0
+
+### Minor Changes
+
+- Extended `trimSelectionByStroke()` to remove only the target interval between a sweep crossing and the nearest eligible external boundary in the stroke-selected direction. Added deterministic `boundaryIds`, sweep/boundary diagnostics, typed no-boundary and ambiguity findings, and exact line/arc boundary intersections. Boundaries default to eligible non-target shapes in stable ID order; boundary geometry is never modified.
+
+## 0.25.0
+
+### Minor Changes
+
+- Added `getConnectorRenderGeometry()` and renderer-neutral move, line, quadratic, and cubic commands for world-unit corner rounding and deterministic crossing bridges on the higher-render-order edge. Render options remain transient and do not affect scene serialization or history.
+
 ## 0.24.0
 
 ### Minor Changes
@@ -7,6 +19,7 @@
 - Added the `draw-bezier` interaction tool, exact cubic contour draft previews, click-drag anchor tangents, cardinal Shift constraints, close/finish/cancel behavior, and one-step undoable creation.
 - Added `beginBezierHandle()` for transient anchor and tangent editing of cubic path segments; commits use the existing `updateShapePath` command and preserve the path ID.
 - Added north/east/south/west resize handles for one-axis resizing, anchored opposite sides, with rotation/flip-aware previews and commits.
+- Enabled direct undoable rotation of free point-to-point edge routes, including waypoints, and exposed oriented selection corners for straight edges.
 - Extended `trimSelectionByStroke()` to exact cubic intersections and splits, closed contour outlines, and native rectangular figures; ambiguous topology and self-intersecting strokes return typed findings without changing affected targets.
 
 ## 0.23.0

@@ -1,8 +1,30 @@
 import type { DiagramRenderEntity } from "./types.js"
 import type { DiagramPortCreationPreview, DiagramViewport } from "@affino/diagram-core"
 import { pathContourSvg } from "@affino/diagram-core"
+import type { DiagramConnectorPathCommand } from "@affino/diagram-core"
+import type { DiagramConnectorRenderEntity } from "./types.js"
 
 export type SvgEntityProps = Readonly<Record<string, string | number | boolean | undefined>>
+
+/** Convert Core connector commands to an SVG path `d` value for the adapter's standard SVG renderer. */
+export function connectorCommandsToSvgPath(commands: ReadonlyArray<DiagramConnectorPathCommand>): string {
+  return commands.map((command) => {
+    if (command.kind === "moveTo") return `M ${command.point.x} ${command.point.y}`
+    if (command.kind === "lineTo") return `L ${command.point.x} ${command.point.y}`
+    if (command.kind === "quadraticTo") return `Q ${command.control.x} ${command.control.y} ${command.point.x} ${command.point.y}`
+    return `C ${command.control1.x} ${command.control1.y} ${command.control2.x} ${command.control2.y} ${command.point.x} ${command.point.y}`
+  }).join(" ")
+}
+
+/** SVG attributes for one connector returned by `useDiagramConnectorRendering`. */
+export function getSvgConnectorRenderProps(connector: Pick<DiagramConnectorRenderEntity, "id" | "pathData" | "bridges">): SvgEntityProps {
+  return {
+    d: connector.pathData,
+    "data-diagram-id": connector.id,
+    "data-connector-bridge-count": connector.bridges.length,
+    fill: "none",
+  }
+}
 
 /** SVG circle attributes for rendering the transient Core port-placement marker. */
 export function getSvgPortCreationPreviewProps(preview: DiagramPortCreationPreview, radius = 5): SvgEntityProps {

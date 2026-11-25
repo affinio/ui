@@ -1,6 +1,7 @@
 export { DiagramEngine, createDiagramEngine, deserializeScene, deserializeDiagramDocument, serializeScene, validateDiagramScene } from "./DiagramEngine.js"
 export { DiagramInteractionController, createDiagramInteractionController } from "./interaction.js"
 export { UniformGridIndex } from "./spatialIndex.js"
+export { createConnectorRenderGeometry } from "./connectorRendering.js"
 export { clampViewportToBounds, screenToWorld, worldToScreen, zoomViewportAt, zoomViewportCentered } from "./viewport.js"
 export * from "./geometry.js"
 export * from "./pathOperations.js"

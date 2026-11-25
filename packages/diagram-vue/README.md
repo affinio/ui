@@ -84,6 +84,29 @@ const textEditor = useDiagramTextEditor(diagram)
 
 For a free line shape, call `pointer.beginLineCreation(id, event)`; render `pointer.state.value.shapeCreationPreview` transiently, then let the same controller commit the shape on pointerup. Connector creation uses `beginEdgeCreation()` and exposes endpoint references plus route waypoints in `edgeCreationPreview`.
 
+For public connector rendering with rounded corners and crossing bridges, use `useDiagramConnectorRendering()`. It reacts to scene geometry and z-order changes and exposes SVG-ready path data computed by Core. Rendering settings remain view options, not scene data:
+
+```ts
+import { getSvgConnectorRenderProps, useDiagramConnectorRendering } from "@affino/diagram-vue"
+
+const connectors = useDiagramConnectorRendering(diagram, {
+  cornerRadius: 8, // world units
+  crossingBridge: { radius: 6 },
+})
+```
+
+```vue
+<path
+  v-for="edge in connectors.connectors.value"
+  :key="edge.id"
+  v-bind="getSvgConnectorRenderProps(edge)"
+  :class="{ selected: edge.selected }"
+  stroke="currentColor"
+/>
+```
+
+Core determines crossing geometry and which edge is on top; Vue only formats its typed result as SVG. Bridges appear only at strict interior crossings and do not imply electrical junctions. Shared endpoint contacts, endpoint touches, and collinear overlaps are left unbridged. Call `connectors.dispose()` when managing the composable outside a Vue effect scope.
+
 Click-to-place drawing is available through `useDiagramPointerController()`: `beginPathCreation(id, event, "line")` places a two-click line; omit the mode for a multipoint free path, then finish with `finishPathCreation()` (Enter) or a double click. Holding Shift constrains the preview segment to the nearest cardinal direction from the last confirmed vertex; releasing Shift resumes free placement. Use `beginEdgePathCreation(id, event, options)` for a connector whose later clicks add route bends; Shift constrains each preview segment from the latest bend. Finish with `finishEdgePathCreation()` or snap its target to a port. The reactive `state.value.pathCreationPreview` and `edgeCreationPreview` are transient Core projections. Selected path vertices, edge waypoints, endpoints, and orthogonal segments appear as `activeHandles` (`path-vertex`, `waypoint`, `edge-endpoint`, and `edge-segment`). Pass a segment handle's `segmentIndex` to `beginEdgeSegmentHandle(id, segmentIndex, event)`; `state.value.edgeSegmentPreview` and `getPreviewGeometry(id)` expose the live route until commit or cancel. Segment drags preserve attached endpoints and commit as one undo step. Existing drag-to-draw methods remain supported.
 
 Selected resizable entities expose eight `activeHandles` with `resizeHandle` directions `nw`, `n`, `ne`, `e`, `se`, `s`, `sw`, and `w`. Start entity and group gestures through `beginResizeHandle(id, handle, event)` and `beginResizeSelectionHandle(handle, event)` on the pointer controller; Core owns preview geometry and the single undoable commit. Escape or pointer cancellation drops the preview.
@@ -183,7 +206,7 @@ Pass the same `viewportConstraints` to `useDiagramPointerController()` to constr
 
 - `nodes`, `edges`, `ports`, `shapes`, and `texts` for SVG rendering;
 - `activeHandles` for the eight selected resize handles (`nw`, `n`, `ne`, `e`, `se`, `s`, `sw`, `w`), port handles, and source/target handles on selected edges. Resize handles expose their typed direction as `resizeHandle` and their projected world-space center as `point`;
-- `overlayAnchors` for context menus and toolbars.
+- `overlayAnchors` for context menus and toolbars. Free straight selected edges include optional world-space `corners` for a frame aligned to the route; other edges continue to omit an edge selection frame.
 
 Selected entities are included even when outside the viewport, which keeps handles and overlays stable during keyboard or programmatic selection changes. `useDiagramTextEditor()` owns one shared DOM editor overlay for the active text entity; it reads bounds from core, positions through the viewport transform, and commits through the `editText` command.
 

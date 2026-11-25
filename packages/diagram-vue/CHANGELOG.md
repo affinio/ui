@@ -1,5 +1,11 @@
 # @affino/diagram-vue
 
+## 0.24.0
+
+### Minor Changes
+
+- Added reactive `useDiagramConnectorRendering()` and SVG path helpers for Core-computed connector corner rounding and crossing bridges. Rendering options are not persisted in the scene.
+
 ## 0.23.0
 
 ### Minor Changes
@@ -7,6 +13,7 @@
 - Exposed `beginBezierCreation()`, `finishBezierCreation()`, and `beginBezierHandle()` through the typed pointer controller, including reactive draft and handle previews.
 - Added `DiagramBezierOverlay` for SVG-native cubic previews, anchors, tangent guides, and zoom-stable editing handles; Enter finishes and Escape cancels an active draft.
 - Projected all four side resize handles for selected entities and group selections, added typed `beginResizeHandle()`/`beginResizeSelectionHandle()` methods, and routed Escape cancellation through Core.
+- Exposed oriented selection-frame corners for selected free straight edges through `overlayAnchors`.
 
 ## 0.22.0
 

@@ -1,4 +1,4 @@
-import type { DiagramEntityKind, DiagramGeometry, DiagramId, DiagramPoint, DiagramRect, DiagramResizeHandle } from "@affino/diagram-core"
+import type { DiagramConnectorBridge, DiagramEntityKind, DiagramGeometry, DiagramId, DiagramPoint, DiagramRect, DiagramResizeHandle } from "@affino/diagram-core"
 
 export type DiagramRenderLayer = "svg" | "dom"
 
@@ -26,6 +26,8 @@ export type DiagramOverlayAnchor = Readonly<{
   id: DiagramId
   kind: DiagramEntityKind
   rect: DiagramRect
+  /** Present for free straight edges; the four world-space selection-frame corners follow the line direction. */
+  corners?: ReadonlyArray<DiagramPoint>
 }>
 
 export type DiagramVisibleProjection = Readonly<{
@@ -38,4 +40,11 @@ export type DiagramVisibleProjection = Readonly<{
   ports: ReadonlyArray<DiagramRenderEntity>
   activeHandles: ReadonlyArray<DiagramHandle>
   overlayAnchors: ReadonlyArray<DiagramOverlayAnchor>
+}>
+
+export type DiagramConnectorRenderEntity = Readonly<{
+  id: DiagramId
+  pathData: string
+  bridges: ReadonlyArray<DiagramConnectorBridge>
+  selected: boolean
 }>

@@ -88,7 +88,7 @@ function buildProjection(
     if (!ids.has(id)) entityCache.delete(id)
   }
   const activeGeometries = entities.filter((entity) => entity.selected).map((entity) => entity.geometry)
-  const anchorGeometries = activeGeometries.filter((geometry) => geometry.kind !== "edge")
+  const anchorGeometries = activeGeometries.filter((geometry) => geometry.kind !== "edge" || Boolean(geometry.corners?.length))
   const activeHandles = [
     ...(anchorGeometries.length > 1 ? createGroupHandles(anchorGeometries) : activeGeometries.flatMap(createHandles)),
     ...activeGeometries.flatMap((geometry) => geometry.kind === "edge" ? createEdgeWaypointHandles(geometry) : geometry.kind === "shape" ? [...createPathVertexHandles(geometry), ...createBezierHandles(geometry)] : []),
@@ -219,7 +219,7 @@ function unionRects(rects: ReadonlyArray<DiagramRect>): DiagramRect | null {
 }
 
 function createOverlayAnchor(geometry: DiagramGeometry): DiagramOverlayAnchor {
-  return { id: geometry.id, kind: geometry.kind, rect: geometry.hitBounds }
+  return { id: geometry.id, kind: geometry.kind, rect: geometry.hitBounds, ...(geometry.corners ? { corners: geometry.corners } : {}) }
 }
 
 function inflate(rect: DiagramRect, amount: number): DiagramRect {

@@ -1,4 +1,5 @@
 import { createEntityGeometry, diagramPortHostId, distance, inflateRect, isValidDiagramPortAnchor, rectContainsPoint, rectIntersects, resolvePortPoint, rotatePoint } from "./geometry.js"
+import { createConnectorRenderGeometry } from "./connectorRendering.js"
 import { createCircularArc, flattenPathContour, pathContourBoundsPoints, translatePathContour } from "./pathOperations.js"
 import { DiagramClipboardService } from "./internal/DiagramClipboardService.js"
 import { DiagramGeometryService } from "./internal/DiagramGeometryService.js"
@@ -18,6 +19,8 @@ import type {
   DiagramBatchPreviewResult,
   DiagramDiagnostics,
   DiagramEdge,
+  DiagramConnectorRenderGeometry,
+  DiagramConnectorRenderOptions,
   DiagramEdgeEndpoint,
   DiagramNode,
   DiagramPort,
@@ -691,7 +694,7 @@ export class DiagramEngine {
     return ids.some((id) => {
       if (this.isEntityLockedOrReadOnly(id)) return false
       if (this.state.entities.groupsById.has(id)) return isGroupRotatable(this.state, id)
-      return this.state.entities.nodesById.has(id) || this.state.entities.shapesById.has(id) || this.state.entities.textsById.has(id) || this.state.entities.tablesById.has(id)
+      return this.state.entities.nodesById.has(id) || this.state.entities.shapesById.has(id) || this.state.entities.textsById.has(id) || this.state.entities.tablesById.has(id) || isFreeEdgeRotatable(this.state.entities.edgesById.get(id))
     })
   }
 
@@ -728,6 +731,13 @@ export class DiagramEngine {
   getRenderOrder(options: DiagramRenderOrderOptions = {}): DiagramId[] {
     const ids = this.createOrderedIds().filter((id) => options.includePorts || !this.state.entities.portsById.has(id))
     return ids.sort((a, b) => layerRank(this.getEntityMetadata(a)) - layerRank(this.getEntityMetadata(b)))
+  }
+
+  /** Returns transient renderer-neutral connector paths with optional rounded corners and crossing bridges. */
+  getConnectorRenderGeometry(options: DiagramConnectorRenderOptions = {}): ReadonlyArray<DiagramConnectorRenderGeometry> {
+    const scene = this.getScene()
+    const edgeOrder = this.getRenderOrder().filter((id) => scene.entities.edgesById.has(id))
+    return createConnectorRenderGeometry(scene, options, edgeOrder)
   }
 
   exportSelection(): DiagramClipboard {
@@ -1524,7 +1534,7 @@ function validateSceneInput(scene: DiagramSceneInput): DiagramSceneInput {
   for (const table of tablesInput) validateDiagramTable(table)
   for (const edge of edgesInput) {
     const validEndpoint = (endpoint: DiagramEdgeEndpoint) => endpoint.kind === "point" ? Number.isFinite(endpoint.point.x) && Number.isFinite(endpoint.point.y) : endpoint.kind === "node" ? nodes.has(endpoint.nodeId) : endpoint.kind === "port" && ports.has(endpoint.portId)
-    if (!validEndpoint(edge.source) || !validEndpoint(edge.target) || !(edge.points ?? []).every((point) => Number.isFinite(point.x) && Number.isFinite(point.y))) throw new TypeError(`Invalid edge ${edge.id}`)
+    if (!validEndpoint(edge.source) || !validEndpoint(edge.target) || !Number.isFinite(edge.rotation ?? 0) || !(edge.points ?? []).every((point) => Number.isFinite(point.x) && Number.isFinite(point.y))) throw new TypeError(`Invalid edge ${edge.id}`)
   }
   const groupedChildren = new Set<DiagramId>()
   const groupable = new Set<DiagramId>([...nodesInput, ...edgesInput, ...textsInput, ...shapesInput, ...tablesInput].map((entity) => entity.id))
@@ -1583,6 +1593,10 @@ function createMovePatch(state: InternalState, ids: ReadonlyArray<DiagramId>, de
 
 function isEdgeTranslatable(edge: DiagramEdge | undefined): boolean {
   return Boolean(edge && (edge.source.kind === "point" || edge.target.kind === "point" || edge.points?.length))
+}
+
+function isFreeEdgeRotatable(edge: DiagramEdge | undefined): edge is DiagramEdge & Readonly<{ source: Extract<DiagramEdgeEndpoint, { kind: "point" }>; target: Extract<DiagramEdgeEndpoint, { kind: "point" }> }> {
+  return Boolean(edge && edge.source.kind === "point" && edge.target.kind === "point")
 }
 
 function createMovePatchUnchecked(ids: ReadonlyArray<DiagramId>, delta: DiagramPoint): Patch {
@@ -1936,7 +1950,27 @@ function createRotatePatch(state: InternalState, entries: ReadonlyArray<DiagramR
   for (const entry of entries) {
     if (groupChildren.has(entry.id) || state.entities.groupsById.has(entry.id) || !Number.isFinite(entry.rotation) || isEntityLockedOrReadOnly(state, entry.id)) continue
     const entity = getDiagramRotationSnapshot(state, entry.id)
-    if (!entity || entity.kind === "edge" || entity.kind === "group") continue
+    if (!entity || entity.kind === "group") continue
+    if (entity.kind === "edge") {
+      if (!isFreeEdgeRotatable(entity)) continue
+      const geometry = createEntityGeometry(entity.id, snapshotEntities(state))
+      if (!geometry) continue
+      const rotation = normalizeRotation(entry.rotation)
+      const delta = normalizeRotation(rotation - (entity.rotation ?? 0))
+      if (!delta) continue
+      const center = { x: geometry.bounds.x + geometry.bounds.width / 2, y: geometry.bounds.y + geometry.bounds.height / 2 }
+      const rotate = (point: DiagramPoint) => cleanRotatedPoint(rotatePoint(point, center, delta))
+      const nextEdge: DiagramEdge = {
+        ...entity,
+        source: { kind: "point", point: rotate(entity.source.point) },
+        target: { kind: "point", point: rotate(entity.target.point) },
+        points: entity.points?.map(rotate),
+        rotation,
+      }
+      previous.set(entity.id, entity)
+      next.set(entity.id, nextEdge)
+      continue
+    }
     const rotation = normalizeRotation(entry.rotation)
     if ((entity.rotation ?? 0) === rotation) continue
     previous.set(entry.id, { ...entity, rotation: entity.rotation ?? 0 })
@@ -2020,7 +2054,7 @@ function rotateGroupChild(entity: DiagramRotationSnapshot, geometry: DiagramGeom
     if (!hasPointGeometry) return null
     const rotate = (point: DiagramPoint) => cleanRotatedPoint(rotatePoint(point, center, delta))
     const endpoint = (value: DiagramEdgeEndpoint): DiagramEdgeEndpoint => value.kind === "point" ? { kind: "point", point: rotate(value.point) } : value
-    return { ...entity, source: endpoint(entity.source), target: endpoint(entity.target), points: entity.points?.map(rotate) }
+    return { ...entity, source: endpoint(entity.source), target: endpoint(entity.target), points: entity.points?.map(rotate), rotation: normalizeRotation((entity.rotation ?? 0) + delta) }
   }
   if (entity.kind === "group") return null
   const bounds = geometry.unrotatedBounds ?? geometry.bounds
