@@ -175,6 +175,10 @@ export function useDiagramPointerController(controller: DiagramEngineController,
           event.preventDefault()
           interaction.finishBezierCreation()
           refresh()
+        } else if (event.key === "Enter" && interaction.getSnapshot().tool === "draw-path" && interaction.getSnapshot().pathCreationPreview) {
+          event.preventDefault()
+          interaction.finishPathCreation()
+          refresh()
         }
       },
     }),

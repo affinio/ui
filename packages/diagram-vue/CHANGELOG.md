@@ -1,5 +1,24 @@
 # @affino/diagram-vue
 
+## 0.26.0
+
+### Minor Changes
+
+- Exposed Core's opt-in strict-grid behavior through the existing typed `useDiagramPointerController({ snap })` option without adding adapter-side geometry calculations.
+
+## Unreleased
+
+### Fixed
+
+- Forwarded Enter to Core path creation so click-to-place paths finish through the public SVG pointer props.
+- Documented and exposed the drawing-only behavior of Core's `snap.ortho` interaction option; selection dragging remains unconstrained unless Shift is held.
+
+## 0.25.0
+
+### Minor Changes
+
+- Updated the typed pointer adapter contract for Core 0.27 orthogonal route options and diagnostics. Existing preview state now exposes obstacle-aware routes without duplicating route calculation in Vue.
+
 ## 0.24.0
 
 ### Minor Changes

@@ -88,6 +88,22 @@ describe("diagram-vue", () => {
     diagram.dispose()
     vi.unstubAllGlobals()
   })
+
+  it("finishes a click-to-place path on Enter through the SVG pointer API", () => {
+    const diagram = useDiagramEngine()
+    const pointer = useDiagramPointerController(diagram, { toWorldPoint: (event) => ({ x: event.clientX, y: event.clientY }), snap: { enabled: false } })
+    const event = (x: number, y: number) => ({ pointerId: 31, clientX: x, clientY: y, shiftKey: false, detail: 1 }) as PointerEvent
+    expect(pointer.beginPathCreation("enter-path", event(10, 10))).toBe(true)
+    expect(pointer.addPathVertex({ x: 40, y: 20 })).toBe(true)
+    const preventDefault = vi.fn()
+    pointer.getSvgPointerProps().onKeydown({ key: "Enter", preventDefault } as unknown as KeyboardEvent)
+    expect(preventDefault).toHaveBeenCalledOnce()
+    expect(diagram.engine.getGeometrySnapshot("enter-path")?.path).toEqual([{ x: 10, y: 10 }, { x: 40, y: 20 }])
+    expect(pointer.state.value.pathCreationPreview).toBeNull()
+    expect(diagram.engine.getDiagnostics().undoDepth).toBe(1)
+    pointer.dispose()
+    diagram.dispose()
+  })
   it("projects anchored port identity and transformed geometry from Core", () => {
     const controller = useDiagramEngine({
       shapes: [{ id: "host", kind: "shape", shape: "rect", x: 10, y: 20, width: 80, height: 40, rotation: 90, flipX: true }],
@@ -842,6 +858,35 @@ describe("diagram-vue", () => {
     }
   })
 
+  it("forwards strict grid snapping through the public pointer controller", () => {
+    const frames: Array<FrameRequestCallback> = []
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { frames.push(callback); return frames.length })
+    const controller = useDiagramEngine({
+      nodes: [{ id: "moving", kind: "node", x: 14, y: 14, width: 10, height: 10 }],
+      viewport: { x: 0, y: 0, width: 100, height: 100, zoom: 1 },
+    })
+    const pointer = useDiagramPointerController(controller, {
+      snap: { gridSize: 10, strictGrid: true, snapToPorts: false, snapToAlignment: false, snapToEqualSpacing: false },
+      toWorldPoint: (event) => ({ x: event.clientX, y: event.clientY }),
+    })
+    try {
+      const props = pointer.getSvgPointerProps()
+      const event = (x: number, y: number) => ({ pointerId: 1, clientX: x, clientY: y, shiftKey: false }) as PointerEvent
+      props.onPointerdown(event(15, 15))
+      props.onPointermove(event(54, 24))
+      frames.shift()?.(0)
+      const preview = pointer.getPreviewGeometry("moving")!.bounds
+      expect(preview).toMatchObject({ x: 50, y: 20 })
+      props.onPointerup(event(54, 24))
+      expect(controller.scene.value.entities.nodesById.get("moving")).toMatchObject({ x: 50, y: 20 })
+      expect(controller.engine.getGeometrySnapshot("moving")!.bounds).toEqual(preview)
+    } finally {
+      pointer.dispose()
+      controller.dispose()
+      vi.unstubAllGlobals()
+    }
+  })
+
   it("exposes one group resize handle set for multi-selection", () => {
     const controller = useDiagramEngine({
       nodes: [
@@ -1066,6 +1111,29 @@ describe("diagram-vue", () => {
     pointer.getSvgPointerProps().onPointerdown(event(35, 95))
     pointer.getSvgPointerProps().onPointerup(event(35, 95))
     expect(diagram.scene.value.entities.shapesById.get("click-line")?.points).toEqual([{ x: 0, y: 0 }, { x: 25, y: 15 }])
+    pointer.dispose()
+    diagram.dispose()
+    vi.unstubAllGlobals()
+  })
+
+  it("forwards opt-in automatic routing and exposes the exact route committed by Core", () => {
+    const callbacks: Array<FrameRequestCallback> = []
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { callbacks.push(callback); return callbacks.length })
+    const diagram = useDiagramEngine({
+      nodes: [{ id: "obstacle", kind: "node", x: 80, y: -20, width: 40, height: 40 }],
+      viewport: { x: 0, y: 0, width: 300, height: 200, zoom: 1 },
+    })
+    const pointer = useDiagramPointerController(diagram, { snap: { enabled: false }, toWorldPoint: (event) => ({ x: event.clientX, y: event.clientY }) })
+    const event = (x: number, y: number) => ({ pointerId: 17, clientX: x, clientY: y, shiftKey: false }) as PointerEvent
+    expect(pointer.beginEdgeCreation("auto-wire", event(0, 0), { mode: "auto", clearance: 6, terminalLead: 8 })).toBe(true)
+    pointer.getSvgPointerProps().onPointermove(event(200, 0))
+    callbacks.shift()?.(0)
+    const preview = pointer.state.value.edgeCreationPreview!
+    expect(preview.path.some((point) => Math.abs(point.y) >= 26)).toBe(true)
+    expect(diagram.scene.value.entities.edgesById.has("auto-wire")).toBe(false)
+    pointer.getSvgPointerProps().onPointerup(event(200, 0))
+    expect(diagram.scene.value.entities.edgesById.get("auto-wire")?.routing).toMatchObject({ mode: "auto", clearance: 6 })
+    expect(diagram.engine.getGeometrySnapshot("auto-wire")?.path).toEqual(preview.path)
     pointer.dispose()
     diagram.dispose()
     vi.unstubAllGlobals()
