@@ -16,6 +16,7 @@ export type DiagramVisibleEntitiesController = Readonly<{
 }>
 
 const EMPTY_PROJECTION: DiagramVisibleProjection = Object.freeze({
+  ordered: Object.freeze([]),
   ids: Object.freeze([]),
   nodes: Object.freeze([]),
   edges: Object.freeze([]),
@@ -80,10 +81,12 @@ function buildProjection(
       entities.push(cached.entity)
       continue
     }
-    const entity = Object.freeze({ id, kind: geometry.kind, layer: "svg" as const, geometry, selected: isSelected })
+    const entity = Object.freeze({ id, kind: geometry.kind, layer: "svg" as const, geometry, selected: isSelected, ...(geometry.style ? { style: geometry.style } : {}) })
     entityCache.set(id, { geometry, selected: isSelected, entity })
     entities.push(entity)
   }
+  const renderRank = new Map(controller.engine.getRenderOrder({ includePorts: true }).map((id, index) => [id, index]))
+  entities.sort((a, b) => (renderRank.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (renderRank.get(b.id) ?? Number.MAX_SAFE_INTEGER))
   for (const id of entityCache.keys()) {
     if (!ids.has(id)) entityCache.delete(id)
   }
@@ -96,6 +99,7 @@ function buildProjection(
     ...activeGeometries.filter((geometry) => geometry.kind === "edge").flatMap(createEdgeSegmentHandles),
   ]
   return Object.freeze({
+    ordered: Object.freeze(entities),
     ids: Object.freeze(entities.map((entity) => entity.id)),
     nodes: freezeKind(entities, "node"),
     edges: freezeKind(entities, "edge"),

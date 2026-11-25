@@ -19,6 +19,7 @@ export function useDiagramConnectorRendering(controller: DiagramEngineController
     connectors.value = Object.freeze(controller.engine.getConnectorRenderGeometry(toValue(options)).map((geometry) => Object.freeze({
       id: geometry.id,
       pathData: connectorCommandsToSvgPath(geometry.commands),
+      ...(geometry.style ? { style: geometry.style } : {}),
       bridges: geometry.bridges,
       junctions: geometry.junctions,
       selected: selected.has(geometry.id),

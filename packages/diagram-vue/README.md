@@ -119,6 +119,8 @@ const connectors = useDiagramConnectorRendering(diagram, {
 />
 ```
 
+The visible projection includes `ordered`, the unified cross-kind order from Core; use it when interleaving text, shapes, and edges. Each entity geometry carries the Core-resolved `style`, and `getSvgEntityProps()` maps those fields to SVG attributes. Typed `visualStyle` values override legacy metadata. Closed contours use an implicit close segment; hole contours resolve with `evenodd`.
+
 Core determines crossing geometry, explicit junctions, and which edge is on top; Vue only formats its typed result as SVG. Bridges appear only at strict interior crossings and do not imply electrical junctions. Shared endpoint contacts, endpoint touches, and collinear overlaps are left unbridged. Explicit junctions are exposed as `connector.junctions`; render each with `getSvgJunctionRenderProps()`. The default is a filled dot. `"none"` hides its marker without changing connectivity, and bridges are suppressed at explicit junction points. Call `connectors.dispose()` when managing the composable outside a Vue effect scope.
 
 `useDiagramPointerController({ snap: { snapToConnectors: true, connectorTolerancePx } })` exposes `state.value.edgeCreationPreview.prospectiveJunctions` while drawing a branch onto a connector. Render these transient marker geometries in the same world-coordinate SVG group as the route preview. Core commits the new stable junction and branch edge atomically; preview/cancel do not change document state.

@@ -1,4 +1,4 @@
-import type { DiagramConnectorBridge, DiagramEntityKind, DiagramGeometry, DiagramId, DiagramJunctionRenderGeometry, DiagramPoint, DiagramRect, DiagramResizeHandle } from "@affino/diagram-core"
+import type { DiagramConnectorBridge, DiagramEntityKind, DiagramGeometry, DiagramId, DiagramJunctionRenderGeometry, DiagramPoint, DiagramRect, DiagramResizeHandle, DiagramResolvedStyle } from "@affino/diagram-core"
 
 export type DiagramRenderLayer = "svg" | "dom"
 
@@ -8,6 +8,7 @@ export type DiagramRenderEntity = Readonly<{
   layer: DiagramRenderLayer
   geometry: DiagramGeometry
   selected: boolean
+  style?: DiagramResolvedStyle
 }>
 
 export type DiagramHandle = Readonly<{
@@ -31,6 +32,8 @@ export type DiagramOverlayAnchor = Readonly<{
 }>
 
 export type DiagramVisibleProjection = Readonly<{
+  /** Unified Core render order across entity kinds. */
+  ordered: ReadonlyArray<DiagramRenderEntity>
   ids: ReadonlyArray<DiagramId>
   nodes: ReadonlyArray<DiagramRenderEntity>
   edges: ReadonlyArray<DiagramRenderEntity>
@@ -45,6 +48,7 @@ export type DiagramVisibleProjection = Readonly<{
 export type DiagramConnectorRenderEntity = Readonly<{
   id: DiagramId
   pathData: string
+  style?: DiagramResolvedStyle
   bridges: ReadonlyArray<DiagramConnectorBridge>
   junctions: ReadonlyArray<DiagramJunctionRenderGeometry>
   selected: boolean

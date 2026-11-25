@@ -17,12 +17,13 @@ export function connectorCommandsToSvgPath(commands: ReadonlyArray<DiagramConnec
 }
 
 /** SVG attributes for one connector returned by `useDiagramConnectorRendering`. */
-export function getSvgConnectorRenderProps(connector: Pick<DiagramConnectorRenderEntity, "id" | "pathData" | "bridges">): SvgEntityProps {
+export function getSvgConnectorRenderProps(connector: Pick<DiagramConnectorRenderEntity, "id" | "pathData" | "bridges" | "style">): SvgEntityProps {
   return {
     d: connector.pathData,
     "data-diagram-id": connector.id,
     "data-connector-bridge-count": connector.bridges.length,
-    fill: "none",
+    fill: connector.style?.fill ?? "none",
+    ...svgStyleProps(connector.style),
   }
 }
 
@@ -59,6 +60,8 @@ export function getSvgEntityProps(entity: DiagramRenderEntity): SvgEntityProps {
   const { geometry } = entity
   const bounds = geometry.unrotatedBounds ?? geometry.bounds
   const transform = svgTransform(geometry.rotation ?? 0, geometry.flipX === true, geometry.flipY === true, bounds)
+  const style = entity.style ?? geometry.style
+  const styleProps = svgStyleProps(style)
   const common = {
     "data-diagram-id": entity.id,
     "data-diagram-kind": entity.kind,
@@ -67,6 +70,7 @@ export function getSvgEntityProps(entity: DiagramRenderEntity): SvgEntityProps {
   if (entity.kind === "edge") {
     return {
       ...common,
+      ...styleProps,
       points: geometry.path?.map((point) => `${point.x},${point.y}`).join(" ") ?? "",
     }
   }
@@ -74,6 +78,7 @@ export function getSvgEntityProps(entity: DiagramRenderEntity): SvgEntityProps {
     const point = geometry.point ?? { x: geometry.bounds.x, y: geometry.bounds.y }
     return {
       ...common,
+      ...styleProps,
       cx: point.x,
       cy: point.y,
       r: geometry.bounds.width / 2,
@@ -87,8 +92,9 @@ export function getSvgEntityProps(entity: DiagramRenderEntity): SvgEntityProps {
   if (entity.kind === "shape" || entity.kind === "node" || entity.kind === "table") {
     return {
       ...common,
+      ...styleProps,
       ...(entity.kind === "shape" && geometry.path ? { points: geometry.path.map((point) => `${point.x},${point.y}`).join(" ") } : {}),
-      ...(entity.kind === "shape" && geometry.pathContours ? { d: geometry.pathContours.map(pathContourSvg).join(" "), "fill-rule": "evenodd" } : {}),
+      ...(entity.kind === "shape" && geometry.pathContours ? { d: geometry.pathContours.map(pathContourSvg).join(" "), "fill-rule": style?.fillRule ?? "evenodd" } : {}),
       x: bounds.x,
       y: bounds.y,
       width: bounds.width,
@@ -100,12 +106,30 @@ export function getSvgEntityProps(entity: DiagramRenderEntity): SvgEntityProps {
   if (entity.kind === "text") {
     return {
       ...common,
+      ...styleProps,
       x: bounds.x,
       y: bounds.y,
       transform,
     }
   }
   return common
+}
+
+
+function svgStyleProps(style: DiagramRenderEntity["style"]): SvgEntityProps {
+  if (!style) return {}
+  return {
+    ...(style.fill !== undefined ? { fill: style.fill } : {}),
+    ...(style.stroke !== undefined ? { stroke: style.stroke } : {}),
+    ...(style.strokeWidth !== undefined ? { "stroke-width": style.strokeWidth } : {}),
+    ...(style.strokeDasharray !== undefined ? { "stroke-dasharray": style.strokeDasharray } : {}),
+    ...(style.fillRule !== undefined ? { "fill-rule": style.fillRule } : {}),
+    ...(style.color !== undefined ? { color: style.color } : {}),
+    ...(style.fontFamily !== undefined ? { "font-family": style.fontFamily } : {}),
+    ...(style.fontSize !== undefined ? { "font-size": style.fontSize } : {}),
+    ...(style.fontWeight !== undefined ? { "font-weight": style.fontWeight } : {}),
+    ...(style.fontStyle !== undefined ? { "font-style": style.fontStyle } : {}),
+  }
 }
 
 export function getDomEntityStyle(entity: DiagramRenderEntity, viewport?: DiagramViewport): Readonly<Record<string, string>> {
