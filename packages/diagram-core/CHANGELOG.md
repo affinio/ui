@@ -1,13 +1,10 @@
 # @affino/diagram-core
 
-## Unreleased
+## 0.30.0
 
-### Added
+### Minor Changes
 
 - Added `maxRouteBends` for route-wide bend limits and `extent: "beyond-boundary"` for trimming ray tails beyond resolved boundaries.
-
-### Fixed
-
 - Applied orthogonal constraints to existing edge endpoints and click-to-place path points after snapping.
 - Simplified connector segment previews and retained auto-route drags as editable waypoint constraints instead of freezing generated bends.
 - Removed duplicate terminal clicks from click-to-place connector waypoints and canonicalized preview and committed routes.

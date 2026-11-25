@@ -1,12 +1,13 @@
 # @affino/diagram-vue
 
-## Unreleased
+## 0.28.0
 
-### Fixed
+### Minor Changes
 
 - Forwarded `snap.ortho` path previews use the same axis-constrained vertices as Core commits.
 - Exposed Core's route-wide bend limit and Trim ray extent through existing typed options.
 - Forwarded Bézier creation previews now expose the corrected Core tangent direction, matching the saved contour.
+- Expanded `beginPathCreation()` options so the Vue pointer controller forwards Core path creation options.
 
 ## 0.27.0
 
