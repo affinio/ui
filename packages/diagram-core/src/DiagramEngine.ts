@@ -1594,6 +1594,7 @@ function isValidEdgeRouting(routing: DiagramEdgeRouting): boolean {
     && (routing.sourceDirection === undefined || ["north", "east", "south", "west"].includes(routing.sourceDirection))
     && (routing.targetDirection === undefined || ["north", "east", "south", "west"].includes(routing.targetDirection))
     && (routing.maxBends === undefined || Number.isInteger(routing.maxBends) && routing.maxBends >= 0)
+    && (routing.maxRouteBends === undefined || Number.isInteger(routing.maxRouteBends) && routing.maxRouteBends >= 0)
     && (routing.tieBreak === undefined || ["coordinates", "horizontal-first", "vertical-first"].includes(routing.tieBreak))
     && (routing.waypoints === undefined || routing.waypoints.every((point) => Number.isFinite(point.x) && Number.isFinite(point.y))))
 }
@@ -1676,6 +1677,7 @@ function validateSceneInput(scene: DiagramSceneInput): DiagramSceneInput {
       && Number.isFinite(routing.clearance ?? 0) && (routing.clearance ?? 0) >= 0
       && Number.isFinite(routing.terminalLead ?? 12) && (routing.terminalLead ?? 12) >= 0
       && (routing.maxBends === undefined || Number.isInteger(routing.maxBends) && routing.maxBends >= 0)
+      && (routing.maxRouteBends === undefined || Number.isInteger(routing.maxRouteBends) && routing.maxRouteBends >= 0)
       && (routing.firstAxis === undefined || routing.firstAxis === "horizontal" || routing.firstAxis === "vertical")
       && validDirection(routing.sourceDirection) && validDirection(routing.targetDirection)
       && (routing.tieBreak === undefined || ["coordinates", "horizontal-first", "vertical-first"].includes(routing.tieBreak))

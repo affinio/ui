@@ -68,6 +68,7 @@ export function routeOrthogonalConnector(source: DiagramPoint, target: DiagramPo
   if (![source.x, source.y, target.x, target.y, requestedTerminalLead, requestedClearance, strictSize ?? 1, ...requestedWaypoints.flatMap((point) => [point.x, point.y]), ...(options.obstacles ?? []).flatMap(({ bounds }) => [bounds.x, bounds.y, bounds.width, bounds.height]), ...existingRoutes.flatMap((route) => route.points.flatMap((point) => [point.x, point.y]))].every(Number.isFinite)
     || requestedTerminalLead < 0 || requestedClearance < 0
     || (options.maxBends !== undefined && (!Number.isInteger(options.maxBends) || options.maxBends < 0))
+    || (options.maxRouteBends !== undefined && (!Number.isInteger(options.maxRouteBends) || options.maxRouteBends < 0))
     || (options.firstAxis !== undefined && options.firstAxis !== "horizontal" && options.firstAxis !== "vertical")
     || (options.mode !== undefined && options.mode !== "auto" && options.mode !== "manual")
     || !validDirection(options.sourceDirection) || !validDirection(options.targetDirection)
@@ -113,6 +114,9 @@ export function routeOrthogonalConnector(source: DiagramPoint, target: DiagramPo
   }
   routed.push(routeTarget)
   const path = dedupeAdjacentPoints(routed)
+  if (options.maxRouteBends !== undefined && countOrthogonalBends(path) > options.maxRouteBends) {
+    return { points: [], path: [routeSource, routeTarget], firstAxis, diagnostics: [{ code: "bend-limit", message: `No collision-free orthogonal route satisfies maxRouteBends=${options.maxRouteBends}.` }] }
+  }
   if (distance(sourceStub, targetStub) < terminalLead * 2 && terminalLead > 0) diagnostics.push({ code: "terminal-leads-overlap", message: "Terminal lead segments overlap or reverse; reduce terminalLead or adjust the escape directions." })
   return { points: path.slice(1, -1), path, firstAxis, diagnostics }
 }
@@ -420,12 +424,13 @@ export function resolveEdgePath(edge: DiagramEdge, entities: DiagramEntities): R
       targetDirection: routing.targetDirection,
       clearance: routing.clearance,
       maxBends: routing.maxBends,
+      maxRouteBends: routing.maxRouteBends,
       tieBreak: routing.tieBreak,
       waypoints: routing.waypoints,
       obstacles,
       existingRoutes,
     })
-    if (!route.diagnostics.some((diagnostic) => diagnostic.code !== "terminal-leads-overlap")) return route.path
+    if (!route.diagnostics.some((diagnostic) => diagnostic.code !== "terminal-leads-overlap")) return simplifyOrthogonalPath(route.path)
   }
   return [
     resolveEndpoint(edge.source, entities),

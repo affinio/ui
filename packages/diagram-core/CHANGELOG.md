@@ -2,8 +2,15 @@
 
 ## Unreleased
 
+### Added
+
+- Added `maxRouteBends` for route-wide bend limits and `extent: "beyond-boundary"` for trimming ray tails beyond resolved boundaries.
+
 ### Fixed
 
+- Applied orthogonal constraints to existing edge endpoints and click-to-place path points after snapping.
+- Simplified connector segment previews and retained auto-route drags as editable waypoint constraints instead of freezing generated bends.
+- Removed duplicate terminal clicks from click-to-place connector waypoints and canonicalized preview and committed routes.
 - Bézier creation now treats an anchor drag as the forward contour tangent and mirrors the incoming handle across the anchor.
 
 ## 0.29.0
@@ -26,7 +33,7 @@
 ### Fixed
 
 - Made strict-grid persistence cover every group member, resized line/path vertices and Bézier controls, hosted-port world positions, and automatic orthogonal route bends. Group offsets can change as members align independently.
-- Scoped interaction `snap.ortho` to drawing geometry so selected entities move freely while grid and object snapping remain active.
+- Scoped interaction `snap.ortho` to drawing gestures and orthogonal edge/path endpoint edits; selection movement remains free while grid and object snapping stay active.
 
 ## 0.27.1
 

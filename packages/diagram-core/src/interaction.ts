@@ -3,12 +3,12 @@ import { pathContourBoundsPoints } from "./pathOperations.js"
 import { clampViewportToBounds } from "./viewport.js"
 import { transformPathContour, translatePathContour } from "./pathOperations.js"
 import type { DiagramEngine } from "./DiagramEngine.js"
-import type { DiagramBezierAnchor, DiagramBezierHandleKind, DiagramBezierHandlePreview, DiagramBezierCreationOptions, DiagramBezierCreationPreview, DiagramCommand, DiagramDynamicInputState, DiagramEdge, DiagramEdgeCreationPreview, DiagramEdgeEndpoint, DiagramEdgeSegmentPreview, DiagramEntities, DiagramId, DiagramGeometry, DiagramInteractionSnapOptions, DiagramInteractionSnapshot, DiagramInteractionTool, DiagramJunction, DiagramJunctionRenderGeometry, DiagramMarqueeMode, DiagramPointerEvent, DiagramPoint, DiagramPort, DiagramPortAnchor, DiagramPortCreationOptions, DiagramPortCreationPreview, DiagramRect, DiagramResizeEntry, DiagramResizeHandle, DiagramSnapCandidate, DiagramSnapGuide, DiagramSnapResult, DiagramViewportConstraints, DiagramOrthogonalRouteOptions, DiagramShape, DiagramTableResizeAxis, DiagramTableResizePreview, DiagramPathContour, DiagramPathSegment } from "./types.js"
+import type { DiagramBezierAnchor, DiagramBezierHandleKind, DiagramBezierHandlePreview, DiagramBezierCreationOptions, DiagramBezierCreationPreview, DiagramPathCreationOptions, DiagramCommand, DiagramDynamicInputState, DiagramEdge, DiagramEdgeCreationPreview, DiagramEdgeEndpoint, DiagramEdgeSegmentPreview, DiagramEntities, DiagramId, DiagramGeometry, DiagramInteractionSnapOptions, DiagramInteractionSnapshot, DiagramInteractionTool, DiagramJunction, DiagramJunctionRenderGeometry, DiagramMarqueeMode, DiagramPointerEvent, DiagramPoint, DiagramPort, DiagramPortAnchor, DiagramPortCreationOptions, DiagramPortCreationPreview, DiagramRect, DiagramResizeEntry, DiagramResizeHandle, DiagramSnapCandidate, DiagramSnapGuide, DiagramSnapResult, DiagramViewportConstraints, DiagramOrthogonalRouteOptions, DiagramShape, DiagramTableResizeAxis, DiagramTableResizePreview, DiagramPathContour, DiagramPathSegment } from "./types.js"
 
 type ScheduleFrame = (callback: () => void) => void
 const AXIS_LOCK_ACTIVATION_TOLERANCE_PX = 4
 const EMPTY_SNAP_MARKERS: ReadonlyArray<DiagramSnapCandidate> = Object.freeze([])
-type EdgeSegmentDrag = Readonly<{ id: DiagramId; segmentIndex: number; firstSegment: number; lastSegment: number; axis: "horizontal" | "vertical"; path: ReadonlyArray<DiagramPoint>; source: DiagramEdgeEndpoint; target: DiagramEdgeEndpoint }>
+type EdgeSegmentDrag = Readonly<{ id: DiagramId; segmentIndex: number; firstSegment: number; lastSegment: number; axis: "horizontal" | "vertical"; path: ReadonlyArray<DiagramPoint>; source: DiagramEdgeEndpoint; target: DiagramEdgeEndpoint; waypointIndex?: number }>
 
 export type DiagramInteractionOptions = Readonly<{
   scheduleFrame?: ScheduleFrame
@@ -65,6 +65,8 @@ export class DiagramInteractionController {
   private pathCreationId: DiagramId | null = null
   private pathVertices: DiagramPoint[] = []
   private pathCurrentPoint: DiagramPoint | null = null
+  private pathCreationOptions: DiagramPathCreationOptions = {}
+  private pathClosePending = false
   private bezierCreationId: DiagramId | null = null
   private bezierAnchors: DiagramBezierAnchor[] = []
   private bezierPendingAnchor: DiagramPoint | null = null
@@ -321,7 +323,8 @@ export class DiagramInteractionController {
     this.latestPoint = event.point
     this.edgeEndpointId = ownerId
     this.edgeWaypointPreview = [...(edge.points ?? [])]
-    this.edgeSegmentDrag = { id: ownerId, segmentIndex, firstSegment, lastSegment, axis, path: Object.freeze(path.map((point) => Object.freeze({ ...point }))), source: edge.source, target: edge.target }
+    const waypointIndex = edge.routing?.mode === "auto" ? (edge.routing.waypoints ?? []).findIndex((point) => pointOnOrthogonalSegment(point, selectedStart, selectedEnd, axis)) : -1
+    this.edgeSegmentDrag = { id: ownerId, segmentIndex, firstSegment, lastSegment, axis, path: Object.freeze(path.map((point) => Object.freeze({ ...point }))), source: edge.source, target: edge.target, ...(waypointIndex >= 0 ? { waypointIndex } : {}) }
     return true
   }
 
@@ -333,6 +336,7 @@ export class DiagramInteractionController {
       || (routeOptions.terminalLead !== undefined && (!Number.isFinite(routeOptions.terminalLead) || routeOptions.terminalLead < 0))
       || (routeOptions.clearance !== undefined && (!Number.isFinite(routeOptions.clearance) || routeOptions.clearance < 0))
       || (routeOptions.maxBends !== undefined && (!Number.isInteger(routeOptions.maxBends) || routeOptions.maxBends < 0))
+      || (routeOptions.maxRouteBends !== undefined && (!Number.isInteger(routeOptions.maxRouteBends) || routeOptions.maxRouteBends < 0))
       || (routeOptions.firstAxis !== undefined && routeOptions.firstAxis !== "horizontal" && routeOptions.firstAxis !== "vertical")
       || (routeOptions.mode !== undefined && routeOptions.mode !== "auto" && routeOptions.mode !== "manual")
       || !validDirection(routeOptions.sourceDirection) || !validDirection(routeOptions.targetDirection)
@@ -365,6 +369,10 @@ export class DiagramInteractionController {
     if (this.engine.isEditingLocked()) { this.cancel(); return false }
     if (!this.edgeClickPlacement || !this.edgeCreationId || !this.edgeCreationPreview) return false
     if (point) this.latestPoint = point
+    const lastWaypoint = this.edgeCreationWaypoints[this.edgeCreationWaypoints.length - 1]
+    const finalPoint = point ?? this.latestPoint
+    const targetPoint = finalPoint ? this.endpointPoint(this.snapEndpoint(finalPoint, lastWaypoint ?? this.endpointPoint(this.edgeCreationSource!) ?? finalPoint, true, "target")) : null
+    if (targetPoint && lastWaypoint && samePoint(lastWaypoint, targetPoint)) this.edgeCreationWaypoints.pop()
     this.updateEdgeCreationPreview()
     const preview = this.edgeCreationPreview!
     if (preview.diagnostics?.some((diagnostic) => diagnostic.code !== "terminal-leads-overlap")) return false
@@ -392,13 +400,18 @@ export class DiagramInteractionController {
   }
 
   /** Starts a click-to-place free line (two clicks) or polyline (`finishPathCreation`). */
-  beginPathCreation(id: DiagramId, event: DiagramPointerEvent, mode: "line" | "path" = "path"): boolean {
+  beginPathCreation(id: DiagramId, event: DiagramPointerEvent, modeOrOptions: "line" | "path" | DiagramPathCreationOptions = "path"): boolean {
+    const mode = typeof modeOrOptions === "string" ? modeOrOptions : "path"
+    const options = typeof modeOrOptions === "string" ? {} : modeOrOptions
     if (this.engine.isEditingLocked()) return false
-    if (!id || this.engine.getGeometrySnapshot(id) || ![event.point.x, event.point.y].every(Number.isFinite)) return false
+    if (!id || this.engine.getGeometrySnapshot(id) || !finitePoint(event.point)
+      || (options.closeTolerancePx !== undefined && (!Number.isFinite(options.closeTolerancePx) || options.closeTolerancePx < 0))) return false
     this.cancel()
     this.tool = "draw-path"
     this.pathCreationId = id
     this.clickToPlaceLine = mode === "line"
+    this.pathCreationOptions = options
+    this.pathClosePending = false
     this.latestShiftKey = event.shiftKey === true
     this.edgeEndpointCardinalAngle = null
     const start = this.snapEndpoint(event.point, event.point)
@@ -510,8 +523,9 @@ export class DiagramInteractionController {
     if (this.tool !== "draw-path" || !this.pathCreationId || !this.pathVertices.length) return false
     const candidate = point ?? this.latestPoint ?? this.pathCurrentPoint
     if (!candidate || ![candidate.x, candidate.y].every(Number.isFinite)) return false
-    const snappedEndpoint = this.snapEndpoint(candidate, this.pathVertices[this.pathVertices.length - 1]!)
-    const vertex = this.endpointPoint(snappedEndpoint) ?? candidate
+    this.updatePathClosePending(candidate)
+    if (this.pathClosePending && !this.clickToPlaceLine) return this.commitPathCreation(true)
+    const vertex = this.resolvePathPoint(candidate)
     const last = this.pathVertices[this.pathVertices.length - 1]!
     if (last.x !== vertex.x || last.y !== vertex.y) this.pathVertices.push(vertex)
     this.pathCurrentPoint = vertex
@@ -523,10 +537,16 @@ export class DiagramInteractionController {
   }
 
   finishPathCreation(): boolean {
+    return this.commitPathCreation(false)
+  }
+
+  private commitPathCreation(closed: boolean): boolean {
     if (this.engine.isEditingLocked()) { this.cancel(); return false }
     if (this.tool !== "draw-path" || !this.pathCreationId || this.pathVertices.length < 2) return false
-    const path = this.pathVertices
-    this.engine.dispatch({ type: "createPath", path: { id: this.pathCreationId, kind: "path", points: Object.freeze([...path]) }, historyKey: `draw-path:${this.pathCreationId}:${++this.gestureHistoryId}` })
+    const points = [...this.pathVertices]
+    if (closed) points.push(points[0]!)
+    const path = closed ? { id: this.pathCreationId, kind: "path" as const, contours: [{ closed: true, segments: points.slice(1).map((point, index) => ({ kind: "line" as const, start: points[index]!, end: point })) }] } : { id: this.pathCreationId, kind: "path" as const, points: Object.freeze(points) }
+    this.engine.dispatch({ type: "createPath", path, historyKey: `draw-path:${this.pathCreationId}:${++this.gestureHistoryId}` })
     this.commitCount += 1
     this.cancel()
     return true
@@ -723,8 +743,10 @@ export class DiagramInteractionController {
     }
     if (this.tool === "draw-path" && this.pathCreationId) {
       this.updateShiftAxis(event.shiftKey === true, event.point)
-      this.pathCurrentPoint = this.resolvePathPoint(event.point)
-      this.addPathVertex(this.pathCurrentPoint, (event.clickCount ?? 0) >= 2)
+      this.updatePathClosePending(event.point)
+      this.pathCurrentPoint = this.pathClosePending && !this.clickToPlaceLine ? this.pathVertices[0]! : this.resolvePathPoint(event.point)
+      if (this.pathClosePending && !this.clickToPlaceLine) this.commitPathCreation(true)
+      else this.addPathVertex(this.pathCurrentPoint, (event.clickCount ?? 0) >= 2)
       this.activePointer = null
       return
     }
@@ -797,7 +819,12 @@ export class DiagramInteractionController {
       const edge = this.engine.getScene().entities.edgesById.get(drag.id)
       if (preview && edge?.routing?.mode === "auto") {
         if (!samePoints(drag.path.slice(1, -1), preview.points)) {
-          const result = this.engine.dispatch({ type: "updateEdgeRouting", id: drag.id, routing: { ...edge.routing, waypoints: preview.points } })
+          const first = preview.path[drag.segmentIndex]!, second = preview.path[drag.segmentIndex + 1]!
+          const movedConstraint = { x: (first.x + second.x) / 2, y: (first.y + second.y) / 2 }
+          const waypoints = [...(edge.routing.waypoints ?? [])]
+          if (drag.waypointIndex !== undefined && drag.waypointIndex < waypoints.length) waypoints[drag.waypointIndex] = movedConstraint
+          else if (!waypoints.some((point) => samePoint(point, movedConstraint))) waypoints.push(movedConstraint)
+          const result = this.engine.dispatch({ type: "updateEdgeRouting", id: drag.id, routing: { ...edge.routing, waypoints } })
           if (result.changed) this.commitCount += 1
         }
       } else if (preview) {
@@ -1083,7 +1110,7 @@ export class DiagramInteractionController {
       edgeCreationPreview: this.edgeCreationPreview,
       shapeCreationPreview: this.lineCreationPreview,
       pathCreationPreview: this.pathCreationId && this.pathVertices.length && this.pathCurrentPoint
-        ? { id: this.pathCreationId, vertices: Object.freeze([...this.pathVertices]), current: this.pathCurrentPoint }
+        ? { id: this.pathCreationId, vertices: Object.freeze([...this.pathVertices]), current: this.pathCurrentPoint, closing: this.pathClosePending, closeTarget: this.pathClosePending ? this.pathVertices[0]! : null }
         : null,
       bezierCreationPreview: this.bezierCreationId ? this.getBezierCreationPreview() : null,
       bezierHandlePreview: this.bezierHandlePreview,
@@ -1114,12 +1141,14 @@ export class DiagramInteractionController {
       return
     }
     if (this.tool === "draw-path" && this.pathCreationId) {
-      this.pathCurrentPoint = this.resolvePathPoint(this.latestPoint)
+      this.updatePathClosePending(this.latestPoint)
+      this.pathCurrentPoint = this.pathClosePending && !this.clickToPlaceLine ? this.pathVertices[0]! : this.resolvePathPoint(this.latestPoint)
       this.previewDynamicInput = dynamicInputFor(this.pathVertices[this.pathVertices.length - 1]!, this.pathCurrentPoint)
       return
     }
     if (this.tool === "draw-bezier" && this.bezierCreationId) {
-      this.pathCurrentPoint = this.resolveBezierPoint(this.latestPoint)
+      this.updateBezierClosePending(this.latestPoint)
+      this.pathCurrentPoint = this.bezierClosePending ? this.bezierAnchors[0]!.point : this.resolveBezierPoint(this.latestPoint)
       if (this.activePointer && this.bezierPendingAnchor) this.bezierPendingHandle = this.resolveBezierTangent(this.bezierPendingAnchor, this.latestPoint, this.latestShiftKey)
       return
     }
@@ -1235,7 +1264,9 @@ export class DiagramInteractionController {
           return
         }
       }
-      const angle = this.latestShiftKey ? this.edgeEndpointCardinalAngle : this.edgeEndpointOppositeStart ? this.configuredAngle(this.latestPoint, this.edgeEndpointOppositeStart) : null
+      const angle = this.latestShiftKey ? this.edgeEndpointCardinalAngle : this.edgeEndpointOppositeStart
+        ? this.snapOptions.ortho ? nearestCardinalAngle(this.latestPoint, this.edgeEndpointOppositeStart) : this.configuredAngle(this.latestPoint, this.edgeEndpointOppositeStart)
+        : null
       const axisConstraint = angle === null ? undefined : angle === 0 || angle === 180 ? "x" : "y"
       let desiredPoint = angle === null
         ? this.latestPoint
@@ -1422,7 +1453,7 @@ export class DiagramInteractionController {
     const movedLastVertex = drag.lastSegment + 1 >= 1 ? move(path[drag.lastSegment]!) : null
     if (drag.lastSegment === lastPathIndex - 1 && !targetMoves && movedLastVertex) nextPath.push(orthogonalConnectorElbow(movedLastVertex, nextTarget.kind === "point" ? nextTarget.point : path[lastPathIndex]!, drag.axis, false))
     nextPath.push(nextTarget.kind === "point" ? nextTarget.point : path[lastPathIndex]!)
-    const cleanPath = dedupeAdjacentRoutePoints(nextPath)
+    const cleanPath = simplifyOrthogonalEditPath(nextPath)
     const points = cleanPath.slice(1, -1)
     this.edgeWaypointPreview = points
     this.edgeSegmentPreview = Object.freeze({
@@ -1495,10 +1526,11 @@ export class DiagramInteractionController {
 
   private resolvePathVertexPoint(point: DiagramPoint): DiagramPoint {
     const origin = this.vertexConstraintOrigin
-    if ((this.vertexDragKind !== "path" && this.vertexDragKind !== "edge") || !origin || !this.latestShiftKey || this.vertexCardinalAngle === null) {
+    const orthoEndpoint = this.vertexDragKind === "path" && this.snapOptions.ortho === true && origin !== null
+    if ((this.vertexDragKind !== "path" && this.vertexDragKind !== "edge") || !origin || (!this.latestShiftKey && !orthoEndpoint) || (this.latestShiftKey && this.vertexCardinalAngle === null)) {
       return this.resolveFreeSnap(point, this.vertexDragStart ?? point)
     }
-    const angle = this.vertexCardinalAngle
+    const angle = this.latestShiftKey ? this.vertexCardinalAngle! : nearestCardinalAngle(point, origin)
     const axisConstraint = angle === 0 || angle === 180 ? "x" : "y"
     const desired = projectToAngle(origin, point, angle)
     if (this.snapOptions.enabled === false) {
@@ -1524,7 +1556,31 @@ export class DiagramInteractionController {
 
   private resolvePathPoint(point: DiagramPoint): DiagramPoint {
     const origin = this.pathVertices[this.pathVertices.length - 1] ?? this.startPoint ?? point
-    return this.endpointPoint(this.snapEndpoint(point, origin)) ?? point
+    const snapped = this.endpointPoint(this.snapEndpoint(point, origin)) ?? point
+    if (this.snapOptions.ortho && !this.latestShiftKey) {
+      const horizontal = Math.abs(point.x - origin.x) >= Math.abs(point.y - origin.y)
+      return this.applyStrictGrid(horizontal ? { x: snapped.x, y: origin.y } : { x: origin.x, y: snapped.y }, this.snapResult ?? undefined)
+    }
+    return snapped
+  }
+
+  private closeToleranceWorld(options: DiagramPathCreationOptions | DiagramBezierCreationOptions): number {
+    return (options.closeTolerancePx ?? this.snapOptions.tolerancePx ?? 8) / (this.engine.getScene().viewport.zoom || 1)
+  }
+
+  private updatePathClosePending(point: DiagramPoint): void {
+    const first = this.pathVertices[0]
+    this.pathClosePending = !this.clickToPlaceLine && this.pathVertices.length >= 3 && Boolean(first)
+      && distance(first!, point) <= this.closeToleranceWorld(this.pathCreationOptions)
+    if (this.pathClosePending) this.pathCurrentPoint = first!
+  }
+
+  private updateBezierClosePending(point: DiagramPoint): void {
+    const first = this.bezierAnchors[0]?.point
+    const resolved = this.resolveBezierPoint(point)
+    this.bezierClosePending = Boolean(first && this.bezierAnchors.length > 1
+      && distance(first, resolved) <= this.closeToleranceWorld(this.bezierCreationOptions))
+    if (this.bezierClosePending) this.pathCurrentPoint = first!
   }
 
   private resolveBezierPoint(point: DiagramPoint): DiagramPoint {
@@ -1797,12 +1853,13 @@ export class DiagramInteractionController {
     const existingRoutes = this.engine.queryEntities({ bounds: searchBounds, kinds: ["edge"] })
       .flatMap((id) => { const edge = entities.edgesById.get(id); return edge && edge.routing?.mode !== "auto" ? [{ id, points: resolveEdgePath(edge, entities) }] : [] })
     const route = routeOrthogonalConnector(sourcePoint, targetPoint, { ...this.edgeRouteOptions, ...(this.isStrictGridEnabled() ? { strictGrid: true, gridSize: this.strictGridSize() } : {}), waypoints: [...(this.edgeRouteOptions.waypoints ?? []), ...this.edgeCreationWaypoints], obstacles, existingRoutes })
+    const path = route.diagnostics.some((diagnostic) => diagnostic.code !== "terminal-leads-overlap") ? route.path : simplifyOrthogonalEditPath(route.path)
     this.edgeCreationPreview = Object.freeze({
       id: this.edgeCreationId,
       source: this.edgeCreationSource,
       target,
-      points: Object.freeze(route.points.map((point) => Object.freeze(point))),
-      path: Object.freeze(route.path.map((point) => Object.freeze(point))),
+      points: Object.freeze(path.slice(1, -1).map((point) => Object.freeze(point))),
+      path: Object.freeze(path.map((point) => Object.freeze(point))),
       diagnostics: route.diagnostics,
       prospectiveJunctions: Object.freeze([...this.edgeCreationJunctions.values()].map((junction) => ({
         id: junction.id,
@@ -1817,7 +1874,7 @@ export class DiagramInteractionController {
   private commitEdgeCreation(preview: DiagramEdgeCreationPreview): number {
     const strictGrid = this.isStrictGridEnabled()
     const routing = this.edgeRouteOptions.mode === "auto"
-      ? { mode: "auto" as const, strictGrid, ...(strictGrid ? { gridSize: this.strictGridSize() } : {}), terminalLead: this.edgeRouteOptions.terminalLead, clearance: this.edgeRouteOptions.clearance, firstAxis: this.edgeRouteOptions.firstAxis, sourceDirection: this.edgeRouteOptions.sourceDirection, targetDirection: this.edgeRouteOptions.targetDirection, maxBends: this.edgeRouteOptions.maxBends, tieBreak: this.edgeRouteOptions.tieBreak, waypoints: [...(this.edgeRouteOptions.waypoints ?? []), ...this.edgeCreationWaypoints] }
+      ? { mode: "auto" as const, strictGrid, ...(strictGrid ? { gridSize: this.strictGridSize() } : {}), terminalLead: this.edgeRouteOptions.terminalLead, clearance: this.edgeRouteOptions.clearance, firstAxis: this.edgeRouteOptions.firstAxis, sourceDirection: this.edgeRouteOptions.sourceDirection, targetDirection: this.edgeRouteOptions.targetDirection, maxBends: this.edgeRouteOptions.maxBends, maxRouteBends: this.edgeRouteOptions.maxRouteBends, tieBreak: this.edgeRouteOptions.tieBreak, waypoints: [...(this.edgeRouteOptions.waypoints ?? []), ...this.edgeCreationWaypoints] }
       : undefined
     const commands: DiagramCommand[] = [...this.edgeCreationJunctions.values()].map((junction) => ({ type: "createJunction", junction }))
     commands.push({ type: "createEdge", edge: { id: preview.id, kind: "edge", source: preview.source, target: preview.target, points: preview.points, ...(routing ? { routing } : {}) } })
@@ -2132,8 +2189,9 @@ export class DiagramInteractionController {
     if (!id || !this.bezierAnchors.length) return null
     const anchors = [...this.bezierAnchors]
     let activeAnchor: DiagramBezierAnchor | null = null
-    const current = this.bezierPendingAnchor ?? (this.latestPoint ? this.resolveBezierPoint(this.latestPoint) : null)
-    if (this.activePointer && this.bezierPendingAnchor) {
+    const current = this.bezierClosePending && this.bezierAnchors.length ? this.bezierAnchors[0]!.point
+      : this.bezierPendingAnchor ?? (this.latestPoint ? this.resolveBezierPoint(this.latestPoint) : null)
+    if (this.activePointer && this.bezierPendingAnchor && !this.bezierClosePending) {
       const point = this.bezierPendingAnchor
       const outgoing = this.bezierPendingHandle ?? point
       const delta = { x: outgoing.x - point.x, y: outgoing.y - point.y }
@@ -2142,8 +2200,10 @@ export class DiagramInteractionController {
     const segments: DiagramPathSegment[] = []
     for (let index = 0; index < anchors.length - 1; index += 1) segments.push(bezierSegment(anchors[index]!, anchors[index + 1]!))
     if (activeAnchor && !samePoint(anchors[anchors.length - 1]!.point, activeAnchor.point)) segments.push(bezierSegment(anchors[anchors.length - 1]!, activeAnchor))
-    else if (!activeAnchor && current && !samePoint(anchors[anchors.length - 1]!.point, current)) segments.push(bezierSegment(anchors[anchors.length - 1]!, bezierAnchor(current)))
-    return { id, contour: { segments: Object.freeze(segments), closed: this.bezierClosed }, anchors: Object.freeze(anchors), activeAnchor, closed: this.bezierClosed }
+    else if (!activeAnchor && !this.bezierClosePending && current && !samePoint(anchors[anchors.length - 1]!.point, current)) segments.push(bezierSegment(anchors[anchors.length - 1]!, bezierAnchor(current)))
+    if (this.bezierClosePending && !samePoint(anchors[anchors.length - 1]!.point, anchors[0]!.point)) segments.push(bezierSegment(anchors[anchors.length - 1]!, anchors[0]!))
+    const closeTarget = this.bezierClosePending ? anchors[0]!.point : null
+    return { id, contour: { segments: Object.freeze(segments), closed: this.bezierClosed || this.bezierClosePending }, anchors: Object.freeze(anchors), activeAnchor, closed: this.bezierClosed, closing: this.bezierClosePending, closeTarget }
   }
 
   private updateBezierHandlePreview(point: DiagramPoint): void {
@@ -2225,6 +2285,8 @@ export class DiagramInteractionController {
     this.pathCreationId = null
     this.pathVertices = []
     this.pathCurrentPoint = null
+    this.pathCreationOptions = {}
+    this.pathClosePending = false
     this.bezierCreationId = null
     this.bezierAnchors = []
     this.bezierPendingAnchor = null
@@ -2398,13 +2460,29 @@ function segmentAxis(start: DiagramPoint, end: DiagramPoint): "horizontal" | "ve
   return null
 }
 
+function pointOnOrthogonalSegment(point: DiagramPoint, start: DiagramPoint, end: DiagramPoint, axis: "horizontal" | "vertical"): boolean {
+  return axis === "horizontal"
+    ? point.y === start.y && point.y === end.y && point.x >= Math.min(start.x, end.x) && point.x <= Math.max(start.x, end.x)
+    : point.x === start.x && point.x === end.x && point.y >= Math.min(start.y, end.y) && point.y <= Math.max(start.y, end.y)
+}
+
 function orthogonalConnectorElbow(from: DiagramPoint, to: DiagramPoint, axis: "horizontal" | "vertical", fromEndpoint: boolean): DiagramPoint {
   if (axis === "horizontal") return fromEndpoint ? { x: from.x, y: to.y } : { x: to.x, y: from.y }
   return fromEndpoint ? { x: to.x, y: from.y } : { x: from.x, y: to.y }
 }
 
-function dedupeAdjacentRoutePoints(points: ReadonlyArray<DiagramPoint>): DiagramPoint[] {
-  return points.filter((point, index) => index === 0 || !samePoint(point, points[index - 1]!))
+function simplifyOrthogonalEditPath(points: ReadonlyArray<DiagramPoint>): DiagramPoint[] {
+  const result: DiagramPoint[] = []
+  for (const point of points) {
+    if (result.length && samePoint(result[result.length - 1]!, point)) continue
+    while (result.length >= 2) {
+      const a = result[result.length - 2]!, b = result[result.length - 1]!
+      if (!((a.x === b.x && b.x === point.x) || (a.y === b.y && b.y === point.y))) break
+      result.pop()
+    }
+    result.push(point)
+  }
+  return result
 }
 
 function samePoint(a: DiagramPoint, b: DiagramPoint): boolean {

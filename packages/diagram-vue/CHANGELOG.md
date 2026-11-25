@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Forwarded `snap.ortho` path previews use the same axis-constrained vertices as Core commits.
+- Exposed Core's route-wide bend limit and Trim ray extent through existing typed options.
 - Forwarded Bézier creation previews now expose the corrected Core tangent direction, matching the saved contour.
 
 ## 0.27.0
@@ -25,7 +27,7 @@
 
 - Documented strict-grid's expanded Core guarantee for group, path, hosted-port, and automatic-route geometry; the adapter continues to forward the typed `snap` policy without app-specific geometry.
 - Forwarded Enter to Core path creation so click-to-place paths finish through the public SVG pointer props.
-- Documented and exposed the drawing-only behavior of Core's `snap.ortho` interaction option; selection dragging remains unconstrained unless Shift is held.
+- Documented Core `snap.ortho` for drawing and orthogonal endpoint edits; selection dragging remains unconstrained unless Shift is held.
 
 ## 0.25.0
 

@@ -111,6 +111,26 @@ describe("diagram-vue", () => {
     vi.unstubAllGlobals()
   })
 
+  it("exposes magnetic path closure in the reactive Vue preview", () => {
+    const frames: Array<FrameRequestCallback> = []
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { frames.push(callback); return frames.length })
+    const diagram = useDiagramEngine({ viewport: { x: 0, y: 0, width: 200, height: 120, zoom: 2 } })
+    const pointer = useDiagramPointerController(diagram, { toWorldPoint: (event) => ({ x: event.clientX, y: event.clientY }), snap: { enabled: false } })
+    const event = (x: number, y: number) => ({ pointerId: 35, clientX: x, clientY: y, shiftKey: false, detail: 1 }) as PointerEvent
+    expect(pointer.beginPathCreation("closed-vue-path", event(0, 0), { closeTolerancePx: 10 })).toBe(true)
+    pointer.addPathVertex({ x: 40, y: 0 })
+    pointer.addPathVertex({ x: 40, y: 40 })
+    pointer.getSvgPointerProps().onPointermove(event(4, 0))
+    frames.shift()?.(0)
+    expect(pointer.state.value.pathCreationPreview).toMatchObject({ closing: true, current: { x: 0, y: 0 }, closeTarget: { x: 0, y: 0 } })
+    pointer.getSvgPointerProps().onKeydown({ key: "Escape", preventDefault: vi.fn() } as unknown as KeyboardEvent)
+    expect(pointer.state.value.pathCreationPreview).toBeNull()
+    expect(diagram.engine.getDiagnostics().undoDepth).toBe(0)
+    pointer.dispose()
+    diagram.dispose()
+    vi.unstubAllGlobals()
+  })
+
   it("finishes a click-to-place path on Enter through the SVG pointer API", () => {
     const diagram = useDiagramEngine()
     const pointer = useDiagramPointerController(diagram, { toWorldPoint: (event) => ({ x: event.clientX, y: event.clientY }), snap: { enabled: false } })
@@ -181,6 +201,31 @@ describe("diagram-vue", () => {
     expect(controller.engine.getGeometrySnapshot("line")?.path?.[1]).toEqual(preview)
     pointer.dispose()
     controller.dispose()
+    vi.unstubAllGlobals()
+  })
+
+  it("forwards ortho path snapping through the public controller and commits the displayed vertices", async () => {
+    const frames: Array<FrameRequestCallback> = []
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { frames.push(callback); return frames.length })
+    const diagram = useDiagramEngine({ viewport: { x: 0, y: 0, width: 300, height: 200, zoom: 1 } })
+    const pointer = useDiagramPointerController(diagram, { toWorldPoint: (event) => ({ x: event.clientX, y: event.clientY }), snap: { ortho: true, gridSize: 10, strictGrid: true } })
+    const event = (x: number, y: number) => ({ pointerId: 88, clientX: x, clientY: y, shiftKey: false, detail: 1 }) as PointerEvent
+    expect(pointer.beginPathCreation("vue-ortho-path", event(0, 0))).toBe(true)
+    pointer.getSvgPointerProps().onPointermove(event(100, 40))
+    frames.shift()?.(0)
+    await nextTick()
+    const first = pointer.state.value.pathCreationPreview!
+    expect(first.vertices[0]!.y).toBe(first.current.y)
+    pointer.addPathVertex(first.current)
+    pointer.getSvgPointerProps().onPointermove(event(145, 75))
+    frames.shift()?.(0)
+    await nextTick()
+    const preview = pointer.state.value.pathCreationPreview!
+    expect(preview.vertices.every((point, index) => index === 0 || point.x === preview.vertices[index - 1]!.x || point.y === preview.vertices[index - 1]!.y)).toBe(true)
+    expect(pointer.addPathVertex(preview.current, true)).toBe(true)
+    expect(diagram.engine.getGeometrySnapshot("vue-ortho-path")?.path).toEqual([...preview.vertices, preview.current])
+    pointer.dispose()
+    diagram.dispose()
     vi.unstubAllGlobals()
   })
 

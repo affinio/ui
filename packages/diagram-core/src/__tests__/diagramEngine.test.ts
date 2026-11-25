@@ -55,6 +55,28 @@ describe("DiagramEngine", () => {
     expect(engine.getGeometrySnapshot("horizontal")?.pathContours).toEqual(createDiagramEngine({ shapes: [result.targets.find((target) => target.id === "horizontal")!.preview!] }).getGeometrySnapshot("horizontal")?.pathContours)
   })
 
+  it("supports trim extent beyond the selected boundary with matching preview, commit, and undo", () => {
+    const engine = createDiagramEngine({ shapes: [
+      { id: "ray", kind: "shape", shape: "line", x: 0, y: 20, width: 100, height: 0 },
+      { id: "boundary", kind: "shape", shape: "line", x: 70, y: 0, width: 0, height: 40 },
+    ] })
+    const before = engine.serialize()
+    const result = trimSelectionByStroke(before, { targetIds: ["ray"], stroke: [{ x: 30, y: 40 }, { x: 30, y: 0 }], tolerance: 0.01, extent: "beyond-boundary" })
+    expect(result.targets[0]?.retained).toEqual([{ segments: [{ kind: "line", start: { x: 0, y: 20 }, end: { x: 70, y: 20 } }], closed: false }])
+    expect(createDiagramEngine({ shapes: [result.targets[0]!.preview!] }).getGeometrySnapshot("ray")?.path).toEqual([{ x: 0, y: 20 }, { x: 70, y: 20 }])
+    engine.dispatchBatch(result.updates)
+    expect(engine.getGeometrySnapshot("ray")?.path).toEqual([{ x: 0, y: 20 }, { x: 70, y: 20 }])
+    engine.dispatch({ type: "undo" })
+    expect(engine.serialize()).toEqual(before)
+    const closed = createDiagramEngine({ shapes: [{ id: "closed-ray", kind: "shape", shape: "line", x: 0, y: 0, width: 100, height: 100, pathContours: [{ closed: true, segments: [
+      { kind: "line", start: { x: 0, y: 0 }, end: { x: 100, y: 0 } },
+      { kind: "line", start: { x: 100, y: 0 }, end: { x: 100, y: 100 } },
+      { kind: "line", start: { x: 100, y: 100 }, end: { x: 0, y: 100 } },
+      { kind: "line", start: { x: 0, y: 100 }, end: { x: 0, y: 0 } },
+    ] }] }] })
+    expect(trimSelectionByStroke(closed.serialize(), { targetIds: ["closed-ray"], stroke: [{ x: 50, y: -10 }, { x: 50, y: 10 }], tolerance: 0.01, boundaryIds: [], extent: "beyond-boundary" }).targets[0]?.finding?.code).toBe("unsupported-geometry")
+  })
+
   it("trims only to the nearest eligible geometry boundary and uses identical preview and commit", () => {
     const engine = createDiagramEngine({ shapes: [
       { id: "target", kind: "shape", shape: "line", x: 0, y: 20, width: 100, height: 0, metadata: { color: "red", tag: 4 } },
@@ -242,6 +264,49 @@ describe("DiagramEngine", () => {
         }
       }
     }
+    expect(engine.getDiagnostics().undoDepth).toBe(1)
+  })
+
+  it("magnetically closes multipoint paths in screen pixels and leaves lines open", () => {
+    const engine = createDiagramEngine({ viewport: { x: 0, y: 0, width: 300, height: 200, zoom: 2 } })
+    const pointer = createDiagramInteractionController(engine, { snap: { enabled: false }, scheduleFrame: (callback) => callback() })
+    pointer.beginPathCreation("closed-path", { id: 4, point: { x: 0, y: 0 } }, { closeTolerancePx: 10 })
+    pointer.addPathVertex({ x: 50, y: 0 })
+    pointer.addPathVertex({ x: 50, y: 50 })
+    pointer.pointerMove({ id: 4, point: { x: 4, y: 0 } })
+    expect(pointer.getSnapshot().pathCreationPreview).toMatchObject({ current: { x: 0, y: 0 }, closing: true, closeTarget: { x: 0, y: 0 } })
+    pointer.pointerMove({ id: 4, point: { x: 6, y: 0 } })
+    expect(pointer.getSnapshot().pathCreationPreview?.closing).toBe(false)
+    pointer.pointerDown({ id: 4, point: { x: 4, y: 0 } })
+    pointer.pointerUp({ id: 4, point: { x: 4, y: 0 } })
+    const contour = engine.getGeometrySnapshot("closed-path")?.pathContours?.[0]
+    expect(contour?.closed).toBe(true)
+    expect(contour?.segments.at(-1)?.end).toEqual(contour?.segments[0]?.start)
+    expect(engine.getDiagnostics().undoDepth).toBe(1)
+
+    pointer.beginPathCreation("open-line", { id: 5, point: { x: 0, y: 0 } }, "line")
+    pointer.pointerMove({ id: 5, point: { x: 20, y: 0 } })
+    expect(pointer.getSnapshot().pathCreationPreview?.closing).toBe(false)
+    pointer.pointerDown({ id: 5, point: { x: 20, y: 0 } })
+    pointer.pointerUp({ id: 5, point: { x: 20, y: 0 } })
+    expect(engine.getGeometrySnapshot("open-line")?.path).toEqual([{ x: 0, y: 0 }, { x: 20, y: 0 }])
+  })
+
+  it("previews Bézier magnetic closure before pointer down and clears it outside tolerance", () => {
+    const engine = createDiagramEngine({ viewport: { x: 0, y: 0, width: 300, height: 200, zoom: 2 } })
+    const pointer = createDiagramInteractionController(engine, { snap: { enabled: false }, scheduleFrame: (callback) => callback() })
+    pointer.beginBezierCreation("preview-close", { id: 6, point: { x: 0, y: 0 } }, { closeTolerancePx: 10 })
+    pointer.pointerDown({ id: 6, point: { x: 40, y: 0 } })
+    pointer.pointerUp({ id: 6, point: { x: 40, y: 0 } })
+    pointer.pointerMove({ id: 6, point: { x: 4, y: 0 } })
+    expect(pointer.getSnapshot().bezierCreationPreview).toMatchObject({ closing: true, closeTarget: { x: 0, y: 0 }, contour: { closed: true } })
+    pointer.pointerMove({ id: 6, point: { x: 6, y: 0 } })
+    expect(pointer.getSnapshot().bezierCreationPreview?.closing).toBe(false)
+    pointer.pointerDown({ id: 6, point: { x: 4, y: 0 } })
+    pointer.pointerUp({ id: 6, point: { x: 4, y: 0 } })
+    const contour = engine.getGeometrySnapshot("preview-close")?.pathContours?.[0]
+    expect(contour?.closed).toBe(true)
+    expect(contour?.segments.at(-1)?.end).toEqual(contour?.segments[0]?.start)
     expect(engine.getDiagnostics().undoDepth).toBe(1)
   })
 
@@ -2673,7 +2738,8 @@ describe("DiagramEngine", () => {
     const edgeInteraction = createDiagramInteractionController(edgeEngine, { scheduleFrame: (callback) => callback(), snap: { ortho: true, enabled: false } })
     edgeInteraction.beginEdgeEndpointHandle("edge", "target", { id: 22, point: { x: 100, y: 0 } })
     edgeInteraction.pointerMove({ id: 22, point: { x: 130, y: 25 } })
-    expect(edgeInteraction.getSnapshot().edgeEndpointPreview?.point).toEqual({ x: 130, y: 25 })
+    const editedEndpoint = edgeInteraction.getSnapshot().edgeEndpointPreview?.point!
+    expect(editedEndpoint.x === 0 || editedEndpoint.y === 0).toBe(true)
   })
 
   it("applies ortho to line, path, and connector creation with preview matching commit", () => {
@@ -2702,6 +2768,66 @@ describe("DiagramEngine", () => {
     expect(edgePreview.target).toMatchObject({ kind: "point", point: { y: 0 } })
     edge.pointerUp({ id: 24, point: { x: 30, y: 10 } })
     expect(edgeEngine.getGeometrySnapshot("edge")?.path).toEqual(edgePreview.path)
+  })
+
+  it("keeps every click-to-place path segment orthogonal after object and strict-grid snapping", () => {
+    const engine = createDiagramEngine({ edges: [{ id: "snap-target", kind: "edge", source: { kind: "point", point: { x: 100, y: 40 } }, target: { kind: "point", point: { x: 160, y: 40 } } }] })
+    const interaction = createDiagramInteractionController(engine, { scheduleFrame: (callback) => callback(), snap: { ortho: true, gridSize: 10, strictGrid: true, tolerancePx: 20 } })
+    interaction.beginPathCreation("ortho-path", { id: 1, point: { x: 0, y: 0 } })
+    interaction.pointerMove({ id: 1, point: { x: 101, y: 42 } })
+    const firstPreview = interaction.getSnapshot().pathCreationPreview!
+    expect(firstPreview.vertices[0]!.y).toBe(firstPreview.current.y)
+    interaction.pointerDown({ id: 1, point: { x: 101, y: 42 } })
+    interaction.pointerUp({ id: 1, point: { x: 101, y: 42 } })
+    interaction.pointerMove({ id: 1, point: { x: 145, y: 75 } })
+    const secondPreview = interaction.getSnapshot().pathCreationPreview!
+    interaction.pointerDown({ id: 1, point: { x: 145, y: 75 } })
+    interaction.pointerUp({ id: 1, point: { x: 145, y: 75 }, clickCount: 2 })
+    const committed = engine.getGeometrySnapshot("ortho-path")!.path!
+    for (const [index, point] of committed.slice(1).entries()) {
+      const previous = committed[index]!
+      expect(point.x === previous.x || point.y === previous.y).toBe(true)
+    }
+    expect(committed).toEqual(engine.getGeometrySnapshot("ortho-path")!.path)
+    expect(secondPreview.vertices.every((point, index) => index === 0 || point.x === secondPreview.vertices[index - 1]!.x || point.y === secondPreview.vertices[index - 1]!.y)).toBe(true)
+  })
+
+  it("keeps ortho endpoint drags axis-aligned while free endpoint drags remain free", () => {
+    const engine = createDiagramEngine({ shapes: [{ id: "shape-line", kind: "shape", shape: "line", x: 0, y: 100, width: 100, height: 0, points: [{ x: 0, y: 0 }, { x: 100, y: 0 }] }], edges: [
+      { id: "orthogonal-edit", kind: "edge", source: { kind: "point", point: { x: 0, y: 0 } }, target: { kind: "point", point: { x: 100, y: 0 } } },
+      { id: "free-edit", kind: "edge", source: { kind: "point", point: { x: 0, y: 100 } }, target: { kind: "point", point: { x: 100, y: 100 } } },
+    ] })
+    const ortho = createDiagramInteractionController(engine, { scheduleFrame: (callback) => callback(), snap: { ortho: true, enabled: false } })
+    ortho.beginEdgeEndpointHandle("orthogonal-edit", "target", { id: 2, point: { x: 100, y: 0 } })
+    ortho.pointerMove({ id: 2, point: { x: 40, y: 40 } })
+    expect(ortho.getSnapshot().edgeEndpointPreview!.point.x === 0 || ortho.getSnapshot().edgeEndpointPreview!.point.y === 0).toBe(true)
+    const preview = ortho.getSnapshot().edgeEndpointPreview!.point
+    ortho.pointerUp({ id: 2, point: { x: 40, y: 40 } })
+    expect(engine.getGeometrySnapshot("orthogonal-edit")!.path![1]).toEqual(preview)
+    ortho.beginPathVertexHandle("shape-line", 1, { id: 5, point: { x: 100, y: 100 } })
+    ortho.pointerMove({ id: 5, point: { x: 40, y: 140 } })
+    const pathVertex = ortho.getSnapshot().pathVertexPreview!.point
+    expect(pathVertex.x === 0 || pathVertex.y === 100).toBe(true)
+    ortho.pointerUp({ id: 5, point: { x: 40, y: 140 } })
+    expect(engine.getGeometrySnapshot("shape-line")!.path![1]).toEqual(pathVertex)
+    const free = createDiagramInteractionController(engine, { scheduleFrame: (callback) => callback(), snap: { ortho: false, enabled: false } })
+    free.beginEdgeEndpointHandle("free-edit", "target", { id: 3, point: { x: 100, y: 100 } })
+    free.pointerMove({ id: 3, point: { x: 40, y: 140 } })
+    expect(free.getSnapshot().edgeEndpointPreview?.point).toEqual({ x: 40, y: 140 })
+  })
+
+  it("rejects aggregate route bend limits that explicit waypoint turns exceed", () => {
+    const route = routeOrthogonalConnector({ x: 0, y: 0 }, { x: 100, y: 0 }, { terminalLead: 0, waypoints: [{ x: 50, y: 50 }], maxRouteBends: 1 })
+    expect(route).toMatchObject({ points: [], diagnostics: [expect.objectContaining({ code: "bend-limit" })] })
+    expect(routeOrthogonalConnector({ x: 0, y: 0 }, { x: 100, y: 0 }, { terminalLead: 0, waypoints: [{ x: 50, y: 50 }], maxRouteBends: 3 }).diagnostics).toEqual([])
+    const engine = createDiagramEngine()
+    const interaction = createDiagramInteractionController(engine, { scheduleFrame: (callback) => callback(), snap: { enabled: false } })
+    interaction.beginEdgeCreation("limited", { id: 54, point: { x: 0, y: 0 } }, { mode: "auto", terminalLead: 0, waypoints: [{ x: 50, y: 50 }], maxRouteBends: 1 })
+    interaction.pointerMove({ id: 54, point: { x: 100, y: 0 } })
+    expect(interaction.getSnapshot().edgeCreationPreview?.diagnostics).toEqual(expect.arrayContaining([expect.objectContaining({ code: "bend-limit" })]))
+    interaction.pointerUp({ id: 54, point: { x: 100, y: 0 } })
+    expect(engine.getScene().entities.edgesById.has("limited")).toBe(false)
+    expect(engine.getDiagnostics().undoDepth).toBe(0)
   })
 
   it("preserves resize aspect ratio under Shift and grid snapping in preview and commit", () => {
@@ -3467,7 +3593,7 @@ describe("DiagramEngine", () => {
     expect(engine.getGeometrySnapshot("auto")?.path).toEqual(before)
     engine.dispatch({ type: "moveEntities", ids: ["block"], delta: { x: 0, y: 100 } })
     expect(engine.getGeometrySnapshot("auto")!.path).not.toEqual(before)
-    expect(engine.getGeometrySnapshot("auto")!.path).toEqual([{ x: 0, y: 0 }, { x: 8, y: 0 }, { x: 192, y: 0 }, { x: 200, y: 0 }])
+    expect(engine.getGeometrySnapshot("auto")!.path).toEqual([{ x: 0, y: 0 }, { x: 200, y: 0 }])
     expect(engine.serialize().edges.find((edge) => edge.id === "auto")?.points).toEqual(engine.getGeometrySnapshot("auto")!.path!.slice(1, -1))
     expect(engine.getGeometrySnapshot("manual")!.path).toEqual([{ x: 0, y: 100 }, { x: 100, y: 130 }, { x: 200, y: 100 }])
     engine.dispatch({ type: "undo" })
@@ -3492,7 +3618,7 @@ describe("DiagramEngine", () => {
     previewInteraction.pointerDown({ id: 3, point: { x: 90, y: 0 } })
     previewInteraction.pointerMove({ id: 3, point: { x: 90, y: 100 } })
     const movedPreview = previewInteraction.getPreviewGeometry("preview-auto")!
-    expect(movedPreview.path).toEqual([{ x: 0, y: 0 }, { x: 8, y: 0 }, { x: 192, y: 0 }, { x: 200, y: 0 }])
+    expect(movedPreview.path).toEqual([{ x: 0, y: 0 }, { x: 200, y: 0 }])
     expect(previewEngine.serialize()).toEqual(original)
     previewInteraction.cancel()
     expect(previewEngine.serialize()).toEqual(original)
@@ -3533,8 +3659,27 @@ describe("DiagramEngine", () => {
     const preview = interaction.getSnapshot().edgeSegmentPreview!
     expect(engine.serialize()).toEqual(initialScene)
     interaction.pointerUp({ id: 1, point: { x: midpoint.x, y: midpoint.y - 20 } })
-    expect(engine.getScene().entities.edgesById.get("auto")?.routing?.waypoints).toEqual(preview.points)
+    expect(engine.getScene().entities.edgesById.get("auto")?.routing?.waypoints).toEqual([{ x: 100, y: -46 }])
     expect(engine.getGeometrySnapshot("auto")?.path).toEqual(preview.path)
+    const movedPath = engine.getGeometrySnapshot("auto")!.path!
+    expect(movedPath.every((point, index) => index === 0 || point.x !== movedPath[index - 1]!.x || point.y !== movedPath[index - 1]!.y)).toBe(true)
+    expect(movedPath.slice(1).every((point, index) => point.x === movedPath[index]!.x || point.y === movedPath[index]!.y)).toBe(true)
+    const nextSegment = movedPath.reduce((best, point, index) => {
+      const next = movedPath[index + 1]
+      if (!next || point.y !== next.y || point.x === next.x) return best
+      return best < 0 || Math.abs(next.x - point.x) > Math.abs(movedPath[best + 1]!.x - movedPath[best]!.x) ? index : best
+    }, -1)
+    const nextStart = movedPath[nextSegment]!, nextEnd = movedPath[nextSegment + 1]!
+    const nextMidpoint = { x: (nextStart.x + nextEnd.x) / 2, y: nextStart.y }
+    interaction.beginEdgeSegmentHandle("auto", nextSegment, { id: 4, point: nextMidpoint })
+    interaction.pointerMove({ id: 4, point: { x: nextMidpoint.x, y: nextMidpoint.y + 10 } })
+    const secondPreview = interaction.getSnapshot().edgeSegmentPreview!
+    interaction.pointerUp({ id: 4, point: { x: nextMidpoint.x, y: nextMidpoint.y + 10 } })
+    expect(engine.getScene().entities.edgesById.get("auto")?.routing?.waypoints).toHaveLength(1)
+    expect(engine.getGeometrySnapshot("auto")?.path).toEqual(secondPreview.path)
+    engine.dispatch({ type: "undo" })
+    expect(engine.getScene().entities.edgesById.get("auto")?.routing?.waypoints).toEqual([{ x: 100, y: -46 }])
+    expect(engine.getGeometrySnapshot("auto")?.path).toEqual(movedPath)
     engine.dispatch({ type: "undo" })
     expect(engine.getScene().entities.edgesById.get("auto")?.routing?.waypoints).toBeUndefined()
     expect(engine.getGeometrySnapshot("auto")?.path).toEqual(initialPath)
@@ -3882,6 +4027,20 @@ describe("DiagramEngine", () => {
     expect(engine.getScene().entities.edgesById.has("wire")).toBe(false)
   })
 
+  it("does not keep the last click-to-place bend when the same point is confirmed as endpoint", () => {
+    const engine = createDiagramEngine()
+    const interaction = createDiagramInteractionController(engine, { scheduleFrame: (callback) => callback(), snap: { enabled: false } })
+    interaction.beginEdgePathCreation("double-click-wire", { id: 31, point: { x: 0, y: 0 } }, { mode: "auto", terminalLead: 0 })
+    interaction.pointerDown({ id: 31, point: { x: 40, y: 0 } })
+    interaction.pointerUp({ id: 31, point: { x: 40, y: 0 }, clickCount: 1 })
+    interaction.pointerDown({ id: 31, point: { x: 40, y: 0 } })
+    interaction.pointerUp({ id: 31, point: { x: 40, y: 0 }, clickCount: 2 })
+    const edge = engine.getScene().entities.edgesById.get("double-click-wire")!
+    expect(edge.target).toEqual({ kind: "point", point: { x: 40, y: 0 } })
+    expect(edge.routing?.waypoints).toEqual([])
+    expect(engine.getGeometrySnapshot("double-click-wire")?.path).toEqual([{ x: 0, y: 0 }, { x: 40, y: 0 }])
+  })
+
   it("applies Shift to connector click previews from the latest bend and constrains waypoint edits", () => {
     const engine = createDiagramEngine()
     const interaction = createDiagramInteractionController(engine, { snap: { enabled: false }, scheduleFrame: (callback) => callback() })
@@ -3890,8 +4049,8 @@ describe("DiagramEngine", () => {
     expect(interaction.getSnapshot().edgeCreationPreview?.target).toMatchObject({ kind: "point", point: { y: 0 } })
     interaction.pointerDown({ id: 1, point: { x: 30, y: 15 }, shiftKey: true })
     interaction.pointerUp({ id: 1, point: { x: 30, y: 15 }, shiftKey: true })
-    const firstBend = interaction.getSnapshot().edgeCreationPreview?.points.find((point) => point.y === 0 && point.x > 30)
-    expect(firstBend).toBeDefined()
+    const firstRoute = interaction.getSnapshot().edgeCreationPreview!.path
+    expect(firstRoute.slice(1).every((point, index) => point.x === firstRoute[index]!.x || point.y === firstRoute[index]!.y)).toBe(true)
     interaction.pointerMove({ id: 1, point: { x: 50, y: 8 }, shiftKey: true })
     expect(interaction.getSnapshot().edgeCreationPreview?.target).toMatchObject({ kind: "point", point: { y: 0 } })
     const preview = interaction.getSnapshot().edgeCreationPreview!
@@ -3959,7 +4118,7 @@ describe("DiagramEngine", () => {
     const attachedInteraction = createDiagramInteractionController(attached, { snap: { enabled: false }, scheduleFrame: (callback) => callback() })
     expect(attachedInteraction.beginEdgeSegmentHandle("edge", 0, { id: 2, point: { x: 40, y: 10 } })).toBe(true)
     attachedInteraction.pointerMove({ id: 2, point: { x: 40, y: 0 } })
-    expect(attachedInteraction.getSnapshot().edgeSegmentPreview?.path).toEqual([{ x: 20, y: 10 }, { x: 20, y: 0 }, { x: 60, y: 0 }, { x: 100, y: 0 }])
+    expect(attachedInteraction.getSnapshot().edgeSegmentPreview?.path).toEqual([{ x: 20, y: 10 }, { x: 20, y: 0 }, { x: 100, y: 0 }])
     const beforeCancel = attached.serialize()
     attachedInteraction.cancel()
     expect(attached.serialize()).toEqual(beforeCancel)

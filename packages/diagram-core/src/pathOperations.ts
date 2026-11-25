@@ -253,6 +253,7 @@ export function trimSelectionByStroke(scene: DiagramSceneInput, input: DiagramSw
   if (!scene || !input || !Array.isArray(input.targetIds) || !Array.isArray(input.stroke) || input.stroke.length < 2
     || !Number.isFinite(input.tolerance) || input.tolerance < 0
     || (input.side !== undefined && input.side !== "directed" && input.side !== "both")
+    || (input.extent !== undefined && input.extent !== "crossing-to-boundary" && input.extent !== "beyond-boundary")
     || input.stroke.some((point) => !point || !Number.isFinite(point.x) || !Number.isFinite(point.y))) {
     const finding = fail("invalid-input", "A sweep trim requires at least two finite stroke points and a finite non-negative world tolerance.")
     return { ok: false, status: "rejected", targets, updates, findings: [finding] }
@@ -344,7 +345,7 @@ export function trimSelectionByStroke(scene: DiagramSceneInput, input: DiagramSw
     let findingMessage = ""
     for (const contour of sourceContours) {
       if (contour.hole) { retained.push(contour); continue }
-      const trim = trimContourToNearestBoundaries(contour, input.stroke, strokeLengths, strokeOffsets, targetBoundaries, input.tolerance, input.side)
+      const trim = trimContourToNearestBoundaries(contour, input.stroke, strokeLengths, strokeOffsets, targetBoundaries, input.tolerance, input.side, input.extent)
       if (trim.code) {
         sweepCrossings.push(...trim.sweepCrossings)
         boundaryIntersections.push(...trim.boundaryIntersections)
@@ -424,7 +425,8 @@ function sweepTrimShapeContours(shape: DiagramShape): DiagramPathContour[] | nul
   return null
 }
 
-function trimContourToNearestBoundaries(contour: DiagramPathContour, stroke: ReadonlyArray<DiagramPoint>, strokeLengths: ReadonlyArray<number>, strokeOffsets: ReadonlyArray<number>, boundaries: ReadonlyArray<{ id: DiagramId; contours: ReadonlyArray<DiagramPathContour> }>, tolerance: number, sideMode: DiagramSweepTrimInput["side"]): ContourTrimResult {
+function trimContourToNearestBoundaries(contour: DiagramPathContour, stroke: ReadonlyArray<DiagramPoint>, strokeLengths: ReadonlyArray<number>, strokeOffsets: ReadonlyArray<number>, boundaries: ReadonlyArray<{ id: DiagramId; contours: ReadonlyArray<DiagramPathContour> }>, tolerance: number, sideMode: DiagramSweepTrimInput["side"], extent: DiagramSweepTrimInput["extent"]): ContourTrimResult {
+  if (contour.closed && extent === "beyond-boundary") return { retained: [contour], sweepCrossings: [], boundaryIntersections: [], code: "unsupported-geometry", message: "Beyond-boundary extent applies only to open ray-like contours." }
   const crossings: Array<SweepIntersection & { segmentIndex: number }> = []
   for (let segmentIndex = 0; segmentIndex < contour.segments.length; segmentIndex += 1) {
     for (const crossing of collectStrokeIntersections(contour.segments[segmentIndex]!, stroke, strokeLengths, strokeOffsets, tolerance)) {
@@ -479,7 +481,8 @@ function trimContourToNearestBoundaries(contour: DiagramPathContour, stroke: Rea
       if (contour.closed) {
         if (forward) startDistance <= endDistance ? intervals.push([startDistance, endDistance]) : intervals.push([startDistance, totalLength], [0, endDistance])
         else endDistance <= startDistance ? intervals.push([endDistance, startDistance]) : intervals.push([0, startDistance], [endDistance, totalLength])
-      } else intervals.push([Math.max(0, Math.min(startDistance, endDistance)), Math.min(totalLength, Math.max(startDistance, endDistance))])
+      } else if (extent === "beyond-boundary") intervals.push(forward ? [Math.min(totalLength, endDistance), totalLength] : [0, Math.max(0, endDistance)])
+      else intervals.push([Math.max(0, Math.min(startDistance, endDistance)), Math.min(totalLength, Math.max(startDistance, endDistance))])
       boundaryIntersections.push({ point: resolved.hit.point, boundaryId: resolved.hit.boundaryId })
     }
   }

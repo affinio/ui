@@ -466,7 +466,7 @@ export type DiagramCommandResult = Readonly<{
 }>
 
 export type DiagramSweepTrimSide = "directed" | "both"
-export type DiagramSweepTrimInput = Readonly<{ targetIds: ReadonlyArray<DiagramId>; stroke: ReadonlyArray<DiagramPoint>; tolerance: number; boundaryIds?: ReadonlyArray<DiagramId>; side?: DiagramSweepTrimSide }>
+export type DiagramSweepTrimInput = Readonly<{ targetIds: ReadonlyArray<DiagramId>; stroke: ReadonlyArray<DiagramPoint>; tolerance: number; boundaryIds?: ReadonlyArray<DiagramId>; side?: DiagramSweepTrimSide; extent?: "crossing-to-boundary" | "beyond-boundary" }>
 export type DiagramSweepTrimFindingCode = "invalid-input" | "no-intersection" | "no-boundary" | "ambiguous-boundary" | "unsupported-boundary" | "ambiguous-intersection" | "self-intersecting-stroke" | "topology-ambiguous" | "unsupported-target" | "unsupported-geometry" | "connected-edge" | "locked-target" | "anchored-host"
 export type DiagramSweepTrimFinding = Readonly<{
   code: DiagramSweepTrimFindingCode
@@ -523,12 +523,16 @@ export type DiagramInteractionTool = "pan" | "select" | "marquee" | "drag-select
 
 export type DiagramBezierAnchor = Readonly<{ point: DiagramPoint; incoming: DiagramPoint; outgoing: DiagramPoint }>
 export type DiagramBezierCreationOptions = Readonly<{ /** Screen-pixel radius for closing onto the first anchor. Defaults to snap tolerance (or 8px). */ closeTolerancePx?: number }>
+export type DiagramPathCreationOptions = Readonly<{ /** Screen-pixel radius for closing onto the first vertex. Defaults to snap tolerance (or 8px). */ closeTolerancePx?: number }>
+export type DiagramPathCreationPreview = Readonly<{ id: DiagramId; vertices: ReadonlyArray<DiagramPoint>; current: DiagramPoint; closing: boolean; closeTarget: DiagramPoint | null }>
 export type DiagramBezierCreationPreview = Readonly<{
   id: DiagramId
   contour: DiagramPathContour
   anchors: ReadonlyArray<DiagramBezierAnchor>
   activeAnchor: DiagramBezierAnchor | null
   closed: boolean
+  closing: boolean
+  closeTarget: DiagramPoint | null
 }>
 export type DiagramBezierHandleKind = "anchor" | "incoming" | "outgoing"
 export type DiagramBezierHandlePreview = Readonly<{ id: DiagramId; contourIndex: number; segmentIndex: number; handle: DiagramBezierHandleKind; anchorSide?: "start" | "end"; point: DiagramPoint; contours: ReadonlyArray<DiagramPathContour> }>
@@ -588,7 +592,7 @@ export type DiagramInteractionSnapshot = Readonly<{
   dynamicInput: DiagramDynamicInputState | null
   edgeCreationPreview: DiagramEdgeCreationPreview | null
   shapeCreationPreview: DiagramShape | null
-  pathCreationPreview: Readonly<{ id: DiagramId; vertices: ReadonlyArray<DiagramPoint>; current: DiagramPoint }> | null
+  pathCreationPreview: DiagramPathCreationPreview | null
   bezierCreationPreview: DiagramBezierCreationPreview | null
   bezierHandlePreview: DiagramBezierHandlePreview | null
   portCreationPreview: DiagramPortCreationPreview | null
@@ -631,6 +635,7 @@ export type DiagramEdgeRouting = Readonly<{
   /** Ordered fixed world-space constraints; generated route bends are not fed back as constraints. */
   waypoints?: ReadonlyArray<DiagramPoint>
   maxBends?: number
+  maxRouteBends?: number
   tieBreak?: "coordinates" | "horizontal-first" | "vertical-first"
 }>
 export type DiagramRouteObstacle = Readonly<{ id?: DiagramId; bounds: DiagramRect }>
@@ -650,6 +655,8 @@ export type DiagramOrthogonalRouteOptions = Readonly<{
   waypoints?: ReadonlyArray<DiagramPoint>
   /** Hard upper bound on generated bends; explicit waypoint corners are excluded. */
   maxBends?: number
+  /** Hard upper bound on all route corners, including turns at explicit waypoints. */
+  maxRouteBends?: number
   obstacles?: ReadonlyArray<DiagramRouteObstacle>
   /** Existing manual connector paths are a soft preference: crossings are minimized after route length. */
   existingRoutes?: ReadonlyArray<DiagramRouteCrossingCandidate>
