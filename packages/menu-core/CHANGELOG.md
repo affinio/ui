@@ -1,5 +1,13 @@
 # @affino/menu-core
 
+## 1.3.0
+
+### Minor Changes
+
+- Added pointer-leave handling to clear mouse-driven item highlighting.
+- Added the optional `ItemProps.onPointerLeave` event contract.
+- Clear the parent's active item when keyboard navigation returns from a submenu.
+
 ## 1.2.1
 
 ### Patch Changes

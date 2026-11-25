@@ -39,6 +39,21 @@ describe("SubmenuCore", () => {
     expect(submenu.getSnapshot().open).toBe(false)
   })
 
+  it("clears the parent active item when ArrowLeft returns from a submenu", () => {
+    const { parent, submenu } = setupMenus()
+    parent.open("programmatic")
+    parent.highlight("parent-item")
+    submenu.open("programmatic")
+
+    const preventDefault = vi.fn()
+    submenu.getTriggerProps().onKeyDown?.({ key: "ArrowLeft", preventDefault } as KeyboardEvent)
+
+    expect(preventDefault).toHaveBeenCalledOnce()
+    expect(submenu.getSnapshot().open).toBe(false)
+    expect(parent.getSnapshot().activeItemId).toBeNull()
+    expect(parent.getTree().snapshot.activePath).toEqual([parent.id])
+  })
+
   it("releases parent highlight when pointer moves to a sibling", () => {
     const { parent, submenu } = setupMenus()
     const releaseSpy = vi.spyOn(parent as unknown as { releasePointerHighlightHold: (id?: string) => void }, "releasePointerHighlightHold")

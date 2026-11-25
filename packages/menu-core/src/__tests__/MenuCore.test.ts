@@ -81,6 +81,29 @@ describe("MenuCore", () => {
     expect(internals.shouldBlockPointerHighlight("bravo")).toBe(false)
   })
 
+  it("clears a pointer-highlighted item when the pointer leaves it", () => {
+    const menu = createMenu()
+    menu.registerItem("alpha")
+    menu.open("programmatic")
+
+    const item = menu.getItemProps("alpha")
+    item.onPointerEnter?.({ pointerType: "mouse" })
+    expect(menu.getSnapshot().activeItemId).toBe("alpha")
+
+    item.onPointerLeave?.({ pointerType: "mouse" })
+    expect(menu.getSnapshot().activeItemId).toBeNull()
+  })
+
+  it("does not clear a pointer highlight for non-mouse pointers", () => {
+    const menu = createMenu()
+    menu.registerItem("alpha")
+    menu.open("programmatic")
+    menu.highlight("alpha")
+
+    menu.getItemProps("alpha").onPointerLeave?.({ pointerType: "touch" })
+    expect(menu.getSnapshot().activeItemId).toBe("alpha")
+  })
+
   it("does not select unknown or disabled items", () => {
     const onSelect = vi.fn()
     const menu = new MenuCore({}, { onSelect })

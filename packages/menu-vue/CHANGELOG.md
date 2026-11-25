@@ -1,5 +1,17 @@
 # @affino/menu-vue
 
+## 2.3.0
+
+### Minor Changes
+
+- Added `UiMenuBar` to coordinate sibling root `UiMenu` components with hover switching, roving keyboard focus, and one open root at a time.
+- Clear parent submenu highlighting when keyboard navigation returns to its parent.
+
+### Fixed
+
+- Clear a context menu item's pointer highlight and return focus to its root trigger when the pointer moves back to that trigger.
+- Close the active menubar root and its open submenu when the pointer leaves the menubar and its menu surfaces.
+
 ## 2.2.1
 
 ### Patch Changes

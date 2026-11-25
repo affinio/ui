@@ -5,6 +5,7 @@ import { computed } from "vue"
 const tabs = [
   { name: "menu.simple", label: "Simple actions", to: "/menu/simple" },
   { name: "menu.nested", label: "Nested workflows", to: "/menu/nested" },
+  { name: "menu.menubar", label: "Menubar", to: "/menu/menubar" },
   { name: "menu.context", label: "Context trigger", to: "/menu/context" },
   { name: "menu.command", label: "Command center", to: "/menu/command" },
   { name: "menu.stress", label: "Overload", to: "/menu/stress" },

@@ -246,7 +246,7 @@ export class SubmenuCore extends MenuCore {
     if (event.key === "ArrowLeft") {
       event.preventDefault()
       this.close("keyboard")
-      this.parent.highlight(this.parentItemId)
+      this.parent.highlight(null)
     }
   }
 

@@ -86,8 +86,8 @@ const eventHandlers = createTriggerEventHandlers({
 const triggerProps = computed(() => ({
   class: props.variant === "submenu" ? "ui-submenu-trigger" : "ui-menu-trigger",
   id: elementBindings.value.id,
-  role: elementBindings.value.role,
-  tabindex: elementBindings.value.tabIndex,
+  role: props.variant === "menu" && props.provider.menuBar ? "menuitem" : elementBindings.value.role,
+  tabindex: props.variant === "menu" && props.provider.menuBar ? props.provider.menuBar.tabIndex(props.provider.controller) : elementBindings.value.tabIndex,
   "data-state": elementBindings.value.dataState,
   "aria-disabled": elementBindings.value.ariaDisabled,
   "aria-haspopup": elementBindings.value.ariaHaspopup,
@@ -97,16 +97,72 @@ const triggerProps = computed(() => ({
   "data-ui-menu-id": targetController.id,
   "data-ui-root-menu-id": props.provider.rootId,
   "data-ui-parent-menu-id": parentController?.id ?? null,
-  onPointerenter: props.variant === "submenu" ? eventHandlers.handlePointerEnter : undefined,
+  onPointerenter: props.variant === "submenu"
+    ? eventHandlers.handlePointerEnter
+    : props.provider.menuBar
+      ? (event: PointerEvent) => props.provider.menuBar?.pointerEnter(props.provider.controller, event)
+      : undefined,
   onPointerleave: props.variant === "submenu" ? eventHandlers.handlePointerLeave : undefined,
   onPointerdown: props.variant === "menu" ? eventHandlers.handlePointerDown : undefined,
   onPointerup: props.variant === "menu" ? eventHandlers.handlePointerUp : undefined,
   onPointercancel: props.variant === "menu" ? eventHandlers.handlePointerCancel : undefined,
   onPointermove: props.variant === "menu" ? eventHandlers.handlePointerMove : undefined,
-  onClick: props.variant === "menu" ? (openOnClick.value ? eventHandlers.handleClick : undefined) : eventHandlers.handleClick,
-  onContextmenu: props.variant === "menu" ? (openOnContext.value ? eventHandlers.handleContextMenu : undefined) : undefined,
-  onKeydown: eventHandlers.handleKeydown,
+  onClick: props.variant === "menu"
+    ? (openOnClick.value ? (props.provider.menuBar ? handleMenuBarClick : eventHandlers.handleClick) : undefined)
+    : eventHandlers.handleClick,
+  onContextmenu: props.variant === "menu"
+    ? (openOnContext.value ? (props.provider.menuBar ? handleMenuBarContextMenu : eventHandlers.handleContextMenu) : undefined)
+    : undefined,
+  onFocus: props.variant === "menu" && props.provider.menuBar
+    ? () => props.provider.menuBar?.focus(props.provider.controller)
+    : undefined,
+  onKeydown: handleTriggerKeydown,
 }))
+
+function handleMenuBarClick(event: MouseEvent): void {
+  const menuBar = props.provider.menuBar
+  if (!menuBar) return eventHandlers.handleClick(event)
+  targetController.recordPointer?.({ x: event.clientX, y: event.clientY })
+  props.provider.controller.setAnchor(null)
+  menuBar.toggle(targetController)
+}
+
+function handleMenuBarContextMenu(event: MouseEvent): void {
+  const menuBar = props.provider.menuBar
+  if (!menuBar) return eventHandlers.handleContextMenu(event)
+  event.preventDefault()
+  props.provider.controller.setAnchor({ x: event.clientX, y: event.clientY, width: 0, height: 0 })
+  menuBar.open(targetController, "pointer")
+}
+
+function handleTriggerKeydown(event: KeyboardEvent): void {
+  const menuBar = props.variant === "menu" ? props.provider.menuBar : null
+  if (!menuBar) {
+    eventHandlers.handleKeydown(event)
+    return
+  }
+  if (event.key === "ArrowLeft" || event.key === "ArrowRight" || event.key === "Home" || event.key === "End") {
+    event.preventDefault()
+    event.stopPropagation()
+    menuBar.moveFocus(targetController, event.key === "Home" ? "first" : event.key === "End" ? "last" : event.key === "ArrowLeft" ? -1 : 1)
+    return
+  }
+  if (event.key === "Enter" || event.key === " " || event.key === "Space") {
+    event.preventDefault()
+    event.stopPropagation()
+    menuBar.toggle(targetController)
+    return
+  }
+  if (event.key === "Escape" && menuBar.activeMenuId.value === targetController.id && targetController.state.value.open) {
+    event.preventDefault()
+    event.stopPropagation()
+    menuBar.close(targetController, "keyboard")
+    targetController.triggerRef.value?.focus({ preventScroll: true })
+    return
+  }
+  if (event.key === "ArrowDown" || event.key === "ArrowUp") menuBar.open(targetController, "keyboard")
+  eventHandlers.handleKeydown(event)
+}
 
 const asChildBindings = computed(() => {
   const { class: _class, ...rest } = triggerProps.value
@@ -290,7 +346,7 @@ function createTriggerEventHandlers(options: {
     ) {
       event.preventDefault()
       ancestorBridge.child.controller.close("keyboard")
-      ancestorBridge.parent.controller.highlight(ancestorBridge.child.submenuItemId ?? null)
+      ancestorBridge.parent.controller.highlight(null)
       ancestorBridge.child.controller.triggerRef.value?.focus({ preventScroll: true })
       return
     }

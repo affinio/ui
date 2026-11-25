@@ -36,6 +36,12 @@
   font-family: inherit;
 }
 
+.ui-menu-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.125rem;
+}
+
 .ui-menu-trigger {
   display: inline-flex;
   align-items: center;

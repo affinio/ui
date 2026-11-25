@@ -89,6 +89,25 @@ import '@affino/menu-vue/styles.css'
 5. Add nested `<UiSubMenu>` components for multi-level trees (level 3+ supported)
 6. Dive deeper in [docs/getting-started.md](./docs/getting-started.md)
 
+## Menubar
+
+Group sibling root menus with `UiMenuBar`; each direct `UiMenu` child registers its trigger and panel with the same open-state coordinator:
+
+```vue
+<UiMenuBar aria-label="Application">
+  <UiMenu>
+    <UiMenuTrigger>File</UiMenuTrigger>
+    <UiMenuContent><UiMenuItem id="file-open">Open</UiMenuItem></UiMenuContent>
+  </UiMenu>
+  <UiMenu>
+    <UiMenuTrigger>Edit</UiMenuTrigger>
+    <UiMenuContent><UiMenuItem id="edit-copy">Copy</UiMenuItem></UiMenuContent>
+  </UiMenu>
+</UiMenuBar>
+```
+
+The bar has `role="menubar"`; root triggers become `menuitem`s with one roving tab stop. Click or keyboard activation opens the selected root. While a root is open, hovering another root trigger switches menus; hover does not open a closed bar. Left/Right move among triggers, Home/End move to either edge, Enter/Space toggles the focused root, and Up/Down opens its menu. Escape closes the menu and restores focus to its trigger. The active root and nested menus close when the pointer leaves both the menubar and its open menu surfaces. Existing `UiSubMenu` trees keep their independent item navigation; returning to a parent with Left clears its active child highlight. In a context menu, moving the pointer from an item back to the root trigger clears the item's highlight and focuses the trigger.
+
 ## Positioning API
 
 `UiMenu` and `UiMenuContent` now expose public positioning controls so teams can avoid local geometry hacks.

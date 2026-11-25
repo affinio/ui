@@ -102,7 +102,7 @@ watch(
       refreshGeometry()
       if (props.variant === "submenu") {
         focus.focusFirst()
-      } else {
+      } else if (props.provider.menuBar?.shouldFocusPanel(props.provider.controller) !== false) {
         root.value?.focus({ preventScroll: true })
       }
     } else {

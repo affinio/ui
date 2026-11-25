@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 import { fireEvent, render, screen, waitFor } from "@testing-library/vue"
 import { ref } from "vue"
 import UiMenu from "../components/UiMenu.vue"
+import UiMenuBar from "../components/UiMenuBar.vue"
 import UiMenuTrigger from "../components/UiMenuTrigger.vue"
 import UiMenuContent from "../components/UiMenuContent.vue"
 import UiMenuItem from "../components/UiMenuItem.vue"
@@ -13,6 +14,7 @@ const renderMenu = (template: string, bindings?: Record<string, unknown>) =>
   render({
     components: {
       UiMenu,
+      UiMenuBar,
       UiMenuTrigger,
       UiMenuContent,
       UiMenuItem,
@@ -27,6 +29,148 @@ const renderMenu = (template: string, bindings?: Record<string, unknown>) =>
   })
 
 describe("UiMenu", () => {
+  it("shares root open state inside a menubar and switches menus on hover", async () => {
+    renderMenu(`
+      <UiMenuBar aria-label="Application">
+        <UiMenu :options="{ openDelay: 0, closeDelay: 0 }">
+          <UiMenuTrigger>File</UiMenuTrigger>
+          <UiMenuContent><UiMenuItem id="file-open">Open</UiMenuItem></UiMenuContent>
+        </UiMenu>
+        <UiMenu :options="{ openDelay: 0, closeDelay: 0 }">
+          <UiMenuTrigger>Edit</UiMenuTrigger>
+          <UiMenuContent><UiMenuItem id="edit-copy">Copy</UiMenuItem></UiMenuContent>
+        </UiMenu>
+        <UiMenu>
+          <UiMenuTrigger>View</UiMenuTrigger>
+          <UiMenuContent><UiMenuItem id="view-zoom">Zoom</UiMenuItem></UiMenuContent>
+        </UiMenu>
+        <UiMenu>
+          <UiMenuTrigger>Help</UiMenuTrigger>
+          <UiMenuContent><UiMenuItem id="help-about">About</UiMenuItem></UiMenuContent>
+        </UiMenu>
+      </UiMenuBar>
+    `)
+
+    const bar = screen.getByRole("menubar", { name: "Application" })
+    const file = screen.getByRole("menuitem", { name: "File" })
+    const edit = screen.getByRole("menuitem", { name: "Edit" })
+    expect(bar).toBeTruthy()
+    expect(file.getAttribute("tabindex")).toBe("0")
+    expect(edit.getAttribute("tabindex")).toBe("-1")
+
+    await fireEvent.pointerEnter(edit, { pointerType: "mouse" })
+    expect(edit.getAttribute("aria-expanded")).toBe("false")
+
+    await fireEvent.click(file)
+    expect(await screen.findByRole("menu")).toBeTruthy()
+    expect(file.getAttribute("aria-expanded")).toBe("true")
+
+    await fireEvent.pointerEnter(edit, { pointerType: "mouse" })
+    await waitFor(() => {
+      expect(file.getAttribute("aria-expanded")).toBe("false")
+      expect(edit.getAttribute("aria-expanded")).toBe("true")
+      expect(screen.getByText("Copy")).toBeTruthy()
+      expect(screen.queryByText("Open")).toBeNull()
+      expect(screen.getAllByRole("menu")).toHaveLength(1)
+      expect(document.activeElement).toBe(file)
+    })
+  })
+
+  it("keeps menubar keyboard navigation, Escape focus return, and ARIA state", async () => {
+    renderMenu(`
+      <UiMenuBar aria-label="Application">
+        <UiMenu><UiMenuTrigger>File</UiMenuTrigger><UiMenuContent><UiMenuItem id="file-open">Open</UiMenuItem></UiMenuContent></UiMenu>
+        <UiMenu><UiMenuTrigger>Edit</UiMenuTrigger><UiMenuContent><UiMenuItem id="edit-copy">Copy</UiMenuItem></UiMenuContent></UiMenu>
+      </UiMenuBar>
+    `)
+
+    const file = screen.getByRole("menuitem", { name: "File" })
+    const edit = screen.getByRole("menuitem", { name: "Edit" })
+    await fireEvent.click(file)
+    await waitFor(() => expect(file.getAttribute("aria-expanded")).toBe("true"))
+    file.focus()
+    await fireEvent.keyDown(file, { key: "ArrowRight" })
+    expect(document.activeElement).toBe(edit)
+    await waitFor(() => {
+      expect(file.getAttribute("aria-expanded")).toBe("false")
+      expect(edit.getAttribute("aria-expanded")).toBe("true")
+    })
+    await fireEvent.keyDown(edit, { key: "ArrowDown" })
+    expect(edit.getAttribute("aria-expanded")).toBe("true")
+    const menu = await screen.findByRole("menu")
+    await fireEvent.keyDown(menu, { key: "Escape" })
+    await waitFor(() => expect(edit.getAttribute("aria-expanded")).toBe("false"))
+    expect(document.activeElement).toBe(edit)
+  })
+
+  it("closes the active root and its submenu after the pointer leaves the menubar", async () => {
+    renderMenu(`
+      <UiMenuBar aria-label="Application">
+        <UiMenu>
+          <UiMenuTrigger>File</UiMenuTrigger>
+          <UiMenuContent>
+            <UiSubMenu>
+              <UiSubMenuTrigger>Export</UiSubMenuTrigger>
+              <UiSubMenuContent><UiMenuItem id="file-pdf">PDF</UiMenuItem></UiSubMenuContent>
+            </UiSubMenu>
+          </UiMenuContent>
+        </UiMenu>
+      </UiMenuBar>
+    `)
+
+    const bar = screen.getByRole("menubar", { name: "Application" })
+    const trigger = screen.getByRole("menuitem", { name: "File" })
+    await fireEvent.click(trigger)
+    const rootPanel = screen.getByRole("menu")
+
+    await fireEvent.pointerLeave(bar, { pointerType: "mouse", relatedTarget: rootPanel })
+    expect(trigger.getAttribute("aria-expanded")).toBe("true")
+
+    const exportTrigger = screen.getByText("Export")
+    await fireEvent.keyDown(exportTrigger, { key: "ArrowRight" })
+    await screen.findByRole("menuitem", { name: "PDF" })
+    expect(screen.getAllByRole("menu")).toHaveLength(2)
+
+    vi.useFakeTimers()
+    try {
+      await fireEvent.pointerLeave(bar, { pointerType: "mouse", relatedTarget: document.body })
+      await vi.advanceTimersByTimeAsync(150)
+      expect(trigger.getAttribute("aria-expanded")).toBe("false")
+      expect(screen.queryAllByRole("menu")).toHaveLength(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("clears the parent highlight when returning from a submenu", async () => {
+    renderMenu(`
+      <UiMenu>
+        <UiMenuTrigger>Root</UiMenuTrigger>
+        <UiMenuContent>
+          <UiSubMenu>
+            <UiSubMenuTrigger>More</UiSubMenuTrigger>
+            <UiSubMenuContent><UiMenuItem id="nested-action">Nested action</UiMenuItem></UiSubMenuContent>
+          </UiSubMenu>
+        </UiMenuContent>
+      </UiMenu>
+    `)
+
+    await fireEvent.click(screen.getByRole("button", { name: "Root" }))
+    const rootPanel = await screen.findByRole("menu")
+    await fireEvent.keyDown(rootPanel, { key: "ArrowDown" })
+    const more = screen.getByText("More")
+    expect(more.getAttribute("data-state")).toBe("highlighted")
+    await fireEvent.keyDown(more, { key: "ArrowRight" })
+    const nested = await screen.findByRole("menuitem", { name: "Nested action" })
+    nested.focus()
+    await fireEvent.keyDown(nested, { key: "ArrowLeft" })
+
+    await waitFor(() => expect(screen.getAllByRole("menu")).toHaveLength(1))
+    expect(more.getAttribute("data-state")).toBe("idle")
+    expect(more.getAttribute("tabindex")).toBe("-1")
+    expect(document.activeElement).toBe(more)
+  })
+
   it("opens on click and emits select events", async () => {
     const handleSelect = vi.fn()
 
@@ -82,6 +226,32 @@ describe("UiMenu", () => {
       expect(trigger.getAttribute("aria-expanded")).toBe("false")
     })
     expect(document.activeElement).toBe(trigger)
+  })
+
+  it("clears the first item highlight when the pointer returns from a context menu to its trigger", async () => {
+    renderMenu(`
+      <UiMenu>
+        <UiMenuTrigger trigger="contextmenu">Canvas trigger</UiMenuTrigger>
+        <UiMenuContent>
+          <UiMenuItem id="context-first">First action</UiMenuItem>
+          <UiMenuItem id="context-second">Second action</UiMenuItem>
+        </UiMenuContent>
+      </UiMenu>
+    `)
+
+    const trigger = screen.getByRole("button", { name: "Canvas trigger" })
+    await fireEvent.contextMenu(trigger, { clientX: 30, clientY: 40 })
+    await screen.findByRole("menu")
+    const first = screen.getByRole("menuitem", { name: "First action" })
+
+    await fireEvent.pointerEnter(first, { pointerType: "mouse" })
+    expect(first.getAttribute("data-state")).toBe("highlighted")
+
+    await fireEvent.pointerLeave(first, { pointerType: "mouse", relatedTarget: trigger })
+    expect(first.getAttribute("data-state")).toBe("idle")
+    expect(first.getAttribute("tabindex")).toBe("-1")
+    expect(document.activeElement).toBe(trigger)
+    expect(screen.getByRole("menu")).toBeTruthy()
   })
 
   it("closes on Tab and lets focus leave the menu", async () => {

@@ -4,6 +4,7 @@ import * as api from "../index"
 describe("menu-vue index exports", () => {
   it("exposes public Vue menu APIs", () => {
     expect(api.UiMenu).toBeTruthy()
+    expect(api.UiMenuBar).toBeTruthy()
     expect(api.UiMenuTrigger).toBeTruthy()
     expect(api.UiMenuContent).toBeTruthy()
     expect(api.UiMenuItem).toBeTruthy()

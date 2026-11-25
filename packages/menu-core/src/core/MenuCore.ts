@@ -293,6 +293,12 @@ export class MenuCore extends SurfaceCore<MenuState, MenuCallbacks> {
           this.highlight(id)
         }
       },
+      onPointerLeave: (event) => {
+        if (event?.pointerType && event.pointerType !== "mouse") return
+        if (this.selectionMachine.snapshot.activeItemId === id) {
+          this.highlight(null)
+        }
+      },
       onClick: (event) => {
         if (disabled) {
           event.preventDefault?.()

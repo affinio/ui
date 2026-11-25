@@ -60,6 +60,8 @@ Primary methods:
 - `select(id)`
 - `destroy()`
 
+Item props clear pointer-driven highlighting on mouse `pointerleave`; non-mouse pointer leaves do not affect the active item.
+
 ### `SubmenuCore`
 
 ```ts
@@ -76,6 +78,7 @@ Additional submenu methods:
 - `recordPointer({ x, y })`
 
 `SubmenuCore` coordinates with parent menu tree and pointer-intent prediction.
+Pressing Left to return to a parent closes the submenu and clears the parent's active item while keeping focus on the submenu trigger.
 
 ### `createMenuTree`
 

@@ -78,6 +78,17 @@ function handlePointerEnter(event: PointerEvent) {
   bindings.value.onPointerEnter?.(event)
 }
 
+function handlePointerLeave(event: PointerEvent) {
+  if (event.pointerType && event.pointerType !== "mouse") return
+  bindings.value.onPointerLeave?.(event)
+  const nextTarget = event.relatedTarget
+  if (!(nextTarget instanceof HTMLElement)) return
+  const menuTrigger = nextTarget.closest<HTMLElement>("[data-ui-menu-trigger='true']")
+  if (menuTrigger?.dataset.uiRootMenuId === provider.rootId && !menuTrigger.dataset.uiParentMenuId) {
+    menuTrigger.focus({ preventScroll: true })
+  }
+}
+
 function handleKeydown(event: KeyboardEvent) {
   syncRegisteredItemOrder()
   if (!isDisabled.value && (event.key === "Enter" || event.key === " " || event.key === "Space")) {
@@ -90,7 +101,7 @@ function handleKeydown(event: KeyboardEvent) {
     event.preventDefault()
     event.stopPropagation()
     submenuBridge.child.controller.close("keyboard")
-    submenuBridge.parent.controller.highlight(submenuBridge.child.submenuItemId ?? null)
+    submenuBridge.parent.controller.highlight(null)
     submenuBridge.child.controller.triggerRef.value?.focus({ preventScroll: true })
     return
   }
@@ -124,6 +135,7 @@ const itemProps = computed(() => ({
   "aria-disabled": bindings.value["aria-disabled"],
   onFocus: handleFocus,
   onPointerenter: handlePointerEnter,
+  onPointerleave: handlePointerLeave,
   onClick: handleClick,
   onKeydown: handleKeydown,
 }))

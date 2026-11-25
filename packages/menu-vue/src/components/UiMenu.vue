@@ -1,6 +1,8 @@
 <script setup lang="ts">
+import { onBeforeUnmount } from "vue"
 import type { Alignment, MenuCallbacks, MenuOptions, Placement } from "@affino/menu-core"
 import { provideMenuProvider } from "../context"
+import { useOptionalMenuBar } from "../menuBarContext"
 import { useMenuController } from "../useMenuController"
 
 const props = defineProps<{
@@ -13,9 +15,13 @@ const props = defineProps<{
 }>()
 
 const controller = useMenuController({ kind: "root", options: props.options, callbacks: props.callbacks })
+const menuBar = useOptionalMenuBar()
+const unregisterMenuBar = menuBar?.register(controller)
+onBeforeUnmount(() => unregisterMenuBar?.())
 
-const provider = provideMenuProvider({
+provideMenuProvider({
   controller,
+  menuBar,
   positioning: {
     placement: props.placement,
     align: props.align,
@@ -28,7 +34,7 @@ defineExpose({ controller })
 </script>
 
 <template>
-  <div class="ui-menu">
+  <div class="ui-menu" :role="menuBar ? 'none' : undefined">
     <slot />
   </div>
 </template>

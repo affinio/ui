@@ -20,6 +20,11 @@ export const menuRoutes: RouteRecordRaw[] = [
         component: () => import("@/pages/menu/NestedMenu.vue"),
       },
       {
+        path: "menubar",
+        name: "menu.menubar",
+        component: () => import("@/pages/menu/MenubarDemoPage.vue"),
+      },
+      {
         path: "context",
         name: "menu.context",
         component: () => import("@/pages/menu/ContextMenu.vue"),

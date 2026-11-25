@@ -128,6 +128,7 @@ export interface ItemProps {
   "aria-disabled"?: boolean
   "data-state": "highlighted" | "idle"
   onPointerEnter?: EventHandler<PointerEventLike>
+  onPointerLeave?: EventHandler<PointerEventLike>
   onClick?: EventHandler<MouseEvent>
   onKeyDown?: EventHandler<KeyboardEvent>
 }
