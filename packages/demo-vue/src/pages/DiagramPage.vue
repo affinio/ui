@@ -10,7 +10,7 @@ import {
   useDiagramVisibleEntities,
   type DiagramRenderEntity,
 } from "@affino/diagram-vue"
-import { createCircularArc, createEntityGeometry, pathContourSvg, subtractRectFromCircle, trimAndJoinLines, trimCircleOutsideRect, trimLineByCrossing, type DiagramClipboard, type DiagramGeometry, type DiagramPathContour, type DiagramPoint, type DiagramSceneInput, type DiagramShape } from "@affino/diagram-core"
+import { createCircularArc, createEntityGeometry, pathContourSvg, subtractRectFromCircle, trimAndJoinLines, trimCircleOutsideRect, trimLineByCrossing, trimSelectionByStroke, type DiagramClipboard, type DiagramGeometry, type DiagramPathContour, type DiagramPoint, type DiagramSceneInput, type DiagramShape, type DiagramSweepTrimResult } from "@affino/diagram-core"
 import { beginDiagramHandleInteraction } from "./diagramHandleInteractions"
 
 const stageRef = ref<HTMLElement | null>(null)
@@ -19,8 +19,13 @@ const geometryMode = ref<"arc" | "trim-line" | "trim-circle" | "join" | "subtrac
 const arcPoints = ref<DiagramPoint[]>([])
 const operationPointer = ref<DiagramPoint | null>(null)
 const joinShoulders = ref<DiagramPoint[]>([])
+const trimStroke = ref<DiagramPoint[]>([])
+const trimStrokeActive = ref(false)
 const geometryMessage = ref("")
 let nextGeometryId = 1
+let trimStrokePointerId: number | null = null
+let trimStrokeDocumentRevision: number | null = null
+let trimStrokeTargetIds: string[] = []
 
 const GRID_COLUMNS = 40
 const GENERATED_NODE_COUNT = 1000
@@ -148,6 +153,7 @@ const renderEntities = computed(() => {
   return projection.ids.map((id) => byId.get(id)).filter((entity): entity is DiagramRenderEntity => entity !== undefined)
 })
 const geometryPreview = computed(() => {
+  if (trimStrokeActive.value) return []
   const point = operationPointer.value
   const ids = selection.selection.value.ids
   if (geometryMode.value === "arc" && arcPoints.value.length === 2 && point) {
@@ -187,6 +193,20 @@ const geometryPreview = computed(() => {
   }
   return []
 })
+const trimStrokeResult = computed<DiagramSweepTrimResult | null>(() => {
+  if (!trimStrokeActive.value || trimStroke.value.length < 2) return null
+  const scene = diagram.scene.value
+  const targetIds = trimStrokeTargetIds.filter((id) => scene.entities.shapesById.has(id))
+  if (!targetIds.length) return null
+  return trimSelectionByStroke(scene, {
+    targetIds,
+    boundaryIds: targetIds,
+    stroke: trimStroke.value,
+    tolerance: 0.75 / Math.max(viewport.viewport.value.zoom, 0.05),
+    extent: "crossing-side-to-endpoint",
+  })
+})
+const trimStrokePreview = computed(() => trimStrokeResult.value?.targets.flatMap((target) => target.removed ?? []) ?? [])
 
 function shapeLinePoints(shape: DiagramShape): DiagramPoint[] {
   if (shape.points?.length) return shape.points.map((point) => ({ x: shape.x + point.x, y: shape.y + point.y }))
@@ -194,6 +214,7 @@ function shapeLinePoints(shape: DiagramShape): DiagramPoint[] {
 }
 
 function startGeometryMode(mode: typeof geometryMode.value): void {
+  clearTrimStroke()
   geometryMode.value = mode
   arcPoints.value = []
   joinShoulders.value = []
@@ -209,6 +230,18 @@ function handleStagePointerDown(event: PointerEvent): void {
   }
   if (!geometryMode.value) { corePointerProps.onPointerdown(event); return }
   event.preventDefault()
+  if (geometryMode.value === "trim-line" && (event.metaKey || event.ctrlKey)) {
+    const targetIds = selection.selection.value.ids.filter((id) => diagram.scene.value.entities.shapesById.has(id))
+    if (targetIds.length < 2) { geometryMessage.value = "Select at least two intersecting shapes before drawing a trim stroke."; return }
+    trimStrokeTargetIds = targetIds
+    trimStrokeDocumentRevision = diagram.engine.getDocumentRevision()
+    trimStrokePointerId = event.pointerId
+    trimStroke.value = [toWorldPoint(event)]
+    trimStrokeActive.value = true
+    geometryMessage.value = "Release Command/Ctrl to apply the red highlighted fragments."
+    ;(event.currentTarget as Element).setPointerCapture?.(event.pointerId)
+    return
+  }
   const point = snappedGeometryPoint(toWorldPoint(event))
   operationPointer.value = point
   if (geometryMode.value === "arc") {
@@ -227,6 +260,14 @@ function handleStagePointerDown(event: PointerEvent): void {
 }
 
 function handleStagePointerMove(event: PointerEvent): void {
+  if (trimStrokeActive.value) {
+    if (event.pointerId !== trimStrokePointerId) return
+    const point = toWorldPoint(event)
+    const points = trimStroke.value
+    const last = points[points.length - 1]
+    if (!last || Math.hypot(point.x - last.x, point.y - last.y) >= 2 / viewport.viewport.value.zoom) trimStroke.value = [...points, point]
+    return
+  }
   if (!geometryMode.value) { corePointerProps.onPointermove(event); return }
   operationPointer.value = snappedGeometryPoint(toWorldPoint(event))
 }
@@ -247,12 +288,52 @@ function distanceToPath(point: DiagramPoint, path: ReadonlyArray<DiagramPoint>):
 }
 
 function handleStagePointerUp(event: PointerEvent): void {
-  if (!geometryMode.value) corePointerProps.onPointerup(event)
+  if (trimStrokeActive.value && event.pointerId === trimStrokePointerId) {
+    appendTrimStrokePoint(toWorldPoint(event))
+    applyTrimStroke()
+  } else if (!geometryMode.value) corePointerProps.onPointerup(event)
 }
 
 function handleStagePointerCancel(): void {
-  if (geometryMode.value) { startGeometryMode(null); geometryMessage.value = "Operation cancelled." }
+  if (trimStrokeActive.value) { clearTrimStroke(); geometryMessage.value = "Trim stroke cancelled." }
+  else if (geometryMode.value) { startGeometryMode(null); geometryMessage.value = "Operation cancelled." }
   else corePointerProps.onPointercancel()
+}
+
+function appendTrimStrokePoint(point: DiagramPoint): void {
+  const points = trimStroke.value
+  const last = points[points.length - 1]
+  if (!last || Math.hypot(point.x - last.x, point.y - last.y) >= 0.5 / viewport.viewport.value.zoom) trimStroke.value = [...points, point]
+}
+
+function clearTrimStroke(): void {
+  trimStrokeActive.value = false
+  trimStroke.value = []
+  trimStrokePointerId = null
+  trimStrokeDocumentRevision = null
+  trimStrokeTargetIds = []
+}
+
+function applyTrimStroke(): void {
+  const result = trimStrokeResult.value
+  const expectedDocumentRevision = trimStrokeDocumentRevision
+  if (!result || expectedDocumentRevision === null || !result.updates.length) {
+    const message = result?.findings[0]?.message ?? "The stroke did not produce any removable fragments."
+    clearTrimStroke()
+    geometryMessage.value = message
+    return
+  }
+  const committed = diagram.engine.dispatchBatch(result.updates, { expectedDocumentRevision })
+  clearTrimStroke()
+  if (!committed.ok) { geometryMessage.value = "Trim was rejected because the document changed during the gesture."; return }
+  startGeometryMode(null)
+}
+
+function handleStageKeyup(event: KeyboardEvent): void {
+  if (trimStrokeActive.value && (event.key === "Meta" || event.key === "Control")) {
+    event.preventDefault()
+    applyTrimStroke()
+  }
 }
 
 function confirmGeometryOperation(): void {
@@ -684,7 +765,7 @@ function clamp(value: number, min: number, max: number): number {
         <button class="wide" :class="{ active: geometryMode === 'subtract' }" type="button" @click="startGeometryMode('subtract')">Subtract rectangle</button>
         <button v-if="geometryMode && geometryMode !== 'arc' && geometryMode !== 'trim-line'" class="wide" type="button" @click="confirmGeometryOperation">Apply {{ geometryMode }}</button>
         <button v-if="geometryMode" class="wide" type="button" @click="startGeometryMode(null)">Cancel geometry tool</button>
-        <p v-if="geometryMode" class="wide geometry-help">{{ geometryMode === 'arc' ? 'Click start, click end, move through the arc, then click to create. Esc cancels.' : geometryMode === 'trim-line' ? 'Select target line first and cutter line second; click the fragment to remove.' : geometryMode === 'join' ? 'Select two crossing lines; click one retained shoulder on each, then Apply.' : geometryMode === 'trim-circle' ? 'Select circle first and rectangle second; Apply keeps open arcs outside it.' : 'Select base circle first and cutter rectangle second; Apply keeps the result.' }} {{ geometryMessage }}</p>
+        <p v-if="geometryMode" class="wide geometry-help">{{ geometryMode === 'arc' ? 'Click start, click end, move through the arc, then click to create. Esc cancels.' : geometryMode === 'trim-line' ? 'Click a fragment to trim one line. Hold Command/Ctrl and drag a stroke through selected intersections; red fragments are removed when the modifier is released.' : geometryMode === 'join' ? 'Select two crossing lines; click one retained shoulder on each, then Apply.' : geometryMode === 'trim-circle' ? 'Select circle first and rectangle second; Apply keeps open arcs outside it.' : 'Select base circle first and cutter rectangle second; Apply keeps the result.' }} {{ geometryMessage }}</p>
       </div>
 
       <dl class="diagram-stats">
@@ -705,7 +786,7 @@ function clamp(value: number, min: number, max: number): number {
 
     <div class="diagram-shell">
       <div ref="stageRef" class="diagram-stage">
-        <svg class="diagram-svg" :viewBox="viewBox" tabindex="0" v-bind="pointerProps" @keydown="handleStageKeydown" @wheel="handleWheel">
+        <svg class="diagram-svg" :viewBox="viewBox" tabindex="0" v-bind="pointerProps" @keydown="handleStageKeydown" @keyup.window="handleStageKeyup" @wheel="handleWheel">
           <defs>
             <pattern id="diagram-grid" width="24" height="24" patternUnits="userSpaceOnUse">
               <path d="M 24 0 L 0 0 0 24" class="diagram-grid-line" />
@@ -724,6 +805,7 @@ function clamp(value: number, min: number, max: number): number {
             </text>
           </template>
           <path v-for="(contour, index) in geometryPreview" :key="`operation-preview-${index}`" class="diagram-operation-preview" :class="{ 'is-filled': geometryMode === 'subtract' }" :d="pathContourSvg(contour)" fill-rule="evenodd" />
+          <path v-for="(contour, index) in trimStrokePreview" :key="`trim-stroke-preview-${index}`" class="diagram-operation-preview is-trim-removal" :d="pathContourSvg(contour)" />
           <DiagramBezierOverlay :pointer="pointer" :handles="visible.projection.value.activeHandles" :zoom="viewport.viewport.value.zoom" />
           <line v-for="(guide, index) in snapGuides" :key="`snap-${index}`" class="diagram-snap-guide" :class="`diagram-snap-guide--${guide.kind}`" :data-axis="guide.axis" :x1="guide.start.x" :y1="guide.start.y" :x2="guide.end.x" :y2="guide.end.y" />
           <template v-if="showSelectionOverlays">
@@ -962,6 +1044,7 @@ button.active {
 .diagram-operation-path.is-filled { fill: #c85d3c; fill-opacity: 0.24; }
 .diagram-operation-preview { fill: none; stroke: #147a65; stroke-width: 4; stroke-dasharray: 8 5; pointer-events: none; }
 .diagram-operation-preview.is-filled { fill: #147a65; fill-opacity: 0.2; }
+.diagram-operation-preview.is-trim-removal { stroke: #dc2626; stroke-width: 6; stroke-dasharray: none; }
 .geometry-help { grid-column: 1 / -1; margin: 0; color: #52645e; font-size: 0.8rem; }
 
 

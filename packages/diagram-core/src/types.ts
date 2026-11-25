@@ -488,7 +488,7 @@ export type DiagramCommandResult = Readonly<{
 }>
 
 export type DiagramSweepTrimSide = "directed" | "both"
-export type DiagramSweepTrimInput = Readonly<{ targetIds: ReadonlyArray<DiagramId>; stroke: ReadonlyArray<DiagramPoint>; tolerance: number; boundaryIds?: ReadonlyArray<DiagramId>; side?: DiagramSweepTrimSide; extent?: "crossing-to-boundary" | "beyond-boundary" }>
+export type DiagramSweepTrimInput = Readonly<{ targetIds: ReadonlyArray<DiagramId>; stroke: ReadonlyArray<DiagramPoint>; tolerance: number; boundaryIds?: ReadonlyArray<DiagramId>; side?: DiagramSweepTrimSide; extent?: "crossing-to-boundary" | "beyond-boundary" | "crossing-side-to-endpoint" }>
 export type DiagramSweepTrimFindingCode = "invalid-input" | "no-intersection" | "no-boundary" | "ambiguous-boundary" | "unsupported-boundary" | "ambiguous-intersection" | "self-intersecting-stroke" | "topology-ambiguous" | "unsupported-target" | "unsupported-geometry" | "connected-edge" | "locked-target" | "anchored-host"
 export type DiagramSweepTrimFinding = Readonly<{
   code: DiagramSweepTrimFindingCode
@@ -507,6 +507,8 @@ export type DiagramSweepTrimTargetResult = Readonly<{
   changed: boolean
   /** Exact retained contours in world coordinates, also used to construct preview. */
   retained: ReadonlyArray<DiagramPathContour>
+  /** Exact removed contours in world coordinates, suitable for a live trim highlight. */
+  removed?: ReadonlyArray<DiagramPathContour>
   /** Points where the freehand stroke crossed this target. Kept separately from resolved boundaries. */
   sweepCrossings: ReadonlyArray<DiagramPoint>
   /** Boundary crossings chosen along the target from each sweep crossing. */

@@ -1,5 +1,12 @@
 # @affino/diagram-core
 
+## 0.32.0
+
+### Minor Changes
+
+- Allowed DiagramEdge routes as explicit or automatic geometric boundaries for shape sweep Trim without changing connector endpoints or connectivity.
+- Added `extent: "crossing-side-to-endpoint"` and exact removed-contour results for stroke Trim previews; this removes the stroke-selected endpoint arm up to its nearest boundary while leaving DiagramEdge connectivity untouched.
+
 ## 0.31.0
 
 ### Minor Changes

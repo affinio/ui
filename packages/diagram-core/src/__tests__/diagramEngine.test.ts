@@ -24,6 +24,46 @@ const scene: DiagramSceneInput = {
 }
 
 describe("DiagramEngine", () => {
+  it("trims the stroke-selected endpoint arms at intersections between selected shapes", () => {
+    const engine = createDiagramEngine({ shapes: [
+      { id: "horizontal", kind: "shape", shape: "line", x: 0, y: 50, width: 100, height: 0 },
+      { id: "vertical", kind: "shape", shape: "line", x: 50, y: 0, width: 0, height: 100 },
+    ] })
+    const before = engine.serialize()
+    const stroke = [{ x: 25, y: 25 }, { x: 75, y: 25 }, { x: 75, y: 75 }]
+    const result = trimSelectionByStroke(before, {
+      targetIds: ["horizontal", "vertical"],
+      boundaryIds: ["horizontal", "vertical"],
+      stroke,
+      tolerance: 0.01,
+      extent: "crossing-side-to-endpoint",
+    })
+
+    expect(result).toMatchObject({ ok: true, status: "applied", updates: [{ id: "horizontal" }, { id: "vertical" }] })
+    expect(result.targets.find((target) => target.id === "horizontal")).toMatchObject({
+      sweepCrossings: [{ x: 75, y: 50 }],
+      boundaryIntersections: [{ point: { x: 50, y: 50 }, boundaryId: "vertical" }],
+      retained: [{ segments: [{ kind: "line", start: { x: 0, y: 50 }, end: { x: 50, y: 50 } }], closed: false }],
+      removed: [{ segments: [{ kind: "line", start: { x: 50, y: 50 }, end: { x: 100, y: 50 } }], closed: false }],
+    })
+    expect(result.targets.find((target) => target.id === "vertical")).toMatchObject({
+      sweepCrossings: [{ x: 50, y: 25 }],
+      boundaryIntersections: [{ point: { x: 50, y: 50 }, boundaryId: "horizontal" }],
+      retained: [{ segments: [{ kind: "line", start: { x: 50, y: 50 }, end: { x: 50, y: 100 } }], closed: false }],
+      removed: [{ segments: [{ kind: "line", start: { x: 50, y: 0 }, end: { x: 50, y: 50 } }], closed: false }],
+    })
+    for (const target of result.targets.filter((entry) => entry.changed)) {
+      const previewEngine = createDiagramEngine({ shapes: [target.preview!] })
+      expect(previewEngine.getGeometrySnapshot(target.id)?.pathContours).toEqual(target.retained)
+    }
+    engine.dispatchBatch(result.updates)
+    expect(engine.getGeometrySnapshot("horizontal")?.path).toEqual([{ x: 0, y: 50 }, { x: 50, y: 50 }])
+    expect(engine.getGeometrySnapshot("vertical")?.path).toEqual([{ x: 50, y: 50 }, { x: 50, y: 100 }])
+    expect(engine.getDiagnostics().undoDepth).toBe(1)
+    engine.dispatch({ type: "undo" })
+    expect(engine.serialize()).toEqual(before)
+  })
+
   it("allows selected paths to bound each other during partial sweep Trim", () => {
     const engine = createDiagramEngine({ shapes: [
       { id: "horizontal", kind: "shape", shape: "line", x: 0, y: 50, width: 100, height: 0, metadata: { stroke: "blue" } },
@@ -53,6 +93,58 @@ describe("DiagramEngine", () => {
     expect(engine.serialize()).toEqual(before)
     engine.dispatch({ type: "redo" })
     expect(engine.getGeometrySnapshot("horizontal")?.pathContours).toEqual(createDiagramEngine({ shapes: [result.targets.find((target) => target.id === "horizontal")!.preview!] }).getGeometrySnapshot("horizontal")?.pathContours)
+  })
+
+  it("uses DiagramEdge routes as automatic and explicit trim boundaries without trimming edges", () => {
+    const engine = createDiagramEngine({
+      shapes: [{ id: "target", kind: "shape", shape: "line", x: 0, y: 20, width: 100, height: 0 }],
+      edges: [{ id: "boundary-edge", kind: "edge", source: { kind: "point", point: { x: 70, y: 0 } }, target: { kind: "point", point: { x: 70, y: 40 } } }],
+    })
+    const before = engine.serialize()
+    const edgeBefore = engine.getScene().entities.edgesById.get("boundary-edge")
+    const input = { targetIds: ["target"], stroke: [{ x: 30, y: 40 }, { x: 30, y: 0 }], tolerance: 0.01 }
+    const automatic = trimSelectionByStroke(before, input)
+    expect(automatic.targets[0]).toMatchObject({
+      changed: true,
+      boundaryIntersections: [{ point: { x: 70, y: 20 }, boundaryId: "boundary-edge" }],
+      retained: [
+        { segments: [{ kind: "line", start: { x: 0, y: 20 }, end: { x: 30, y: 20 } }], closed: false },
+        { segments: [{ kind: "line", start: { x: 70, y: 20 }, end: { x: 100, y: 20 } }], closed: false },
+      ],
+    })
+    const explicit = trimSelectionByStroke(before, { ...input, boundaryIds: ["boundary-edge"] })
+    expect(explicit.targets[0]?.boundaryIntersections).toEqual(automatic.targets[0]?.boundaryIntersections)
+    engine.dispatchBatch(automatic.updates)
+    expect(engine.getScene().entities.edgesById.get("boundary-edge")).toBe(edgeBefore)
+    expect(engine.getScene().entities.edgesById.get("boundary-edge")?.source).toEqual({ kind: "point", point: { x: 70, y: 0 } })
+    const edgeTarget = trimSelectionByStroke(before, { targetIds: ["boundary-edge"], stroke: input.stroke, tolerance: input.tolerance, boundaryIds: ["target"] })
+    expect(edgeTarget.targets[0]).toMatchObject({ changed: false, finding: { code: "connected-edge" } })
+  })
+
+  it("uses edge routes for both-side trim while leaving edge geometry unchanged", () => {
+    const engine = createDiagramEngine({
+      shapes: [{ id: "target", kind: "shape", shape: "line", x: 0, y: 20, width: 100, height: 0 }],
+      edges: [
+        { id: "left-edge", kind: "edge", source: { kind: "point", point: { x: 20, y: 0 } }, target: { kind: "point", point: { x: 20, y: 40 } } },
+        { id: "right-edge", kind: "edge", source: { kind: "point", point: { x: 80, y: 0 } }, target: { kind: "point", point: { x: 80, y: 40 } } },
+      ],
+    })
+    const before = engine.serialize()
+    const edgeBefore = [...engine.getScene().entities.edgesById.values()]
+    const result = trimSelectionByStroke(before, { targetIds: ["target"], stroke: [{ x: 50, y: 40 }, { x: 50, y: 0 }], tolerance: 0.01, side: "both" })
+    expect(result.targets[0]).toMatchObject({
+      changed: true,
+      boundaryIntersections: [
+        { point: { x: 80, y: 20 }, boundaryId: "right-edge" },
+        { point: { x: 20, y: 20 }, boundaryId: "left-edge" },
+      ],
+      retained: [
+        { segments: [{ kind: "line", start: { x: 0, y: 20 }, end: { x: 20, y: 20 } }], closed: false },
+        { segments: [{ kind: "line", start: { x: 80, y: 20 }, end: { x: 100, y: 20 } }], closed: false },
+      ],
+    })
+    engine.dispatchBatch(result.updates)
+    expect([...engine.getScene().entities.edgesById.values()]).toEqual(edgeBefore)
   })
 
   it("supports trim extent beyond the selected boundary with matching preview, commit, and undo", () => {
