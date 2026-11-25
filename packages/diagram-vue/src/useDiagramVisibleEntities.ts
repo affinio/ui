@@ -91,7 +91,7 @@ function buildProjection(
   const anchorGeometries = activeGeometries.filter((geometry) => geometry.kind !== "edge" || Boolean(geometry.corners?.length))
   const activeHandles = [
     ...(anchorGeometries.length > 1 ? createGroupHandles(anchorGeometries) : activeGeometries.flatMap(createHandles)),
-    ...activeGeometries.flatMap((geometry) => geometry.kind === "edge" ? createEdgeWaypointHandles(geometry) : geometry.kind === "shape" ? [...createPathVertexHandles(geometry), ...createBezierHandles(geometry)] : []),
+    ...activeGeometries.flatMap((geometry) => geometry.kind === "edge" ? createEdgeWaypointHandles(geometry, scene.entities.edgesById.get(geometry.id)) : geometry.kind === "shape" ? [...createPathVertexHandles(geometry), ...createBezierHandles(geometry)] : []),
     ...activeGeometries.filter((geometry) => geometry.kind === "edge").flatMap(createEdgeEndpointHandles),
     ...activeGeometries.filter((geometry) => geometry.kind === "edge").flatMap(createEdgeSegmentHandles),
   ]
@@ -134,7 +134,8 @@ function createEdgeEndpointHandles(geometry: DiagramGeometry): DiagramHandle[] {
   ]
 }
 
-function createEdgeWaypointHandles(geometry: DiagramGeometry): DiagramHandle[] {
+function createEdgeWaypointHandles(geometry: DiagramGeometry, edge?: import("@affino/diagram-core").DiagramEdge): DiagramHandle[] {
+  if (edge?.routing?.mode === "auto") return (edge.routing.waypoints ?? []).map((point, index) => ({ id: `${geometry.id}:waypoint:${index}`, ownerId: geometry.id, kind: "waypoint", point }))
   if (geometry.kind !== "edge" || !geometry.path || geometry.path.length < 3) return []
   return geometry.path.slice(1, -1).map((point, index) => ({ id: `${geometry.id}:waypoint:${index}`, ownerId: geometry.id, kind: "waypoint", point }))
 }
