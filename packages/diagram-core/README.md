@@ -167,9 +167,44 @@ const candidates = engine.getSnapCandidates({ x: 315, y: 142 }, {
 const resolved = engine.snapPoint({ x: 315, y: 142 }, { tolerancePx: 8, kinds: ["port", "nearest"], origin: { x: 280, y: 120 } })
 ```
 
-Legacy `radius` in `snapPoint()` remains in world units. New callers should use `tolerancePx`. Use `origin` for polar constraints; angular projection preserves vector length from that origin. `ortho` is a 90-degree angular constraint. Selection movement and endpoint edits apply configured grid/object snaps and angle constraints to transient previews, then commit those resolved coordinates.
+Legacy `radius` in `snapPoint()` remains in world units. New callers should use `tolerancePx`. Use `origin` for polar constraints; angular projection preserves vector length from that origin. For `DiagramInteractionSnapOptions`, `ortho: true` constrains newly drawn lines, paths, Bézier anchors, and connector endpoints to 90-degree increments. It does not constrain selection movement or edits to existing geometry; Shift remains the explicit constraint modifier for those interactions. Grid, port, alignment, and other object snaps continue to apply to previews and commits.
 
-`routeOrthogonalConnector(source, target, { terminalLead, firstAxis })` returns stable waypoints plus diagnostics when terminal leads overlap. It creates a local orthogonal route only; it does not promise obstacle avoidance. `beginEdgeCreation(id, pointer, routeOptions)` provides a frame-batched route preview and commits one `createEdge` command. `beginLineCreation(id, pointer)` provides a snapped transient line-shape preview and commits one `createShape` command. Ports are retained as endpoint references when snapped for connectors. Endpoint reattachment during endpoint dragging is opt-in with `snap.endpointMode: "reattach"`; the default keeps the existing free-point editing contract.
+### Strict interaction grid
+
+`snap.strictGrid: true` is opt-in and requires `snap.enabled !== false` plus a finite positive `gridSize`. With it enabled, the grid wins over a conflicting off-grid port, alignment, geometry, or angle candidate; the final `snapResult.source` is `grid`, and preview and pointer-up use the same resolved coordinates. With strict mode omitted, the legacy candidate priority is unchanged. Selection movement snaps the primary object's world top-left anchor and applies one shared delta, preserving group/member offsets; an axis locked by Shift stays fixed. Resize snaps both world-box edges and resulting width/height, including an initially off-grid shape. Strict grid wins over proportional aspect-ratio preservation when both constraints cannot be satisfied exactly.
+
+Port placement converts the strict-grid world point back into the host-local anchor. An existing line/path vertex keeps its vertex anchor only when that vertex already lies on the grid; otherwise placement uses a local host anchor at the grid point. Ports already attached to a host retain their local anchor when that host moves or resizes; their derived world points can therefore remain off-grid. Connector reattachment preserves a port reference only when that port lies on the grid; an incompatible off-grid candidate resolves to a free grid point. Connector route endpoints and user waypoints use the grid, while bends derived by automatic obstacle routing remain router geometry so clearance is not compromised.
+
+`rotateEntities` accepts the same explicit policy through its optional `snap` field. Strict rotation snaps the entity/group world-bounds center (the rotation pivot) to the grid, keeps the requested angle unchanged, and moves the complete host geometry together so attached ports remain bound. Without the option, rotation behavior is unchanged.
+
+```ts
+const pointer = createDiagramInteractionController(engine, {
+  snap: { enabled: true, gridSize: 10, strictGrid: true },
+})
+
+engine.dispatch({
+  type: "rotateEntities",
+  entries: [{ id: "symbol", rotation: 90 }],
+  snap: { gridSize: 10, strictGrid: true },
+})
+```
+
+`routeOrthogonalConnector(source, target, options)` returns a deterministic orthogonal route and diagnostics. It uses a coordinate-compressed visibility graph over the supplied world-space obstacle bounds (not a raster grid). Obstacles are inflated by `clearance`; `sourceDirection` and `targetDirection` constrain the terminal lead segments, and ordered `waypoints` are hard route constraints. `existingRoutes` are a soft preference: strict crossings are minimized after bend count and total length. The optimization order is collision-free route, endpoint leads and waypoints, fewer bends, shorter length, fewer crossings, then stable coordinate/direction ties. Rotated hosts use their conservative world AABB. An impossible lead/waypoint/obstacle combination returns an empty route with a typed diagnostic; it does not mutate a scene.
+
+```ts
+const route = routeOrthogonalConnector(source, target, {
+  terminalLead: 12,
+  sourceDirection: "east",
+  targetDirection: "west",
+  clearance: 8,
+  waypoints: [{ x: 160, y: 80 }],
+  obstacles: [{ id: "device-1", bounds: { x: 100, y: 20, width: 40, height: 80 } }],
+})
+```
+
+`beginEdgeCreation(id, pointer, routeOptions)` and `beginEdgePathCreation()` use the same route helper for live preview and commit. Their typed preview contains route-order `path` geometry, and committed `DiagramEdge.points` are exactly `path.slice(1, -1)`; terminal leads are only applied at the actual endpoints, never around intermediate waypoints. Existing serialized edges without `routing` remain fixed. Opt a new or existing edge into derived rerouting with `routing: { mode: "auto", clearance, terminalLead, sourceDirection, targetDirection, waypoints }`. For auto edges, `routing.waypoints` are the explicit constraints; generated bends in `points` are a serialization fallback and are not fed back as constraints. A host/obstacle edit invalidates and recomputes automatic route geometry. Dragging a segment or route handle promotes the resolved intermediate points to persistent waypoint constraints in one undoable edit. Cancel leaves the scene unchanged.
+
+Obstacle candidates are gathered locally for interactive creation through the Core spatial query. The standalone helper accepts the caller's already-filtered obstacle list. Automatic route geometry currently scans scene entity maps when invalidated; it caches the resolved geometry afterward. This first version does not promise collision-free routes around arbitrary non-rectangular geometry: nodes, text, tables, and shapes are treated as conservative AABBs, and a no-route diagnostic preserves the prior committed geometry. Geometric wire crossings only affect the optional route preference and never create electrical connectivity. Connector rounding and crossing-bridge rendering remain separate projection options.
 
 Set `DiagramInteractionSnapOptions.portTolerancePx` to tune connector source/target port capture separately from other snaps. It is measured in screen pixels and converted through the current viewport zoom; when omitted, connector port capture continues to use `tolerancePx` (or its existing default). Alignment, grid, and geometric snap tolerances remain controlled by `tolerancePx`.
 
@@ -207,7 +242,7 @@ Geometry tools are deterministic helpers: `intersectLineSegments`, `trimLineByCr
 
 ### Selection sweep Trim
 
-`trimSelectionByStroke(scene, { targetIds, stroke, tolerance })` is a pure world-geometry helper. It returns one result per explicit target, retained world-space contours, exact cut points, renderer-ready preview shapes, batch-ready `updates`, and typed `findings`. `tolerance` is in world units; convert a screen tolerance with the current zoom before calling. The directed stroke removes the side to its left according to the segment cross-product sign. Intersections are computed against exact line and circular-arc equations; cubic intersections solve the cubic line-distance polynomial by derivative partitioning and at most 48 bisections per monotone interval, then split the curve with exact De Casteljau controls. Duplicate hits within `tolerance` are coalesced deterministically.
+`trimSelectionByStroke(scene, { targetIds, stroke, tolerance, boundaryIds? })` is a pure world-geometry helper. It returns one result per explicit target, retained world-space contours, exact cut points, renderer-ready preview shapes, batch-ready `updates`, and typed `findings`. `tolerance` is in world units; convert a screen tolerance with the current zoom before calling. By default, every eligible shape except the current target can bound it, including other selected targets. `boundaryIds` restricts the candidate set; an ID that is also a target can bound other targets but never itself. Uncrossed/unchanged targets retain per-target findings without preventing successful targets from being applied. `status` is `applied`, `partial`, `unchanged`, or `rejected`; legacy `ok` continues to indicate input validity, and callers should commit only the returned `updates`. The directed stroke removes the side to its left according to the segment cross-product sign. Intersections are computed against exact line and circular-arc equations; cubic intersections solve the cubic line-distance polynomial by derivative partitioning and at most 48 bisections per monotone interval, then split the curve with exact De Casteljau controls. Duplicate hits within `tolerance` are coalesced deterministically.
 
 Sweep Trim accepts open and closed line/path contours, cubic path segments, circular arcs, and native rectangular outlines. Rotated and flipped paths are evaluated in world space. A simple closed contour with exactly two transverse crossings is split into two intervals; Core removes the interval on the directed stroke's left and returns the retained interval as an open contour, starting at the first cut point in stroke order and following the source contour direction. Closed contours with more than two crossings, tangencies, endpoint hits, overlaps, or uncertain side classification return a typed finding and remain unchanged. A stroke that self-intersects returns `self-intersecting-stroke` for its requested targets. Holes remain unchanged when untouched; if cutting could change a target's fill topology, that target returns a finding and remains unchanged. Ellipses without explicit path contours are unsupported because Core has no exact ellipse segment type.
 
@@ -386,7 +421,17 @@ const diagnostics = engine.getDiagnostics()
 // { visibleQueryCount, entityQueryCount, hitTestCount, geometryRecomputeCount, lastCommandMs }
 ```
 
-Use `pnpm --filter @affino/diagram-core bench` after building to refresh `artifacts/performance/bench-diagram-core.json` and watch visible query, entity search/query, clipboard, routing, resize, fit, and command latency metrics.
+Use `BENCH_DIAGRAM_ENTITY_COUNTS=100,1000,10000 BENCH_OUTPUT_JSON=/tmp/diagram-routing-bench.json pnpm --filter @affino/diagram-core bench` after building to measure the indexed local-obstacle query plus visibility-graph route solve at three scene sizes. The benchmark uses 20 warmups and 100 samples and reports p50/p95 and candidate count alongside the existing engine metrics. Candidate filtering is spatial-index-backed in the pointer controller; auto-route geometry is cached and only rerouted when an endpoint dependency or an obstacle whose previous/current bounds intersect the route bounds changes. The visibility graph's cost depends on the local obstacle count, not a fixed world-space grid resolution.
+
+On Node 24.21.0 in the current workspace run (one local obstacle; route scene contains the indicated background entity count), candidate query + solve measured:
+
+| Scene entities | Local obstacles | p50 | p95 |
+| ---: | ---: | ---: | ---: |
+| 100 | 1 | 0.012 ms | 0.036 ms |
+| 1,000 | 1 | 0.015 ms | 0.022 ms |
+| 10,000 | 1 | 0.013 ms | 0.014 ms |
+
+These figures validate that indexed candidate filtering remains bounded as unrelated scene size grows; they do not benchmark dense local obstacle clusters.
 
 ## Viewport contract
 

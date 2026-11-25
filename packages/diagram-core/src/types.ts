@@ -94,6 +94,8 @@ export type DiagramEdge = DiagramEntityBase & Readonly<{
   points?: ReadonlyArray<DiagramPoint>
   /** Cumulative rotation applied to a free edge route; omitted for legacy/unrotated edges. */
   rotation?: number
+  /** Omitted legacy edges keep their stored route fixed. Auto routes are derived from endpoints, waypoints, and scene obstacles. */
+  routing?: DiagramEdgeRouting
 }>
 
 export type DiagramText = DiagramEntityBase & Readonly<{
@@ -225,6 +227,7 @@ export type DiagramRotateEntry = Readonly<{
   id: DiagramId
   rotation: number
 }>
+export type DiagramGridSnapOptions = Readonly<{ gridSize?: number; strictGrid?: boolean }>
 
 export type DiagramAlignEdge = "left" | "centerX" | "right" | "top" | "centerY" | "bottom"
 
@@ -409,12 +412,13 @@ export type DiagramCommand =
   | Readonly<{ type: "insertEdgeWaypoint"; id: DiagramId; index: number; point: DiagramPoint; historyKey?: string }>
   | Readonly<{ type: "moveEdgeWaypoint"; id: DiagramId; index: number; point: DiagramPoint; historyKey?: string }>
   | Readonly<{ type: "removeEdgeWaypoint"; id: DiagramId; index: number; historyKey?: string }>
+  | Readonly<{ type: "updateEdgeRouting"; id: DiagramId; routing: DiagramEdgeRouting; historyKey?: string }>
   | Readonly<{ type: "createEdge"; edge: DiagramEdge; historyKey?: string }>
   | Readonly<{ type: "deleteSelection"; historyKey?: string }>
   | Readonly<{ type: "duplicateSelection"; offset?: DiagramPoint; historyKey?: string }>
   | Readonly<{ type: "pasteClipboard"; clipboard: DiagramClipboard; offset?: DiagramPoint; historyKey?: string }>
   | Readonly<{ type: "resizeEntities"; entries: ReadonlyArray<DiagramResizeEntry>; historyKey?: string }>
-  | Readonly<{ type: "rotateEntities"; entries: ReadonlyArray<DiagramRotateEntry>; historyKey?: string }>
+  | Readonly<{ type: "rotateEntities"; entries: ReadonlyArray<DiagramRotateEntry>; snap?: DiagramGridSnapOptions; historyKey?: string }>
   | Readonly<{ type: "flipEntities"; ids?: ReadonlyArray<DiagramId>; axis: DiagramFlipAxis; historyKey?: string }>
   | Readonly<{ type: "alignEntities"; ids: ReadonlyArray<DiagramId>; edge: DiagramAlignEdge; historyKey?: string }>
   | Readonly<{ type: "bringForward"; ids: ReadonlyArray<DiagramId>; historyKey?: string }>
@@ -472,7 +476,9 @@ export type DiagramSweepTrimTargetResult = Readonly<{
   finding?: DiagramSweepTrimFinding
 }>
 export type DiagramSweepTrimResult = Readonly<{
+  /** `ok` retains its input-validation meaning; status describes per-target outcome. */
   ok: boolean
+  status: "applied" | "partial" | "unchanged" | "rejected"
   targets: ReadonlyArray<DiagramSweepTrimTargetResult>
   updates: ReadonlyArray<DiagramSweepTrimUpdate>
   findings: ReadonlyArray<DiagramSweepTrimFinding>
@@ -587,13 +593,44 @@ export type DiagramEdgeCreationPreview = Readonly<{
   target: DiagramEdgeEndpoint
   points: ReadonlyArray<DiagramPoint>
   path: ReadonlyArray<DiagramPoint>
+  diagnostics?: DiagramOrthogonalRouteResult["diagnostics"]
 }>
-export type DiagramOrthogonalRouteOptions = Readonly<{ terminalLead?: number; firstAxis?: "horizontal" | "vertical" }>
+export type DiagramCardinalDirection = "north" | "east" | "south" | "west"
+export type DiagramEdgeRouting = Readonly<{
+  mode: "auto"
+  clearance?: number
+  terminalLead?: number
+  firstAxis?: "horizontal" | "vertical"
+  sourceDirection?: DiagramCardinalDirection
+  targetDirection?: DiagramCardinalDirection
+  /** Ordered fixed world-space constraints; generated route bends are not fed back as constraints. */
+  waypoints?: ReadonlyArray<DiagramPoint>
+  tieBreak?: "coordinates" | "horizontal-first" | "vertical-first"
+}>
+export type DiagramRouteObstacle = Readonly<{ id?: DiagramId; bounds: DiagramRect }>
+export type DiagramRouteCrossingCandidate = Readonly<{ id: DiagramId; points: ReadonlyArray<DiagramPoint> }>
+export type DiagramOrthogonalRouteOptions = Readonly<{
+  mode?: "manual" | "auto"
+  terminalLead?: number
+  /** Legacy preference retained for callers that only want a single elbow. */
+  firstAxis?: "horizontal" | "vertical"
+  sourceDirection?: DiagramCardinalDirection
+  /** Direction of the final segment as it approaches the target. */
+  targetDirection?: DiagramCardinalDirection
+  /** Ordered fixed intermediate points. Leads apply only at source and target. */
+  waypoints?: ReadonlyArray<DiagramPoint>
+  obstacles?: ReadonlyArray<DiagramRouteObstacle>
+  /** Existing manual connector paths are a soft preference: crossings are minimized after route length. */
+  existingRoutes?: ReadonlyArray<DiagramRouteCrossingCandidate>
+  clearance?: number
+  /** Stable final tie-break; defaults to lexicographic world coordinates. */
+  tieBreak?: "coordinates" | "horizontal-first" | "vertical-first"
+}>
 export type DiagramOrthogonalRouteResult = Readonly<{
   points: ReadonlyArray<DiagramPoint>
   path: ReadonlyArray<DiagramPoint>
   firstAxis: "horizontal" | "vertical"
-  diagnostics: ReadonlyArray<Readonly<{ code: "terminal-leads-overlap"; message: string }>>
+  diagnostics: ReadonlyArray<Readonly<{ code: "terminal-leads-overlap" | "no-route" | "escape-direction-conflict" | "waypoint-blocked"; message: string }>>
 }>
 
 export type DiagramEdgeEndpointPreview = Readonly<{
@@ -605,6 +642,8 @@ export type DiagramEdgeEndpointPreview = Readonly<{
 
 export type DiagramSnapContext = Readonly<{
   gridSize?: number
+  /** When true with a positive gridSize, the grid wins over incompatible geometric candidates. */
+  strictGrid?: boolean
   radius?: number
   /** Screen-space snap radius; takes precedence over legacy world-unit radius. */
   tolerancePx?: number
@@ -673,12 +712,15 @@ export type DiagramInteractionSnapOptions = Readonly<{
   portTolerancePx?: number
   /** Grid spacing in world units. Omit to disable grid snapping. */
   gridSize?: number
+  /** Grid wins over incompatible geometry snaps; requires an enabled snap and positive gridSize. */
+  strictGrid?: boolean
   snapToPorts?: boolean
   snapToAlignment?: boolean
   snapToEqualSpacing?: boolean
   kinds?: ReadonlyArray<DiagramSnapKind>
   angleIncrement?: number
   additionalAngles?: ReadonlyArray<number>
+  /** Constrain drawing endpoints to 90-degree increments; does not constrain moves or handle edits. */
   ortho?: boolean
   /** Endpoint drags reattach only when explicitly enabled; default keeps legacy free-point behavior. */
   endpointMode?: "free" | "reattach"

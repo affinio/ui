@@ -63,7 +63,7 @@ export class DiagramClipboardService {
       const anchored = port as Extract<typeof port, { hostId: string }>
       return { id: remap.get(port.id)!, kind: "port" as const, metadata: port.metadata, radius: port.radius, hostId: remap.get(anchored.hostId) ?? anchored.hostId, anchor: anchored.anchor }
     })
-    const edges = clipboard.edges.map((edge) => ({ ...edge, id: remap.get(edge.id)!, source: remapEndpoint(edge.source, remap, offset), target: remapEndpoint(edge.target, remap, offset), points: edge.points?.map((point) => ({ x: point.x + offset.x, y: point.y + offset.y })) }))
+    const edges = clipboard.edges.map((edge) => ({ ...edge, id: remap.get(edge.id)!, source: remapEndpoint(edge.source, remap, offset), target: remapEndpoint(edge.target, remap, offset), points: edge.points?.map((point) => ({ x: point.x + offset.x, y: point.y + offset.y })), ...(edge.routing?.mode === "auto" && edge.routing.waypoints ? { routing: { ...edge.routing, waypoints: edge.routing.waypoints.map((point) => ({ x: point.x + offset.x, y: point.y + offset.y })) } } : {}) }))
     const texts = clipboard.texts.map((text) => ({ ...text, id: remap.get(text.id)!, x: text.x + offset.x, y: text.y + offset.y }))
     const shapes = clipboard.shapes.map((shape) => ({ ...shape, id: remap.get(shape.id)!, x: shape.x + offset.x, y: shape.y + offset.y }))
     const groups = (clipboard.groups ?? []).map((group) => ({ ...group, id: remap.get(group.id)!, childIds: group.childIds.map((id) => remap.get(id) ?? id) }))

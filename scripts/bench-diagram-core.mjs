@@ -11,7 +11,7 @@ if (!existsSync(DIST_ENTRY)) {
   throw new Error("packages/diagram-core/dist/index.js is missing. Run `pnpm --filter @affino/diagram-core build` first.")
 }
 
-const { createDiagramEngine } = await import(DIST_ENTRY)
+const { createDiagramEngine, routeOrthogonalConnector } = await import(DIST_ENTRY)
 const COUNTS = readCounts(process.env.BENCH_DIAGRAM_ENTITY_COUNTS ?? "1000,5000,10000")
 const OUTPUT_JSON = resolve(ROOT, process.env.BENCH_OUTPUT_JSON ?? "artifacts/performance/bench-diagram-core.json")
 
@@ -73,6 +73,27 @@ function runForCount(count) {
     }
   })
   const fitScene = measure(() => engine.fitScene())
+  const routing = measureDistribution(() => {
+    const routingScene = { ...fixture, nodes: [...fixture.nodes, { id: "routing-obstacle", kind: "node", x: 120, y: 49960, width: 60, height: 80 }] }
+    const routingEngine = createDiagramEngine(routingScene)
+    const searchBounds = { x: -600, y: 49400, width: 1500, height: 1200 }
+    const routeOnce = () => {
+      const obstacles = routingEngine.queryEntities({ bounds: searchBounds, kinds: ["node", "shape", "text", "table"] })
+        .map((id) => routingEngine.getGeometrySnapshot(id))
+        .filter(Boolean)
+        .map((geometry) => ({ id: geometry.id, bounds: geometry.bounds }))
+      return { obstacles, route: routeOrthogonalConnector({ x: 0, y: 50000 }, { x: 300, y: 50000 }, { terminalLead: 12, clearance: 8, obstacles }) }
+    }
+    for (let index = 0; index < 20; index += 1) routeOnce()
+    const samples = []
+    let candidateCount = 0
+    for (let index = 0; index < 100; index += 1) {
+      const start = performance.now()
+      candidateCount = routeOnce().obstacles.length
+      samples.push(performance.now() - start)
+    }
+    return { samples, candidateCount }
+  })
   const diagnostics = engine.getDiagnostics()
   const nearestPort = measure(() => engine.nearestPort({ x: 120, y: 64 }, 48))
   const serialized = measure(() => engine.serialize())
@@ -96,6 +117,9 @@ function runForCount(count) {
     waypointEditUndoMs: waypoint.ms,
     cubicPathHitTest500Ms: cubicHitTest.ms,
     fitSceneMs: fitScene.ms,
+    routeCandidateSearchAndSolveP50Ms: routing.p50Ms,
+    routeCandidateSearchAndSolveP95Ms: routing.p95Ms,
+    routeLocalObstacleCount: routing.value.candidateCount,
     nearestPortMs: nearestPort.ms,
     serializeMs: serialized.ms,
     diagnostics,
@@ -103,6 +127,20 @@ function runForCount(count) {
     vueComponentCount: 0,
     visibleCount: Array.isArray(visible.value) ? visible.value.length : 0,
   }
+}
+
+function measureDistribution(run) {
+  const value = run()
+  const samples = value.samples.sort((a, b) => a - b)
+  return {
+    value,
+    p50Ms: percentile(samples, 0.5),
+    p95Ms: percentile(samples, 0.95),
+  }
+}
+
+function percentile(samples, ratio) {
+  return samples[Math.min(samples.length - 1, Math.ceil(samples.length * ratio) - 1)] ?? 0
 }
 
 function createFixture(entityCount) {

@@ -24,6 +24,37 @@ const scene: DiagramSceneInput = {
 }
 
 describe("DiagramEngine", () => {
+  it("allows selected paths to bound each other during partial sweep Trim", () => {
+    const engine = createDiagramEngine({ shapes: [
+      { id: "horizontal", kind: "shape", shape: "line", x: 0, y: 50, width: 100, height: 0, metadata: { stroke: "blue" } },
+      { id: "vertical", kind: "shape", shape: "line", x: 50, y: 0, width: 0, height: 100, metadata: { stroke: "red" } },
+    ] })
+    const before = engine.serialize()
+    const verticalBefore = engine.getScene().entities.shapesById.get("vertical")
+    const stroke = [{ x: 30, y: 60 }, { x: 30, y: 40 }]
+    const result = trimSelectionByStroke(before, { targetIds: ["horizontal", "vertical"], stroke, tolerance: 0.01 })
+
+    expect(result).toMatchObject({ ok: true, status: "partial", updates: [{ type: "updateShapePath", id: "horizontal", worldSpace: true }] })
+    expect(result.targets.find((target) => target.id === "horizontal")).toMatchObject({ changed: true, sweepCrossings: [{ x: 30, y: 50 }], boundaryIntersections: [{ point: { x: 50, y: 50 }, boundaryId: "vertical" }] })
+    expect(result.targets.find((target) => target.id === "vertical")).toMatchObject({ changed: false, finding: { code: "no-intersection" } })
+    expect(result.updates[0]?.pathContours).toEqual([
+      { segments: [{ kind: "line", start: { x: 0, y: 50 }, end: { x: 30, y: 50 } }], closed: false },
+      { segments: [{ kind: "line", start: { x: 50, y: 50 }, end: { x: 100, y: 50 } }], closed: false },
+    ])
+
+    const explicit = trimSelectionByStroke(before, { targetIds: ["horizontal", "vertical"], boundaryIds: ["horizontal", "vertical"], stroke, tolerance: 0.01 })
+    expect(explicit.status).toBe("partial")
+    expect(explicit.updates).toEqual(result.updates)
+
+    expect(engine.dispatchBatch(result.updates)).toMatchObject({ ok: true, changed: true, affectedIds: ["horizontal"] })
+    expect(engine.getDiagnostics().undoDepth).toBe(1)
+    expect(engine.getScene().entities.shapesById.get("vertical")).toBe(verticalBefore)
+    engine.dispatch({ type: "undo" })
+    expect(engine.serialize()).toEqual(before)
+    engine.dispatch({ type: "redo" })
+    expect(engine.getGeometrySnapshot("horizontal")?.pathContours).toEqual(createDiagramEngine({ shapes: [result.targets.find((target) => target.id === "horizontal")!.preview!] }).getGeometrySnapshot("horizontal")?.pathContours)
+  })
+
   it("trims only to the nearest eligible geometry boundary and uses identical preview and commit", () => {
     const engine = createDiagramEngine({ shapes: [
       { id: "target", kind: "shape", shape: "line", x: 0, y: 20, width: 100, height: 0, metadata: { color: "red", tag: 4 } },
@@ -1916,6 +1947,172 @@ describe("DiagramEngine", () => {
     expect(engine.getGeometrySnapshot("moving")!.bounds).toMatchObject({ x: 3, y: 5 })
   })
 
+  it("uses strict grid as the deterministic winner over off-grid port snaps during movement", () => {
+    const move = (strictGrid: boolean, withPort: boolean) => {
+      const engine = createDiagramEngine({
+        nodes: [
+          { id: "moving", kind: "node", x: 14, y: 14, width: 10, height: 10 },
+          ...(withPort ? [{ id: "target", kind: "node" as const, x: 48, y: 18, width: 20, height: 20 }] : []),
+        ],
+        ports: withPort ? [{ id: "off-grid-port", kind: "port", nodeId: "target", x: 5, y: 5 }] : [],
+      })
+      const controller = createDiagramInteractionController(engine, {
+        scheduleFrame: (callback) => callback(),
+        snap: { gridSize: 10, strictGrid, tolerancePx: 8, snapToPorts: withPort, snapToAlignment: false, snapToEqualSpacing: false },
+      })
+      controller.pointerDown({ id: 1, point: { x: 15, y: 15 } })
+      controller.pointerMove({ id: 1, point: { x: 54, y: 24 } })
+      const preview = controller.getPreviewGeometry("moving")!.bounds
+      controller.pointerUp({ id: 1, point: { x: 54, y: 24 } })
+      expect(engine.getGeometrySnapshot("moving")!.bounds).toEqual(preview)
+      return preview
+    }
+    expect(move(true, false)).toMatchObject({ x: 50, y: 20 })
+    expect(move(true, true)).toMatchObject({ x: 50, y: 20 })
+    expect(move(false, true)).toMatchObject({ x: 53, y: 23 })
+  })
+
+  it("snaps new ports to strict-grid host-local positions while preserving exact grid vertices", () => {
+    const engine = createDiagramEngine({ shapes: [
+      { id: "rect", kind: "shape", shape: "rect", x: 13, y: 17, width: 80, height: 60 },
+      { id: "line", kind: "shape", shape: "line", x: 0, y: 40, width: 100, height: 0, points: [{ x: 0, y: 0 }, { x: 50, y: 0 }, { x: 100, y: 0 }] },
+    ] })
+    const controller = createDiagramInteractionController(engine, { snap: { gridSize: 10, strictGrid: true } })
+    const place = (id: string, hostId: string, point: DiagramPoint) => {
+      expect(controller.beginPortCreation(id, { id: 1, point }, { hostId })).toBe(true)
+      const preview = controller.getSnapshot().portCreationPreview!
+      expect(preview.point.x % 10).toBe(0)
+      expect(preview.point.y % 10).toBe(0)
+      controller.pointerDown({ id: 1, point })
+      controller.pointerUp({ id: 1, point })
+      expect(engine.getScene().entities.portsById.has(id)).toBe(true)
+      expect(engine.getGeometrySnapshot(id)?.point).toEqual(preview.point)
+      return preview
+    }
+    const rectPort = place("rect-port", "rect", { x: 37, y: 43 })
+    expect(rectPort.point).toEqual({ x: 40, y: 40 })
+    const vertexPort = place("vertex-port", "line", { x: 53, y: 42 })
+    expect(vertexPort.anchor).toEqual({ kind: "vertex", index: 1 })
+    expect(vertexPort.point).toEqual({ x: 50, y: 40 })
+    const segmentPort = place("segment-port", "line", { x: 37, y: 43 })
+    expect(segmentPort.anchor).toEqual({ kind: "local", x: 40, y: 0 })
+    expect(segmentPort.point).toEqual({ x: 40, y: 40 })
+  })
+
+  it("keeps host-local ports attached during strict-grid host movement", () => {
+    const engine = createDiagramEngine({
+      nodes: [{ id: "host", kind: "node", x: 14, y: 14, width: 30, height: 30 }],
+      ports: [{ id: "anchor", kind: "port", hostId: "host", anchor: { kind: "local", x: 15, y: 15 } }],
+    })
+    const controller = createDiagramInteractionController(engine, { scheduleFrame: (callback) => callback(), snap: { gridSize: 10, strictGrid: true } })
+    controller.pointerDown({ id: 1, point: { x: 15, y: 15 } })
+    controller.pointerMove({ id: 1, point: { x: 54, y: 24 } })
+    const previewHost = controller.getPreviewGeometry("host")!.bounds
+    const previewPort = controller.getPreviewGeometry("anchor")!.point
+    expect(previewHost).toMatchObject({ x: 50, y: 20 })
+    controller.pointerUp({ id: 1, point: { x: 54, y: 24 } })
+    expect(engine.getGeometrySnapshot("host")!.bounds).toEqual(previewHost)
+    expect(engine.getGeometrySnapshot("anchor")!.point).toEqual(previewPort)
+    expect(engine.getScene().entities.portsById.get("anchor")?.anchor).toEqual({ kind: "local", x: 15, y: 15 })
+  })
+
+  it("snaps resize bounds from aligned and unaligned geometry on every handle and commits the preview", () => {
+    const handles = ["n", "s", "e", "w", "nw", "ne", "sw", "se"] as const
+    for (const aligned of [true, false]) for (const handle of handles) {
+      const source = aligned ? { x: 10, y: 20, width: 40, height: 30 } : { x: 13, y: 17, width: 43, height: 32 }
+      const engine = createDiagramEngine({ shapes: [{ id: "shape", kind: "shape", shape: "rect", ...source }] })
+      const start = {
+        x: handle.includes("w") ? source.x : handle.includes("e") ? source.x + source.width : source.x + source.width / 2,
+        y: handle.includes("n") ? source.y : handle.includes("s") ? source.y + source.height : source.y + source.height / 2,
+      }
+      const controller = createDiagramInteractionController(engine, { scheduleFrame: (callback) => callback(), snap: { gridSize: 10, strictGrid: true } })
+      expect(controller.beginResizeHandle("shape", handle, { id: 1, point: start })).toBe(true)
+      const point = { x: start.x + (handle.includes("w") ? -7 : handle.includes("e") ? 7 : 0), y: start.y + (handle.includes("n") ? -7 : handle.includes("s") ? 7 : 0) }
+      controller.pointerMove({ id: 1, point })
+      const entry = controller.getSnapshot().resizePreview!
+      expect([entry.x, entry.y, entry.width, entry.height].every((value) => value === undefined || Math.abs(value / 10 - Math.round(value / 10)) < 1e-9)).toBe(true)
+      controller.pointerUp({ id: 1, point })
+      const bounds = engine.getGeometrySnapshot("shape")!.unrotatedBounds!
+      expect({ x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height }).toEqual({ x: entry.x ?? source.x, y: entry.y ?? source.y, width: entry.width, height: entry.height })
+    }
+  })
+
+  it("snaps line, path and connector endpoints/bends consistently in strict mode", () => {
+    const pathEngine = createDiagramEngine()
+    const pathController = createDiagramInteractionController(pathEngine, { scheduleFrame: (callback) => callback(), snap: { gridSize: 10, strictGrid: true } })
+    expect(pathController.beginPathCreation("path", { id: 1, point: { x: 13, y: 13 } })).toBe(true)
+    pathController.pointerMove({ id: 1, point: { x: 37, y: 43 } })
+    const pathPreview = pathController.getSnapshot().pathCreationPreview!
+    expect(pathPreview).toMatchObject({ vertices: [{ x: 10, y: 10 }], current: { x: 40, y: 40 } })
+    pathController.addPathVertex()
+    pathController.finishPathCreation()
+    expect(pathEngine.getGeometrySnapshot("path")?.path).toEqual([...pathPreview.vertices, pathPreview.current])
+
+    const edgeEngine = createDiagramEngine()
+    const edgeController = createDiagramInteractionController(edgeEngine, { scheduleFrame: (callback) => callback(), snap: { gridSize: 10, strictGrid: true } })
+    expect(edgeController.beginEdgePathCreation("wire", { id: 2, point: { x: 13, y: 13 } }, { mode: "auto", terminalLead: 10, clearance: 0 })).toBe(true)
+    edgeController.pointerDown({ id: 2, point: { x: 47, y: 33 } })
+    edgeController.pointerUp({ id: 2, point: { x: 47, y: 33 } })
+    edgeController.pointerMove({ id: 2, point: { x: 87, y: 53 } })
+    const edgePreview = edgeController.getSnapshot().edgeCreationPreview!
+    expect(edgePreview.source).toEqual({ kind: "point", point: { x: 10, y: 10 } })
+    expect(edgePreview.target).toEqual({ kind: "point", point: { x: 90, y: 50 } })
+    expect(edgeController.finishEdgePathCreation({ x: 87, y: 53 })).toBe(true)
+    const edge = edgeEngine.getScene().entities.edgesById.get("wire")!
+    expect(edge.points).toEqual(edgePreview.points)
+    expect(edge.points!.every((point) => point.x % 10 === 0 && point.y % 10 === 0)).toBe(true)
+    expect(edgeEngine.getGeometrySnapshot("wire")?.path).toEqual(edgePreview.path)
+  })
+
+  it("snaps moved free connector endpoints and waypoints, and preserves port bindings", () => {
+    const engine = createDiagramEngine({ edges: [{ id: "wire", kind: "edge", source: { kind: "point", point: { x: 10, y: 10 } }, target: { kind: "point", point: { x: 100, y: 100 } }, points: [{ x: 100, y: 10 }] }] })
+    const controller = createDiagramInteractionController(engine, { scheduleFrame: (callback) => callback(), snap: { gridSize: 10, strictGrid: true } })
+    expect(controller.beginEdgeEndpointHandle("wire", "target", { id: 1, point: { x: 100, y: 100 } })).toBe(true)
+    controller.pointerMove({ id: 1, point: { x: 107, y: 104 } })
+    const previewEndpoint = controller.getSnapshot().edgeEndpointPreview!.point
+    expect(previewEndpoint).toEqual({ x: 110, y: 100 })
+    controller.pointerUp({ id: 1, point: { x: 107, y: 104 } })
+    expect(engine.getGeometrySnapshot("wire")?.path?.at(-1)).toEqual(previewEndpoint)
+
+    const routeEngine = createDiagramEngine({ edges: [{ id: "route", kind: "edge", source: { kind: "point", point: { x: 10, y: 10 } }, target: { kind: "point", point: { x: 100, y: 100 } }, points: [{ x: 100, y: 10 }] }] })
+    const routeController = createDiagramInteractionController(routeEngine, { scheduleFrame: (callback) => callback(), snap: { gridSize: 10, strictGrid: true } })
+    expect(routeController.beginEdgeWaypointHandle("route", 0, { id: 2, point: { x: 100, y: 10 } })).toBe(true)
+    routeController.pointerMove({ id: 2, point: { x: 107, y: 17 } })
+    const previewWaypoint = routeController.getSnapshot().pathVertexPreview!.point
+    expect(previewWaypoint).toEqual({ x: 110, y: 20 })
+    routeController.pointerUp({ id: 2, point: { x: 107, y: 17 } })
+    expect(routeEngine.getScene().entities.edgesById.get("route")?.points?.[0]).toEqual(previewWaypoint)
+
+    const boundEngine = createDiagramEngine({ nodes: [{ id: "host", kind: "node", x: 10, y: 10, width: 20, height: 20 }], edges: [{ id: "bound", kind: "edge", source: { kind: "node", nodeId: "host" }, target: { kind: "point", point: { x: 100, y: 10 } } }] })
+    const boundController = createDiagramInteractionController(boundEngine, { scheduleFrame: (callback) => callback(), snap: { gridSize: 10, strictGrid: true } })
+    expect(boundController.beginEdgeEndpointHandle("bound", "target", { id: 3, point: { x: 100, y: 10 } })).toBe(true)
+    boundController.pointerMove({ id: 3, point: { x: 77, y: 47 } })
+    boundController.pointerUp({ id: 3, point: { x: 77, y: 47 } })
+    expect(boundEngine.getScene().entities.edgesById.get("bound")?.source).toEqual({ kind: "node", nodeId: "host" })
+    expect(boundEngine.getScene().entities.edgesById.get("bound")?.target).toEqual({ kind: "point", point: { x: 80, y: 50 } })
+  })
+
+  it("grid-aligns rotation centers only when strict grid is requested and keeps ports attached", () => {
+    const makeEngine = () => createDiagramEngine({
+      nodes: [{ id: "node", kind: "node", x: 13, y: 17, width: 30, height: 20 }],
+      ports: [{ id: "port", kind: "port", hostId: "node", anchor: { kind: "local", x: 5, y: 5 } }],
+    })
+    const strict = makeEngine()
+    expect(strict.dispatch({ type: "rotateEntities", entries: [{ id: "node", rotation: 90 }], snap: { gridSize: 10, strictGrid: true } }).changed).toBe(true)
+    const bounds = strict.getGeometrySnapshot("node")!.bounds
+    expect((bounds.x + bounds.width / 2) % 10).toBe(0)
+    expect((bounds.y + bounds.height / 2) % 10).toBe(0)
+    expect(strict.getGeometrySnapshot("port")?.point).toEqual(expect.objectContaining({ x: expect.any(Number), y: expect.any(Number) }))
+    expect(strict.getScene().entities.portsById.has("port")).toBe(true)
+    strict.dispatch({ type: "undo" })
+    expect(strict.getGeometrySnapshot("node")?.bounds).toMatchObject({ x: 13, y: 17, width: 30, height: 20 })
+
+    const ordinary = makeEngine()
+    ordinary.dispatch({ type: "rotateEntities", entries: [{ id: "node", rotation: 90 }] })
+    const ordinaryBounds = ordinary.getGeometrySnapshot("node")!.bounds
+    expect({ x: ordinaryBounds.x + ordinaryBounds.width / 2, y: ordinaryBounds.y + ordinaryBounds.height / 2 }).toEqual({ x: 28, y: 27 })
+  })
+
   it("lets applications enable or disable port snapping independently", () => {
     const createEngine = () => createDiagramEngine({
       nodes: [
@@ -2329,6 +2526,60 @@ describe("DiagramEngine", () => {
     expect(alignment.getSnapshot().edgeEndpointPreview?.point).toEqual({ x: 136, y: 0 })
     alignment.pointerUp({ id: 2, point: { x: 130, y: 30 }, shiftKey: true })
     expect(alignmentEngine.getGeometrySnapshot("edge")?.path?.[1]).toEqual({ x: 136, y: 0 })
+  })
+
+  it("keeps selection movement diagonal with ortho enabled while preserving grid and Shift snapping", () => {
+    const engine = createDiagramEngine({ shapes: [{ id: "rect", kind: "shape", shape: "rect", x: 0, y: 0, width: 20, height: 10 }] })
+    engine.dispatch({ type: "setSelection", selection: { ids: ["rect"], primaryId: "rect" } })
+    const interaction = createDiagramInteractionController(engine, { scheduleFrame: (callback) => callback(), snap: { ortho: true, snapToAlignment: false, snapToEqualSpacing: false } })
+    interaction.pointerDown({ id: 20, point: { x: 10, y: 5 } })
+    interaction.pointerMove({ id: 20, point: { x: 31, y: 22 } })
+    expect(interaction.getSnapshot().previewDelta).toEqual({ x: 21, y: 17 })
+    interaction.pointerUp({ id: 20, point: { x: 31, y: 22 } })
+    expect(engine.getScene().entities.shapesById.get("rect")).toMatchObject({ x: 21, y: 17 })
+
+    const gridEngine = createDiagramEngine({ shapes: [{ id: "grid-rect", kind: "shape", shape: "rect", x: 0, y: 0, width: 20, height: 10 }] })
+    gridEngine.dispatch({ type: "setSelection", selection: { ids: ["grid-rect"], primaryId: "grid-rect" } })
+    const gridInteraction = createDiagramInteractionController(gridEngine, { scheduleFrame: (callback) => callback(), snap: { ortho: true, gridSize: 10, snapToAlignment: false, snapToEqualSpacing: false } })
+    gridInteraction.pointerDown({ id: 21, point: { x: 10, y: 5 } })
+    gridInteraction.pointerMove({ id: 21, point: { x: 27, y: 23 } })
+    expect(gridInteraction.getSnapshot().previewDelta).toEqual({ x: 20, y: 20 })
+    gridInteraction.pointerUp({ id: 21, point: { x: 27, y: 23 } })
+    expect(gridEngine.getScene().entities.shapesById.get("grid-rect")).toMatchObject({ x: 20, y: 20 })
+
+    const edgeEngine = createDiagramEngine({ edges: [{ id: "edge", kind: "edge", source: { kind: "point", point: { x: 0, y: 0 } }, target: { kind: "point", point: { x: 100, y: 0 } } }] })
+    const edgeInteraction = createDiagramInteractionController(edgeEngine, { scheduleFrame: (callback) => callback(), snap: { ortho: true, enabled: false } })
+    edgeInteraction.beginEdgeEndpointHandle("edge", "target", { id: 22, point: { x: 100, y: 0 } })
+    edgeInteraction.pointerMove({ id: 22, point: { x: 130, y: 25 } })
+    expect(edgeInteraction.getSnapshot().edgeEndpointPreview?.point).toEqual({ x: 130, y: 25 })
+  })
+
+  it("applies ortho to line, path, and connector creation with preview matching commit", () => {
+    const lineEngine = createDiagramEngine()
+    const line = createDiagramInteractionController(lineEngine, { scheduleFrame: (callback) => callback(), snap: { ortho: true, enabled: false } })
+    line.beginLineCreation("line", { id: 22, point: { x: 0, y: 0 } })
+    line.pointerMove({ id: 22, point: { x: 30, y: 10 } })
+    const linePreview = line.getSnapshot().shapeCreationPreview!
+    expect(linePreview.height).toBe(0)
+    line.pointerUp({ id: 22, point: { x: 30, y: 10 } })
+    expect(lineEngine.getScene().entities.shapesById.get("line")).toEqual(linePreview)
+
+    const pathEngine = createDiagramEngine()
+    const path = createDiagramInteractionController(pathEngine, { scheduleFrame: (callback) => callback(), snap: { ortho: true, enabled: false } })
+    path.beginPathCreation("path", { id: 23, point: { x: 0, y: 0 } })
+    path.pointerMove({ id: 23, point: { x: 30, y: 10 } })
+    expect(path.getSnapshot().pathCreationPreview?.current.y).toBe(0)
+    expect(path.addPathVertex({ x: 30, y: 10 }, true)).toBe(true)
+    expect(pathEngine.getGeometrySnapshot("path")?.path?.[1]?.y).toBe(0)
+
+    const edgeEngine = createDiagramEngine()
+    const edge = createDiagramInteractionController(edgeEngine, { scheduleFrame: (callback) => callback(), snap: { ortho: true, enabled: false } })
+    edge.beginEdgeCreation("edge", { id: 24, point: { x: 0, y: 0 } })
+    edge.pointerMove({ id: 24, point: { x: 30, y: 10 } })
+    const edgePreview = edge.getSnapshot().edgeCreationPreview!
+    expect(edgePreview.target).toMatchObject({ kind: "point", point: { y: 0 } })
+    edge.pointerUp({ id: 24, point: { x: 30, y: 10 } })
+    expect(edgeEngine.getGeometrySnapshot("edge")?.path).toEqual(edgePreview.path)
   })
 
   it("preserves resize aspect ratio under Shift and grid snapping in preview and commit", () => {
@@ -3050,6 +3301,123 @@ describe("DiagramEngine", () => {
     expect(engine.canUndo()).toBe(true)
   })
 
+  it("routes around inflated obstacles deterministically and keeps waypoint order", () => {
+    const options = { terminalLead: 8, clearance: 6, obstacles: [{ id: "device", bounds: { x: 80, y: -20, width: 40, height: 40 } }] }
+    const route = routeOrthogonalConnector({ x: 0, y: 0 }, { x: 200, y: 0 }, options)
+    expect(route.diagnostics).toEqual([])
+    expect(route.path).toEqual(routeOrthogonalConnector({ x: 0, y: 0 }, { x: 200, y: 0 }, options).path)
+    expect(route.path.some((point) => point.y <= -26 || point.y >= 26)).toBe(true)
+    expect(route.points).toEqual(route.path.slice(1, -1))
+    const detourY = route.path.find((point) => Math.abs(point.y) >= 26)!.y
+    const crossingAware = routeOrthogonalConnector({ x: 0, y: 0 }, { x: 200, y: 0 }, {
+      ...options,
+      existingRoutes: [{ id: "existing-wire", points: [{ x: 100, y: detourY - 10 }, { x: 100, y: detourY + 10 }] }],
+    })
+    expect(crossingAware.path).not.toEqual(route.path)
+    const constrained = routeOrthogonalConnector({ x: 0, y: 0 }, { x: 200, y: 0 }, {
+      ...options,
+      waypoints: [{ x: 50, y: 60 }, { x: 150, y: 60 }],
+    })
+    expect(constrained.diagnostics).toEqual([])
+    expect(constrained.path.indexOf(constrained.path.find((point) => point.x === 50 && point.y === 60)!)).toBeLessThan(constrained.path.indexOf(constrained.path.find((point) => point.x === 150 && point.y === 60)!))
+    const directional = routeOrthogonalConnector({ x: 0, y: 0 }, { x: 100, y: 0 }, { terminalLead: 10, sourceDirection: "east", targetDirection: "west" })
+    expect(directional.path.slice(0, 2)).toEqual([{ x: 0, y: 0 }, { x: 10, y: 0 }])
+    expect(directional.path.slice(-2)).toEqual([{ x: 110, y: 0 }, { x: 100, y: 0 }])
+  })
+
+  it("reroutes opted-in automatic edges when obstacles move and leaves legacy routes fixed", () => {
+    const engine = createDiagramEngine({
+      nodes: [
+        { id: "block", kind: "node", x: 80, y: -20, width: 40, height: 40 },
+        { id: "far", kind: "node", x: 1000, y: 1000, width: 40, height: 40 },
+      ],
+      edges: [
+        { id: "auto", kind: "edge", source: { kind: "point", point: { x: 0, y: 0 } }, target: { kind: "point", point: { x: 200, y: 0 } }, routing: { mode: "auto", clearance: 6, terminalLead: 8 } },
+        { id: "manual", kind: "edge", source: { kind: "point", point: { x: 0, y: 100 } }, target: { kind: "point", point: { x: 200, y: 100 } }, points: [{ x: 100, y: 130 }] },
+      ],
+    })
+    const before = engine.getGeometrySnapshot("auto")!.path!
+    expect(before.some((point) => Math.abs(point.y) >= 26)).toBe(true)
+    expect(engine.serialize().edges.find((edge) => edge.id === "auto")?.points).toEqual(before.slice(1, -1))
+    const autoVersion = engine.getEntityVersion("auto")
+    engine.dispatch({ type: "moveEntities", ids: ["far"], delta: { x: 20, y: 20 } })
+    expect(engine.getEntityVersion("auto")).toBe(autoVersion)
+    expect(engine.getGeometrySnapshot("auto")?.path).toEqual(before)
+    engine.dispatch({ type: "moveEntities", ids: ["block"], delta: { x: 0, y: 100 } })
+    expect(engine.getGeometrySnapshot("auto")!.path).not.toEqual(before)
+    expect(engine.getGeometrySnapshot("auto")!.path).toEqual([{ x: 0, y: 0 }, { x: 8, y: 0 }, { x: 192, y: 0 }, { x: 200, y: 0 }])
+    expect(engine.serialize().edges.find((edge) => edge.id === "auto")?.points).toEqual(engine.getGeometrySnapshot("auto")!.path!.slice(1, -1))
+    expect(engine.getGeometrySnapshot("manual")!.path).toEqual([{ x: 0, y: 100 }, { x: 100, y: 130 }, { x: 200, y: 100 }])
+    engine.dispatch({ type: "undo" })
+    expect(engine.getGeometrySnapshot("auto")!.path).toEqual(before)
+
+    const drawEngine = createDiagramEngine({ nodes: [{ id: "obstacle", kind: "node", x: 80, y: -20, width: 40, height: 40 }] })
+    const draw = createDiagramInteractionController(drawEngine, { snap: { enabled: false }, scheduleFrame: (callback) => callback() })
+    expect(draw.beginEdgeCreation("new-auto", { id: 2, point: { x: 0, y: 0 } }, { mode: "auto", clearance: 6, terminalLead: 8 })).toBe(true)
+    draw.pointerMove({ id: 2, point: { x: 200, y: 0 } })
+    const preview = draw.getSnapshot().edgeCreationPreview!
+    draw.pointerUp({ id: 2, point: { x: 200, y: 0 } })
+    expect(drawEngine.getScene().entities.edgesById.get("new-auto")?.routing).toMatchObject({ mode: "auto", clearance: 6 })
+    expect(drawEngine.getGeometrySnapshot("new-auto")?.path).toEqual(preview.path)
+
+    const previewEngine = createDiagramEngine({
+      nodes: [{ id: "moving-block", kind: "node", x: 80, y: -20, width: 40, height: 40 }],
+      edges: [{ id: "preview-auto", kind: "edge", source: { kind: "point", point: { x: 0, y: 0 } }, target: { kind: "point", point: { x: 200, y: 0 } }, routing: { mode: "auto", clearance: 6, terminalLead: 8 } }],
+    })
+    previewEngine.dispatch({ type: "setSelection", selection: { ids: ["moving-block"], primaryId: "moving-block" } })
+    const previewInteraction = createDiagramInteractionController(previewEngine, { snap: { enabled: false }, scheduleFrame: (callback) => callback() })
+    const original = previewEngine.serialize()
+    previewInteraction.pointerDown({ id: 3, point: { x: 90, y: 0 } })
+    previewInteraction.pointerMove({ id: 3, point: { x: 90, y: 100 } })
+    const movedPreview = previewInteraction.getPreviewGeometry("preview-auto")!
+    expect(movedPreview.path).toEqual([{ x: 0, y: 0 }, { x: 8, y: 0 }, { x: 192, y: 0 }, { x: 200, y: 0 }])
+    expect(previewEngine.serialize()).toEqual(original)
+    previewInteraction.cancel()
+    expect(previewEngine.serialize()).toEqual(original)
+    previewInteraction.pointerDown({ id: 4, point: { x: 90, y: 0 } })
+    previewInteraction.pointerMove({ id: 4, point: { x: 90, y: 100 } })
+    const committedPreview = previewInteraction.getPreviewGeometry("preview-auto")!
+    previewInteraction.pointerUp({ id: 4, point: { x: 90, y: 100 } })
+    expect(previewEngine.getGeometrySnapshot("preview-auto")?.path).toEqual(committedPreview.path)
+
+    const endpointEngine = createDiagramEngine({
+      nodes: [{ id: "endpoint-block", kind: "node", x: 80, y: -20, width: 40, height: 40 }],
+      edges: [{ id: "endpoint-auto", kind: "edge", source: { kind: "point", point: { x: 0, y: 0 } }, target: { kind: "point", point: { x: 200, y: 0 } }, routing: { mode: "auto", clearance: 6, terminalLead: 8 } }],
+    })
+    const endpointInteraction = createDiagramInteractionController(endpointEngine, { snap: { enabled: false }, scheduleFrame: (callback) => callback() })
+    const oldEndpointScene = endpointEngine.serialize()
+    expect(endpointInteraction.beginEdgeEndpointHandle("endpoint-auto", "target", { id: 5, point: { x: 200, y: 0 } })).toBe(true)
+    endpointInteraction.pointerMove({ id: 5, point: { x: 260, y: 0 } })
+    const endpointPreview = endpointInteraction.getPreviewGeometry("endpoint-auto")!
+    expect(endpointPreview.path?.at(-1)).toEqual({ x: 260, y: 0 })
+    expect(endpointEngine.serialize()).toEqual(oldEndpointScene)
+    endpointInteraction.pointerUp({ id: 5, point: { x: 260, y: 0 } })
+    expect(endpointEngine.getGeometrySnapshot("endpoint-auto")?.path).toEqual(endpointPreview.path)
+  })
+
+  it("persists an auto-route segment drag as an undoable waypoint constraint", () => {
+    const engine = createDiagramEngine({
+      nodes: [{ id: "block", kind: "node", x: 80, y: -20, width: 40, height: 40 }],
+      edges: [{ id: "auto", kind: "edge", source: { kind: "point", point: { x: 0, y: 0 } }, target: { kind: "point", point: { x: 200, y: 0 } }, routing: { mode: "auto", clearance: 6, terminalLead: 8 } }],
+    })
+    const initialScene = engine.serialize()
+    const initialPath = engine.getGeometrySnapshot("auto")!.path!
+    const segmentIndex = initialPath.findIndex((point, index) => index > 0 && index < initialPath.length - 2 && point.y === initialPath[index + 1]?.y)
+    const start = initialPath[segmentIndex]!, end = initialPath[segmentIndex + 1]!
+    const midpoint = { x: (start.x + end.x) / 2, y: start.y }
+    const interaction = createDiagramInteractionController(engine, { snap: { enabled: false }, scheduleFrame: (callback) => callback() })
+    expect(interaction.beginEdgeSegmentHandle("auto", segmentIndex, { id: 1, point: midpoint })).toBe(true)
+    interaction.pointerMove({ id: 1, point: { x: midpoint.x, y: midpoint.y - 20 } })
+    const preview = interaction.getSnapshot().edgeSegmentPreview!
+    expect(engine.serialize()).toEqual(initialScene)
+    interaction.pointerUp({ id: 1, point: { x: midpoint.x, y: midpoint.y - 20 } })
+    expect(engine.getScene().entities.edgesById.get("auto")?.routing?.waypoints).toEqual(preview.points)
+    expect(engine.getGeometrySnapshot("auto")?.path).toEqual(preview.path)
+    engine.dispatch({ type: "undo" })
+    expect(engine.getScene().entities.edgesById.get("auto")?.routing?.waypoints).toBeUndefined()
+    expect(engine.getGeometrySnapshot("auto")?.path).toEqual(initialPath)
+  })
+
   it("uses a port-only screen tolerance consistently across viewport zoom levels", () => {
     for (const zoom of [0.5, 1, 2]) {
       const engine = createDiagramEngine({
@@ -3374,8 +3742,10 @@ describe("DiagramEngine", () => {
     interaction.pointerDown({ id: 1, point: { x: 50, y: 40 } })
     interaction.pointerUp({ id: 1, point: { x: 50, y: 40 } })
     interaction.pointerDown({ id: 1, point: { x: 100, y: 10 } })
+    const previewPath = interaction.getSnapshot().edgeCreationPreview!.path
     interaction.pointerUp({ id: 1, point: { x: 100, y: 10 } })
-    expect(engine.getScene().entities.edgesById.get("wire")).toMatchObject({ source: { kind: "port", portId: "pa" }, target: { kind: "port", portId: "pb" } })
+    expect(engine.getScene().entities.edgesById.get("wire")).toMatchObject({ source: { kind: "port", portId: "pa" }, target: { kind: "port", portId: "pb" }, points: previewPath.slice(1, -1) })
+    expect(engine.getGeometrySnapshot("wire")?.path).toEqual(previewPath)
     expect(engine.getScene().entities.edgesById.get("wire")?.points?.length).toBeGreaterThan(0)
     expect(engine.getDiagnostics().undoDepth).toBe(1)
     const waypoint = engine.getScene().entities.edgesById.get("wire")!.points![0]!

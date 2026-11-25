@@ -1,10 +1,9 @@
-import { createEntityGeometry, diagramPortHostId, inflateRect, rectFromPoints as boundsFromPoints, resolveEndpoint } from "./geometry.js"
+import { createEntityGeometry, diagramPortHostId, inflateRect, rectFromPoints as boundsFromPoints, rectIntersects, resolveEdgePath, resolveEndpoint, routeOrthogonalConnector } from "./geometry.js"
 import { pathContourBoundsPoints } from "./pathOperations.js"
-import { routeOrthogonalConnector } from "./geometry.js"
 import { clampViewportToBounds } from "./viewport.js"
 import { transformPathContour, translatePathContour } from "./pathOperations.js"
 import type { DiagramEngine } from "./DiagramEngine.js"
-import type { DiagramBezierAnchor, DiagramBezierHandleKind, DiagramBezierHandlePreview, DiagramBezierCreationOptions, DiagramBezierCreationPreview, DiagramCommand, DiagramDynamicInputState, DiagramEdgeCreationPreview, DiagramEdgeEndpoint, DiagramEdgeSegmentPreview, DiagramId, DiagramGeometry, DiagramInteractionSnapOptions, DiagramInteractionSnapshot, DiagramInteractionTool, DiagramMarqueeMode, DiagramPointerEvent, DiagramPoint, DiagramPort, DiagramPortAnchor, DiagramPortCreationOptions, DiagramPortCreationPreview, DiagramRect, DiagramResizeEntry, DiagramResizeHandle, DiagramSnapCandidate, DiagramSnapGuide, DiagramSnapResult, DiagramViewportConstraints, DiagramOrthogonalRouteOptions, DiagramShape, DiagramTableResizeAxis, DiagramTableResizePreview, DiagramPathContour, DiagramPathSegment } from "./types.js"
+import type { DiagramBezierAnchor, DiagramBezierHandleKind, DiagramBezierHandlePreview, DiagramBezierCreationOptions, DiagramBezierCreationPreview, DiagramCommand, DiagramDynamicInputState, DiagramEdge, DiagramEdgeCreationPreview, DiagramEdgeEndpoint, DiagramEdgeSegmentPreview, DiagramEntities, DiagramId, DiagramGeometry, DiagramInteractionSnapOptions, DiagramInteractionSnapshot, DiagramInteractionTool, DiagramMarqueeMode, DiagramPointerEvent, DiagramPoint, DiagramPort, DiagramPortAnchor, DiagramPortCreationOptions, DiagramPortCreationPreview, DiagramRect, DiagramResizeEntry, DiagramResizeHandle, DiagramSnapCandidate, DiagramSnapGuide, DiagramSnapResult, DiagramViewportConstraints, DiagramOrthogonalRouteOptions, DiagramShape, DiagramTableResizeAxis, DiagramTableResizePreview, DiagramPathContour, DiagramPathSegment } from "./types.js"
 
 type ScheduleFrame = (callback: () => void) => void
 const AXIS_LOCK_ACTIVATION_TOLERANCE_PX = 4
@@ -120,6 +119,7 @@ export class DiagramInteractionController {
     if (this.tool === "connect-edge" && this.edgeClickPlacement) {
       this.activePointer = event
       this.latestPoint = event.point
+      this.updateEdgeCreationPreview()
       return
     }
     if (this.tool === "draw-path" && this.pathCreationId) {
@@ -276,7 +276,8 @@ export class DiagramInteractionController {
     if (this.engine.isEditingLocked()) return false
     const edge = this.engine.getScene().entities.edgesById.get(ownerId)
     const geometry = this.engine.getGeometrySnapshot(ownerId)
-    const point = edge?.points?.[index]
+    const routePoints = edge?.routing?.mode === "auto" ? geometry?.path?.slice(1, -1) : edge?.points
+    const point = routePoints?.[index]
     if (!edge || !point || !geometry || !Number.isInteger(index) || !this.engine.canMove([ownerId])) return false
     this.cancel()
     this.tool = "drag-path-vertex"
@@ -286,7 +287,7 @@ export class DiagramInteractionController {
     this.vertexCardinalAngle = null
     this.vertexDragStart = point; this.vertexDragKind = "edge"
     this.edgeEndpointId = ownerId
-    this.edgeWaypointPreview = [...(edge.points ?? [])]
+    this.edgeWaypointPreview = [...(routePoints ?? [])]
     this.pathVertexPreview = { id: ownerId, index, point }
     return true
   }
@@ -323,9 +324,14 @@ export class DiagramInteractionController {
   /** Starts a transient connector drawing gesture. The caller supplies the stable ID before committing. */
   beginEdgeCreation(id: DiagramId, event: DiagramPointerEvent, routeOptions: DiagramOrthogonalRouteOptions = {}): boolean {
     if (this.engine.isEditingLocked()) return false
+    const validDirection = (direction: DiagramOrthogonalRouteOptions["sourceDirection"]) => direction === undefined || ["north", "east", "south", "west"].includes(direction)
     if (!id || this.engine.getGeometrySnapshot(id) || ![event.point.x, event.point.y].every(Number.isFinite)
       || (routeOptions.terminalLead !== undefined && (!Number.isFinite(routeOptions.terminalLead) || routeOptions.terminalLead < 0))
-      || (routeOptions.firstAxis !== undefined && routeOptions.firstAxis !== "horizontal" && routeOptions.firstAxis !== "vertical")) return false
+      || (routeOptions.clearance !== undefined && (!Number.isFinite(routeOptions.clearance) || routeOptions.clearance < 0))
+      || (routeOptions.firstAxis !== undefined && routeOptions.firstAxis !== "horizontal" && routeOptions.firstAxis !== "vertical")
+      || (routeOptions.mode !== undefined && routeOptions.mode !== "auto" && routeOptions.mode !== "manual")
+      || !validDirection(routeOptions.sourceDirection) || !validDirection(routeOptions.targetDirection)
+      || (routeOptions.waypoints ?? []).some((point) => ![point.x, point.y].every(Number.isFinite))) return false
     this.cancel()
     this.tool = "connect-edge"
     this.activePointer = event
@@ -356,7 +362,11 @@ export class DiagramInteractionController {
     if (point) this.latestPoint = point
     this.updateEdgeCreationPreview()
     const preview = this.edgeCreationPreview!
-    this.engine.dispatch({ type: "createEdge", edge: { id: preview.id, kind: "edge", source: preview.source, target: preview.target, points: preview.points }, historyKey: `connect:${preview.id}:${++this.gestureHistoryId}` })
+    if (preview.diagnostics?.some((diagnostic) => diagnostic.code !== "terminal-leads-overlap")) return false
+    const routing = this.edgeRouteOptions.mode === "auto"
+      ? { mode: "auto" as const, terminalLead: this.edgeRouteOptions.terminalLead, clearance: this.edgeRouteOptions.clearance, firstAxis: this.edgeRouteOptions.firstAxis, sourceDirection: this.edgeRouteOptions.sourceDirection, targetDirection: this.edgeRouteOptions.targetDirection, tieBreak: this.edgeRouteOptions.tieBreak, waypoints: [...(this.edgeRouteOptions.waypoints ?? []), ...this.edgeCreationWaypoints] }
+      : undefined
+    this.engine.dispatch({ type: "createEdge", edge: { id: preview.id, kind: "edge", source: preview.source, target: preview.target, points: preview.points, ...(routing ? { routing } : {}) }, historyKey: `connect:${preview.id}:${++this.gestureHistoryId}` })
     this.commitCount += 1
     this.cancel()
     return true
@@ -369,10 +379,12 @@ export class DiagramInteractionController {
     this.cancel()
     this.tool = "draw-line"
     this.activePointer = event
-    this.startPoint = event.point
-    this.latestPoint = event.point
     this.latestShiftKey = event.shiftKey === true
     this.lineCreationId = id
+    const source = this.snapEndpoint(event.point, event.point)
+    const start = this.endpointPoint(source) ?? event.point
+    this.startPoint = start
+    this.latestPoint = start
     this.updateLineCreationPreview()
     return true
   }
@@ -671,27 +683,6 @@ export class DiagramInteractionController {
     }
     this.latestPoint = event.point
     if (this.tool === "drag-selection" && this.startPoint && this.isPastAxisActivation(event.point, this.startPoint)) this.dragActivated = true
-    if (this.tool === "drag-edge-segment" && this.edgeSegmentDrag) {
-      this.updateEdgeSegmentPreview(event.point)
-      const drag = this.edgeSegmentDrag
-      const preview = this.edgeSegmentPreview
-      const oldPoints = this.engine.getScene().entities.edgesById.get(drag.id)?.points ?? []
-      if (preview && (!samePoints(oldPoints, preview.points) || !sameEndpoint(drag.source, preview.source) || !sameEndpoint(drag.target, preview.target))) {
-        const commands: DiagramCommand[] = []
-        if (drag.source.kind === "point" && preview.source.kind === "point" && !samePoint(drag.source.point, preview.source.point)) {
-          commands.push({ type: "moveEdgeEndpoint", id: drag.id, endpoint: "source", point: preview.source.point })
-        }
-        if (drag.target.kind === "point" && preview.target.kind === "point" && !samePoint(drag.target.point, preview.target.point)) {
-          commands.push({ type: "moveEdgeEndpoint", id: drag.id, endpoint: "target", point: preview.target.point })
-        }
-        for (let index = oldPoints.length - 1; index >= 0; index -= 1) commands.push({ type: "removeEdgeWaypoint", id: drag.id, index })
-        for (let index = 0; index < preview.points.length; index += 1) commands.push({ type: "insertEdgeWaypoint", id: drag.id, index, point: preview.points[index]! })
-        if (commands.length && this.engine.dispatchBatch(commands).changed) this.commitCount += 1
-      }
-      this.clearGesture()
-      this.tool = "select"
-      return
-    }
     if (this.tool === "drag-path-vertex" && this.pathVertexPreview) {
       this.updateVertexShiftConstraint(event.shiftKey === true, event.point)
       this.pathVertexPreview = { ...this.pathVertexPreview, point: this.resolvePathVertexPoint(event.point) }
@@ -699,7 +690,11 @@ export class DiagramInteractionController {
         const points = [...this.edgeWaypointPreview]; points[this.pathVertexPreview.index] = this.pathVertexPreview.point; this.edgeWaypointPreview = points
       }
       const preview = this.pathVertexPreview
-      if (this.vertexDragKind === "edge") this.engine.dispatch({ type: "moveEdgeWaypoint", id: preview.id, index: preview.index, point: preview.point })
+      if (this.vertexDragKind === "edge") {
+        const edge = this.engine.getScene().entities.edgesById.get(preview.id)
+        if (edge?.routing?.mode === "auto" && this.edgeWaypointPreview) this.engine.dispatch({ type: "updateEdgeRouting", id: preview.id, routing: { ...edge.routing, waypoints: this.edgeWaypointPreview } })
+        else this.engine.dispatch({ type: "moveEdgeWaypoint", id: preview.id, index: preview.index, point: preview.point })
+      }
       else this.engine.dispatch({ type: "movePathVertex", id: preview.id, index: preview.index, point: preview.point })
       this.commitCount += 1
       this.clearGesture()
@@ -780,6 +775,30 @@ export class DiagramInteractionController {
       this.engine.dispatch({ type: "resizeEntities", entries: this.resizePreviewEntries, historyKey: `resize:${this.resizePreview?.id ?? "selection"}:${++this.gestureHistoryId}` })
       this.commitCount += 1
     }
+    if (this.tool === "drag-edge-segment" && this.edgeSegmentDrag) {
+      const drag = this.edgeSegmentDrag
+      const preview = this.edgeSegmentPreview
+      const edge = this.engine.getScene().entities.edgesById.get(drag.id)
+      if (preview && edge?.routing?.mode === "auto") {
+        if (!samePoints(drag.path.slice(1, -1), preview.points)) {
+          const result = this.engine.dispatch({ type: "updateEdgeRouting", id: drag.id, routing: { ...edge.routing, waypoints: preview.points } })
+          if (result.changed) this.commitCount += 1
+        }
+      } else if (preview) {
+        const oldPoints = edge?.points ?? []
+        if (!samePoints(oldPoints, preview.points) || !sameEndpoint(drag.source, preview.source) || !sameEndpoint(drag.target, preview.target)) {
+          const commands: DiagramCommand[] = []
+          if (drag.source.kind === "point" && preview.source.kind === "point" && !samePoint(drag.source.point, preview.source.point)) commands.push({ type: "moveEdgeEndpoint", id: drag.id, endpoint: "source", point: preview.source.point })
+          if (drag.target.kind === "point" && preview.target.kind === "point" && !samePoint(drag.target.point, preview.target.point)) commands.push({ type: "moveEdgeEndpoint", id: drag.id, endpoint: "target", point: preview.target.point })
+          for (let index = oldPoints.length - 1; index >= 0; index -= 1) commands.push({ type: "removeEdgeWaypoint", id: drag.id, index })
+          for (let index = 0; index < preview.points.length; index += 1) commands.push({ type: "insertEdgeWaypoint", id: drag.id, index, point: preview.points[index]! })
+          if (commands.length && this.engine.dispatchBatch(commands).changed) this.commitCount += 1
+        }
+      }
+      this.clearGesture()
+      this.tool = "select"
+      return
+    }
     if (this.tool === "drag-edge-endpoint" && this.edgeEndpointId && this.edgeEndpointKind && this.edgeEndpointPreview
       && (this.edgeEndpointPreview.x !== this.edgeEndpointStart?.x || this.edgeEndpointPreview.y !== this.edgeEndpointStart?.y || this.edgeEndpointConnection !== null)) {
       const edge = this.engine.getScene().entities.edgesById.get(this.edgeEndpointId)
@@ -801,8 +820,13 @@ export class DiagramInteractionController {
     }
     if (this.tool === "connect-edge" && this.edgeCreationPreview) {
       const preview = this.edgeCreationPreview
-      this.engine.dispatch({ type: "createEdge", edge: { id: preview.id, kind: "edge", source: preview.source, target: preview.target, points: preview.points }, historyKey: `connect:${preview.id}:${++this.gestureHistoryId}` })
-      this.commitCount += 1
+      if (!preview.diagnostics?.some((diagnostic) => diagnostic.code !== "terminal-leads-overlap")) {
+        const routing = this.edgeRouteOptions.mode === "auto"
+          ? { mode: "auto" as const, terminalLead: this.edgeRouteOptions.terminalLead, clearance: this.edgeRouteOptions.clearance, firstAxis: this.edgeRouteOptions.firstAxis, sourceDirection: this.edgeRouteOptions.sourceDirection, targetDirection: this.edgeRouteOptions.targetDirection, tieBreak: this.edgeRouteOptions.tieBreak, waypoints: [...(this.edgeRouteOptions.waypoints ?? []), ...this.edgeCreationWaypoints] }
+          : undefined
+        const result = this.engine.dispatch({ type: "createEdge", edge: { id: preview.id, kind: "edge", source: preview.source, target: preview.target, points: preview.points, ...(routing ? { routing } : {}) }, historyKey: `connect:${preview.id}:${++this.gestureHistoryId}` })
+        if (result.changed) this.commitCount += 1
+      }
     }
     if (this.tool === "draw-line" && this.lineCreationPreview) {
       this.engine.dispatch({ type: "createShape", shape: this.lineCreationPreview, historyKey: `draw-line:${this.lineCreationPreview.id}:${++this.gestureHistoryId}` })
@@ -848,6 +872,11 @@ export class DiagramInteractionController {
       const path = this.edgeSegmentPreview.path
       const bounds = boundsFromPoints(path)
       return Object.freeze({ ...geometry, path: Object.freeze([...path]), bounds, hitBounds: inflateRect(bounds, 6) })
+    }
+    const edgeForRoutePreview = this.engine.getScene().entities.edgesById.get(id)
+    if (geometry?.kind === "edge" && edgeForRoutePreview?.routing?.mode === "auto") {
+      const automaticPreview = this.getAutomaticRoutePreviewGeometry(id, geometry, edgeForRoutePreview)
+      if (automaticPreview) return automaticPreview
     }
     if (geometry?.kind === "edge" && this.pathVertexPreview?.id === id && this.vertexDragKind === "edge") {
       const edge = this.engine.getScene().entities.edgesById.get(id)
@@ -978,7 +1007,7 @@ export class DiagramInteractionController {
     const hasPreview = this.previewDelta !== null || this.resizePreviewEntries.length > 0 || this.edgeEndpointPreview !== null || this.edgeSegmentPreview !== null || this.edgeCreationPreview !== null || this.lineCreationPreview !== null || this.pathCreationId !== null || this.bezierCreationId !== null || this.bezierHandlePreview !== null || this.pathVertexPreview !== null || this.portCreationPreview !== null
     const endpointOrigin = this.edgeEndpointOppositeStart ?? (this.tool === "connect-edge" || this.tool === "draw-line" ? this.startPoint : null)
     const endpointAngle = (this.tool === "drag-edge-endpoint" || this.tool === "connect-edge" || this.tool === "draw-line") && endpointOrigin && this.latestPoint
-      ? (this.latestShiftKey ? this.edgeEndpointCardinalAngle : this.configuredAngle(this.latestPoint, endpointOrigin))
+      ? (this.latestShiftKey ? this.edgeEndpointCardinalAngle : this.configuredAngle(this.latestPoint, endpointOrigin, isCreationTool(this.tool)))
       : null
     const movementAngle = this.tool === "drag-selection" && this.startPoint && this.latestPoint && !this.latestShiftKey
       ? this.configuredAngle(this.latestPoint, this.startPoint)
@@ -989,7 +1018,7 @@ export class DiagramInteractionController {
         ? { kind: "axis" as const, axis: this.edgeSegmentPreview.axis === "horizontal" ? "y" as const : "x" as const }
       : this.tool === "drag-selection" && this.latestShiftKey && this.shiftAxis
         ? { kind: "axis" as const, axis: this.shiftAxis }
-        : movementAngle !== null ? { kind: this.snapOptions.ortho ? "ortho" as const : "angle" as const, angle: movementAngle }
+        : movementAngle !== null ? { kind: "angle" as const, angle: movementAngle }
           : null
     return {
       tool: this.tool,
@@ -1102,6 +1131,7 @@ export class DiagramInteractionController {
         const snapped = this.engine.snapTranslation({ ...selection, ids: snapIds, primaryId: this.dragSelectionIds.includes(selection.primaryId ?? "") ? selection.primaryId : this.dragSelectionIds[0] ?? null }, constrainedDelta, {
           radius: (this.snapOptions.tolerancePx ?? 6) / zoom,
           gridSize: this.snapOptions.gridSize,
+          strictGrid: this.isStrictGridEnabled(),
           axisConstraint,
           snapToPorts: this.snapOptions.snapToPorts,
           snapToAlignment: this.snapOptions.snapToAlignment,
@@ -1112,13 +1142,13 @@ export class DiagramInteractionController {
         })
         this.previewDelta = snapped.point
         this.snapGuides = snapped.guides
-        if (configuredAngle !== null) {
+        if (configuredAngle !== null && !this.isStrictGridEnabled()) {
           const constrainedPoint = projectToAngle(this.startPoint, { x: this.startPoint.x + snapped.point.x, y: this.startPoint.y + snapped.point.y }, configuredAngle)
           const constrainedSnap = { x: constrainedPoint.x - this.startPoint.x, y: constrainedPoint.y - this.startPoint.y }
           if (constrainedSnap.x !== snapped.point.x || constrainedSnap.y !== snapped.point.y) this.snapGuides = Object.freeze([])
           this.previewDelta = constrainedSnap
         }
-        const preservesCandidate = configuredAngle === null || (this.previewDelta.x === snapped.point.x && this.previewDelta.y === snapped.point.y)
+        const preservesCandidate = configuredAngle === null || this.isStrictGridEnabled() || (this.previewDelta.x === snapped.point.x && this.previewDelta.y === snapped.point.y)
         this.snapResult = { point: this.previewDelta, snapped: snapped.snapped, source: snapped.source, ...(preservesCandidate && snapped.candidate ? { candidate: snapped.candidate, targetId: snapped.targetId } : {}) }
       } else {
         this.previewDelta = constrainedDelta
@@ -1154,6 +1184,7 @@ export class DiagramInteractionController {
         const snap = this.engine.snapPoint(desiredPoint, {
           radius: (this.snapOptions.tolerancePx ?? 6) / zoom,
           gridSize: this.snapOptions.gridSize,
+          strictGrid: this.isStrictGridEnabled(),
           axisConstraint,
           snapToPorts: this.snapOptions.snapToPorts,
           snapToAlignment: this.snapOptions.snapToAlignment,
@@ -1163,7 +1194,6 @@ export class DiagramInteractionController {
           origin: this.edgeEndpointOppositeStart ?? undefined,
           angleIncrement: this.snapOptions.angleIncrement,
           additionalAngles: this.snapOptions.additionalAngles,
-          ortho: this.snapOptions.ortho,
         })
         this.edgeEndpointPreview = angle === null || !this.edgeEndpointOppositeStart
           ? snap.point
@@ -1243,6 +1273,14 @@ export class DiagramInteractionController {
       anchor = localAnchorAtWorldPoint(point, host, localBounds)
       resolvedPoint = worldPointAtLocalAnchor(anchor, host, localBounds)
     }
+    const gridPoint = this.applyStrictGrid(resolvedPoint, snapResult)
+    if (!samePoint(gridPoint, resolvedPoint)) {
+      resolvedPoint = gridPoint
+      anchor = localAnchorAtWorldPoint(resolvedPoint, host, localBounds)
+      snapResult = this.snapResult ?? { point: resolvedPoint, snapped: true, source: "grid" }
+    } else if (this.isStrictGridEnabled() && !snapResult) {
+      snapResult = { point: resolvedPoint, snapped: true, source: "grid" }
+    }
     this.portCreationPreview = Object.freeze({ id, hostId, anchor: Object.freeze({ ...anchor }), point: Object.freeze({ ...resolvedPoint }), ...(snapResult ? { snapResult: Object.freeze(snapResult) } : {}) })
     this.snapResult = snapResult ?? null
   }
@@ -1277,6 +1315,7 @@ export class DiagramInteractionController {
         radius: (this.snapOptions.tolerancePx ?? 6) / (viewport.zoom > 0 ? viewport.zoom : 1),
         tolerancePx: this.snapOptions.tolerancePx ?? 6,
         gridSize: this.snapOptions.gridSize,
+        strictGrid: this.isStrictGridEnabled(),
         kinds,
         axisConstraint: moveAxis,
         snapToPorts: this.snapOptions.snapToPorts,
@@ -1349,6 +1388,7 @@ export class DiagramInteractionController {
     const snap = this.engine.snapPoint(point, {
       radius: (this.snapOptions.tolerancePx ?? 6) / zoom,
       gridSize: this.snapOptions.gridSize,
+      strictGrid: this.isStrictGridEnabled(),
       snapToPorts: this.snapOptions.snapToPorts,
       snapToAlignment: this.snapOptions.snapToAlignment,
       kinds: this.snapOptions.kinds,
@@ -1356,7 +1396,7 @@ export class DiagramInteractionController {
       origin,
       angleIncrement: this.snapOptions.angleIncrement,
       additionalAngles: this.snapOptions.additionalAngles,
-      ortho: this.snapOptions.ortho,
+      // Ortho is reserved for drawing; dragging an existing path vertex stays free unless Shift is held.
     })
     this.snapResult = snap
     return snap.point
@@ -1391,6 +1431,7 @@ export class DiagramInteractionController {
     const snap = this.engine.snapPoint(desired, {
       radius: (this.snapOptions.tolerancePx ?? 6) / zoom,
       gridSize: this.snapOptions.gridSize,
+      strictGrid: this.isStrictGridEnabled(),
       snapToPorts: this.snapOptions.snapToPorts,
       snapToAlignment: this.snapOptions.snapToAlignment,
       axisConstraint,
@@ -1399,7 +1440,8 @@ export class DiagramInteractionController {
       tolerancePx: this.snapOptions.kinds ? this.snapOptions.tolerancePx : undefined,
     })
     this.snapResult = snap
-    return this.vertexDragKind === "edge" ? projectToAngle(origin, snap.point, angle) : snap.point
+    const projected = this.vertexDragKind === "edge" ? projectToAngle(origin, snap.point, angle) : snap.point
+    return this.applyStrictGrid(projected, snap)
   }
 
   private resolvePathPoint(point: DiagramPoint): DiagramPoint {
@@ -1419,6 +1461,7 @@ export class DiagramInteractionController {
       radius: (this.snapOptions.tolerancePx ?? 6) / zoom,
       tolerancePx: this.snapOptions.kinds ? this.snapOptions.tolerancePx : undefined,
       gridSize: this.snapOptions.gridSize,
+      strictGrid: this.isStrictGridEnabled(),
       kinds: this.snapOptions.kinds,
       snapToPorts: this.snapOptions.snapToPorts,
       snapToAlignment: this.snapOptions.snapToAlignment,
@@ -1471,7 +1514,9 @@ export class DiagramInteractionController {
     const radians = start.rotation * Math.PI / 180
     const localX = dx * Math.cos(radians) + dy * Math.sin(radians)
     const localY = -dx * Math.sin(radians) + dy * Math.cos(radians)
-    const size = Math.max(1, start.size + (start.axis === "row" ? localY : localX))
+    const rawSize = Math.max(1, start.size + (start.axis === "row" ? localY : localX))
+    const gridSize = this.strictGridSize()
+    const size = gridSize ? Math.max(gridSize, Math.round(rawSize / gridSize) * gridSize) : rawSize
     const rowHeights = [...table.rowHeights!]
     const columnWidths = [...table.columnWidths!]
     if (start.axis === "row") rowHeights[start.index] = size
@@ -1485,7 +1530,8 @@ export class DiagramInteractionController {
   }
 
   private snapEndpoint(point: DiagramPoint, origin: DiagramPoint, connectorEndpoint = false): DiagramEdgeEndpoint {
-    const angle = this.latestShiftKey ? this.edgeEndpointCardinalAngle : this.configuredAngle(point, origin)
+    const drawing = isCreationTool(this.tool)
+    const angle = this.latestShiftKey ? this.edgeEndpointCardinalAngle : this.configuredAngle(point, origin, drawing)
     const desiredPoint = angle === null ? point : projectToAngle(origin, point, angle)
     if (this.snapOptions.enabled === false) {
       this.snapResult = null
@@ -1500,13 +1546,16 @@ export class DiagramInteractionController {
         : null
       if (port) {
         const portPoint = this.engine.getGeometrySnapshot(port.id)?.point
-        if (portPoint) {
-          const resolvedPoint = angle === null ? portPoint : projectToAngle(origin, portPoint, angle)
-          const compatible = resolvedPoint.x === portPoint.x && resolvedPoint.y === portPoint.y
+        if (portPoint && (!this.isStrictGridEnabled() || this.isStrictGridPoint(portPoint))) {
+          const projectedPoint = angle === null ? portPoint : projectToAngle(origin, portPoint, angle)
           const candidate: DiagramSnapCandidate = { kind: "port", point: portPoint, targetId: port.id, distancePx: port.distance * zoom }
+          const resolvedPoint = this.applyStrictGrid(projectedPoint, { point: portPoint, snapped: true, source: "port", targetId: port.id, candidate, candidates: [candidate] })
+          const compatible = resolvedPoint.x === portPoint.x && resolvedPoint.y === portPoint.y
           this.snapResult = compatible
             ? { point: portPoint, snapped: true, source: "port", targetId: port.id, candidate, candidates: [candidate] }
-            : { point: resolvedPoint, snapped: true, source: "angle", candidates: [candidate] }
+            : this.isStrictGridEnabled() && this.snapResult?.source === "grid"
+              ? this.snapResult
+              : { point: resolvedPoint, snapped: true, source: "angle", candidates: [candidate] }
           return compatible ? { kind: "port", portId: port.id } : { kind: "point", point: resolvedPoint }
         }
       }
@@ -1514,6 +1563,7 @@ export class DiagramInteractionController {
       const snap = this.engine.snapPoint(desiredPoint, {
         radius: (this.snapOptions.tolerancePx ?? 6) / zoom,
         gridSize: this.snapOptions.gridSize,
+        strictGrid: this.isStrictGridEnabled(),
         snapToPorts: false,
         snapToAlignment: this.snapOptions.snapToAlignment,
         snapToEqualSpacing: this.snapOptions.snapToEqualSpacing,
@@ -1522,17 +1572,22 @@ export class DiagramInteractionController {
         origin: angle === null ? origin : undefined,
         angleIncrement: angle === null ? this.snapOptions.angleIncrement : undefined,
         additionalAngles: this.snapOptions.additionalAngles,
-        ortho: angle === null ? this.snapOptions.ortho : undefined,
+        ortho: drawing && angle === null ? this.snapOptions.ortho : undefined,
       })
-      const resolvedPoint = angle === null ? snap.point : projectToAngle(origin, snap.point, angle)
-      this.snapResult = resolvedPoint.x === snap.point.x && resolvedPoint.y === snap.point.y
+      const projectedPoint = angle === null ? snap.point : projectToAngle(origin, snap.point, angle)
+      const resolvedPoint = this.applyStrictGrid(projectedPoint, snap)
+      const compatible = resolvedPoint.x === snap.point.x && resolvedPoint.y === snap.point.y
+      this.snapResult = compatible
         ? snap
-        : { point: resolvedPoint, snapped: true, source: "angle", candidates: snap.candidates }
+        : this.isStrictGridEnabled() && this.snapResult?.source === "grid"
+          ? this.snapResult
+          : { point: resolvedPoint, snapped: true, source: "angle", candidates: snap.candidates }
       return { kind: "point", point: resolvedPoint }
     }
     const snap = this.engine.snapPoint(desiredPoint, {
       radius: (this.snapOptions.tolerancePx ?? 6) / zoom,
       gridSize: this.snapOptions.gridSize,
+      strictGrid: this.isStrictGridEnabled(),
       snapToPorts: this.snapOptions.snapToPorts,
       snapToAlignment: this.snapOptions.snapToAlignment,
       kinds: this.snapOptions.kinds,
@@ -1540,16 +1595,90 @@ export class DiagramInteractionController {
       origin: angle === null ? origin : undefined,
       angleIncrement: angle === null ? this.snapOptions.angleIncrement : undefined,
       additionalAngles: this.snapOptions.additionalAngles,
-      ortho: angle === null ? this.snapOptions.ortho : undefined,
+      ortho: drawing && angle === null ? this.snapOptions.ortho : undefined,
     })
-    const resolvedPoint = angle === null ? snap.point : projectToAngle(origin, snap.point, angle)
+    const projectedPoint = angle === null ? snap.point : projectToAngle(origin, snap.point, angle)
+    const resolvedPoint = this.applyStrictGrid(projectedPoint, snap)
     const compatibleSnap = resolvedPoint.x === snap.point.x && resolvedPoint.y === snap.point.y
     this.snapResult = compatibleSnap
       ? snap
-      : { point: resolvedPoint, snapped: true, source: "angle", candidates: snap.candidates }
+      : this.isStrictGridEnabled() && this.snapResult?.source === "grid"
+        ? this.snapResult
+        : { point: resolvedPoint, snapped: true, source: "angle", candidates: snap.candidates }
     return compatibleSnap && snap.source === "port" && snap.targetId
       ? { kind: "port", portId: snap.targetId }
       : { kind: "point", point: resolvedPoint }
+  }
+
+  private getAutomaticRoutePreviewGeometry(id: DiagramId, geometry: DiagramGeometry, edge: DiagramEdge): DiagramGeometry | null {
+    const scene = this.engine.getScene()
+    const entities = scene.entities
+    const next = {
+      ...entities,
+      nodesById: new Map(entities.nodesById),
+      edgesById: new Map(entities.edgesById),
+      textsById: new Map(entities.textsById),
+      shapesById: new Map(entities.shapesById),
+      tablesById: new Map(entities.tablesById),
+    }
+    let changed = false
+    const changedIds = new Set<DiagramId>()
+    if (this.edgeEndpointId === id && this.edgeEndpointKind && this.edgeEndpointPreview) {
+      const connection = this.edgeEndpointConnection ?? { kind: "point" as const, point: this.edgeEndpointPreview }
+      next.edgesById.set(id, { ...edge, [this.edgeEndpointKind]: connection })
+      changedIds.add(id)
+      changed = true
+    } else if (this.pathVertexPreview?.id === id && this.vertexDragKind === "edge" && this.edgeWaypointPreview) {
+      next.edgesById.set(id, { ...edge, routing: { ...edge.routing!, waypoints: [...this.edgeWaypointPreview] } })
+      changedIds.add(id)
+      changed = true
+    } else if (this.tool === "drag-selection" && this.previewDelta) {
+      const moved = new Set(this.expandedDragSelectionIds())
+      const delta = this.previewDelta
+      const translate = (point: DiagramPoint): DiagramPoint => ({ x: point.x + delta.x, y: point.y + delta.y })
+      for (const movedId of moved) {
+        const node = next.nodesById.get(movedId)
+        if (node) { next.nodesById.set(movedId, { ...node, x: node.x + delta.x, y: node.y + delta.y }); changedIds.add(movedId); changed = true; continue }
+        const text = next.textsById.get(movedId)
+        if (text) { next.textsById.set(movedId, { ...text, x: text.x + delta.x, y: text.y + delta.y }); changedIds.add(movedId); changed = true; continue }
+        const shape = next.shapesById.get(movedId)
+        if (shape) { next.shapesById.set(movedId, { ...shape, x: shape.x + delta.x, y: shape.y + delta.y }); changedIds.add(movedId); changed = true; continue }
+        const table = next.tablesById.get(movedId)
+        if (table) { next.tablesById.set(movedId, { ...table, x: table.x + delta.x, y: table.y + delta.y }); changedIds.add(movedId); changed = true; continue }
+        const movedEdge = next.edgesById.get(movedId)
+        if (movedEdge) {
+          next.edgesById.set(movedId, {
+            ...movedEdge,
+            source: movedEdge.source.kind === "point" ? { kind: "point", point: translate(movedEdge.source.point) } : movedEdge.source,
+            target: movedEdge.target.kind === "point" ? { kind: "point", point: translate(movedEdge.target.point) } : movedEdge.target,
+            points: movedEdge.points?.map(translate),
+            ...(movedEdge.routing?.mode === "auto" && movedEdge.routing.waypoints ? { routing: { ...movedEdge.routing, waypoints: movedEdge.routing.waypoints.map(translate) } } : {}),
+          })
+          changedIds.add(movedId); changed = true
+        }
+      }
+    } else if (this.tool === "resize-selection" && this.resizePreviewEntries.length) {
+      for (const entry of this.resizePreviewEntries) {
+        const node = next.nodesById.get(entry.id)
+        if (node) { next.nodesById.set(entry.id, { ...node, x: entry.x ?? node.x, y: entry.y ?? node.y, width: entry.width ?? node.width, height: entry.height ?? node.height }); changedIds.add(entry.id); changed = true; continue }
+        const shape = next.shapesById.get(entry.id)
+        if (shape) { next.shapesById.set(entry.id, { ...shape, x: entry.x ?? shape.x, y: entry.y ?? shape.y, width: entry.width ?? shape.width, height: entry.height ?? shape.height }); changedIds.add(entry.id); changed = true; continue }
+        const text = next.textsById.get(entry.id)
+        if (text) { next.textsById.set(entry.id, { ...text, x: entry.x ?? text.x, y: entry.y ?? text.y, width: entry.width ?? text.width, height: entry.height ?? text.height }); changedIds.add(entry.id); changed = true }
+      }
+    }
+    if (!changed) return null
+    const sourceHost = edge.source.kind === "node" ? edge.source.nodeId : edge.source.kind === "port" ? diagramPortHostId(entities.portsById.get(edge.source.portId)!) : null
+    const targetHost = edge.target.kind === "node" ? edge.target.nodeId : edge.target.kind === "port" ? diagramPortHostId(entities.portsById.get(edge.target.portId)!) : null
+    const endpointHostMoved = Boolean(sourceHost && changedIds.has(sourceHost) || targetHost && changedIds.has(targetHost))
+    const routeBounds = inflateRect(geometry.bounds, edge.routing?.clearance ?? 0)
+    const relevant = changedIds.has(id) || endpointHostMoved || [...changedIds].some((changedId) => {
+      const before = this.engine.getGeometrySnapshot(changedId)
+      const after = createEntityGeometry(changedId, next)
+      return Boolean(before && rectIntersects(routeBounds, before.bounds) || after && rectIntersects(routeBounds, after.bounds))
+    })
+    if (!relevant) return null
+    return createEntityGeometry(id, next)
   }
 
   private updateEdgeCreationPreview(): void {
@@ -1558,16 +1687,32 @@ export class DiagramInteractionController {
     const entities = this.engine.getScene().entities
     const sourcePoint = resolveEndpoint(this.edgeCreationSource, entities)
     const targetPoint = resolveEndpoint(target, entities)
-    const stops = [sourcePoint, ...this.edgeCreationWaypoints, targetPoint]
-    const routes = stops.slice(1).map((next, index) => routeOrthogonalConnector(stops[index]!, next, this.edgeRouteOptions))
-    const routePath = routes.flatMap((route, index) => index ? route.path.slice(1) : route.path)
-    const routePoints = [...this.edgeCreationWaypoints, ...routes.flatMap((route) => route.points)]
+    const excluded = new Set<DiagramId>()
+    for (const endpoint of [this.edgeCreationSource, target]) {
+      if (endpoint.kind === "node") excluded.add(endpoint.nodeId)
+      else if (endpoint.kind === "port") {
+        const port = entities.portsById.get(endpoint.portId)
+        if (port) excluded.add(diagramPortHostId(port))
+      }
+    }
+    const routeBounds = boundsFromPoints([sourcePoint, targetPoint, ...(this.edgeRouteOptions.waypoints ?? []), ...this.edgeCreationWaypoints])
+    const routeMargin = Math.max(routeBounds.width, routeBounds.height, this.edgeRouteOptions.terminalLead ?? 12, this.edgeRouteOptions.clearance ?? 0, 1) * 2
+    const searchBounds = inflateRect(routeBounds, routeMargin)
+    const obstacleIds = this.engine.queryEntities({ bounds: searchBounds, kinds: ["node", "shape", "text", "table"] })
+    const obstacles = obstacleIds.filter((id) => !excluded.has(id)).flatMap((id) => {
+      const geometry = createEntityGeometry(id, entities)
+      return geometry ? [{ id, bounds: geometry.bounds }] : []
+    })
+    const existingRoutes = this.engine.queryEntities({ bounds: searchBounds, kinds: ["edge"] })
+      .flatMap((id) => { const edge = entities.edgesById.get(id); return edge && edge.routing?.mode !== "auto" ? [{ id, points: resolveEdgePath(edge, entities) }] : [] })
+    const route = routeOrthogonalConnector(sourcePoint, targetPoint, { ...this.edgeRouteOptions, waypoints: [...(this.edgeRouteOptions.waypoints ?? []), ...this.edgeCreationWaypoints], obstacles, existingRoutes })
     this.edgeCreationPreview = Object.freeze({
       id: this.edgeCreationId,
       source: this.edgeCreationSource,
       target,
-      points: Object.freeze(routePoints.map((point) => Object.freeze(point))),
-      path: Object.freeze(routePath.map((point) => Object.freeze(point))),
+      points: Object.freeze(route.points.map((point) => Object.freeze(point))),
+      path: Object.freeze(route.path.map((point) => Object.freeze(point))),
+      diagnostics: route.diagnostics,
     })
   }
 
@@ -1588,7 +1733,7 @@ export class DiagramInteractionController {
 
   private createSelectionResizePreviewEntries(delta: DiagramPoint): ReadonlyArray<DiagramResizeEntry> {
     if (!this.resizeHandle || !this.resizeStartBounds) return Object.freeze([])
-    const nextBounds = resizeBoundsByHandle(this.resizeStartBounds, this.resizeHandle, delta, this.minimumResizeSize(this.resizeSelectionIds, this.resizeStartBounds), this.latestShiftKey && isCornerResizeHandle(this.resizeHandle), this.resizeGridSize())
+    const nextBounds = resizeBoundsByHandle(this.resizeStartBounds, this.resizeHandle, delta, this.minimumResizeSize(this.resizeSelectionIds, this.resizeStartBounds), this.latestShiftKey && isCornerResizeHandle(this.resizeHandle), this.resizeGridSize(), this.isStrictGridEnabled())
     const scaleX = this.resizeStartBounds.width ? nextBounds.width / this.resizeStartBounds.width : 1
     const scaleY = this.resizeStartBounds.height ? nextBounds.height / this.resizeStartBounds.height : 1
     const entries: DiagramResizeEntry[] = []
@@ -1596,13 +1741,13 @@ export class DiagramInteractionController {
       const geometry = this.engine.getGeometrySnapshot(id)
       const bounds = geometry?.unrotatedBounds ?? geometry?.bounds
       if (!bounds) continue
-      entries.push({
+      entries.push(this.snapResizeEntry({
         id,
         x: nextBounds.x + (bounds.x - this.resizeStartBounds.x) * scaleX,
         y: nextBounds.y + (bounds.y - this.resizeStartBounds.y) * scaleY,
         width: Math.max(8, bounds.width * scaleX),
         height: Math.max(8, bounds.height * scaleY),
-      })
+      }))
     }
     return Object.freeze(entries)
   }
@@ -1615,7 +1760,7 @@ export class DiagramInteractionController {
     if (geometry?.flipX) localDelta = { ...localDelta, x: -localDelta.x }
     if (geometry?.flipY) localDelta = { ...localDelta, y: -localDelta.y }
     const minSize = this.minimumResizeSize([this.resizeOwnerId], bounds)
-    const nextBounds = resizeBoundsByHandle(bounds, this.resizeHandle, localDelta, minSize, this.latestShiftKey && isCornerResizeHandle(this.resizeHandle), this.resizeGridSize())
+    const nextBounds = resizeBoundsByHandle(bounds, this.resizeHandle, localDelta, minSize, this.latestShiftKey && isCornerResizeHandle(this.resizeHandle), this.resizeGridSize(), this.isStrictGridEnabled())
     const { x, y, width, height } = nextBounds
 
     const entry: { id: DiagramId; x?: number; y?: number; width?: number; height?: number } = { id: this.resizeOwnerId, width, height }
@@ -1627,11 +1772,48 @@ export class DiagramInteractionController {
       if (x !== bounds.x) entry.x = x
       if (y !== bounds.y) entry.y = y
     }
-    return entry
+    return this.snapResizeEntry(entry)
   }
 
   private resizeGridSize(): number | undefined {
     return this.snapOptions.enabled === false ? undefined : this.snapOptions.gridSize
+  }
+
+  private strictGridSize(): number | undefined {
+    const size = this.snapOptions.gridSize
+    return this.snapOptions.enabled !== false && this.snapOptions.strictGrid === true && Number.isFinite(size) && size! > 0 ? size : undefined
+  }
+
+  private isStrictGridEnabled(): boolean {
+    return this.strictGridSize() !== undefined
+  }
+
+  private applyStrictGrid(point: DiagramPoint, fallback?: DiagramSnapResult): DiagramPoint {
+    const size = this.strictGridSize()
+    if (!size) return point
+    const snapped = { x: Math.round(point.x / size) * size, y: Math.round(point.y / size) * size }
+    if (snapped.x !== point.x || snapped.y !== point.y) {
+      this.snapResult = { point: snapped, snapped: true, source: "grid", ...(fallback?.candidates ? { candidates: fallback.candidates } : {}) }
+    }
+    return snapped
+  }
+
+  private isStrictGridPoint(point: DiagramPoint): boolean {
+    const size = this.strictGridSize()
+    return !size || (Math.abs(point.x / size - Math.round(point.x / size)) < 1e-9 && Math.abs(point.y / size - Math.round(point.y / size)) < 1e-9)
+  }
+
+  private snapResizeEntry<T extends DiagramResizeEntry>(entry: T): T {
+    const size = this.strictGridSize()
+    if (!size) return entry
+    const minimum = Math.max(size, Math.ceil(8 / size) * size)
+    return {
+      ...entry,
+      ...(entry.x === undefined ? {} : { x: Math.round(entry.x / size) * size }),
+      ...(entry.y === undefined ? {} : { y: Math.round(entry.y / size) * size }),
+      ...(entry.width === undefined ? {} : { width: Math.max(minimum, Math.round(entry.width / size) * size) }),
+      ...(entry.height === undefined ? {} : { height: Math.max(minimum, Math.round(entry.height / size) * size) }),
+    }
   }
 
   private minimumResizeSize(ids: ReadonlyArray<DiagramId>, overallBounds: DiagramRect): number {
@@ -1721,8 +1903,8 @@ export class DiagramInteractionController {
     return Math.hypot(point.x - origin.x, point.y - origin.y) * zoom >= AXIS_LOCK_ACTIVATION_TOLERANCE_PX
   }
 
-  private configuredAngle(point: DiagramPoint, origin: DiagramPoint): number | null {
-    const increment = this.snapOptions.ortho ? 90 : this.snapOptions.angleIncrement
+  private configuredAngle(point: DiagramPoint, origin: DiagramPoint, includeOrtho = false): number | null {
+    const increment = includeOrtho && this.snapOptions.ortho ? 90 : this.snapOptions.angleIncrement
     const additional = this.snapOptions.additionalAngles ?? []
     if ((!increment || !Number.isFinite(increment) || increment <= 0) && !additional.length) return null
     const raw = Math.atan2(point.y - origin.y, point.x - origin.x) * 180 / Math.PI
@@ -2129,7 +2311,7 @@ function findDistinctPoint(path: ReadonlyArray<DiagramPoint>, index: number, ste
   return null
 }
 
-function resizeBoundsByHandle(bounds: DiagramRect, handle: DiagramResizeHandle, delta: DiagramPoint, minSize: number, preserveAspectRatio = false, gridSize?: number): DiagramRect {
+function resizeBoundsByHandle(bounds: DiagramRect, handle: DiagramResizeHandle, delta: DiagramPoint, minSize: number, preserveAspectRatio = false, gridSize?: number, strictGrid = false): DiagramRect {
   let x = bounds.x
   let y = bounds.y
   let width = bounds.width
@@ -2160,6 +2342,22 @@ function resizeBoundsByHandle(bounds: DiagramRect, handle: DiagramResizeHandle, 
     if (handle.includes("n") || handle.includes("s")) height = Math.max(minSize, Math.round(height / gridSize) * gridSize)
     if (handle.includes("w")) x = bounds.x + bounds.width - width
     if (handle.includes("n")) y = bounds.y + bounds.height - height
+  }
+  if (strictGrid && gridSize && gridSize > 0) {
+    let left = Math.round(x / gridSize) * gridSize
+    let top = Math.round(y / gridSize) * gridSize
+    let right = Math.round((x + width) / gridSize) * gridSize
+    let bottom = Math.round((y + height) / gridSize) * gridSize
+    const minimum = Math.max(gridSize, Math.ceil(minSize / gridSize) * gridSize)
+    if (right - left < minimum) {
+      if (handle.includes("w")) left = right - minimum
+      else right = left + minimum
+    }
+    if (bottom - top < minimum) {
+      if (handle.includes("n")) top = bottom - minimum
+      else bottom = top + minimum
+    }
+    return { x: left, y: top, width: right - left, height: bottom - top }
   }
   return { x, y, width, height }
 }
@@ -2219,6 +2417,10 @@ function transformResizeAnchor(point: DiagramPoint, bounds: DiagramRect, rotatio
     y: bounds.y + (flipY ? bounds.height - (point.y - bounds.y) : point.y - bounds.y),
   }
   return rotatePoint(flipped, rectCenter(bounds), rotation)
+}
+
+function isCreationTool(tool: DiagramInteractionTool): boolean {
+  return tool === "draw-line" || tool === "draw-path" || tool === "draw-bezier" || tool === "connect-edge"
 }
 
 function rectCenter(rect: DiagramRect): DiagramPoint {

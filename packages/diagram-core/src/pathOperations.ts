@@ -254,36 +254,38 @@ export function trimSelectionByStroke(scene: DiagramSceneInput, input: Readonly<
     || !Number.isFinite(input.tolerance) || input.tolerance < 0
     || input.stroke.some((point) => !point || !Number.isFinite(point.x) || !Number.isFinite(point.y))) {
     const finding = fail("invalid-input", "A sweep trim requires at least two finite stroke points and a finite non-negative world tolerance.")
-    return { ok: false, targets, updates, findings: [finding] }
+    return { ok: false, status: "rejected", targets, updates, findings: [finding] }
   }
   const strokeLengths = input.stroke.slice(1).map((point, index) => distance(input.stroke[index]!, point))
   if (strokeLengths.every((length) => length <= EPSILON)) {
     const finding = fail("invalid-input", "The sweep stroke must have non-zero length.")
-    return { ok: false, targets, updates, findings: [finding] }
+    return { ok: false, status: "rejected", targets, updates, findings: [finding] }
   }
   const strokeOffsets: number[] = [0]
   for (const length of strokeLengths) strokeOffsets.push(strokeOffsets[strokeOffsets.length - 1]! + length)
   if (strokeHasSelfIntersection(input.stroke, input.tolerance)) {
     const finding = fail("self-intersecting-stroke", "Self-intersecting sweep strokes are ambiguous and do not trim targets.")
-    return { ok: true, targets: input.targetIds.map((id) => ({ id, changed: false, retained: [], sweepCrossings: [], boundaryIntersections: [], cutPoints: [], preview: null, finding: { ...finding, targetId: id } })), updates, findings: input.targetIds.map((id) => ({ ...finding, targetId: id })) }
+    return { ok: true, status: "unchanged", targets: input.targetIds.map((id) => ({ id, changed: false, retained: [], sweepCrossings: [], boundaryIntersections: [], cutPoints: [], preview: null, finding: { ...finding, targetId: id } })), updates, findings: input.targetIds.map((id) => ({ ...finding, targetId: id })) }
   }
   const uniqueIds = [...new Set(input.targetIds)]
   const shapeById = new Map((scene.shapes ?? []).map((shape) => [shape.id, shape]))
   const edgeIds = new Set((scene.edges ?? []).map((edge) => edge.id))
   const targetSet = new Set(uniqueIds)
-  const boundaryIds = input.boundaryIds === undefined
-    ? [...shapeById.keys()].filter((id) => !targetSet.has(id)).sort((a, b) => a.localeCompare(b))
-    : [...new Set(input.boundaryIds)].filter((id) => !targetSet.has(id)).sort((a, b) => a.localeCompare(b))
-  const boundaries: Array<{ id: DiagramId; contours: DiagramPathContour[] }> = []
+  // Candidate boundary geometry is resolved for each target below. Other selected
+  // paths may bound a target; only a target is forbidden from bounding itself.
+  const candidateBoundaryIds = input.boundaryIds === undefined
+    ? [...shapeById.keys()].sort((a, b) => a.localeCompare(b))
+    : [...new Set(input.boundaryIds)].sort((a, b) => a.localeCompare(b))
+  const boundariesById = new Map<DiagramId, DiagramPathContour[]>()
   const invalidBoundaries: DiagramId[] = []
   const malformedBoundaries: DiagramId[] = []
-  for (const boundaryId of boundaryIds) {
+  for (const boundaryId of candidateBoundaryIds) {
     const boundaryShape = shapeById.get(boundaryId)
     if (!boundaryShape) { if (input.boundaryIds) invalidBoundaries.push(boundaryId); continue }
     if (!validSweepTrimShape(boundaryShape)) { if (input.boundaryIds) malformedBoundaries.push(boundaryId); continue }
     const contours = sweepTrimShapeContours(boundaryShape)
     if (!contours) { if (input.boundaryIds) invalidBoundaries.push(boundaryId); continue }
-    boundaries.push({ id: boundaryId, contours })
+    boundariesById.set(boundaryId, contours)
   }
   for (const id of uniqueIds) {
     const shape = shapeById.get(id)
@@ -321,12 +323,17 @@ export function trimSelectionByStroke(scene: DiagramSceneInput, input: Readonly<
       addFinding("unsupported-geometry", "This figure has no exact line, circular-arc, or cubic outline representation for sweep Trim.")
       continue
     }
-    if (invalidBoundaries.length) {
-      addFinding("unsupported-boundary", `One or more explicit trim boundaries are missing or unsupported: ${invalidBoundaries.join(", ")}.`, sourceContours)
+    const targetBoundaries = [...boundariesById]
+      .filter(([boundaryId]) => boundaryId !== id && (input.boundaryIds !== undefined || !targetSet.has(boundaryId) || isSweepTrimPathTarget(shapeById.get(boundaryId)!)))
+      .map(([boundaryId, contours]) => ({ id: boundaryId, contours }))
+    const invalidTargetBoundaries = invalidBoundaries.filter((boundaryId) => boundaryId !== id)
+    const malformedTargetBoundaries = malformedBoundaries.filter((boundaryId) => boundaryId !== id)
+    if (invalidTargetBoundaries.length) {
+      addFinding("unsupported-boundary", `One or more explicit trim boundaries are missing or unsupported: ${invalidTargetBoundaries.join(", ")}.`, sourceContours)
       continue
     }
-    if (malformedBoundaries.length) {
-      addFinding("invalid-input", `One or more explicit trim boundaries contain invalid geometry: ${malformedBoundaries.join(", ")}.`, sourceContours)
+    if (malformedTargetBoundaries.length) {
+      addFinding("invalid-input", `One or more explicit trim boundaries contain invalid geometry: ${malformedTargetBoundaries.join(", ")}.`, sourceContours)
       continue
     }
     const retained: DiagramPathContour[] = []
@@ -336,7 +343,7 @@ export function trimSelectionByStroke(scene: DiagramSceneInput, input: Readonly<
     let findingMessage = ""
     for (const contour of sourceContours) {
       if (contour.hole) { retained.push(contour); continue }
-      const trim = trimContourToNearestBoundaries(contour, input.stroke, strokeLengths, strokeOffsets, boundaries, input.tolerance)
+      const trim = trimContourToNearestBoundaries(contour, input.stroke, strokeLengths, strokeOffsets, targetBoundaries, input.tolerance)
       if (trim.code) {
         sweepCrossings.push(...trim.sweepCrossings)
         boundaryIntersections.push(...trim.boundaryIntersections)
@@ -378,7 +385,11 @@ export function trimSelectionByStroke(scene: DiagramSceneInput, input: Readonly<
     updates.push(update)
     targets.push({ id, changed: true, retained: worldContours, sweepCrossings, boundaryIntersections, cutPoints: sweepCrossings, preview: canonicalPreview, update })
   }
-  return { ok: true, targets, updates, findings }
+  return { ok: true, status: updates.length === 0 ? "unchanged" : findings.length > 0 ? "partial" : "applied", targets, updates, findings }
+}
+
+function isSweepTrimPathTarget(shape: DiagramShape): boolean {
+  return shape.shape === "line" || (shape.pathContours?.length ?? 0) > 0
 }
 
 type BoundarySegment = Readonly<{ id: DiagramId; segment: DiagramPathSegment }>

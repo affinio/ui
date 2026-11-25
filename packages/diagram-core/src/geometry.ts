@@ -46,25 +46,190 @@ export function distance(a: DiagramPoint, b: DiagramPoint): number {
   return Math.hypot(a.x - b.x, a.y - b.y)
 }
 
-/** Builds a stable orthogonal route with terminal leads. This is a local router, not a collision-avoidance solver. */
+/** Routes an orthogonal connector through an exact rectilinear visibility grid (not a raster approximation). */
 export function routeOrthogonalConnector(source: DiagramPoint, target: DiagramPoint, options: DiagramOrthogonalRouteOptions = {}): DiagramOrthogonalRouteResult {
   const terminalLead = options.terminalLead ?? 12
-  if (![source.x, source.y, target.x, target.y, terminalLead].every(Number.isFinite) || terminalLead < 0) throw new RangeError("Connector points and terminal lead must be finite; lead must be non-negative")
-  const dx = target.x - source.x
-  const dy = target.y - source.y
-  const firstAxis = options.firstAxis ?? (Math.abs(dx) >= Math.abs(dy) ? "horizontal" : "vertical")
-  const leadSource = firstAxis === "horizontal"
-    ? { x: source.x + Math.sign(dx || 1) * terminalLead, y: source.y }
-    : { x: source.x, y: source.y + Math.sign(dy || 1) * terminalLead }
-  const leadTarget = firstAxis === "horizontal"
-    ? { x: target.x - Math.sign(dx || 1) * terminalLead, y: target.y }
-    : { x: target.x, y: target.y - Math.sign(dy || 1) * terminalLead }
-  const elbow = firstAxis === "horizontal" ? { x: leadTarget.x, y: leadSource.y } : { x: leadSource.x, y: leadTarget.y }
-  const path = dedupeAdjacentPoints([source, leadSource, elbow, leadTarget, target])
-  const diagnostics = Math.abs(firstAxis === "horizontal" ? dx : dy) < terminalLead * 2
-    ? [{ code: "terminal-leads-overlap" as const, message: "Terminal leads overlap on the selected first route axis; the local orthogonal route may contain a short or reversed segment." }]
-    : []
+  const clearance = options.clearance ?? 0
+  const waypoints = options.waypoints ?? []
+  const validDirection = (direction: DiagramOrthogonalRouteOptions["sourceDirection"]) => direction === undefined || ["north", "east", "south", "west"].includes(direction)
+  const validObstacle = (obstacle: NonNullable<DiagramOrthogonalRouteOptions["obstacles"]>[number]) => obstacle.bounds.width >= 0 && obstacle.bounds.height >= 0
+  const existingRoutes = options.existingRoutes ?? []
+  if (![source.x, source.y, target.x, target.y, terminalLead, clearance, ...waypoints.flatMap((point) => [point.x, point.y]), ...(options.obstacles ?? []).flatMap(({ bounds }) => [bounds.x, bounds.y, bounds.width, bounds.height]), ...existingRoutes.flatMap((route) => route.points.flatMap((point) => [point.x, point.y]))].every(Number.isFinite)
+    || terminalLead < 0 || clearance < 0
+    || (options.firstAxis !== undefined && options.firstAxis !== "horizontal" && options.firstAxis !== "vertical")
+    || (options.mode !== undefined && options.mode !== "auto" && options.mode !== "manual")
+    || !validDirection(options.sourceDirection) || !validDirection(options.targetDirection)
+    || (options.tieBreak !== undefined && !["coordinates", "horizontal-first", "vertical-first"].includes(options.tieBreak))
+    || (options.obstacles ?? []).some((obstacle) => !validObstacle(obstacle))) {
+    throw new RangeError("Connector points, clearance, and terminal lead must be finite; clearance and lead must be non-negative")
+  }
+  const dx = target.x - source.x, dy = target.y - source.y
+  const inferredAxis = Math.abs(dx) >= Math.abs(dy) ? "horizontal" : "vertical"
+  const firstAxis = options.firstAxis ?? axisForDirection(options.sourceDirection) ?? inferredAxis
+  const sourceDirection = options.sourceDirection ?? axisDirection(firstAxis, dx, dy, false)
+  const targetDirection = options.targetDirection ?? sourceDirection
+  const sourceStub = offsetInDirection(source, sourceDirection, terminalLead)
+  const targetStub = offsetInDirection(target, oppositeDirection(targetDirection), terminalLead)
+  const obstacles = (options.obstacles ?? []).map((obstacle) => inflateRect(obstacle.bounds, clearance))
+  if (obstacles.some((obstacle) => segmentCrossesRectInterior(source, sourceStub, obstacle) || segmentCrossesRectInterior(targetStub, target, obstacle))) {
+    return { points: [], path: [source, target], firstAxis, diagnostics: [{ code: "escape-direction-conflict", message: "A terminal lead crosses an inflated obstacle; adjust the escape direction or clearance." }] }
+  }
+  const stops = [sourceStub, ...waypoints, targetStub]
+  const routed: DiagramPoint[] = [source, sourceStub]
+  const diagnostics: DiagramOrthogonalRouteResult["diagnostics"][number][] = []
+  for (let index = 0; index < stops.length - 1; index += 1) {
+    const start = stops[index]!, end = stops[index + 1]!
+    const route = routeVisibilityLeg(start, end, obstacles, options.existingRoutes, undefined, undefined, options.tieBreak)
+    if (!route) {
+      diagnostics.push({ code: index === 0 ? "escape-direction-conflict" : waypoints.length ? "waypoint-blocked" : "no-route", message: "No collision-free orthogonal route satisfies the endpoint, waypoint, and obstacle constraints." })
+      return { points: [], path: [source, target], firstAxis, diagnostics }
+    }
+    routed.push(...route.slice(1))
+  }
+  routed.push(target)
+  const path = dedupeAdjacentPoints(routed)
+  if (distance(sourceStub, targetStub) < terminalLead * 2 && terminalLead > 0) diagnostics.push({ code: "terminal-leads-overlap", message: "Terminal lead segments overlap or reverse; reduce terminalLead or adjust the escape directions." })
   return { points: path.slice(1, -1), path, firstAxis, diagnostics }
+}
+
+type RouteState = { node: number; axis: 0 | 1 | 2; firstAxis: 0 | 1 | 2; bends: number; length: number; crossings: number; previous: RouteState | null }
+
+function routeVisibilityLeg(start: DiagramPoint, end: DiagramPoint, obstacles: ReadonlyArray<DiagramRect>, existingRoutes: DiagramOrthogonalRouteOptions["existingRoutes"] = [], startDirection?: DiagramOrthogonalRouteOptions["sourceDirection"], endDirection?: DiagramOrthogonalRouteOptions["targetDirection"], tieBreak: DiagramOrthogonalRouteOptions["tieBreak"] = "coordinates"): DiagramPoint[] | null {
+  const xs = [...new Set([start.x, end.x, ...obstacles.flatMap((rect) => [rect.x, rect.x + rect.width])])].sort((a, b) => a - b)
+  const ys = [...new Set([start.y, end.y, ...obstacles.flatMap((rect) => [rect.y, rect.y + rect.height])])].sort((a, b) => a - b)
+  const points: DiagramPoint[] = []
+  const indexByKey = new Map<string, number>()
+  for (const y of ys) for (const x of xs) {
+    const point = { x, y }
+    if (obstacles.some((rect) => rectContainsPoint(rect, point, -1e-8))) continue
+    indexByKey.set(pointKey(point), points.length); points.push(point)
+  }
+  const startIndex = indexByKey.get(pointKey(start)), endIndex = indexByKey.get(pointKey(end))
+  if (startIndex === undefined || endIndex === undefined) return null
+  const adjacency: Array<Array<{ node: number; axis: 1 | 2; length: number }>> = points.map(() => [])
+  const rows = new Map<number, number[]>(), columns = new Map<number, number[]>()
+  points.forEach((point, index) => {
+    const row = rows.get(point.y) ?? []; row.push(index); rows.set(point.y, row)
+    const column = columns.get(point.x) ?? []; column.push(index); columns.set(point.x, column)
+  })
+  const connectAdjacent = (sets: Map<number, number[]>, axis: 1 | 2) => {
+    for (const entries of sets.values()) {
+      entries.sort((a, b) => axis === 1 ? points[a]!.x - points[b]!.x : points[a]!.y - points[b]!.y)
+      for (let index = 1; index < entries.length; index += 1) {
+        const a = entries[index - 1]!, b = entries[index]!, pa = points[a]!, pb = points[b]!
+        if (obstacles.some((rect) => segmentCrossesRectInterior(pa, pb, rect))) continue
+        const length = distance(pa, pb)
+        adjacency[a]!.push({ node: b, axis, length }); adjacency[b]!.push({ node: a, axis, length })
+      }
+    }
+  }
+  connectAdjacent(rows, 1); connectAdjacent(columns, 2)
+  const initialAxis = directionAxis(startDirection), requiredEndAxis = directionAxis(endDirection)
+  const initial: RouteState = { node: startIndex, axis: initialAxis, firstAxis: 0, bends: 0, length: 0, crossings: 0, previous: null }
+  const best = new Map<string, RouteState>([[`${startIndex}:${initialAxis}`, initial]])
+  const pending: RouteState[] = []
+  pushRouteState(pending, initial, tieBreak)
+  while (pending.length) {
+    const current = popRouteState(pending, tieBreak)!
+    if (best.get(`${current.node}:${current.axis}`) !== current) continue
+    if (current.node === endIndex && (!requiredEndAxis || current.axis === requiredEndAxis)) {
+      const route: DiagramPoint[] = []
+      for (let item: RouteState | null = current; item; item = item.previous) route.push(points[item.node]!)
+      route.reverse()
+      return simplifyOrthogonalPath(route)
+    }
+    for (const next of adjacency[current.node]!) {
+      const from = points[current.node]!, to = points[next.node]!
+      if ((current.node === startIndex && startDirection && (next.axis !== initialAxis || !matchesDirection(from, to, startDirection)))
+        || (next.node === endIndex && requiredEndAxis && (next.axis !== requiredEndAxis || !matchesDirection(from, to, endDirection!)))) continue
+      const state: RouteState = { node: next.node, axis: next.axis, firstAxis: current.firstAxis || next.axis, bends: current.bends + (current.axis !== 0 && current.axis !== next.axis ? 1 : 0), length: current.length + next.length, crossings: current.crossings + countRouteCrossings(from, to, existingRoutes), previous: current }
+      const key = `${state.node}:${state.axis}`, existing = best.get(key)
+      if (!existing || compareRouteStates(state, existing, tieBreak) < 0) { best.set(key, state); pushRouteState(pending, state, tieBreak) }
+    }
+  }
+  return null
+}
+
+function pushRouteState(heap: RouteState[], value: RouteState, tieBreak: DiagramOrthogonalRouteOptions["tieBreak"]): void {
+  let index = heap.length; heap.push(value)
+  while (index > 0) {
+    const parent = (index - 1) >> 1
+    if (compareRouteStates(heap[parent]!, value, tieBreak) <= 0) break
+    heap[index] = heap[parent]!; index = parent
+  }
+  heap[index] = value
+}
+
+function popRouteState(heap: RouteState[], tieBreak: DiagramOrthogonalRouteOptions["tieBreak"]): RouteState | undefined {
+  const first = heap[0], last = heap.pop()
+  if (!first || !last || !heap.length) return first
+  let index = 0
+  while (true) {
+    const left = index * 2 + 1, right = left + 1
+    if (left >= heap.length) break
+    let child = left
+    if (right < heap.length && compareRouteStates(heap[right]!, heap[left]!, tieBreak) < 0) child = right
+    if (compareRouteStates(last, heap[child]!, tieBreak) <= 0) break
+    heap[index] = heap[child]!; index = child
+  }
+  heap[index] = last
+  return first
+}
+
+function compareRouteStates(a: RouteState, b: RouteState, tieBreak: DiagramOrthogonalRouteOptions["tieBreak"]): number {
+  const directionPreference = tieBreak === "vertical-first" ? 2 : 1
+  const firstAxisTie = (a.firstAxis === directionPreference ? 0 : 1) - (b.firstAxis === directionPreference ? 0 : 1)
+  return a.bends - b.bends || a.length - b.length || a.crossings - b.crossings || firstAxisTie || a.axis - b.axis || a.node - b.node
+}
+
+function countRouteCrossings(start: DiagramPoint, end: DiagramPoint, routes: NonNullable<DiagramOrthogonalRouteOptions["existingRoutes"]>): number {
+  let crossings = 0
+  for (const route of routes) for (let index = 0; index < route.points.length - 1; index += 1) {
+    const a = route.points[index]!, b = route.points[index + 1]!
+    if (start.y === end.y && a.x === b.x && start.y > Math.min(a.y, b.y) && start.y < Math.max(a.y, b.y) && a.x > Math.min(start.x, end.x) && a.x < Math.max(start.x, end.x)) crossings += 1
+    else if (start.x === end.x && a.y === b.y && start.x > Math.min(a.x, b.x) && start.x < Math.max(a.x, b.x) && a.y > Math.min(start.y, end.y) && a.y < Math.max(start.y, end.y)) crossings += 1
+  }
+  return crossings
+}
+
+function segmentCrossesRectInterior(a: DiagramPoint, b: DiagramPoint, rect: DiagramRect): boolean {
+  if (a.y === b.y) return a.y > rect.y + 1e-8 && a.y < rect.y + rect.height - 1e-8 && Math.max(Math.min(a.x, b.x), rect.x) < Math.min(Math.max(a.x, b.x), rect.x + rect.width) - 1e-8
+  if (a.x === b.x) return a.x > rect.x + 1e-8 && a.x < rect.x + rect.width - 1e-8 && Math.max(Math.min(a.y, b.y), rect.y) < Math.min(Math.max(a.y, b.y), rect.y + rect.height) - 1e-8
+  return true
+}
+
+function simplifyOrthogonalPath(points: ReadonlyArray<DiagramPoint>): DiagramPoint[] {
+  const result: DiagramPoint[] = []
+  for (const point of points) {
+    if (result.length && pointKey(result[result.length - 1]!) === pointKey(point)) continue
+    while (result.length >= 2) {
+      const a = result[result.length - 2]!, b = result[result.length - 1]!
+      const collinear = (a.x === b.x && b.x === point.x) || (a.y === b.y && b.y === point.y)
+      const reversal = (a.x === b.x && b.x === point.x && (b.y - a.y) * (point.y - b.y) < 0) || (a.y === b.y && b.y === point.y && (b.x - a.x) * (point.x - b.x) < 0)
+      if (!collinear || reversal) break
+      result.pop()
+    }
+    result.push(point)
+  }
+  return result
+}
+
+function pointKey(point: DiagramPoint): string { return `${point.x}\u0000${point.y}` }
+function directionAxis(direction?: DiagramOrthogonalRouteOptions["sourceDirection"]): 0 | 1 | 2 { return !direction ? 0 : direction === "east" || direction === "west" ? 1 : 2 }
+function axisForDirection(direction?: DiagramOrthogonalRouteOptions["sourceDirection"]): "horizontal" | "vertical" | undefined { return !direction ? undefined : directionAxis(direction) === 1 ? "horizontal" : "vertical" }
+function offsetInDirection(point: DiagramPoint, direction: NonNullable<DiagramOrthogonalRouteOptions["sourceDirection"]>, amount: number): DiagramPoint {
+  const vector = direction === "east" ? { x: 1, y: 0 } : direction === "west" ? { x: -1, y: 0 } : direction === "north" ? { x: 0, y: -1 } : { x: 0, y: 1 }
+  return { x: point.x + vector.x * amount, y: point.y + vector.y * amount }
+}
+function axisDirection(axis: "horizontal" | "vertical", dx: number, dy: number, reverse: boolean): NonNullable<DiagramOrthogonalRouteOptions["sourceDirection"]> {
+  if (axis === "horizontal") return (dx >= 0) !== reverse ? "east" : "west"
+  return (dy >= 0) !== reverse ? "south" : "north"
+}
+function oppositeDirection(direction: NonNullable<DiagramOrthogonalRouteOptions["sourceDirection"]>): NonNullable<DiagramOrthogonalRouteOptions["sourceDirection"]> {
+  return direction === "east" ? "west" : direction === "west" ? "east" : direction === "north" ? "south" : "north"
+}
+function matchesDirection(from: DiagramPoint, to: DiagramPoint, direction: NonNullable<DiagramOrthogonalRouteOptions["sourceDirection"]>): boolean {
+  return direction === "east" ? to.x > from.x : direction === "west" ? to.x < from.x : direction === "south" ? to.y > from.y : to.y < from.y
 }
 
 function dedupeAdjacentPoints(points: ReadonlyArray<DiagramPoint>): DiagramPoint[] {
@@ -176,11 +341,57 @@ function orientedLineFrameCorners(start: DiagramPoint, end: DiagramPoint, paddin
 }
 
 export function resolveEdgePath(edge: DiagramEdge, entities: DiagramEntities): ReadonlyArray<DiagramPoint> {
+  const routing = edge.routing
+  if (routing?.mode === "auto") {
+    const source = resolveEndpoint(edge.source, entities)
+    const target = resolveEndpoint(edge.target, entities)
+    const excluded = new Set<DiagramId>()
+    for (const endpoint of [edge.source, edge.target]) {
+      if (endpoint.kind === "node") excluded.add(endpoint.nodeId)
+      else if (endpoint.kind === "port") {
+        const port = entities.portsById.get(endpoint.portId)
+        if (port) excluded.add(diagramPortHostId(port))
+      }
+    }
+    const obstacleIds = [
+      ...entities.nodesById.keys(), ...entities.textsById.keys(), ...entities.tablesById.keys(),
+      ...entities.shapesById.keys(),
+    ].filter((id) => !excluded.has(id))
+    const obstacles = obstacleIds.flatMap((id) => {
+      const geometry = createEntityGeometry(id, entities)
+      return geometry && routeObstacleMayAffect(geometry.bounds, source, target, routing.waypoints ?? [], routing.clearance ?? 0, routing.terminalLead ?? 12) ? [{ id, bounds: geometry.bounds }] : []
+    })
+    const existingRoutes = [...entities.edgesById.values()]
+      .filter((candidate) => candidate.id !== edge.id && candidate.routing?.mode !== "auto")
+      .map((candidate) => ({ id: candidate.id, points: resolveEdgePath(candidate, entities) }))
+    const route = routeOrthogonalConnector(source, target, {
+      firstAxis: routing.firstAxis,
+      terminalLead: routing.terminalLead,
+      sourceDirection: routing.sourceDirection,
+      targetDirection: routing.targetDirection,
+      clearance: routing.clearance,
+      tieBreak: routing.tieBreak,
+      waypoints: routing.waypoints,
+      obstacles,
+      existingRoutes,
+    })
+    if (!route.diagnostics.some((diagnostic) => diagnostic.code !== "terminal-leads-overlap")) return route.path
+  }
   return [
     resolveEndpoint(edge.source, entities),
     ...(edge.points ?? []),
     resolveEndpoint(edge.target, entities),
   ]
+}
+
+function routeObstacleMayAffect(bounds: DiagramRect, source: DiagramPoint, target: DiagramPoint, waypoints: ReadonlyArray<DiagramPoint>, clearance: number, terminalLead: number): boolean {
+  const stops = [source, ...waypoints, target]
+  for (let index = 1; index < stops.length; index += 1) {
+    const leg = rectFromPoints([stops[index - 1]!, stops[index]!])
+    const margin = Math.max(leg.width, leg.height, clearance, terminalLead, 1) * 2 + clearance
+    if (rectIntersects(bounds, inflateRect(leg, margin))) return true
+  }
+  return false
 }
 
 export function resolveEndpoint(endpoint: DiagramEdgeEndpoint, entities: DiagramEntities): DiagramPoint {

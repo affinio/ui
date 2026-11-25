@@ -1,5 +1,30 @@
 # @affino/diagram-core
 
+## 0.28.0
+
+### Minor Changes
+
+- Added opt-in `snap.strictGrid` resolution. Grid coordinates override conflicting geometric snap candidates; resize edges and dimensions, port anchors, path points, connector endpoints and user waypoints share the same world-grid policy. Added grid-aligned rotation-center options to `rotateEntities` while preserving port attachments.
+
+## Unreleased
+
+### Fixed
+
+- Scoped interaction `snap.ortho` to drawing geometry so selected entities move freely while grid and object snapping remain active.
+
+## 0.27.1
+
+### Patch Changes
+
+- Allow selected paths to serve as trim boundaries for other selected targets while excluding each target from its own boundary set. Added an explicit partial/unchanged/rejected Trim status so per-target findings do not mask successful updates.
+
+## 0.27.0
+
+### Minor Changes
+
+- Added deterministic orthogonal connector routing through a coordinate-compressed visibility graph with obstacle clearance, ordered waypoints, cardinal terminal leads, route diagnostics, and stable tie-breaking.
+- Added opt-in serialized automatic routing with derived geometry invalidation after host/obstacle edits. Legacy edges without routing remain fixed; route and segment previews commit their exact displayed geometry, and dragged auto-route segments become undoable waypoint constraints.
+
 ## 0.26.0
 
 ### Minor Changes

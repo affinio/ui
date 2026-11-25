@@ -1,4 +1,4 @@
-import { createEntityGeometry, diagramPortHostId, distance, inflateRect, isValidDiagramPortAnchor, rectContainsPoint, rectIntersects, resolvePortPoint, rotatePoint } from "./geometry.js"
+import { createEntityGeometry, diagramPortHostId, distance, inflateRect, isValidDiagramPortAnchor, rectContainsPoint, rectIntersects, resolveEdgePath, resolvePortPoint, rotatePoint } from "./geometry.js"
 import { createConnectorRenderGeometry } from "./connectorRendering.js"
 import { createCircularArc, flattenPathContour, pathContourBoundsPoints, translatePathContour } from "./pathOperations.js"
 import { DiagramClipboardService } from "./internal/DiagramClipboardService.js"
@@ -19,6 +19,7 @@ import type {
   DiagramBatchPreviewResult,
   DiagramDiagnostics,
   DiagramEdge,
+  DiagramEdgeRouting,
   DiagramConnectorRenderGeometry,
   DiagramConnectorRenderOptions,
   DiagramEdgeEndpoint,
@@ -50,6 +51,7 @@ import type {
   DiagramRenderOrderOptions,
   DiagramResizeEntry,
   DiagramRotateEntry,
+  DiagramGridSnapOptions,
   DiagramAlignEdge,
   DiagramScene,
   DiagramSceneInput,
@@ -422,6 +424,18 @@ export class DiagramEngine {
   }
 
   snapPoint(point: DiagramPoint, context: DiagramSnapContext = {}): DiagramSnapResult {
+    const result = this.resolveSnapPoint(point, context)
+    const gridSize = context.gridSize
+    if (!context.strictGrid || !Number.isFinite(gridSize) || gridSize! <= 0) return result
+    const snappedPoint = {
+      x: context.axisConstraint === "y" ? point.x : Math.round(result.point.x / gridSize!) * gridSize!,
+      y: context.axisConstraint === "x" ? point.y : Math.round(result.point.y / gridSize!) * gridSize!,
+    }
+    if (snappedPoint.x === result.point.x && snappedPoint.y === result.point.y) return result
+    return { point: snappedPoint, snapped: true, source: "grid", ...(result.candidates ? { candidates: result.candidates } : {}) }
+  }
+
+  private resolveSnapPoint(point: DiagramPoint, context: DiagramSnapContext): DiagramSnapResult {
     const custom = context.custom?.(point)
     if (custom) return { point: constrainSnapPoint(custom, point, context.axisConstraint), snapped: true, source: "custom" }
     if (context.kinds || context.tolerancePx !== undefined || context.angleIncrement !== undefined || (context.angleConstraint !== undefined && context.origin !== undefined) || context.additionalAngles || context.ortho) {
@@ -579,6 +593,19 @@ export class DiagramEngine {
       : context.axisConstraint === "y"
         ? { x: origin.x, y: origin.y + delta.y }
         : { x: origin.x + delta.x, y: origin.y + delta.y }
+    if (context.strictGrid && Number.isFinite(context.gridSize) && context.gridSize! > 0) {
+      const size = context.gridSize!
+      const snapped = {
+        x: context.axisConstraint === "y" ? origin.x : Math.round(proposed.x / size) * size,
+        y: context.axisConstraint === "x" ? origin.y : Math.round(proposed.y / size) * size,
+      }
+      return {
+        point: { x: snapped.x - origin.x, y: snapped.y - origin.y },
+        snapped: true,
+        source: "grid",
+        guides: Object.freeze([]),
+      }
+    }
     const guides: DiagramSnapGuide[] = []
     let point = proposed
     let source: DiagramSnapResult["source"] = null
@@ -838,9 +865,33 @@ export class DiagramEngine {
 
   private collectInvalidatedIds(changedIds: ReadonlySet<DiagramId>): Set<DiagramId> {
     const invalidated = new Set(changedIds)
+    const changedObstacleBounds: DiagramRect[] = []
+    const changedRouteBounds: DiagramRect[] = []
+    for (const id of changedIds) {
+      if (this.state.entities.edgesById.has(id)) {
+        const previousRoute = this.geometryService.get(id, this.state.entities, this.state.versions.get(id) ?? 0)
+        const currentRoute = createEntityGeometry(id, this.state.entities)
+        if (previousRoute) changedRouteBounds.push(inflateRect(previousRoute.bounds, 1))
+        if (currentRoute) changedRouteBounds.push(inflateRect(currentRoute.bounds, 1))
+      }
+      if (!(this.state.entities.nodesById.has(id) || this.state.entities.shapesById.has(id) || this.state.entities.textsById.has(id) || this.state.entities.tablesById.has(id))) continue
+      const previousGeometry = this.geometryService.get(id, this.state.entities, this.state.versions.get(id) ?? 0)
+      const currentGeometry = createEntityGeometry(id, this.state.entities)
+      if (previousGeometry) changedObstacleBounds.push(inflateRect(previousGeometry.bounds, 1))
+      if (currentGeometry) changedObstacleBounds.push(inflateRect(currentGeometry.bounds, 1))
+    }
+    if (changedObstacleBounds.length || changedRouteBounds.length) {
+      for (const edge of this.state.entities.edgesById.values()) {
+        if (edge.routing?.mode !== "auto" || changedIds.has(edge.id)) continue
+        const routeGeometry = this.geometryService.get(edge.id, this.state.entities, this.state.versions.get(edge.id) ?? 0)
+        if (!routeGeometry || ![...changedObstacleBounds, ...changedRouteBounds].some((bounds) => rectIntersects(inflateRect(routeGeometry.bounds, edge.routing?.clearance ?? 0), bounds))) continue
+        invalidated.add(edge.id)
+      }
+    }
     for (const id of changedIds) {
       for (const portId of this.portIdsByHost.get(id) ?? []) {
         invalidated.add(portId)
+        for (const edgeId of this.edgeIdsByPort.get(portId) ?? []) invalidated.add(edgeId)
       }
       for (const edgeId of this.edgeIdsByNode.get(id) ?? []) {
         invalidated.add(edgeId)
@@ -1028,6 +1079,8 @@ export class DiagramEngine {
         return createEdgeWaypointPatch(this.state, command.id, command.index, command.point, "move")
       case "removeEdgeWaypoint":
         return createEdgeWaypointPatch(this.state, command.id, command.index, null, "remove")
+      case "updateEdgeRouting":
+        return createUpdateEdgeRoutingPatch(this.state, command.id, command.routing)
       case "createEdge":
         return createCreateEdgePatch(this.state, command.edge)
       case "deleteSelection":
@@ -1040,7 +1093,7 @@ export class DiagramEngine {
       case "resizeEntities":
         return createResizePatch(this.state, command.entries)
       case "rotateEntities":
-        return createRotatePatch(this.state, command.entries)
+        return createRotatePatch(this.state, command.entries, command.snap)
       case "flipEntities":
         return createFlipPatch(this.state, command.ids ?? this.state.selection.ids, command.axis)
       case "alignEntities":
@@ -1302,6 +1355,10 @@ function isBatchNoOp(state: InternalState, command: DiagramCommand): boolean {
     const table = state.entities.tablesById.get(command.id)
     return Boolean(table && JSON.stringify(table.header) === JSON.stringify(command.header ?? undefined))
   }
+  if (command.type === "updateEdgeRouting") {
+    const edge = state.entities.edgesById.get(command.id)
+    return Boolean(edge && JSON.stringify(edge.routing) === JSON.stringify(command.routing))
+  }
   if (command.type === "updateEntities" && command.updates.every((update) => {
     if (!hasEntity(state, update.id)) return false
     const current = getEntityMetadata(state, update.id) ?? {}
@@ -1392,7 +1449,10 @@ export function createDiagramEngine(initialScene: DiagramSceneInput = {}, option
 export function serializeScene(scene: DiagramScene): SerializedDiagramScene {
   return {
     nodes: scene.order.nodeIds.map((id) => scene.entities.nodesById.get(id)).filter(isDefined),
-    edges: scene.order.edgeIds.map((id) => scene.entities.edgesById.get(id)).filter(isDefined),
+    edges: scene.order.edgeIds.map((id) => scene.entities.edgesById.get(id)).filter(isDefined).map((edge) => {
+      if (edge.routing?.mode !== "auto") return edge
+      return { ...edge, points: resolveEdgePath(edge, scene.entities).slice(1, -1) }
+    }),
     texts: scene.order.textIds.map((id) => scene.entities.textsById.get(id)).filter(isDefined),
     shapes: scene.order.shapeIds.map((id) => scene.entities.shapesById.get(id)).filter(isDefined),
     ports: [...scene.entities.portsById.values()],
@@ -1468,6 +1528,17 @@ function validFlipFlags(entity: { flipX?: unknown; flipY?: unknown }): boolean {
     && (entity.flipY === undefined || typeof entity.flipY === "boolean")
 }
 
+function isValidEdgeRouting(routing: DiagramEdgeRouting): boolean {
+  return Boolean(routing && routing.mode === "auto"
+    && (routing.clearance === undefined || Number.isFinite(routing.clearance) && routing.clearance >= 0)
+    && (routing.terminalLead === undefined || Number.isFinite(routing.terminalLead) && routing.terminalLead >= 0)
+    && (routing.firstAxis === undefined || routing.firstAxis === "horizontal" || routing.firstAxis === "vertical")
+    && (routing.sourceDirection === undefined || ["north", "east", "south", "west"].includes(routing.sourceDirection))
+    && (routing.targetDirection === undefined || ["north", "east", "south", "west"].includes(routing.targetDirection))
+    && (routing.tieBreak === undefined || ["coordinates", "horizontal-first", "vertical-first"].includes(routing.tieBreak))
+    && (routing.waypoints === undefined || routing.waypoints.every((point) => Number.isFinite(point.x) && Number.isFinite(point.y))))
+}
+
 function validateTableCell(cell: DiagramTableCell, id: DiagramId): void {
   if (!cell || Object.keys(cell).some((key) => !["text", "horizontalAlign", "verticalAlign"].includes(key)) || typeof cell.text !== "string" || (cell.horizontalAlign !== undefined && !["left", "center", "right"].includes(cell.horizontalAlign)) || (cell.verticalAlign !== undefined && !["top", "middle", "bottom"].includes(cell.verticalAlign))) throw new TypeError(`Invalid cell in table ${id}`)
 }
@@ -1534,7 +1605,16 @@ function validateSceneInput(scene: DiagramSceneInput): DiagramSceneInput {
   for (const table of tablesInput) validateDiagramTable(table)
   for (const edge of edgesInput) {
     const validEndpoint = (endpoint: DiagramEdgeEndpoint) => endpoint.kind === "point" ? Number.isFinite(endpoint.point.x) && Number.isFinite(endpoint.point.y) : endpoint.kind === "node" ? nodes.has(endpoint.nodeId) : endpoint.kind === "port" && ports.has(endpoint.portId)
-    if (!validEndpoint(edge.source) || !validEndpoint(edge.target) || !Number.isFinite(edge.rotation ?? 0) || !(edge.points ?? []).every((point) => Number.isFinite(point.x) && Number.isFinite(point.y))) throw new TypeError(`Invalid edge ${edge.id}`)
+    const routing = edge.routing
+    const validDirection = (value: unknown) => value === undefined || ["north", "east", "south", "west"].includes(value as string)
+    const validRouting = routing === undefined || (routing.mode === "auto"
+      && Number.isFinite(routing.clearance ?? 0) && (routing.clearance ?? 0) >= 0
+      && Number.isFinite(routing.terminalLead ?? 12) && (routing.terminalLead ?? 12) >= 0
+      && (routing.firstAxis === undefined || routing.firstAxis === "horizontal" || routing.firstAxis === "vertical")
+      && validDirection(routing.sourceDirection) && validDirection(routing.targetDirection)
+      && (routing.tieBreak === undefined || ["coordinates", "horizontal-first", "vertical-first"].includes(routing.tieBreak))
+      && (routing.waypoints ?? []).every((point) => Number.isFinite(point.x) && Number.isFinite(point.y)))
+    if (!validEndpoint(edge.source) || !validEndpoint(edge.target) || !Number.isFinite(edge.rotation ?? 0) || !(edge.points ?? []).every((point) => Number.isFinite(point.x) && Number.isFinite(point.y)) || !validRouting) throw new TypeError(`Invalid edge ${edge.id}`)
   }
   const groupedChildren = new Set<DiagramId>()
   const groupable = new Set<DiagramId>([...nodesInput, ...edgesInput, ...textsInput, ...shapesInput, ...tablesInput].map((entity) => entity.id))
@@ -1623,6 +1703,7 @@ function applyMoveDelta(state: InternalState, ids: ReadonlyArray<DiagramId>, del
         source: edge.source.kind === "point" ? { kind: "point", point: translate(edge.source.point) } : edge.source,
         target: edge.target.kind === "point" ? { kind: "point", point: translate(edge.target.point) } : edge.target,
         points: edge.points?.map(translate),
+        ...(edge.routing?.mode === "auto" && edge.routing.waypoints ? { routing: { ...edge.routing, waypoints: edge.routing.waypoints.map(translate) } } : {}),
       })
       changed.add(id)
       continue
@@ -1683,7 +1764,7 @@ function createEdgeWaypointPatch(state: InternalState, id: DiagramId, index: num
   if (!edge || isEntityLockedOrReadOnly(state, id)) {
     return null
   }
-  const previousPoints = [...(edge.points ?? [])]
+  const previousPoints = [...(edge.routing?.mode === "auto" ? edge.routing.waypoints ?? [] : edge.points ?? [])]
   const nextPoints = [...previousPoints]
   const safeIndex = Math.max(0, Math.min(index, mode === "insert" ? nextPoints.length : nextPoints.length - 1))
   if (mode === "insert" && point) {
@@ -1695,7 +1776,32 @@ function createEdgeWaypointPatch(state: InternalState, id: DiagramId, index: num
   } else {
     return null
   }
+  if (edge.routing?.mode === "auto") return createUpdateEdgeRoutingPatch(state, id, { ...edge.routing, waypoints: nextPoints })
   return createEdgePointsPatch(id, previousPoints, nextPoints)
+}
+
+function createUpdateEdgeRoutingPatch(state: InternalState, id: DiagramId, routing: DiagramEdgeRouting): Patch | null {
+  const edge = state.entities.edgesById.get(id)
+  if (!edge || isEntityLockedOrReadOnly(state, id) || !isValidEdgeRouting(routing) || JSON.stringify(edge.routing) === JSON.stringify(routing)) return null
+  const previous = edge.routing
+  return {
+    apply: (next) => {
+      const current = next.entities.edgesById.get(id)
+      if (!current) return new Set()
+      next.entities.edgesById.set(id, { ...current, routing })
+      return new Set([id])
+    },
+    inverse: {
+      apply: (next) => {
+        const current = next.entities.edgesById.get(id)
+        if (!current) return new Set()
+        const { routing: _routing, ...rest } = current
+        next.entities.edgesById.set(id, previous ? { ...rest, routing: previous } : rest)
+        return new Set([id])
+      },
+      inverse: undefined as unknown as Patch,
+    },
+  }
 }
 
 function createEdgePointsPatch(id: DiagramId, previousPoints: ReadonlyArray<DiagramPoint>, nextPoints: ReadonlyArray<DiagramPoint>): Patch {
@@ -1921,7 +2027,13 @@ function definedRectPatch(entry: DiagramResizeEntry): Partial<DiagramResizeEntry
 }
 
 
-function createRotatePatch(state: InternalState, entries: ReadonlyArray<DiagramRotateEntry>): Patch | null {
+function strictGridRotationCenter(center: DiagramPoint, snap: DiagramGridSnapOptions): DiagramPoint {
+  const size = snap.strictGrid === true ? snap.gridSize : undefined
+  if (!Number.isFinite(size) || size! <= 0) return center
+  return { x: Math.round(center.x / size!) * size!, y: Math.round(center.y / size!) * size! }
+}
+
+function createRotatePatch(state: InternalState, entries: ReadonlyArray<DiagramRotateEntry>, snap: DiagramGridSnapOptions = {}): Patch | null {
   const previous = new Map<DiagramId, DiagramRotationSnapshot>()
   const next = new Map<DiagramId, DiagramRotationSnapshot>()
   const groupChildren = new Set<DiagramId>()
@@ -1933,7 +2045,7 @@ function createRotatePatch(state: InternalState, entries: ReadonlyArray<DiagramR
     if (delta === 0) continue
     const groupGeometry = createEntityGeometry(group.id, snapshotEntities(state))
     if (!groupGeometry) continue
-    const center = { x: groupGeometry.bounds.x + groupGeometry.bounds.width / 2, y: groupGeometry.bounds.y + groupGeometry.bounds.height / 2 }
+    const center = strictGridRotationCenter({ x: groupGeometry.bounds.x + groupGeometry.bounds.width / 2, y: groupGeometry.bounds.y + groupGeometry.bounds.height / 2 }, snap)
     previous.set(group.id, group)
     next.set(group.id, { ...group, rotation: targetRotation })
     for (const childId of group.childIds) {
@@ -1958,7 +2070,7 @@ function createRotatePatch(state: InternalState, entries: ReadonlyArray<DiagramR
       const rotation = normalizeRotation(entry.rotation)
       const delta = normalizeRotation(rotation - (entity.rotation ?? 0))
       if (!delta) continue
-      const center = { x: geometry.bounds.x + geometry.bounds.width / 2, y: geometry.bounds.y + geometry.bounds.height / 2 }
+      const center = strictGridRotationCenter({ x: geometry.bounds.x + geometry.bounds.width / 2, y: geometry.bounds.y + geometry.bounds.height / 2 }, snap)
       const rotate = (point: DiagramPoint) => cleanRotatedPoint(rotatePoint(point, center, delta))
       const nextEdge: DiagramEdge = {
         ...entity,
@@ -1973,8 +2085,12 @@ function createRotatePatch(state: InternalState, entries: ReadonlyArray<DiagramR
     }
     const rotation = normalizeRotation(entry.rotation)
     if ((entity.rotation ?? 0) === rotation) continue
+    const geometry = createEntityGeometry(entry.id, snapshotEntities(state))
+    const center = geometry ? strictGridRotationCenter({ x: geometry.bounds.x + geometry.bounds.width / 2, y: geometry.bounds.y + geometry.bounds.height / 2 }, snap) : null
+    const dx = center && geometry ? center.x - (geometry.bounds.x + geometry.bounds.width / 2) : 0
+    const dy = center && geometry ? center.y - (geometry.bounds.y + geometry.bounds.height / 2) : 0
     previous.set(entry.id, { ...entity, rotation: entity.rotation ?? 0 })
-    next.set(entry.id, { ...entity, rotation })
+    next.set(entry.id, { ...entity, x: entity.x + dx, y: entity.y + dy, rotation })
   }
   if (!next.size) return null
   const rotationPatch = createRotatePatchUnchecked([...next.values()], [...previous.values()])
@@ -1998,7 +2114,7 @@ function createRotatePatch(state: InternalState, entries: ReadonlyArray<DiagramR
     const before = createEntityGeometry(group.id, snapshotEntities(state))
     const after = createEntityGeometry(group.id, entities)
     if (!before || !after) continue
-    const center = { x: before.bounds.x + before.bounds.width / 2, y: before.bounds.y + before.bounds.height / 2 }
+    const center = strictGridRotationCenter({ x: before.bounds.x + before.bounds.width / 2, y: before.bounds.y + before.bounds.height / 2 }, snap)
     const delta = normalizeRotation(entry.rotation - (group.rotation ?? 0))
     for (const port of state.entities.portsById.values()) {
       if (diagramPortHostId(port) !== group.id || !("hostId" in port)) continue
@@ -2930,7 +3046,9 @@ function isValidEndpoint(state: InternalState, endpoint: DiagramEdgeEndpoint): b
   return Boolean(port && hasEntity(state, diagramPortHostId(port)))
 }
 function isValidEdge(state: InternalState, edge: DiagramEdge): boolean {
-  return isValidEndpoint(state, edge.source) && isValidEndpoint(state, edge.target) && (edge.points ?? []).every((point) => Number.isFinite(point.x) && Number.isFinite(point.y))
+  return isValidEndpoint(state, edge.source) && isValidEndpoint(state, edge.target)
+    && (edge.points ?? []).every((point) => Number.isFinite(point.x) && Number.isFinite(point.y))
+    && (edge.routing === undefined || isValidEdgeRouting(edge.routing))
 }
 function commandIds(command: DiagramCommand): DiagramId[] {
   if (command.type === "createTable") return [command.table.id]
