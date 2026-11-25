@@ -1,5 +1,13 @@
 # @affino/diagram-core
 
+## Unreleased
+
+## 0.33.0
+
+### Minor Changes
+
+- Stabilized connector creation with screen-space port capture hysteresis, gesture-locked route axes, and a soft persisted route-turn hint; canonical route previews now match committed auto geometry.
+
 ## 0.32.0
 
 ### Minor Changes
@@ -16,8 +24,6 @@
 - Added explicit `expectedDocumentRevision` guards for batch preview and commit.
 - Added `altKey` to pointer events and center-based entity resizing; Shift and Alt/Option can be combined for centered aspect-ratio resizing.
 - Automatic connector segment drags now preview and commit the same constrained route, including moved free endpoints; impossible routes report `no-route` and are not committed.
-
-## Unreleased
 
 ## 0.30.0
 

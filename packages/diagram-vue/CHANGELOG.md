@@ -1,5 +1,11 @@
 # @affino/diagram-vue
 
+## 0.30.0
+
+### Minor Changes
+
+- Exposed refreshed connector route previews and the typed `commitBlocked: "document-changed"` state through the pointer controller, allowing consumers to require confirmation when a document edit changes the active plan.
+
 ## 0.29.0
 
 ### Minor Changes

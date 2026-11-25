@@ -1202,6 +1202,26 @@ describe("diagram-vue", () => {
     vi.unstubAllGlobals()
   })
 
+  it("publishes a refreshed connector preview and blocks stale pointerup confirmation", () => {
+    const diagram = useDiagramEngine({
+      nodes: [{ id: "host", kind: "node", x: 0, y: 0, width: 100, height: 10 }],
+      ports: [{ id: "target-port", kind: "port", nodeId: "host", x: 50, y: 0 }],
+    })
+    const pointer = useDiagramPointerController(diagram, { snap: { tolerancePx: 8 }, toWorldPoint: (event) => ({ x: event.clientX, y: event.clientY }) })
+    const event = (x: number, y: number) => ({ pointerId: 19, clientX: x, clientY: y, shiftKey: false }) as PointerEvent
+    expect(pointer.beginEdgeCreation("stale-wire", event(0, 0), { mode: "auto", terminalLead: 0, clearance: 0 })).toBe(true)
+    expect(pointer.setDynamicInput({ x: 50, y: 0 })).toBe(true)
+    const oldPlan = pointer.state.value.edgeCreationPreview!
+    diagram.dispatch({ type: "moveEntities", ids: ["host"], delta: { x: 10, y: 0 } })
+    pointer.getSvgPointerProps().onPointerup(event(50, 0))
+    expect(pointer.state.value.edgeCreationPreview).toMatchObject({ commitBlocked: "document-changed" })
+    expect(pointer.state.value.edgeCreationPreview?.path).not.toEqual(oldPlan.path)
+    expect(diagram.scene.value.entities.edgesById.has("stale-wire")).toBe(false)
+    pointer.cancel()
+    pointer.dispose()
+    diagram.dispose()
+  })
+
   it("forwards opt-in automatic routing and exposes the exact route committed by Core", () => {
     const callbacks: Array<FrameRequestCallback> = []
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { callbacks.push(callback); return callbacks.length })

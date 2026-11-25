@@ -654,6 +654,8 @@ export type DiagramEdgeCreationPreview = Readonly<{
   path: ReadonlyArray<DiagramPoint>
   diagnostics?: DiagramOrthogonalRouteResult["diagnostics"]
   prospectiveJunctions?: ReadonlyArray<DiagramJunctionRenderGeometry>
+  /** Present when the document changed and revalidation produced a different plan; confirm again after inspecting the updated preview. */
+  commitBlocked?: "document-changed"
 }>
 export type DiagramCardinalDirection = "north" | "east" | "south" | "west"
 export type DiagramEdgeRouting = Readonly<{
@@ -668,6 +670,8 @@ export type DiagramEdgeRouting = Readonly<{
   targetDirection?: DiagramCardinalDirection
   /** Ordered fixed world-space constraints; generated route bends are not fed back as constraints. */
   waypoints?: ReadonlyArray<DiagramPoint>
+  /** One soft gesture route preference used to keep an automatic draft on its chosen side while that route remains feasible. */
+  routeHint?: DiagramPoint
   maxBends?: number
   maxRouteBends?: number
   tieBreak?: "coordinates" | "horizontal-first" | "vertical-first"
@@ -687,6 +691,8 @@ export type DiagramOrthogonalRouteOptions = Readonly<{
   targetDirection?: DiagramCardinalDirection
   /** Ordered fixed intermediate points. Leads apply only at source and target. */
   waypoints?: ReadonlyArray<DiagramPoint>
+  /** One preferred intermediate point. Routing retries without it if the preference becomes infeasible. */
+  routeHint?: DiagramPoint
   /** Hard upper bound on generated bends; explicit waypoint corners are excluded. */
   maxBends?: number
   /** Hard upper bound on all route corners, including turns at explicit waypoints. */

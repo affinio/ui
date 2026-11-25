@@ -58,6 +58,12 @@ export class DiagramInteractionController {
   private edgeCreationSource: DiagramEdgeEndpoint | null = null
   private edgeCreationPreview: DiagramEdgeCreationPreview | null = null
   private edgeRouteOptions: DiagramOrthogonalRouteOptions = {}
+  private edgeCreationFirstAxis: "horizontal" | "vertical" | null = null
+  private edgeCreationRouteHint: DiagramPoint | null = null
+  private connectorEndpointCaptures = new Map<"source" | "target", Readonly<{ endpoint: DiagramEdgeEndpoint; point: DiagramPoint }>>()
+  private edgeCreationTargetInvalid = false
+  private edgeCreationDocumentRevision = 0
+  private edgeCreationPreviewDocumentRevision = 0
   private edgeClickPlacement = false
   private edgeCreationWaypoints: DiagramPoint[] = []
   private edgeCreationJunctions = new Map<DiagramId, DiagramJunction>()
@@ -124,6 +130,12 @@ export class DiagramInteractionController {
       return
     }
     if (this.tool === "connect-edge" && this.edgeClickPlacement) {
+      this.activePointer = event
+      this.latestPoint = event.point
+      this.updateEdgeCreationPreview()
+      return
+    }
+    if (this.tool === "connect-edge" && this.edgeCreationId) {
       this.activePointer = event
       this.latestPoint = event.point
       this.updateEdgeCreationPreview()
@@ -246,7 +258,8 @@ export class DiagramInteractionController {
   beginEdgeEndpointHandle(ownerId: DiagramId, endpoint: "source" | "target", event: DiagramPointerEvent): boolean {
     if (this.engine.isEditingLocked()) return false
     const geometry = this.engine.getGeometrySnapshot(ownerId)
-    if (!geometry || geometry.kind !== "edge" || !geometry.path?.length) return false
+    const edge = this.engine.getScene().entities.edgesById.get(ownerId)
+    if (!edge || !geometry || geometry.kind !== "edge" || !geometry.path?.length) return false
     const point = endpoint === "source" ? geometry.path[0]! : geometry.path[geometry.path.length - 1]!
     const oppositePoint = endpoint === "source" ? geometry.path[geometry.path.length - 1]! : geometry.path[0]!
     this.cancel()
@@ -262,6 +275,11 @@ export class DiagramInteractionController {
     this.edgeEndpointKind = endpoint
     this.edgeEndpointStart = point
     this.edgeEndpointOppositeStart = oppositePoint
+    this.edgeCreationDocumentRevision = this.engine.getDocumentRevision()
+    this.edgeCreationTargetInvalid = false
+    this.connectorEndpointCaptures.clear()
+    const currentEndpoint = endpoint === "source" ? edge.source : edge.target
+    if (currentEndpoint.kind === "port") this.connectorEndpointCaptures.set(endpoint, { endpoint: currentEndpoint, point })
     return true
   }
 
@@ -346,6 +364,7 @@ export class DiagramInteractionController {
       || (routeOptions.firstAxis !== undefined && routeOptions.firstAxis !== "horizontal" && routeOptions.firstAxis !== "vertical")
       || (routeOptions.mode !== undefined && routeOptions.mode !== "auto" && routeOptions.mode !== "manual")
       || !validDirection(routeOptions.sourceDirection) || !validDirection(routeOptions.targetDirection)
+      || (routeOptions.routeHint !== undefined && ![routeOptions.routeHint.x, routeOptions.routeHint.y].every(Number.isFinite))
       || (routeOptions.waypoints ?? []).some((point) => ![point.x, point.y].every(Number.isFinite))) return false
     this.cancel()
     this.tool = "connect-edge"
@@ -356,6 +375,10 @@ export class DiagramInteractionController {
     this.latestShiftKey = event.shiftKey === true
     this.edgeCreationId = id
     this.edgeRouteOptions = routeOptions
+    this.edgeCreationFirstAxis = routeOptions.firstAxis ?? null
+    this.edgeCreationRouteHint = routeOptions.routeHint ?? null
+    this.connectorEndpointCaptures.clear()
+    this.edgeCreationDocumentRevision = this.engine.getDocumentRevision()
     this.edgeCreationSource = this.snapEndpoint(event.point, event.point, true, "source")
     this.updateEdgeCreationPreview()
     return true
@@ -374,6 +397,8 @@ export class DiagramInteractionController {
   finishEdgePathCreation(point?: DiagramPoint): boolean {
     if (this.engine.isEditingLocked()) { this.cancel(); return false }
     if (!this.edgeClickPlacement || !this.edgeCreationId || !this.edgeCreationPreview) return false
+    const beforeRevalidation = this.edgeCreationPreview
+    const staleDocument = this.edgeCreationPreviewDocumentRevision !== this.engine.getDocumentRevision()
     if (point) this.latestPoint = point
     const lastWaypoint = this.edgeCreationWaypoints[this.edgeCreationWaypoints.length - 1]
     const finalPoint = point ?? this.latestPoint
@@ -381,6 +406,10 @@ export class DiagramInteractionController {
     if (targetPoint && lastWaypoint && samePoint(lastWaypoint, targetPoint)) this.edgeCreationWaypoints.pop()
     this.updateEdgeCreationPreview()
     const preview = this.edgeCreationPreview!
+    if (staleDocument && beforeRevalidation && edgeCreationPlanChanged(beforeRevalidation, preview)) {
+      this.edgeCreationPreview = Object.freeze({ ...preview, commitBlocked: "document-changed" })
+      return false
+    }
     if (preview.diagnostics?.some((diagnostic) => diagnostic.code !== "terminal-leads-overlap")) return false
     const committed = this.commitEdgeCreation(preview)
     this.commitCount += committed
@@ -712,6 +741,8 @@ export class DiagramInteractionController {
     if (!this.activePointer || this.activePointer.id !== event.id) {
       return
     }
+    const edgePlanBeforeRevalidation = this.tool === "connect-edge" ? this.edgeCreationPreview : null
+    const edgePlanWasStale = this.tool === "connect-edge" && this.edgeCreationPreviewDocumentRevision !== this.engine.getDocumentRevision()
     this.latestPoint = event.point
     if (this.tool === "drag-selection" && this.startPoint && this.isPastAxisActivation(event.point, this.startPoint)) this.dragActivated = true
     if (this.tool === "drag-path-vertex" && this.pathVertexPreview) {
@@ -790,6 +821,12 @@ export class DiagramInteractionController {
     this.latestAltKey = event.altKey === true
     this.updateShiftAxis(event.shiftKey === true, event.point)
     this.flushPointerMove()
+    if (edgePlanWasStale && edgePlanBeforeRevalidation && this.edgeCreationPreview
+      && edgeCreationPlanChanged(edgePlanBeforeRevalidation, this.edgeCreationPreview)) {
+      this.edgeCreationPreview = Object.freeze({ ...this.edgeCreationPreview, commitBlocked: "document-changed" })
+      this.activePointer = null
+      return
+    }
     if (this.tool === "resize-table-axis" && this.tableResizePreview && this.tableResizePreview.size !== this.tableResizeStart?.size) {
       const preview = this.tableResizePreview
       const historyKey = `table-resize:${preview.id}:${preview.axis}:${preview.index}:${++this.gestureHistoryId}`
@@ -854,7 +891,7 @@ export class DiagramInteractionController {
       this.tool = "select"
       return preview ? { status: "committed" } : undefined
     }
-    if (this.tool === "drag-edge-endpoint" && this.edgeEndpointId && this.edgeEndpointKind && this.edgeEndpointPreview
+    if (this.tool === "drag-edge-endpoint" && !this.edgeCreationTargetInvalid && this.edgeEndpointId && this.edgeEndpointKind && this.edgeEndpointPreview
       && (this.edgeEndpointPreview.x !== this.edgeEndpointStart?.x || this.edgeEndpointPreview.y !== this.edgeEndpointStart?.y || this.edgeEndpointConnection !== null)) {
       const edge = this.engine.getScene().entities.edgesById.get(this.edgeEndpointId)
       const commands: DiagramCommand[] = [this.edgeEndpointConnection
@@ -1104,7 +1141,7 @@ export class DiagramInteractionController {
           : null
     return {
       tool: this.tool,
-      active: this.activePointer !== null || this.pathCreationId !== null || this.bezierCreationId !== null || this.edgeClickPlacement,
+      active: this.activePointer !== null || this.pathCreationId !== null || this.bezierCreationId !== null || this.edgeCreationId !== null,
       editingLocked: this.engine.isEditingLocked(),
       previewDelta: this.previewDelta,
       resizePreview: this.resizePreview,
@@ -1265,6 +1302,13 @@ export class DiagramInteractionController {
     }
     if (this.tool === "drag-edge-endpoint") {
       if (!this.edgeEndpointStart) return
+      const captured = this.connectorEndpointCaptures.get(this.edgeEndpointKind ?? "target")
+      if (this.edgeCreationTargetInvalid && captured) {
+        this.edgeEndpointPreview = captured.point
+        this.edgeEndpointConnection = captured.endpoint
+        this.edgeWaypointPreview = this.createOrthogonalWaypointPreview(captured.point)
+        return
+      }
       const origin = this.edgeEndpointStart
       if (this.snapOptions.endpointMode === "reattach" && this.edgeEndpointKind) {
         const attached = this.snapEndpoint(this.latestPoint, this.edgeEndpointOppositeStart ?? origin, true, this.edgeEndpointKind)
@@ -1717,29 +1761,51 @@ export class DiagramInteractionController {
       if (oldPendingId) this.edgeCreationJunctions.delete(oldPendingId)
       const portAllowed = this.snapOptions.snapToPorts !== false && (!this.snapOptions.kinds || this.snapOptions.kinds.includes("port"))
       const portTolerance = this.snapOptions.portTolerancePx ?? this.snapOptions.tolerancePx ?? 6
+      const capture = (this.edgeCreationId || this.edgeEndpointId) ? this.connectorEndpointCaptures.get(junctionRole) : null
+      if (capture?.endpoint.kind === "port" && portAllowed && Number.isFinite(portTolerance) && portTolerance >= 0) {
+        const geometry = this.engine.getGeometrySnapshot(capture.endpoint.portId)
+        const holdRadius = portTolerance * 1.5 / zoom
+        if (!geometry?.point) {
+          this.edgeCreationTargetInvalid = true
+          return capture.endpoint
+        }
+        const documentChanged = this.engine.getDocumentRevision() !== this.edgeCreationDocumentRevision
+        if (geometry?.point && (distance(point, geometry.point) <= holdRadius || documentChanged)) {
+          const candidate: DiagramSnapCandidate = { kind: "port", point: geometry.point, targetId: capture.endpoint.portId, distancePx: distance(point, geometry.point) * zoom }
+          this.snapResult = { point: geometry.point, snapped: true, source: "port", targetId: capture.endpoint.portId, candidate, candidates: [candidate] }
+          this.connectorEndpointCaptures.set(junctionRole, { endpoint: capture.endpoint, point: geometry.point })
+          return capture.endpoint
+        }
+        this.connectorEndpointCaptures.delete(junctionRole)
+        this.edgeCreationTargetInvalid = false
+      }
       const port = portAllowed && Number.isFinite(portTolerance) && portTolerance >= 0
         ? this.engine.nearestPort(point, portTolerance / zoom)
         : null
-      if (port) {
-        const portPoint = this.engine.getGeometrySnapshot(port.id)?.point
-        if (portPoint) {
-          const candidate: DiagramSnapCandidate = { kind: "port", point: portPoint, targetId: port.id, distancePx: port.distance * zoom }
-          this.snapResult = { point: portPoint, snapped: true, source: "port", targetId: port.id, candidate, candidates: [candidate] }
-          return { kind: "port", portId: port.id }
-        }
-      }
       const connectorAllowed = this.snapOptions.snapToConnectors !== false && (!this.snapOptions.kinds || this.snapOptions.kinds.includes("connector"))
       const connectorTolerance = this.snapOptions.connectorTolerancePx ?? this.snapOptions.tolerancePx ?? 6
       const attachment = connectorAllowed && Number.isFinite(connectorTolerance) && connectorTolerance >= 0
         ? this.engine.nearestConnectorAttachment(point, connectorTolerance / zoom, new Set(ownerId ? [ownerId] : []))
         : null
-      if (attachment && ownerId) {
+      const portPoint = port ? this.engine.getGeometrySnapshot(port.id)?.point : null
+      const portCandidate = portPoint && port ? { kind: "port" as const, point: portPoint, targetId: port.id, distancePx: port.distance * zoom } : null
+      const connectorCandidate = attachment ? { kind: "connector" as const, point: attachment.point, targetId: attachment.edgeId, distancePx: attachment.distance * zoom } : null
+      const candidates: DiagramSnapCandidate[] = []
+      if (portCandidate) candidates.push(portCandidate)
+      if (connectorCandidate) candidates.push(connectorCandidate)
+      candidates.sort((first, second) => first.distancePx - second.distancePx || (first.kind !== second.kind ? first.kind === "port" ? -1 : 1 : (first.targetId ?? "").localeCompare(second.targetId ?? "")))
+      if (attachment && ownerId && connectorCandidate && (!portCandidate || connectorCandidate.distancePx < portCandidate.distancePx)) {
         const junctionId = this.pendingJunctionId(ownerId, junctionRole)
         const junction: DiagramJunction = { id: junctionId, kind: "junction", hostEdgeId: attachment.edgeId, anchor: { kind: "route", fraction: attachment.fraction } }
         this.edgeCreationJunctions.set(junctionId, junction)
-        const candidate: DiagramSnapCandidate = { kind: "connector", point: attachment.point, targetId: attachment.edgeId, distancePx: attachment.distance * zoom }
-        this.snapResult = { point: attachment.point, snapped: true, source: "connector", targetId: attachment.edgeId, candidate, candidates: [candidate] }
+        this.snapResult = { point: attachment.point, snapped: true, source: "connector", targetId: attachment.edgeId, candidate: connectorCandidate, candidates }
         return { kind: "junction", junctionId }
+      }
+      if (portCandidate && port) {
+        this.snapResult = { point: portCandidate.point, snapped: true, source: "port", targetId: port.id, candidate: portCandidate, candidates }
+        if (this.edgeCreationId || this.edgeEndpointId) this.connectorEndpointCaptures.set(junctionRole, { endpoint: { kind: "port", portId: port.id }, point: portCandidate.point })
+        if (this.edgeCreationId && junctionRole === "target") this.edgeCreationTargetInvalid = false
+        return { kind: "port", portId: port.id }
       }
       const kinds = this.snapOptions.kinds?.filter((kind) => kind !== "port" && kind !== "connector")
         ?? ["grid", "endpoint", "midpoint", "center", "intersection", "perpendicular", "nearest", "alignment", "equal-spacing"] as const
@@ -1832,7 +1898,7 @@ export class DiagramInteractionController {
             source: movedEdge.source.kind === "point" ? { kind: "point", point: translate(movedEdge.source.point) } : movedEdge.source,
             target: movedEdge.target.kind === "point" ? { kind: "point", point: translate(movedEdge.target.point) } : movedEdge.target,
             points: movedEdge.points?.map(translate),
-            ...(movedEdge.routing?.mode === "auto" && movedEdge.routing.waypoints ? { routing: { ...movedEdge.routing, waypoints: movedEdge.routing.waypoints.map(translate) } } : {}),
+            ...(movedEdge.routing?.mode === "auto" ? { routing: { ...movedEdge.routing, ...(movedEdge.routing.waypoints ? { waypoints: movedEdge.routing.waypoints.map(translate) } : {}), ...(movedEdge.routing.routeHint ? { routeHint: translate(movedEdge.routing.routeHint) } : {}) } } : {}),
           })
           changedIds.add(movedId); changed = true
         }
@@ -1866,7 +1932,11 @@ export class DiagramInteractionController {
     const target = this.snapEndpoint(this.latestPoint, this.edgeCreationWaypoints[this.edgeCreationWaypoints.length - 1] ?? this.startPoint, true, "target")
     const entities = this.engine.getScene().entities
     const sourcePoint = this.endpointPoint(this.edgeCreationSource) ?? resolveEndpoint(this.edgeCreationSource, entities)
-    const targetPoint = this.endpointPoint(target) ?? resolveEndpoint(target, entities)
+    const targetCapture = this.connectorEndpointCaptures.get("target")
+    const targetPoint = this.endpointPoint(target) ?? (targetCapture?.endpoint === target ? targetCapture.point : resolveEndpoint(target, entities))
+    if (!this.edgeCreationFirstAxis && !samePoint(sourcePoint, targetPoint)) {
+      this.edgeCreationFirstAxis = Math.abs(targetPoint.x - sourcePoint.x) >= Math.abs(targetPoint.y - sourcePoint.y) ? "horizontal" : "vertical"
+    }
     const excluded = new Set<DiagramId>()
     for (const endpoint of [this.edgeCreationSource, target]) {
       if (endpoint.kind === "node") excluded.add(endpoint.nodeId)
@@ -1885,15 +1955,35 @@ export class DiagramInteractionController {
     })
     const existingRoutes = this.engine.queryEntities({ bounds: searchBounds, kinds: ["edge"] })
       .flatMap((id) => { const edge = entities.edgesById.get(id); return edge && edge.routing?.mode !== "auto" ? [{ id, points: resolveEdgePath(edge, entities) }] : [] })
-    const route = routeOrthogonalConnector(sourcePoint, targetPoint, { ...this.edgeRouteOptions, ...(this.isStrictGridEnabled() ? { strictGrid: true, gridSize: this.strictGridSize() } : {}), waypoints: [...(this.edgeRouteOptions.waypoints ?? []), ...this.edgeCreationWaypoints], obstacles, existingRoutes })
-    const path = route.diagnostics.some((diagnostic) => diagnostic.code !== "terminal-leads-overlap") ? route.path : simplifyOrthogonalEditPath(route.path)
+    const routeOptions = { ...this.edgeRouteOptions, ...(this.edgeCreationFirstAxis ? { firstAxis: this.edgeCreationFirstAxis } : {}), ...(this.edgeCreationRouteHint ? { routeHint: this.edgeCreationRouteHint } : {}), ...(this.isStrictGridEnabled() ? { strictGrid: true, gridSize: this.strictGridSize() } : {}), waypoints: [...(this.edgeRouteOptions.waypoints ?? []), ...this.edgeCreationWaypoints], obstacles, existingRoutes }
+    let route = routeOrthogonalConnector(sourcePoint, targetPoint, routeOptions)
+    if (this.edgeCreationRouteHint && route.diagnostics.some((diagnostic) => diagnostic.code !== "terminal-leads-overlap")) {
+      const fallback = routeOrthogonalConnector(sourcePoint, targetPoint, { ...routeOptions, routeHint: undefined })
+      if (!fallback.diagnostics.some((diagnostic) => diagnostic.code !== "terminal-leads-overlap")) {
+        this.edgeCreationRouteHint = firstRouteTurn(fallback.path)
+        route = this.edgeCreationRouteHint
+          ? routeOrthogonalConnector(sourcePoint, targetPoint, { ...routeOptions, routeHint: this.edgeCreationRouteHint })
+          : fallback
+        if (route.diagnostics.some((diagnostic) => diagnostic.code !== "terminal-leads-overlap")) route = fallback
+      }
+    } else if (!this.edgeCreationRouteHint && !route.diagnostics.some((diagnostic) => diagnostic.code !== "terminal-leads-overlap")) {
+      const hint = firstRouteTurn(route.path)
+      if (hint) {
+        this.edgeCreationRouteHint = hint
+        route = routeOrthogonalConnector(sourcePoint, targetPoint, { ...routeOptions, routeHint: hint })
+      }
+    }
+    const path = simplifyCanonicalRoutePath(route.path)
+    this.edgeCreationDocumentRevision = this.engine.getDocumentRevision()
     this.edgeCreationPreview = Object.freeze({
       id: this.edgeCreationId,
       source: this.edgeCreationSource,
       target,
       points: Object.freeze(path.slice(1, -1).map((point) => Object.freeze(point))),
       path: Object.freeze(path.map((point) => Object.freeze(point))),
-      diagnostics: route.diagnostics,
+      diagnostics: this.edgeCreationTargetInvalid
+        ? [...route.diagnostics, { code: "no-route" as const, message: "The captured connector endpoint no longer exists; cancel or choose a new target." }]
+        : route.diagnostics,
       prospectiveJunctions: Object.freeze([...this.edgeCreationJunctions.values()].map((junction) => ({
         id: junction.id,
         hostEdgeId: junction.hostEdgeId,
@@ -1902,12 +1992,14 @@ export class DiagramInteractionController {
         radius: 3,
       }))),
     })
+    this.edgeCreationPreviewDocumentRevision = this.engine.getDocumentRevision()
   }
 
   private commitEdgeCreation(preview: DiagramEdgeCreationPreview): number {
+    if (this.edgeCreationTargetInvalid) return 0
     const strictGrid = this.isStrictGridEnabled()
     const routing = this.edgeRouteOptions.mode === "auto"
-      ? { mode: "auto" as const, strictGrid, ...(strictGrid ? { gridSize: this.strictGridSize() } : {}), terminalLead: this.edgeRouteOptions.terminalLead, clearance: this.edgeRouteOptions.clearance, firstAxis: this.edgeRouteOptions.firstAxis, sourceDirection: this.edgeRouteOptions.sourceDirection, targetDirection: this.edgeRouteOptions.targetDirection, maxBends: this.edgeRouteOptions.maxBends, maxRouteBends: this.edgeRouteOptions.maxRouteBends, tieBreak: this.edgeRouteOptions.tieBreak, waypoints: [...(this.edgeRouteOptions.waypoints ?? []), ...this.edgeCreationWaypoints] }
+      ? { mode: "auto" as const, strictGrid, ...(strictGrid ? { gridSize: this.strictGridSize() } : {}), terminalLead: this.edgeRouteOptions.terminalLead, clearance: this.edgeRouteOptions.clearance, firstAxis: this.edgeCreationFirstAxis ?? this.edgeRouteOptions.firstAxis, routeHint: this.edgeCreationRouteHint ?? undefined, sourceDirection: this.edgeRouteOptions.sourceDirection, targetDirection: this.edgeRouteOptions.targetDirection, maxBends: this.edgeRouteOptions.maxBends, maxRouteBends: this.edgeRouteOptions.maxRouteBends, tieBreak: this.edgeRouteOptions.tieBreak, waypoints: [...(this.edgeRouteOptions.waypoints ?? []), ...this.edgeCreationWaypoints] }
       : undefined
     const commands: DiagramCommand[] = [...this.edgeCreationJunctions.values()].map((junction) => ({ type: "createJunction", junction }))
     commands.push({ type: "createEdge", edge: { id: preview.id, kind: "edge", source: preview.source, target: preview.target, points: preview.points, ...(routing ? { routing } : {}) } })
@@ -2341,6 +2433,12 @@ export class DiagramInteractionController {
     this.vertexConstraintOrigin = null
     this.vertexCardinalAngle = null
     this.edgeRouteOptions = {}
+    this.edgeCreationFirstAxis = null
+    this.edgeCreationRouteHint = null
+    this.connectorEndpointCaptures.clear()
+    this.edgeCreationTargetInvalid = false
+    this.edgeCreationDocumentRevision = 0
+    this.edgeCreationPreviewDocumentRevision = 0
     this.edgeClickPlacement = false
     this.edgeCreationWaypoints = []
     this.edgeCreationJunctions.clear()
@@ -2495,6 +2593,15 @@ function segmentAxis(start: DiagramPoint, end: DiagramPoint): "horizontal" | "ve
   return null
 }
 
+function firstRouteTurn(path: ReadonlyArray<DiagramPoint>): DiagramPoint | null {
+  for (let index = 1; index < path.length - 1; index += 1) {
+    const before = segmentAxis(path[index - 1]!, path[index]!)
+    const after = segmentAxis(path[index]!, path[index + 1]!)
+    if (before && after && before !== after) return path[index]!
+  }
+  return null
+}
+
 function pointOnOrthogonalSegment(point: DiagramPoint, start: DiagramPoint, end: DiagramPoint, axis: "horizontal" | "vertical"): boolean {
   return axis === "horizontal"
     ? point.y === start.y && point.y === end.y && point.x >= Math.min(start.x, end.x) && point.x <= Math.max(start.x, end.x)
@@ -2513,6 +2620,23 @@ function simplifyOrthogonalEditPath(points: ReadonlyArray<DiagramPoint>): Diagra
     while (result.length >= 2) {
       const a = result[result.length - 2]!, b = result[result.length - 1]!
       if (!((a.x === b.x && b.x === point.x) || (a.y === b.y && b.y === point.y))) break
+      result.pop()
+    }
+    result.push(point)
+  }
+  return result
+}
+
+function simplifyCanonicalRoutePath(points: ReadonlyArray<DiagramPoint>): DiagramPoint[] {
+  const result: DiagramPoint[] = []
+  for (const point of points) {
+    if (result.length && samePoint(result[result.length - 1]!, point)) continue
+    while (result.length >= 2) {
+      const a = result[result.length - 2]!, b = result[result.length - 1]!
+      const collinear = (a.x === b.x && b.x === point.x) || (a.y === b.y && b.y === point.y)
+      const reversal = (a.x === b.x && b.x === point.x && (b.y - a.y) * (point.y - b.y) < 0)
+        || (a.y === b.y && b.y === point.y && (b.x - a.x) * (point.x - b.x) < 0)
+      if (!collinear || reversal) break
       result.pop()
     }
     result.push(point)
@@ -2587,6 +2711,11 @@ function inverseTransformContour(contour: DiagramPathContour, shape: DiagramShap
 
 function samePoints(a: ReadonlyArray<DiagramPoint>, b: ReadonlyArray<DiagramPoint>): boolean {
   return a.length === b.length && a.every((point, index) => samePoint(point, b[index]!))
+}
+
+function edgeCreationPlanChanged(previous: DiagramEdgeCreationPreview, next: DiagramEdgeCreationPreview): boolean {
+  return !sameEndpoint(previous.target, next.target) || !samePoints(previous.path, next.path)
+    || Boolean(next.diagnostics?.some((diagnostic) => diagnostic.code !== "terminal-leads-overlap"))
 }
 
 function sameEndpoint(a: DiagramEdgeEndpoint, b: DiagramEdgeEndpoint): boolean {

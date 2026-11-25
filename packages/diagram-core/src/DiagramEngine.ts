@@ -1624,7 +1624,8 @@ function isValidEdgeRouting(routing: DiagramEdgeRouting): boolean {
     && (routing.maxBends === undefined || Number.isInteger(routing.maxBends) && routing.maxBends >= 0)
     && (routing.maxRouteBends === undefined || Number.isInteger(routing.maxRouteBends) && routing.maxRouteBends >= 0)
     && (routing.tieBreak === undefined || ["coordinates", "horizontal-first", "vertical-first"].includes(routing.tieBreak))
-    && (routing.waypoints === undefined || routing.waypoints.every((point) => Number.isFinite(point.x) && Number.isFinite(point.y))))
+    && (routing.waypoints === undefined || routing.waypoints.every((point) => Number.isFinite(point.x) && Number.isFinite(point.y)))
+    && (routing.routeHint === undefined || Number.isFinite(routing.routeHint.x) && Number.isFinite(routing.routeHint.y)))
 }
 
 function validateTableCell(cell: DiagramTableCell, id: DiagramId): void {
@@ -1714,7 +1715,8 @@ function validateSceneInput(scene: DiagramSceneInput): DiagramSceneInput {
       && (routing.firstAxis === undefined || routing.firstAxis === "horizontal" || routing.firstAxis === "vertical")
       && validDirection(routing.sourceDirection) && validDirection(routing.targetDirection)
       && (routing.tieBreak === undefined || ["coordinates", "horizontal-first", "vertical-first"].includes(routing.tieBreak))
-      && (routing.waypoints ?? []).every((point) => Number.isFinite(point.x) && Number.isFinite(point.y)))
+      && (routing.waypoints ?? []).every((point) => Number.isFinite(point.x) && Number.isFinite(point.y))
+      && (routing.routeHint === undefined || Number.isFinite(routing.routeHint.x) && Number.isFinite(routing.routeHint.y)))
     if (!validEndpoint(edge.source) || !validEndpoint(edge.target) || !Number.isFinite(edge.rotation ?? 0) || !(edge.points ?? []).every((point) => Number.isFinite(point.x) && Number.isFinite(point.y)) || !validRouting) throw new TypeError(`Invalid edge ${edge.id}`)
   }
   for (const edge of edgesInput) {
@@ -1843,7 +1845,7 @@ function applyMoveDeltas(state: InternalState, ids: ReadonlyArray<DiagramId>, de
         source: edge.source.kind === "point" ? { kind: "point", point: translate(edge.source.point) } : edge.source,
         target: edge.target.kind === "point" ? { kind: "point", point: translate(edge.target.point) } : edge.target,
         points: edge.points?.map(translate),
-        ...(edge.routing?.mode === "auto" && edge.routing.waypoints ? { routing: { ...edge.routing, waypoints: edge.routing.waypoints.map(translate) } } : {}),
+        ...(edge.routing?.mode === "auto" ? { routing: { ...edge.routing, ...(edge.routing.waypoints ? { waypoints: edge.routing.waypoints.map(translate) } : {}), ...(edge.routing.routeHint ? { routeHint: translate(edge.routing.routeHint) } : {}) } } : {}),
       })
       changed.add(id)
       continue
@@ -2037,6 +2039,7 @@ function createResizePatch(state: InternalState, entries: ReadonlyArray<DiagramR
           source: edge.source.kind === "point" ? { kind: "point", point: snapPoint(transform(edge.source.point)) } : edge.source,
           target: edge.target.kind === "point" ? { kind: "point", point: snapPoint(transform(edge.target.point)) } : edge.target,
           points: edge.points?.map((point) => snapPoint(transform(point))),
+          ...(edge.routing?.mode === "auto" ? { routing: { ...edge.routing, ...(edge.routing.waypoints ? { waypoints: edge.routing.waypoints.map((point) => snapPoint(transform(point))) } : {}), ...(edge.routing.routeHint ? { routeHint: snapPoint(transform(edge.routing.routeHint)) } : {}) } } : {}),
         }
         previousEdges.set(id, edge)
         nextEdges.set(id, nextEdge)

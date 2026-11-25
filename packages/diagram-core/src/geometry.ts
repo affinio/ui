@@ -51,7 +51,7 @@ export function distance(a: DiagramPoint, b: DiagramPoint): number {
 export function routeOrthogonalConnector(source: DiagramPoint, target: DiagramPoint, options: DiagramOrthogonalRouteOptions = {}): DiagramOrthogonalRouteResult {
   const requestedTerminalLead = options.terminalLead ?? 12
   const requestedClearance = options.clearance ?? 0
-  const requestedWaypoints = options.waypoints ?? []
+  const requestedWaypoints = [...(options.waypoints ?? []), ...(options.routeHint ? [options.routeHint] : [])]
   const strictSize = options.strictGrid === true ? options.gridSize : undefined
   if (options.strictGrid && (!Number.isFinite(strictSize) || strictSize! <= 0)) throw new RangeError("Strict-grid connector routing requires a positive finite gridSize")
   const grid = options.strictGrid ? strictSize! : undefined
@@ -434,7 +434,7 @@ export function resolveEdgePath(edge: DiagramEdge, entities: DiagramEntities): R
     const existingRoutes = [...entities.edgesById.values()]
       .filter((candidate) => candidate.id !== edge.id && candidate.routing?.mode !== "auto" && !routeDependsOnEdge(candidate, edge.id, entities))
       .map((candidate) => ({ id: candidate.id, points: resolveEdgePath(candidate, entities) }))
-    const route = routeOrthogonalConnector(source, target, {
+    const routeOptions = {
       strictGrid: routing.strictGrid,
       gridSize: routing.gridSize,
       firstAxis: routing.firstAxis,
@@ -446,9 +446,14 @@ export function resolveEdgePath(edge: DiagramEdge, entities: DiagramEntities): R
       maxRouteBends: routing.maxRouteBends,
       tieBreak: routing.tieBreak,
       waypoints,
+      routeHint: routing.routeHint,
       obstacles,
       existingRoutes,
-    })
+    }
+    let route = routeOrthogonalConnector(source, target, routeOptions)
+    if (routing.routeHint && route.diagnostics.some((diagnostic) => diagnostic.code !== "terminal-leads-overlap")) {
+      route = routeOrthogonalConnector(source, target, { ...routeOptions, routeHint: undefined })
+    }
     if (!route.diagnostics.some((diagnostic) => diagnostic.code !== "terminal-leads-overlap")) return simplifyOrthogonalPath(route.path)
     return []
   }

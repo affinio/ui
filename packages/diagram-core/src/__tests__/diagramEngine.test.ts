@@ -4106,8 +4106,14 @@ describe("DiagramEngine", () => {
 
   it("reattaches an endpoint to a snapped port only in explicit connector mode", () => {
     const engine = createDiagramEngine({
-      nodes: [{ id: "owner", kind: "node", x: 140, y: -10, width: 20, height: 20, portIds: ["port"] }],
-      ports: [{ id: "port", kind: "port", nodeId: "owner", x: 10, y: 10 }],
+      nodes: [
+        { id: "owner", kind: "node", x: 140, y: -10, width: 20, height: 20, portIds: ["port"] },
+        { id: "neighbor", kind: "node", x: 148, y: -10, width: 20, height: 20, portIds: ["neighbor-port"] },
+      ],
+      ports: [
+        { id: "port", kind: "port", nodeId: "owner", x: 10, y: 10 },
+        { id: "neighbor-port", kind: "port", nodeId: "neighbor", x: 10, y: 10 },
+      ],
       edges: [{ id: "edge", kind: "edge", source: { kind: "point", point: { x: 0, y: 0 } }, target: { kind: "point", point: { x: 100, y: 0 } } }],
     })
     const frames: Array<() => void> = []
@@ -4116,8 +4122,14 @@ describe("DiagramEngine", () => {
     interaction.pointerMove({ id: 1, point: { x: 150, y: 0 } })
     frames.shift()?.()
     expect(interaction.getSnapshot().edgeEndpointPreview?.connection).toEqual({ kind: "port", portId: "port" })
-    interaction.pointerUp({ id: 1, point: { x: 150, y: 0 } })
-    expect(engine.getScene().entities.edgesById.get("edge")?.target).toEqual({ kind: "port", portId: "port" })
+    interaction.pointerMove({ id: 1, point: { x: 156, y: 0 } })
+    frames.shift()?.()
+    expect(interaction.getSnapshot().edgeEndpointPreview?.connection).toEqual({ kind: "port", portId: "port" })
+    interaction.pointerMove({ id: 1, point: { x: 164, y: 0 } })
+    frames.shift()?.()
+    expect(interaction.getSnapshot().edgeEndpointPreview?.connection).toEqual({ kind: "port", portId: "neighbor-port" })
+    interaction.pointerUp({ id: 1, point: { x: 164, y: 0 } })
+    expect(engine.getScene().entities.edgesById.get("edge")?.target).toEqual({ kind: "port", portId: "neighbor-port" })
     engine.dispatch({ type: "undo" })
     expect(engine.getScene().entities.edgesById.get("edge")?.target).toEqual({ kind: "point", point: { x: 100, y: 0 } })
   })
@@ -5024,6 +5036,120 @@ describe("DiagramEngine", () => {
     expect(engine.getDiagnostics().undoDepth).toBe(1)
     engine.dispatch({ type: "undo" })
     expect(engine.getGeometrySnapshot("e")?.path).toEqual([{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 80 }])
+    interaction.dispose()
+  })
+
+  it("holds a captured connector port through nearby candidates at every zoom and switches after leaving the hold radius", () => {
+    for (const zoom of [0.5, 1, 2]) {
+      const scale = 1 / zoom
+      const engine = createDiagramEngine({
+        viewport: { x: 0, y: 0, width: 800, height: 600, zoom },
+        nodes: [
+          { id: "host-a", kind: "node", x: -2, y: -2, width: 4, height: 4 },
+          { id: "host-b", kind: "node", x: 10 * scale - 2, y: -2, width: 4, height: 4 },
+        ],
+        ports: [
+          { id: "port-a", kind: "port", nodeId: "host-a", x: 0, y: 0 },
+          { id: "port-b", kind: "port", nodeId: "host-b", x: 10 * scale, y: 0 },
+        ],
+      })
+      const interaction = createDiagramInteractionController(engine, { scheduleFrame: (callback) => callback(), snap: { tolerancePx: 8, portTolerancePx: 8 } })
+      expect(interaction.beginEdgeCreation(`wire-${zoom}`, { id: 1, point: { x: 100, y: 100 } })).toBe(true)
+      interaction.pointerMove({ id: 1, point: { x: 2 * scale, y: 0 } })
+      expect(interaction.getSnapshot().edgeCreationPreview?.target).toEqual({ kind: "port", portId: "port-a" })
+      interaction.pointerMove({ id: 1, point: { x: 6 * scale, y: 0 } })
+      expect(interaction.getSnapshot().edgeCreationPreview?.target).toEqual({ kind: "port", portId: "port-a" })
+      interaction.pointerMove({ id: 1, point: { x: 14 * scale, y: 0 } })
+      expect(interaction.getSnapshot().edgeCreationPreview?.target).toEqual({ kind: "port", portId: "port-b" })
+      interaction.cancel()
+      expect(engine.getScene().entities.edgesById.size).toBe(0)
+      interaction.dispose()
+    }
+  })
+
+  it("locks the first route axis for a connector gesture and commits the last preview unchanged", () => {
+    const engine = createDiagramEngine({ shapes: [
+      { id: "corner", kind: "shape", shape: "rect", x: 40, y: 20, width: 30, height: 50 },
+    ] })
+    const interaction = createDiagramInteractionController(engine, { scheduleFrame: (callback) => callback(), snap: { enabled: false } })
+    expect(interaction.beginEdgeCreation("stable-wire", { id: 3, point: { x: 0, y: 0 } }, { mode: "auto", terminalLead: 12, clearance: 2 })).toBe(true)
+    interaction.pointerMove({ id: 3, point: { x: 100, y: 80 } })
+    const firstPlan = interaction.getSnapshot().edgeCreationPreview!
+    expect(firstPlan.path[1]?.y).toBe(0)
+    interaction.pointerMove({ id: 3, point: { x: 80, y: 100 } })
+    const lastPlan = interaction.getSnapshot().edgeCreationPreview!
+    expect(lastPlan.path[1]?.y).toBe(0)
+    expect(lastPlan.path[1]?.x).toBe(firstPlan.path[1]?.x)
+    interaction.pointerUp({ id: 3, point: { x: 80, y: 100 } })
+    expect(engine.getGeometrySnapshot("stable-wire")?.path).toEqual(lastPlan.path)
+    expect(engine.getScene().entities.edgesById.get("stable-wire")?.routing).toMatchObject({ routeHint: firstPlan.path[1], waypoints: [] })
+    const restored = createDiagramEngine(deserializeScene(engine.serialize()))
+    expect(restored.getGeometrySnapshot("stable-wire")?.path).toEqual(lastPlan.path)
+    expect(engine.getDiagnostics().undoDepth).toBe(1)
+    engine.dispatch({ type: "undo" })
+    expect(engine.getScene().entities.edgesById.has("stable-wire")).toBe(false)
+    interaction.dispose()
+  })
+
+  it("does not silently replace a captured port deleted during a connector gesture", () => {
+    const engine = createDiagramEngine({
+      nodes: [
+        { id: "host-a", kind: "node", x: -2, y: -2, width: 4, height: 4 },
+        { id: "host-b", kind: "node", x: 10, y: -2, width: 4, height: 4 },
+      ],
+      ports: [
+        { id: "port-a", kind: "port", nodeId: "host-a", x: 0, y: 0 },
+        { id: "port-b", kind: "port", nodeId: "host-b", x: 10, y: 0 },
+      ],
+    })
+    const interaction = createDiagramInteractionController(engine, { scheduleFrame: (callback) => callback(), snap: { tolerancePx: 8 } })
+    expect(interaction.beginEdgeCreation("wire", { id: 4, point: { x: 100, y: 100 } })).toBe(true)
+    interaction.pointerMove({ id: 4, point: { x: 1, y: 0 } })
+    expect(interaction.getSnapshot().edgeCreationPreview?.target).toEqual({ kind: "port", portId: "port-a" })
+    expect(engine.dispatch({ type: "deleteEntities", ids: ["port-a"] }).changed).toBe(true)
+    interaction.pointerMove({ id: 4, point: { x: 9, y: 0 } })
+    expect(interaction.getSnapshot().edgeCreationPreview).toMatchObject({ target: { kind: "port", portId: "port-a" }, diagnostics: [{ code: "no-route" }] })
+    const historyDepth = engine.getDiagnostics().undoDepth
+    interaction.pointerUp({ id: 4, point: { x: 9, y: 0 } })
+    expect(engine.getScene().entities.edgesById.has("wire")).toBe(false)
+    expect(engine.getDiagnostics().undoDepth).toBe(historyDepth)
+    interaction.dispose()
+  })
+
+  it("chooses the nearest screen-space target when a port and connector compete", () => {
+    const engine = createDiagramEngine({
+      nodes: [{ id: "host", kind: "node", x: -2, y: -2, width: 4, height: 4 }],
+      ports: [{ id: "port", kind: "port", nodeId: "host", x: 0, y: 0 }],
+      edges: [{ id: "trunk", kind: "edge", source: { kind: "point", point: { x: -20, y: 1 } }, target: { kind: "point", point: { x: 20, y: 1 } } }],
+    })
+    const interaction = createDiagramInteractionController(engine, { scheduleFrame: (callback) => callback(), snap: { tolerancePx: 8, connectorTolerancePx: 8 } })
+    expect(interaction.beginEdgeCreation("branch", { id: 5, point: { x: 100, y: 100 } })).toBe(true)
+    interaction.pointerMove({ id: 5, point: { x: 0, y: 1 } })
+    expect(interaction.getSnapshot().edgeCreationPreview?.target.kind).toBe("junction")
+    expect(interaction.getSnapshot().snapResult).toMatchObject({ source: "connector", targetId: "trunk" })
+    interaction.cancel()
+    interaction.dispose()
+  })
+
+  it("shows a changed route after document edits and requires a fresh confirmation", () => {
+    const engine = createDiagramEngine({
+      nodes: [{ id: "host", kind: "node", x: 0, y: 0, width: 100, height: 10 }],
+      ports: [{ id: "target-port", kind: "port", nodeId: "host", x: 50, y: 0 }],
+    })
+    const interaction = createDiagramInteractionController(engine, { scheduleFrame: (callback) => callback(), snap: { tolerancePx: 8 } })
+    expect(interaction.beginEdgeCreation("wire", { id: 6, point: { x: 0, y: 0 } }, { mode: "auto" })).toBe(true)
+    interaction.pointerMove({ id: 6, point: { x: 50, y: 0 } })
+    expect(interaction.getSnapshot().edgeCreationPreview?.target).toEqual({ kind: "port", portId: "target-port" })
+    engine.dispatch({ type: "moveEntities", ids: ["host"], delta: { x: 10, y: 0 } })
+    const historyDepthAfterDocumentChange = engine.getDiagnostics().undoDepth
+    interaction.pointerUp({ id: 6, point: { x: 50, y: 0 } })
+    expect(engine.getScene().entities.edgesById.has("wire")).toBe(false)
+    expect(interaction.getSnapshot().edgeCreationPreview).toMatchObject({ target: { kind: "port", portId: "target-port" }, commitBlocked: "document-changed" })
+    expect(engine.getDiagnostics().undoDepth).toBe(historyDepthAfterDocumentChange)
+    interaction.pointerDown({ id: 6, point: { x: 60, y: 0 } })
+    interaction.pointerUp({ id: 6, point: { x: 60, y: 0 } })
+    expect(engine.getScene().entities.edgesById.get("wire")?.target).toEqual({ kind: "port", portId: "target-port" })
+    expect(engine.getDiagnostics().undoDepth).toBe(historyDepthAfterDocumentChange + 1)
     interaction.dispose()
   })
 })
