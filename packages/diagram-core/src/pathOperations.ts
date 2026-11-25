@@ -1,4 +1,4 @@
-import type { DiagramId, DiagramPathContour, DiagramPathSegment, DiagramPoint, DiagramRect, DiagramSceneInput, DiagramShape, DiagramSweepTrimFinding, DiagramSweepTrimResult, DiagramSweepTrimTargetResult, DiagramSweepTrimUpdate } from "./types.js"
+import type { DiagramId, DiagramPathContour, DiagramPathSegment, DiagramPoint, DiagramRect, DiagramSceneInput, DiagramShape, DiagramSweepTrimFinding, DiagramSweepTrimInput, DiagramSweepTrimResult, DiagramSweepTrimTargetResult, DiagramSweepTrimUpdate } from "./types.js"
 
 export type DiagramGeometryFailure = Readonly<{ ok: false; code: "degenerate-arc" | "no-intersection" | "unsupported-geometry" | "invalid-input"; message: string }>
 export type DiagramGeometrySuccess<T> = Readonly<{ ok: true; value: T }>
@@ -245,13 +245,14 @@ export function trimAndJoinLines(first: ReadonlyArray<DiagramPoint>, second: Rea
  * For each sweep crossing the target is cut only as far as the nearest eligible geometry boundary in the
  * direction selected by the stroke. `tolerance` and boundary resolution use world units.
  */
-export function trimSelectionByStroke(scene: DiagramSceneInput, input: Readonly<{ targetIds: ReadonlyArray<DiagramId>; stroke: ReadonlyArray<DiagramPoint>; tolerance: number; boundaryIds?: ReadonlyArray<DiagramId> }>): DiagramSweepTrimResult {
+export function trimSelectionByStroke(scene: DiagramSceneInput, input: DiagramSweepTrimInput): DiagramSweepTrimResult {
   const targets: DiagramSweepTrimTargetResult[] = []
   const updates: DiagramSweepTrimUpdate[] = []
   const findings: DiagramSweepTrimFinding[] = []
   const fail = (code: DiagramSweepTrimFinding["code"], message: string, targetId?: DiagramId): DiagramSweepTrimFinding => ({ code, message, ...(targetId === undefined ? {} : { targetId }) })
   if (!scene || !input || !Array.isArray(input.targetIds) || !Array.isArray(input.stroke) || input.stroke.length < 2
     || !Number.isFinite(input.tolerance) || input.tolerance < 0
+    || (input.side !== undefined && input.side !== "directed" && input.side !== "both")
     || input.stroke.some((point) => !point || !Number.isFinite(point.x) || !Number.isFinite(point.y))) {
     const finding = fail("invalid-input", "A sweep trim requires at least two finite stroke points and a finite non-negative world tolerance.")
     return { ok: false, status: "rejected", targets, updates, findings: [finding] }
@@ -343,7 +344,7 @@ export function trimSelectionByStroke(scene: DiagramSceneInput, input: Readonly<
     let findingMessage = ""
     for (const contour of sourceContours) {
       if (contour.hole) { retained.push(contour); continue }
-      const trim = trimContourToNearestBoundaries(contour, input.stroke, strokeLengths, strokeOffsets, targetBoundaries, input.tolerance)
+      const trim = trimContourToNearestBoundaries(contour, input.stroke, strokeLengths, strokeOffsets, targetBoundaries, input.tolerance, input.side)
       if (trim.code) {
         sweepCrossings.push(...trim.sweepCrossings)
         boundaryIntersections.push(...trim.boundaryIntersections)
@@ -363,7 +364,7 @@ export function trimSelectionByStroke(scene: DiagramSceneInput, input: Readonly<
       addFinding("no-intersection", "The stroke does not cross a supported interior segment of this target.", sourceContours)
       continue
     }
-    if (boundaryIntersections.length !== sweepCrossings.length) {
+    if (boundaryIntersections.length !== sweepCrossings.length * (input.side === "both" ? 2 : 1)) {
       addFinding("no-boundary", "No unique eligible geometry boundary was found in the trim direction; the target is unchanged.", sourceContours, sweepCrossings, boundaryIntersections)
       continue
     }
@@ -423,7 +424,7 @@ function sweepTrimShapeContours(shape: DiagramShape): DiagramPathContour[] | nul
   return null
 }
 
-function trimContourToNearestBoundaries(contour: DiagramPathContour, stroke: ReadonlyArray<DiagramPoint>, strokeLengths: ReadonlyArray<number>, strokeOffsets: ReadonlyArray<number>, boundaries: ReadonlyArray<{ id: DiagramId; contours: ReadonlyArray<DiagramPathContour> }>, tolerance: number): ContourTrimResult {
+function trimContourToNearestBoundaries(contour: DiagramPathContour, stroke: ReadonlyArray<DiagramPoint>, strokeLengths: ReadonlyArray<number>, strokeOffsets: ReadonlyArray<number>, boundaries: ReadonlyArray<{ id: DiagramId; contours: ReadonlyArray<DiagramPathContour> }>, tolerance: number, sideMode: DiagramSweepTrimInput["side"]): ContourTrimResult {
   const crossings: Array<SweepIntersection & { segmentIndex: number }> = []
   for (let segmentIndex = 0; segmentIndex < contour.segments.length; segmentIndex += 1) {
     for (const crossing of collectStrokeIntersections(contour.segments[segmentIndex]!, stroke, strokeLengths, strokeOffsets, tolerance)) {
@@ -466,20 +467,21 @@ function trimContourToNearestBoundaries(contour: DiagramPathContour, stroke: Rea
     if (Math.abs(side) <= EPSILON * Math.max(1, Math.hypot(sweepDirection.x, sweepDirection.y) * Math.hypot(tangent.x, tangent.y))) {
       return { retained: [contour], sweepCrossings: uniqueCrossings.map((item) => item.point), boundaryIntersections: [], code: "ambiguous-intersection", message: "The sweep direction does not select a unique side of the target." }
     }
-    const forward = side > 0
-    const resolved = findNearestBoundary(contour, crossing.segmentIndex, crossing.targetT, forward, contour.closed === true, hitsByTargetSegment, segmentLengths, tolerance)
-    if (resolved.kind === "unsupported") return { retained: [contour], sweepCrossings: uniqueCrossings.map((item) => item.point), boundaryIntersections, code: "unsupported-boundary", message: resolved.message }
-    if (resolved.kind === "ambiguous") return { retained: [contour], sweepCrossings: uniqueCrossings.map((item) => item.point), boundaryIntersections, code: "ambiguous-boundary", message: "Two eligible boundaries are equally near in the selected trim direction." }
-    if (resolved.kind === "missing") return { retained: [contour], sweepCrossings: uniqueCrossings.map((item) => item.point), boundaryIntersections, code: "no-boundary", message: "No eligible geometry boundary was found in the selected trim direction." }
     const startDistance = prefixes[crossing.segmentIndex]! + segmentLengthRange(contour.segments[crossing.segmentIndex]!, 0, crossing.targetT)
-    let endDistance = forward ? startDistance + resolved.distance : startDistance - resolved.distance
-    if (contour.closed) endDistance = ((endDistance % totalLength) + totalLength) % totalLength
-    if (!contour.closed && (endDistance < -tolerance || endDistance > totalLength + tolerance)) return { retained: [contour], sweepCrossings: uniqueCrossings.map((item) => item.point), boundaryIntersections, code: "no-boundary", message: "No eligible geometry boundary was found before the target endpoint." }
-    if (contour.closed) {
-      if (forward) startDistance <= endDistance ? intervals.push([startDistance, endDistance]) : intervals.push([startDistance, totalLength], [0, endDistance])
-      else endDistance <= startDistance ? intervals.push([endDistance, startDistance]) : intervals.push([0, startDistance], [endDistance, totalLength])
-    } else intervals.push([Math.max(0, Math.min(startDistance, endDistance)), Math.min(totalLength, Math.max(startDistance, endDistance))])
-    boundaryIntersections.push({ point: resolved.hit.point, boundaryId: resolved.hit.boundaryId })
+    for (const forward of sideMode === "both" ? [true, false] : [side > 0]) {
+      const resolved = findNearestBoundary(contour, crossing.segmentIndex, crossing.targetT, forward, contour.closed === true, hitsByTargetSegment, segmentLengths, tolerance)
+      if (resolved.kind === "unsupported") return { retained: [contour], sweepCrossings: uniqueCrossings.map((item) => item.point), boundaryIntersections, code: "unsupported-boundary", message: resolved.message }
+      if (resolved.kind === "ambiguous") return { retained: [contour], sweepCrossings: uniqueCrossings.map((item) => item.point), boundaryIntersections, code: "ambiguous-boundary", message: "Two eligible boundaries are equally near in the selected trim direction." }
+      if (resolved.kind === "missing") return { retained: [contour], sweepCrossings: uniqueCrossings.map((item) => item.point), boundaryIntersections, code: "no-boundary", message: "No eligible geometry boundary was found in each requested trim direction." }
+      let endDistance = forward ? startDistance + resolved.distance : startDistance - resolved.distance
+      if (contour.closed) endDistance = ((endDistance % totalLength) + totalLength) % totalLength
+      if (!contour.closed && (endDistance < -tolerance || endDistance > totalLength + tolerance)) return { retained: [contour], sweepCrossings: uniqueCrossings.map((item) => item.point), boundaryIntersections, code: "no-boundary", message: "No eligible geometry boundary was found before the target endpoint." }
+      if (contour.closed) {
+        if (forward) startDistance <= endDistance ? intervals.push([startDistance, endDistance]) : intervals.push([startDistance, totalLength], [0, endDistance])
+        else endDistance <= startDistance ? intervals.push([endDistance, startDistance]) : intervals.push([0, startDistance], [endDistance, totalLength])
+      } else intervals.push([Math.max(0, Math.min(startDistance, endDistance)), Math.min(totalLength, Math.max(startDistance, endDistance))])
+      boundaryIntersections.push({ point: resolved.hit.point, boundaryId: resolved.hit.boundaryId })
+    }
   }
   const merged = mergeIntervals(intervals, tolerance)
   const retainedSegments: DiagramPathSegment[] = []
