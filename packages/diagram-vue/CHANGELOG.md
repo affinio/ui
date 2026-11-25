@@ -1,10 +1,13 @@
 # @affino/diagram-vue
 
-## Unreleased
+## 0.29.0
 
 ### Minor Changes
 
+- Added a unified cross-kind `ordered` projection and forwarded Core-resolved entity styles to SVG props.
 - Forwarded native `altKey` through the pointer controller for center-based resize gestures; Shift + Alt/Option preserves aspect ratio around the original center.
+
+## Unreleased
 
 ## 0.28.0
 

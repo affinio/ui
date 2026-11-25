@@ -1,10 +1,16 @@
 # @affino/diagram-core
 
-## Unreleased
+## 0.31.0
 
 ### Minor Changes
 
+- Added typed entity `visualStyle` resolution, cross-kind render ordering, and typed style updates.
+- Added fixed-point connector junction anchors and atomic validation when host routes change; added canonical port ownership and explicit port remaps for path vertex edits.
+- Added explicit `expectedDocumentRevision` guards for batch preview and commit.
 - Added `altKey` to pointer events and center-based entity resizing; Shift and Alt/Option can be combined for centered aspect-ratio resizing.
+- Automatic connector segment drags now preview and commit the same constrained route, including moved free endpoints; impossible routes report `no-route` and are not committed.
+
+## Unreleased
 
 ## 0.30.0
 

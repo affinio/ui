@@ -1,6 +1,6 @@
 {
   "name": "@affino/diagram-vue",
-  "version": "0.28.0",
+  "version": "0.29.0",
   "author": "Anton Pavlov <a.pavlov@affino.dev>",
   "type": "module",
   "description": "Vue adapter for @affino/diagram-core",
