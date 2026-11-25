@@ -1,6 +1,6 @@
 import { getCurrentScope, onScopeDispose, shallowRef } from "vue"
 import type { ShallowRef } from "vue"
-import { createDiagramInteractionController, type DiagramBezierCreationOptions, type DiagramBezierHandleKind, type DiagramDynamicInputState, type DiagramInteractionController, type DiagramInteractionSnapOptions, type DiagramInteractionSnapshot, type DiagramInteractionTool, type DiagramPoint, type DiagramPointerEvent, type DiagramOrthogonalRouteOptions, type DiagramViewportConstraints, type DiagramId, type DiagramTableResizeAxis, type DiagramPortCreationOptions, type DiagramResizeHandle } from "@affino/diagram-core"
+import { createDiagramInteractionController, type DiagramBezierCreationOptions, type DiagramPathCreationOptions, type DiagramBezierHandleKind, type DiagramDynamicInputState, type DiagramInteractionController, type DiagramInteractionSnapOptions, type DiagramInteractionSnapshot, type DiagramInteractionTool, type DiagramPoint, type DiagramPointerEvent, type DiagramOrthogonalRouteOptions, type DiagramViewportConstraints, type DiagramId, type DiagramTableResizeAxis, type DiagramPortCreationOptions, type DiagramResizeHandle } from "@affino/diagram-core"
 import type { DiagramEngineController } from "./useDiagramEngine.js"
 
 export type DiagramPointerController = Readonly<{
@@ -15,7 +15,7 @@ export type DiagramPointerController = Readonly<{
   beginEdgePathCreation: (id: string, event: PointerEvent, routeOptions?: DiagramOrthogonalRouteOptions) => boolean
   finishEdgePathCreation: (point?: DiagramPoint) => boolean
   beginLineCreation: (id: string, event: PointerEvent) => boolean
-  beginPathCreation: (id: string, event: PointerEvent, mode?: "line" | "path") => boolean
+  beginPathCreation: (id: string, event: PointerEvent, modeOrOptions?: "line" | "path" | DiagramPathCreationOptions) => boolean
   beginBezierCreation: (id: DiagramId, event: PointerEvent, options?: DiagramBezierCreationOptions) => boolean
   finishBezierCreation: (closed?: boolean) => boolean
   beginBezierHandle: (id: DiagramId, contourIndex: number, segmentIndex: number, handle: DiagramBezierHandleKind, event: PointerEvent, anchorSide?: "start" | "end") => boolean
@@ -115,9 +115,9 @@ export function useDiagramPointerController(controller: DiagramEngineController,
       refresh()
       return accepted
     },
-    beginPathCreation: (id, event, mode) => {
+    beginPathCreation: (id, event, modeOrOptions) => {
       options.setPointerCapture?.(event)
-      const accepted = interaction.beginPathCreation(id, toEvent(event), mode)
+      const accepted = interaction.beginPathCreation(id, toEvent(event), modeOrOptions)
       refresh()
       return accepted
     },
