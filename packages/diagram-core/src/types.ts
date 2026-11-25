@@ -557,6 +557,8 @@ export type DiagramPointerEvent = Readonly<{
   id: number
   point: DiagramPoint
   shiftKey?: boolean
+  /** Native Alt/Option modifier; resize gestures use it to anchor at the original center. */
+  altKey?: boolean
   /** Native click detail; a value >= 2 completes click-to-place paths. */
   clickCount?: number
 }>

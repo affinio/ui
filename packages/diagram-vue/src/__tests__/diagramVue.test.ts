@@ -1145,6 +1145,25 @@ describe("diagram-vue", () => {
     expect(pointer.state.value.active).toBe(false)
   })
 
+  it("forwards Alt resize modifier through preview and commit", () => {
+    const callbacks: Array<FrameRequestCallback> = []
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { callbacks.push(callback); return callbacks.length })
+    const diagram = useDiagramEngine({ nodes: [{ id: "n", kind: "node", x: 0, y: 0, width: 100, height: 50 }] })
+    const pointer = useDiagramPointerController(diagram, { snap: { enabled: false }, toWorldPoint: (event) => ({ x: event.clientX, y: event.clientY }) })
+    const event = (x: number, y: number, altKey = false) => ({ pointerId: 9, clientX: x, clientY: y, shiftKey: false, altKey }) as PointerEvent
+    expect(pointer.beginResizeHandle("n", "se", event(100, 50))).toBe(true)
+    const props = pointer.getSvgPointerProps()
+    props.onPointermove(event(130, 80, true))
+    callbacks.shift()?.(0)
+    const preview = pointer.state.value.resizePreview!
+    expect(preview).toMatchObject({ x: -15, y: -15, width: 130, height: 80 })
+    props.onPointerup(event(130, 80, true))
+    expect(diagram.scene.value.entities.nodesById.get("n")).toMatchObject(preview)
+    pointer.dispose()
+    diagram.dispose()
+    vi.unstubAllGlobals()
+  })
+
   it("reactively exposes connector and numeric-input previews through the Vue pointer API", () => {
     const callbacks: Array<FrameRequestCallback> = []
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { callbacks.push(callback); return callbacks.length })

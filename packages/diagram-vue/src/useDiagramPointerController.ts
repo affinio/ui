@@ -77,7 +77,7 @@ export function useDiagramPointerController(controller: DiagramEngineController,
     state.value = next
   }
   const editingLockSubscription = controller.engine.subscribeEditingLock(() => refresh())
-  const toEvent = (event: PointerEvent) => ({ id: event.pointerId, point: toWorldPoint(event, options.toWorldPoint), shiftKey: event.shiftKey, clickCount: event.detail })
+  const toEvent = (event: PointerEvent) => ({ id: event.pointerId, point: toWorldPoint(event, options.toWorldPoint), shiftKey: event.shiftKey, altKey: event.altKey, clickCount: event.detail })
   const api: DiagramPointerController = {
     interaction,
     state,

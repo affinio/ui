@@ -2891,6 +2891,64 @@ describe("DiagramEngine", () => {
     }
   })
 
+  it("resizes around the original center with Alt and preserves Shift aspect ratio", () => {
+    const engine = createDiagramEngine({ nodes: [{ id: "shape", kind: "node", x: 0, y: 0, width: 100, height: 50 }] })
+    const controller = createDiagramInteractionController(engine, { scheduleFrame: (callback) => callback(), snap: { enabled: false } })
+    controller.beginResizeHandle("shape", "se", { id: 1, point: { x: 100, y: 50 } })
+    controller.pointerMove({ id: 1, point: { x: 130, y: 80 }, altKey: true })
+    const freePreview = controller.getSnapshot().resizePreview!
+    expect(freePreview).toMatchObject({ x: -15, y: -15, width: 130, height: 80 })
+    expect(freePreview.x! + freePreview.width! / 2).toBe(50)
+    expect(freePreview.y! + freePreview.height! / 2).toBe(25)
+    controller.pointerUp({ id: 1, point: { x: 130, y: 80 }, altKey: true })
+    expect(engine.getScene().entities.nodesById.get("shape")).toMatchObject(freePreview)
+    expect(engine.getDiagnostics().undoDepth).toBe(1)
+
+    engine.dispatch({ type: "undo" })
+    controller.beginResizeHandle("shape", "se", { id: 2, point: { x: 100, y: 50 }, altKey: true })
+    controller.pointerMove({ id: 2, point: { x: 130, y: 80 }, shiftKey: true, altKey: true })
+    const proportional = controller.getSnapshot().resizePreview!
+    expect(proportional.width! / proportional.height!).toBe(2)
+    expect(proportional.x! + proportional.width! / 2).toBe(50)
+    expect(proportional.y! + proportional.height! / 2).toBe(25)
+    controller.pointerMove({ id: 2, point: { x: 130, y: 80 }, altKey: false })
+    const toggled = controller.getSnapshot().resizePreview!
+    expect(toggled).toMatchObject({ width: 130, height: 80 })
+    controller.pointerUp({ id: 2, point: { x: 130, y: 80 }, altKey: false })
+    expect(engine.getScene().entities.nodesById.get("shape")).toMatchObject(toggled)
+
+    controller.beginResizeHandle("shape", "e", { id: 3, point: { x: 130, y: 40 }, altKey: true })
+    controller.pointerMove({ id: 3, point: { x: 150, y: 40 }, altKey: true })
+    expect(controller.getSnapshot().resizePreview).toMatchObject({ x: -10, width: 150, height: 80 })
+    controller.cancel()
+
+    const strictEngine = createDiagramEngine({ nodes: [{ id: "strict", kind: "node", x: 0, y: 0, width: 100, height: 50 }] })
+    const strict = createDiagramInteractionController(strictEngine, { scheduleFrame: (callback) => callback(), snap: { gridSize: 10, strictGrid: true } })
+    strict.beginResizeHandle("strict", "se", { id: 4, point: { x: 100, y: 50 }, altKey: true })
+    strict.pointerMove({ id: 4, point: { x: 130, y: 80 }, altKey: true })
+    const strictPreview = strict.getSnapshot().resizePreview!
+    expect(strictPreview).toMatchObject({ x: -15, y: -15, width: 130, height: 80 })
+    strict.pointerUp({ id: 4, point: { x: 130, y: 80 }, altKey: true })
+    expect(strictEngine.getScene().entities.nodesById.get("strict")).toMatchObject(strictPreview)
+
+    const pathEngine = createDiagramEngine({ shapes: [{
+      id: "curve", kind: "shape", shape: "line", x: 0, y: 0, width: 100, height: 50,
+      pathContours: [{ closed: true, segments: [
+        { kind: "cubic", start: { x: 0, y: 0 }, control1: { x: 30, y: 0 }, control2: { x: 70, y: 0 }, end: { x: 100, y: 0 } },
+        { kind: "line", start: { x: 100, y: 0 }, end: { x: 100, y: 50 } },
+        { kind: "line", start: { x: 100, y: 50 }, end: { x: 0, y: 50 } },
+        { kind: "line", start: { x: 0, y: 50 }, end: { x: 0, y: 0 } },
+      ] }],
+    }] })
+    const path = createDiagramInteractionController(pathEngine, { scheduleFrame: (callback) => callback(), snap: { enabled: false } })
+    path.beginResizeHandle("curve", "se", { id: 5, point: { x: 100, y: 50 } })
+    path.pointerMove({ id: 5, point: { x: 120, y: 70 }, altKey: true })
+    const pathPreview = path.getPreviewGeometry("curve")!
+    expect(pathPreview.bounds).toMatchObject({ x: -10, y: -10, width: 120, height: 70 })
+    path.pointerUp({ id: 5, point: { x: 120, y: 70 }, altKey: true })
+    expect(pathEngine.getGeometrySnapshot("curve")?.pathContours).toEqual(pathPreview.pathContours)
+  })
+
   it("resizes side handles along rotated local axes and cancels without committing", () => {
     for (const rotation of [90, 31]) {
       const callbacks: Array<() => void> = []
@@ -3027,6 +3085,19 @@ describe("DiagramEngine", () => {
     expect(controller.getCommitCount()).toBe(1)
     engine.dispatch({ type: "undo" })
     expect(engine.getScene().entities.nodesById.get("n2")).toMatchObject({ x: 200, y: 50, width: 100, height: 50 })
+
+    controller.beginResizeSelectionHandle("se", { id: 2, point: { x: 300, y: 100 }, altKey: true })
+    controller.pointerMove({ id: 2, point: { x: 360, y: 120 }, altKey: true })
+    callbacks[1]?.()
+    const centeredEntries = controller.getSnapshot().resizePreviewEntries
+    const allBounds = centeredEntries.map((entry) => ({ x: entry.x!, y: entry.y!, width: entry.width!, height: entry.height! }))
+    const left = Math.min(...allBounds.map((bounds) => bounds.x)), top = Math.min(...allBounds.map((bounds) => bounds.y))
+    const right = Math.max(...allBounds.map((bounds) => bounds.x + bounds.width)), bottom = Math.max(...allBounds.map((bounds) => bounds.y + bounds.height))
+    expect({ x: left, y: top, width: right - left, height: bottom - top }).toEqual({ x: -30, y: -10, width: 360, height: 120 })
+    expect(left + (right - left) / 2).toBe(150)
+    expect(top + (bottom - top) / 2).toBe(50)
+    controller.pointerUp({ id: 2, point: { x: 360, y: 120 }, altKey: true })
+    expect(engine.getScene().entities.nodesById.get("n2")).toMatchObject({ x: 210, y: 50, width: 120, height: 60 })
   })
 
   it("selects groups with strict containment marquee by default", () => {

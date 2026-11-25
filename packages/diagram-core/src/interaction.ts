@@ -23,6 +23,7 @@ export class DiagramInteractionController {
   private startPoint: DiagramPoint | null = null
   private latestPoint: DiagramPoint | null = null
   private latestShiftKey = false
+  private latestAltKey = false
   private shiftAxis: "x" | "y" | null = null
   private previewDelta: DiagramPoint | null = null
   private previewDeltasById = new Map<DiagramId, DiagramPoint>()
@@ -156,6 +157,7 @@ export class DiagramInteractionController {
     this.latestPoint = event.point
     this.previewDynamicInput = dynamicInputFor(event.point, event.point)
     this.latestShiftKey = event.shiftKey === true
+    this.latestAltKey = event.altKey === true
     this.shiftAxis = null
     this.previewDelta = null
     this.previewDeltasById.clear()
@@ -209,6 +211,7 @@ export class DiagramInteractionController {
     this.latestPoint = event.point
     this.previewDynamicInput = dynamicInputFor(event.point, event.point)
     this.latestShiftKey = event.shiftKey === true
+    this.latestAltKey = event.altKey === true
     this.shiftAxis = null
     this.resizeOwnerId = ownerId
     this.resizeHandle = handle
@@ -228,6 +231,7 @@ export class DiagramInteractionController {
     this.activePointer = event
     this.startPoint = event.point
     this.latestPoint = event.point
+    this.latestAltKey = event.altKey === true
     this.tableResizeStart = {
       id: ownerId,
       axis,
@@ -249,6 +253,7 @@ export class DiagramInteractionController {
     this.activePointer = event
     this.startPoint = event.point
     this.latestPoint = event.point
+    this.latestAltKey = event.altKey === true
     this.previewDynamicInput = dynamicInputFor(event.point, event.point)
     this.latestShiftKey = event.shiftKey === true
     this.shiftAxis = null
@@ -572,6 +577,7 @@ export class DiagramInteractionController {
     this.latestPoint = event.point
     this.previewDynamicInput = dynamicInputFor(event.point, event.point)
     this.latestShiftKey = event.shiftKey === true
+    this.latestAltKey = event.altKey === true
     this.shiftAxis = null
     this.resizeSelectionIds = ids
     this.resizeHandle = handle
@@ -613,6 +619,7 @@ export class DiagramInteractionController {
       return
     }
     this.latestPoint = event.point
+    this.latestAltKey = event.altKey === true
     if (this.tool === "drag-selection" && this.startPoint && this.isPastAxisActivation(event.point, this.startPoint)) this.dragActivated = true
     if (this.tool === "drag-path-vertex" && this.pathVertexPreview) {
       this.updateVertexShiftConstraint(event.shiftKey === true, event.point)
@@ -630,6 +637,7 @@ export class DiagramInteractionController {
       return
     }
     this.dynamicInput = null
+    this.latestAltKey = event.altKey === true
     this.updateShiftAxis(event.shiftKey === true, event.point)
     this.pendingMoveCount += 1
     if (!this.framePending) {
@@ -778,6 +786,7 @@ export class DiagramInteractionController {
       this.tool = "create-port"
       return
     }
+    this.latestAltKey = event.altKey === true
     this.updateShiftAxis(event.shiftKey === true, event.point)
     this.flushPointerMove()
     if (this.tool === "resize-table-axis" && this.tableResizePreview && this.tableResizePreview.size !== this.tableResizeStart?.size) {
@@ -810,7 +819,7 @@ export class DiagramInteractionController {
     }
     if (this.tool === "resize-selection" && this.resizePreviewEntries.length) {
       const gridSize = this.strictGridSize()
-      this.engine.dispatch({ type: "resizeEntities", entries: this.resizePreviewEntries, ...(gridSize ? { snap: { gridSize, strictGrid: true } } : {}), historyKey: `resize:${this.resizePreview?.id ?? "selection"}:${++this.gestureHistoryId}` })
+      this.engine.dispatch({ type: "resizeEntities", entries: this.resizePreviewEntries, ...(gridSize && !this.latestAltKey ? { snap: { gridSize, strictGrid: true } } : {}), historyKey: `resize:${this.resizePreview?.id ?? "selection"}:${++this.gestureHistoryId}` })
       this.commitCount += 1
     }
     if (this.tool === "drag-edge-segment" && this.edgeSegmentDrag) {
@@ -992,7 +1001,7 @@ export class DiagramInteractionController {
       if (directEntry && geometry && geometry.kind !== "edge" && geometry.kind !== "port") {
         const shape = scene.entities.shapesById.get(id)
         if (shape && (shape.points || shape.pathContours)) {
-          const previewShape = resizeShapePathPreview(shape, directEntry, this.strictGridSize())
+          const previewShape = resizeShapePathPreview(shape, directEntry, this.latestAltKey ? undefined : this.strictGridSize())
           return createEntityGeometry(id, { ...scene.entities, shapesById: new Map([[id, previewShape]]) })
         }
         return resizePreviewGeometry(geometry, directEntry)
@@ -1925,7 +1934,7 @@ export class DiagramInteractionController {
 
   private createSelectionResizePreviewEntries(delta: DiagramPoint): ReadonlyArray<DiagramResizeEntry> {
     if (!this.resizeHandle || !this.resizeStartBounds) return Object.freeze([])
-    const nextBounds = resizeBoundsByHandle(this.resizeStartBounds, this.resizeHandle, delta, this.minimumResizeSize(this.resizeSelectionIds, this.resizeStartBounds), this.latestShiftKey && isCornerResizeHandle(this.resizeHandle), this.resizeGridSize(), this.isStrictGridEnabled())
+    const nextBounds = resizeBoundsByHandle(this.resizeStartBounds, this.resizeHandle, delta, this.minimumResizeSize(this.resizeSelectionIds, this.resizeStartBounds), this.latestShiftKey && isCornerResizeHandle(this.resizeHandle), this.resizeGridSize(), this.isStrictGridEnabled(), this.latestAltKey)
     const scaleX = this.resizeStartBounds.width ? nextBounds.width / this.resizeStartBounds.width : 1
     const scaleY = this.resizeStartBounds.height ? nextBounds.height / this.resizeStartBounds.height : 1
     const entries: DiagramResizeEntry[] = []
@@ -1939,7 +1948,7 @@ export class DiagramInteractionController {
         y: nextBounds.y + (bounds.y - this.resizeStartBounds.y) * scaleY,
         width: Math.max(8, bounds.width * scaleX),
         height: Math.max(8, bounds.height * scaleY),
-      }))
+      }, this.latestAltKey))
     }
     return Object.freeze(entries)
   }
@@ -1952,19 +1961,19 @@ export class DiagramInteractionController {
     if (geometry?.flipX) localDelta = { ...localDelta, x: -localDelta.x }
     if (geometry?.flipY) localDelta = { ...localDelta, y: -localDelta.y }
     const minSize = this.minimumResizeSize([this.resizeOwnerId], bounds)
-    const nextBounds = resizeBoundsByHandle(bounds, this.resizeHandle, localDelta, minSize, this.latestShiftKey && isCornerResizeHandle(this.resizeHandle), this.resizeGridSize(), this.isStrictGridEnabled())
+    const nextBounds = resizeBoundsByHandle(bounds, this.resizeHandle, localDelta, minSize, this.latestShiftKey && isCornerResizeHandle(this.resizeHandle), this.resizeGridSize(), this.isStrictGridEnabled(), this.latestAltKey)
     const { x, y, width, height } = nextBounds
 
     const entry: { id: DiagramId; x?: number; y?: number; width?: number; height?: number } = { id: this.resizeOwnerId, width, height }
     if (this.resizeStartRotation || geometry?.flipX || geometry?.flipY) {
-      const anchored = anchorRotatedResize(bounds, this.resizeHandle, width, height, this.resizeStartRotation, geometry?.flipX, geometry?.flipY)
+      const anchored = anchorRotatedResize(bounds, this.resizeHandle, width, height, this.resizeStartRotation, geometry?.flipX, geometry?.flipY, this.latestAltKey)
       entry.x = anchored.x
       entry.y = anchored.y
     } else {
       if (x !== bounds.x) entry.x = x
       if (y !== bounds.y) entry.y = y
     }
-    return this.snapResizeEntry(entry)
+    return this.snapResizeEntry(entry, this.latestAltKey)
   }
 
   private resizeGridSize(): number | undefined {
@@ -1995,14 +2004,14 @@ export class DiagramInteractionController {
     return !size || (Math.abs(point.x / size - Math.round(point.x / size)) < 1e-9 && Math.abs(point.y / size - Math.round(point.y / size)) < 1e-9)
   }
 
-  private snapResizeEntry<T extends DiagramResizeEntry>(entry: T): T {
+  private snapResizeEntry<T extends DiagramResizeEntry>(entry: T, preserveCenter = false): T {
     const size = this.strictGridSize()
     if (!size) return entry
     const minimum = Math.max(size, Math.ceil(8 / size) * size)
     return {
       ...entry,
-      ...(entry.x === undefined ? {} : { x: Math.round(entry.x / size) * size }),
-      ...(entry.y === undefined ? {} : { y: Math.round(entry.y / size) * size }),
+      ...(!preserveCenter && entry.x !== undefined ? { x: Math.round(entry.x / size) * size } : {}),
+      ...(!preserveCenter && entry.y !== undefined ? { y: Math.round(entry.y / size) * size } : {}),
       ...(entry.width === undefined ? {} : { width: Math.max(minimum, Math.round(entry.width / size) * size) }),
       ...(entry.height === undefined ? {} : { height: Math.max(minimum, Math.round(entry.height / size) * size) }),
     }
@@ -2259,6 +2268,7 @@ export class DiagramInteractionController {
     this.startPoint = null
     this.latestPoint = null
     this.latestShiftKey = false
+    this.latestAltKey = false
     this.shiftAxis = null
     this.previewDelta = null
     this.dragActivated = false
@@ -2579,7 +2589,7 @@ function findDistinctPoint(path: ReadonlyArray<DiagramPoint>, index: number, ste
   return null
 }
 
-function resizeBoundsByHandle(bounds: DiagramRect, handle: DiagramResizeHandle, delta: DiagramPoint, minSize: number, preserveAspectRatio = false, gridSize?: number, strictGrid = false): DiagramRect {
+function resizeBoundsByHandle(bounds: DiagramRect, handle: DiagramResizeHandle, delta: DiagramPoint, minSize: number, preserveAspectRatio = false, gridSize?: number, strictGrid = false, centerBased = false): DiagramRect {
   let x = bounds.x
   let y = bounds.y
   let width = bounds.width
@@ -2611,7 +2621,11 @@ function resizeBoundsByHandle(bounds: DiagramRect, handle: DiagramResizeHandle, 
     if (handle.includes("w")) x = bounds.x + bounds.width - width
     if (handle.includes("n")) y = bounds.y + bounds.height - height
   }
-  if (strictGrid && gridSize && gridSize > 0) {
+  if (centerBased) {
+    x = bounds.x + (bounds.width - width) / 2
+    y = bounds.y + (bounds.height - height) / 2
+  }
+  if (strictGrid && gridSize && gridSize > 0 && !centerBased) {
     let left = Math.round(x / gridSize) * gridSize
     let top = Math.round(y / gridSize) * gridSize
     let right = Math.round((x + width) / gridSize) * gridSize
@@ -2649,8 +2663,11 @@ function unionRects(rects: ReadonlyArray<DiagramRect>): DiagramRect | null {
   return { x: minX, y: minY, width: maxX - minX, height: maxY - minY }
 }
 
-function anchorRotatedResize(bounds: DiagramRect, handle: DiagramResizeHandle, width: number, height: number, rotation: number, flipX = false, flipY = false): DiagramPoint {
-  const oldAnchor = transformResizeAnchor(anchorPointForHandle(bounds, handle), bounds, rotation, flipX, flipY)
+function anchorRotatedResize(bounds: DiagramRect, handle: DiagramResizeHandle, width: number, height: number, rotation: number, flipX = false, flipY = false, centerBased = false): DiagramPoint {
+  const oldAnchor = centerBased
+    ? rotatePoint(rectCenter(bounds), rectCenter(bounds), rotation)
+    : transformResizeAnchor(anchorPointForHandle(bounds, handle), bounds, rotation, flipX, flipY)
+  if (centerBased) return { x: oldAnchor.x - width / 2, y: oldAnchor.y - height / 2 }
   const newAnchorOffset = oppositeAnchorOffset(handle, width, height)
   const newCenterOffset = { x: width / 2, y: height / 2 }
   const flippedAnchorOffset = { x: flipX ? width - newAnchorOffset.x : newAnchorOffset.x, y: flipY ? height - newAnchorOffset.y : newAnchorOffset.y }

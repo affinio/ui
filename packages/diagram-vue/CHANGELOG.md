@@ -1,5 +1,11 @@
 # @affino/diagram-vue
 
+## Unreleased
+
+### Minor Changes
+
+- Forwarded native `altKey` through the pointer controller for center-based resize gestures; Shift + Alt/Option preserves aspect ratio around the original center.
+
 ## 0.28.0
 
 ### Minor Changes

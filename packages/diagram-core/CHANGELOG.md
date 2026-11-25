@@ -1,5 +1,11 @@
 # @affino/diagram-core
 
+## Unreleased
+
+### Minor Changes
+
+- Added `altKey` to pointer events and center-based entity resizing; Shift and Alt/Option can be combined for centered aspect-ratio resizing.
+
 ## 0.30.0
 
 ### Minor Changes
