@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import QuickDetails from "@/components/QuickDetails.vue"
 import SimpleAdapterTabs from "@/components/SimpleAdapterTabs.vue"
+import { RouterLink } from "vue-router"
 
 const highlightCards = [
   {
@@ -37,6 +38,10 @@ function select(value) {
     <section class="adapter-simple adapter-simple--single ui-page-main ui-page-main--single">
       <SimpleAdapterTabs />
     </section>
+
+    <RouterLink to="/workspace/settings" class="workspace-demo-link">
+      Open the route-backed workspace tabs example →
+    </RouterLink>
 
     <QuickDetails title="Starter code and notes" hint="Open to inspect the controller scaffold and extra tab patterns.">
       <article class="adapter-code ui-code-card">
@@ -77,6 +82,12 @@ function select(value) {
 
 .adapter-simple--single {
   grid-template-columns: minmax(0, 560px);
+}
+
+.workspace-demo-link {
+  justify-self: center;
+  color: var(--accent-strong);
+  font-weight: 650;
 }
 
 </style>

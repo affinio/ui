@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.0
+
+### Minor Changes
+
+- Added the controlled `UiWorkspaceTabs` component with route-link slots, close controls, ARIA tab semantics, and keyboard navigation.
+- Added a route-backed multi-document workspace example to demo-vue with persisted tab restoration.
+
 ## 0.1.0
 
 ### Minor Changes

@@ -40,6 +40,23 @@ const router = createRouter({
       component: () => import("@/pages/TabsPage.vue"),
     },
     {
+      path: "/workspace",
+      component: () => import("@/pages/workspace/WorkspaceTabsPage.vue"),
+      children: [
+        { path: "", redirect: { name: "workspace-settings" } },
+        {
+          path: "settings",
+          name: "workspace-settings",
+          component: () => import("@/pages/workspace/WorkspaceSettingsContent.vue"),
+        },
+        {
+          path: "documents/:documentId",
+          name: "workspace-document",
+          component: () => import("@/pages/workspace/WorkspaceDocumentContent.vue"),
+        },
+      ],
+    },
+    {
       path: "/treeview",
       name: "treeview-demo",
       component: () => import("@/pages/TreeviewPage.vue"),

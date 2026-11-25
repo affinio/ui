@@ -890,6 +890,12 @@ importers:
         specifier: workspace:^
         version: link:../tabs-core
     devDependencies:
+      '@vue/test-utils':
+        specifier: ^2.4.6
+        version: 2.4.6
+      jsdom:
+        specifier: ^28.1.0
+        version: 28.1.0
       vitest:
         specifier: ^4.0.15
         version: 4.0.15(@types/node@25.3.1)(jiti@2.6.1)(jsdom@28.1.0)(lightningcss@1.32.0)

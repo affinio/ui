@@ -1,3 +1,5 @@
 export * from "@affino/tabs-core"
 export { useTabsController } from "./useTabsController"
 export type { TabsController } from "./useTabsController"
+export { UiWorkspaceTabs } from "./UiWorkspaceTabs"
+export type { WorkspaceTab, WorkspaceTabActivationSource, WorkspaceTabLinkSlotProps } from "./UiWorkspaceTabs"

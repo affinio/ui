@@ -11,6 +11,7 @@ const activeCore = computed(() => {
   if (route.path.startsWith('/dialogs')) return 'Dialog'
   if (route.path.startsWith('/popovers')) return 'Popover'
   if (route.path.startsWith('/tabs')) return 'Tabs'
+  if (route.path.startsWith('/workspace')) return 'Workspace'
   if (route.path.startsWith('/disclosure')) return 'Disclosure'
   if (route.path.startsWith('/treeview')) return 'Treeview'
   if (route.path.startsWith('/diagram')) return 'Diagram'
