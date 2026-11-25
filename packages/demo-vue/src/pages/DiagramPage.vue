@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue"
+import { computed, onBeforeUnmount, onMounted, ref } from "vue"
 import {
   getSvgEntityProps,
   DiagramBezierOverlay,
@@ -104,6 +104,9 @@ const pointerProps = {
   onPointerup: handleStagePointerUp,
   onPointercancel: handleStagePointerCancel,
 }
+
+onMounted(() => window.addEventListener("keyup", handleStageKeyup))
+onBeforeUnmount(() => window.removeEventListener("keyup", handleStageKeyup))
 
 const selectedLabel = computed(() => {
   const id = selection.selection.value.primaryId
@@ -786,7 +789,7 @@ function clamp(value: number, min: number, max: number): number {
 
     <div class="diagram-shell">
       <div ref="stageRef" class="diagram-stage">
-        <svg class="diagram-svg" :viewBox="viewBox" tabindex="0" v-bind="pointerProps" @keydown="handleStageKeydown" @keyup.window="handleStageKeyup" @wheel="handleWheel">
+        <svg class="diagram-svg" :viewBox="viewBox" tabindex="0" v-bind="pointerProps" @keydown="handleStageKeydown" @wheel="handleWheel">
           <defs>
             <pattern id="diagram-grid" width="24" height="24" patternUnits="userSpaceOnUse">
               <path d="M 24 0 L 0 0 0 24" class="diagram-grid-line" />
