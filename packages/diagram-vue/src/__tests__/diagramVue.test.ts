@@ -91,7 +91,7 @@ describe("diagram-vue", () => {
     pointer.getSvgPointerProps().onPointermove(event(80, 75))
     frames.shift()?.(0)
     await nextTick()
-    expect(pointer.state.value.bezierCreationPreview?.contour.segments[0]).toMatchObject({ kind: "cubic" })
+    expect(pointer.state.value.bezierCreationPreview?.contour.segments[0]).toMatchObject({ kind: "cubic", control2: { x: 80, y: 45 } })
     expect(mount.querySelector('[data-bezier-preview="new-curve"]')?.getAttribute("d")).toContain("C")
     expect(mount.querySelectorAll("[data-bezier-handle]")).toHaveLength(4)
     pointer.getSvgPointerProps().onKeydown({ key: "Escape", preventDefault: vi.fn() } as unknown as KeyboardEvent)

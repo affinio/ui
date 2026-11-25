@@ -438,10 +438,10 @@ export class DiagramInteractionController {
     if (!anchorPoint || !finitePoint(anchorPoint)) return false
     const previous = this.bezierAnchors[this.bezierAnchors.length - 1]!
     if (samePoint(previous.point, anchorPoint)) return finish ? this.finishBezierCreation() : false
-    const handle = this.bezierPendingHandle
-    const incoming = handle ?? anchorPoint
-    const vector = { x: anchorPoint.x - incoming.x, y: anchorPoint.y - incoming.y }
-    const nextAnchor = { point: anchorPoint, incoming, outgoing: { x: anchorPoint.x + vector.x, y: anchorPoint.y + vector.y } }
+    // The drag direction is the contour's forward tangent at this anchor.
+    const outgoing = this.bezierPendingHandle ?? anchorPoint
+    const vector = { x: outgoing.x - anchorPoint.x, y: outgoing.y - anchorPoint.y }
+    const nextAnchor = { point: anchorPoint, incoming: { x: anchorPoint.x - vector.x, y: anchorPoint.y - vector.y }, outgoing }
     this.bezierAnchors[this.bezierAnchors.length - 1] = { ...previous, outgoing: previous.outgoing }
     this.bezierAnchors.push(nextAnchor)
     this.bezierPendingAnchor = null
@@ -2135,9 +2135,9 @@ export class DiagramInteractionController {
     const current = this.bezierPendingAnchor ?? (this.latestPoint ? this.resolveBezierPoint(this.latestPoint) : null)
     if (this.activePointer && this.bezierPendingAnchor) {
       const point = this.bezierPendingAnchor
-      const incoming = this.bezierPendingHandle ?? point
-      const delta = { x: point.x - incoming.x, y: point.y - incoming.y }
-      activeAnchor = { point, incoming, outgoing: { x: point.x + delta.x, y: point.y + delta.y } }
+      const outgoing = this.bezierPendingHandle ?? point
+      const delta = { x: outgoing.x - point.x, y: outgoing.y - point.y }
+      activeAnchor = { point, incoming: { x: point.x - delta.x, y: point.y - delta.y }, outgoing }
     }
     const segments: DiagramPathSegment[] = []
     for (let index = 0; index < anchors.length - 1; index += 1) segments.push(bezierSegment(anchors[index]!, anchors[index + 1]!))

@@ -1,5 +1,11 @@
 # @affino/diagram-vue
 
+## Unreleased
+
+### Fixed
+
+- Forwarded Bézier creation previews now expose the corrected Core tangent direction, matching the saved contour.
+
 ## 0.27.0
 
 ### Minor Changes

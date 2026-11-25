@@ -176,7 +176,7 @@ describe("DiagramEngine", () => {
     pointer.pointerMove({ id: 1, point: { x: 40, y: 30 } })
     frames.shift()?.()
     const preview = pointer.getSnapshot().bezierCreationPreview!
-    expect(preview.contour.segments[0]).toMatchObject({ kind: "cubic", start: { x: 10, y: 10 }, control1: { x: 10, y: 10 }, control2: { x: 40, y: 30 }, end: { x: 40, y: 10 } })
+    expect(preview.contour.segments[0]).toMatchObject({ kind: "cubic", start: { x: 10, y: 10 }, control1: { x: 10, y: 10 }, control2: { x: 40, y: -10 }, end: { x: 40, y: 10 } })
     pointer.pointerUp({ id: 1, point: { x: 40, y: 30 } })
     expect(pointer.finishBezierCreation()).toBe(true)
     expect(engine.getGeometrySnapshot("pen")?.pathContours?.[0]?.segments[0]).toEqual(preview.contour.segments[0])
@@ -194,12 +194,55 @@ describe("DiagramEngine", () => {
     pointer.pointerDown({ id: 1, point: { x: 20, y: 20 } })
     pointer.pointerMove({ id: 1, point: { x: 24, y: 29 }, shiftKey: true })
     const preview = pointer.getSnapshot().bezierCreationPreview!
+    expect(preview.activeAnchor?.outgoing?.x).toBe(20)
+    expect(preview.activeAnchor?.outgoing?.y).toBeGreaterThan(29)
     expect(preview.activeAnchor?.incoming?.x).toBe(20)
-    expect(preview.activeAnchor?.incoming?.y).toBeGreaterThan(29)
+    expect(preview.activeAnchor?.incoming?.y).toBeLessThan(11)
     pointer.cancel()
     expect(engine.serialize().shapes).toHaveLength(0)
     expect(engine.getDiagnostics().undoDepth).toBe(0)
     expect(engine.getDocumentRevision()).toBe(0)
+  })
+
+  it("uses each dragged anchor vector as the forward tangent and mirrors its opposite handle", () => {
+    const engine = createDiagramEngine()
+    const pointer = createDiagramInteractionController(engine, { snap: { enabled: false }, scheduleFrame: (callback) => callback() })
+    pointer.beginBezierCreation("forward-pen", { id: 9, point: { x: 0, y: 0 } })
+    pointer.pointerDown({ id: 9, point: { x: 100, y: 0 } })
+    pointer.pointerMove({ id: 9, point: { x: 100, y: 50 } })
+    const preview = pointer.getSnapshot().bezierCreationPreview!
+    const active = preview.activeAnchor!
+    expect(active.outgoing).toEqual({ x: 100, y: 50 })
+    expect(active.incoming).toEqual({ x: 100, y: -50 })
+    expect(preview.contour.segments[0]).toMatchObject({ kind: "cubic", control2: { x: 100, y: -50 } })
+    pointer.pointerUp({ id: 9, point: { x: 100, y: 50 } })
+    pointer.pointerDown({ id: 9, point: { x: 200, y: 50 } })
+    pointer.pointerMove({ id: 9, point: { x: 230, y: 50 } })
+    const nextPreview = pointer.getSnapshot().bezierCreationPreview!
+    expect(nextPreview.activeAnchor?.outgoing).toEqual({ x: 230, y: 50 })
+    expect(nextPreview.activeAnchor?.incoming).toEqual({ x: 170, y: 50 })
+    pointer.pointerUp({ id: 9, point: { x: 230, y: 50 } })
+    pointer.finishBezierCreation()
+    const committed = engine.getGeometrySnapshot("forward-pen")?.pathContours?.[0]?.segments
+    expect(committed).toHaveLength(nextPreview.contour.segments.length)
+    for (const [index, segment] of committed!.entries()) {
+      const previewSegment = nextPreview.contour.segments[index]!
+      expect(segment.kind).toBe(previewSegment.kind)
+      expect(segment.start.x).toBeCloseTo(previewSegment.start.x)
+      expect(segment.start.y).toBeCloseTo(previewSegment.start.y)
+      expect(segment.end.x).toBeCloseTo(previewSegment.end.x)
+      expect(segment.end.y).toBeCloseTo(previewSegment.end.y)
+      if (segment.kind === "cubic") {
+        expect(previewSegment.kind).toBe("cubic")
+        if (previewSegment.kind === "cubic") {
+          expect(segment.control1.x).toBeCloseTo(previewSegment.control1.x)
+          expect(segment.control1.y).toBeCloseTo(previewSegment.control1.y)
+          expect(segment.control2.x).toBeCloseTo(previewSegment.control2.x)
+          expect(segment.control2.y).toBeCloseTo(previewSegment.control2.y)
+        }
+      }
+    }
+    expect(engine.getDiagnostics().undoDepth).toBe(1)
   })
 
   it("closes a pen contour at the first anchor and round-trips it", () => {

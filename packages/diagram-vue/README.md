@@ -129,7 +129,7 @@ Selected resizable entities expose eight `activeHandles` with `resizeHandle` dir
 
 ### Bézier/Pen tool
 
-Set `pointer.setTool("draw-bezier")`; on the first canvas click call `pointer.beginBezierCreation(id, event, { closeTolerancePx })`. The optional close radius is in screen pixels. Subsequent canvas pointerdown/move/up events place click-drag anchors; the reactive `pointer.state.value.bezierCreationPreview` contains the exact cubic contour and active tangent handles. Enter finishes an open contour, clicking its first anchor closes it, and Escape/pointercancel cancels it. The adapter adds no document changes until finish; a completed contour creates one undo step and becomes selected.
+Set `pointer.setTool("draw-bezier")`; on the first canvas click call `pointer.beginBezierCreation(id, event, { closeTolerancePx })`. The optional close radius is in screen pixels. Subsequent canvas pointerdown/move/up events place click-drag anchors; dragging sets the outgoing tangent in the direction of the gesture and mirrors the incoming tangent across the anchor. The reactive `pointer.state.value.bezierCreationPreview` contains the exact cubic contour and active tangent handles, and matches the geometry committed at finish. Enter finishes an open contour, clicking its first anchor closes it, and Escape/pointercancel cancels it. The adapter adds no document changes until finish; a completed contour creates one undo step and becomes selected.
 
 Render transient paths and selected path handles inside the same world-coordinate SVG group as the scene:
 

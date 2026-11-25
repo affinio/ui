@@ -1,5 +1,11 @@
 # @affino/diagram-core
 
+## Unreleased
+
+### Fixed
+
+- Bézier creation now treats an anchor drag as the forward contour tangent and mirrors the incoming handle across the anchor.
+
 ## 0.29.0
 
 ### Minor Changes
