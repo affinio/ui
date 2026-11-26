@@ -1,6 +1,6 @@
 {
   "name": "@affino/tabs-vue",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "author": "Anton Pavlov <a.pavlov@affino.dev>",
   "type": "module",
   "description": "Vue adapter for @affino/tabs-core",
@@ -23,7 +23,7 @@
     "@affino/tabs-core": "workspace:^"
   },
   "scripts": {
-    "build": "tsc --build tsconfig.json",
+    "build": "rm -rf dist tsconfig.tsbuildinfo && tsc --build tsconfig.json",
     "test": "pnpm run build && vitest run"
   },
   "license": "MIT",

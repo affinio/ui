@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.2
+
+### Patch Changes
+
+- Use explicit `.js` specifiers in package entrypoint imports so native Node ESM can load the published Vue adapter.
+- Add Node and dist-backed SES consumer regression tests for the package entrypoint.
+
 ## 0.2.1
 
 ### Patch Changes

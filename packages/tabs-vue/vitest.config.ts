@@ -5,6 +5,7 @@ export default createWorkspaceVitestConfig(import.meta.url, {
   resolve: {
     alias: {
       "@affino/tabs-core": fileURLToPath(new URL("../tabs-core/dist/index.js", import.meta.url)),
+      "@affino/tabs-vue": fileURLToPath(new URL("./dist/index.js", import.meta.url)),
     },
   },
   test: {
