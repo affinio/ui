@@ -1,4 +1,4 @@
-import { defineComponent, h, nextTick, ref } from "vue"
+import { defineComponent, h, nextTick, onUpdated, ref } from "vue"
 import type { PropType } from "vue"
 
 export interface WorkspaceTab {
@@ -47,8 +47,34 @@ export const UiWorkspaceTabs = defineComponent({
   },
   setup(props, { emit, slots }) {
     const tabElements = new Map<string, HTMLElement>()
+    const tabItemElements = new Map<string, HTMLElement>()
     let draggedTabId: string | null = null
     const insertionMarker = ref<{ tabId: string; side: "before" | "after" } | null>(null)
+
+    function suppressNestedNativeDrags(): void {
+      if (!props.reorderable) return
+      for (const element of tabItemElements.values()) {
+        element.querySelectorAll<HTMLElement>("*").forEach((child) => {
+          child.draggable = false
+        })
+      }
+    }
+
+    onUpdated(suppressNestedNativeDrags)
+
+    function bindTabItemElement(id: string, element: unknown): void {
+      if (typeof HTMLElement === "undefined") return
+      if (element instanceof HTMLElement) {
+        tabItemElements.set(id, element)
+        if (props.reorderable) {
+          element.querySelectorAll<HTMLElement>("*").forEach((child) => {
+            child.draggable = false
+          })
+        }
+      } else {
+        tabItemElements.delete(id)
+      }
+    }
 
     function bindTabElement(id: string, element: unknown): void {
       if (typeof HTMLElement === "undefined") return
@@ -100,6 +126,7 @@ export const UiWorkspaceTabs = defineComponent({
       draggedTabId = tab.id
       insertionMarker.value = null
       event.dataTransfer.effectAllowed = "move"
+      event.dataTransfer.clearData()
       event.dataTransfer.setData("text/plain", tab.id)
     }
 
@@ -185,6 +212,7 @@ export const UiWorkspaceTabs = defineComponent({
           role: "presentation",
           style: props.reorderable ? { position: "relative" } : undefined,
           draggable: props.reorderable,
+          ref: (element: unknown) => bindTabItemElement(tab.id, element),
           onDragstart: (event: DragEvent) => onDragStart(tab, event),
           onDragend: () => { draggedTabId = null; insertionMarker.value = null },
           onDragover: (event: DragEvent) => onDragOver(tab, event),

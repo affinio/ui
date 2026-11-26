@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.5
+
+### Patch Changes
+
+- Start reorder drags from custom tab-link content without triggering native link or image drags.
+
 ## 0.2.4
 
 ### Patch Changes

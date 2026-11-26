@@ -87,6 +87,7 @@ describe("UiWorkspaceTabs", () => {
     const items = wrapper.findAll(".ui-workspace-tabs__item")
     const dataTransfer = {
       effectAllowed: "",
+      clearData: () => undefined,
       setData: () => undefined,
     }
 
@@ -100,7 +101,7 @@ describe("UiWorkspaceTabs", () => {
     const wrapper = mount(UiWorkspaceTabs, { props: { tabs, activeId: "settings" } })
     expect(wrapper.findAll(".ui-workspace-tabs__item")[2]!.attributes("draggable")).toBe("false")
     await wrapper.findAll(".ui-workspace-tabs__item")[2]!.trigger("dragstart", {
-      dataTransfer: { effectAllowed: "", setData: () => undefined },
+      dataTransfer: { effectAllowed: "", clearData: () => undefined, setData: () => undefined },
     })
     await wrapper.findAll(".ui-workspace-tabs__item")[0]!.trigger("drop", { clientX: -1 })
     expect(wrapper.emitted("reorder")).toBeUndefined()
@@ -115,7 +116,7 @@ describe("UiWorkspaceTabs", () => {
     Object.defineProperty(items[1]!.element, "getBoundingClientRect", {
       value: () => ({ left: 0, width: 100 }),
     })
-    const dataTransfer = { effectAllowed: "", setData: () => undefined }
+    const dataTransfer = { effectAllowed: "", clearData: () => undefined, setData: () => undefined }
 
     await items[0]!.trigger("dragstart", { dataTransfer })
     await items[1]!.trigger("dragover", { clientX: 50 })
@@ -134,7 +135,7 @@ describe("UiWorkspaceTabs", () => {
     Object.defineProperty(items[1]!.element, "getBoundingClientRect", {
       value: () => ({ left: 0, width: 100 }),
     })
-    const dataTransfer = { effectAllowed: "", setData: () => undefined }
+    const dataTransfer = { effectAllowed: "", clearData: () => undefined, setData: () => undefined }
 
     await items[0]!.trigger("dragstart", { dataTransfer })
     await items[1]!.trigger("dragover", { clientX: 5 })
@@ -146,6 +147,37 @@ describe("UiWorkspaceTabs", () => {
     await items[1]!.trigger("dragover", { clientX: 95 })
     expect(items[1]!.classes()).toContain("is-drop-after")
     await items[1]!.trigger("drop", { clientX: 95 })
+    expect(wrapper.emitted("reorder")?.[0]).toEqual([{ tabId: "settings", fromIndex: 0, toIndex: 1 }])
+    wrapper.unmount()
+  })
+
+  it("reorders from custom link and icon content without dragging the URL", async () => {
+    const pair = tabs.slice(0, 2)
+    const formats = new Map<string, string>([["text/uri-list", "/workspace/settings"]])
+    let clearedNativePayload = false
+    const dataTransfer = {
+      effectAllowed: "",
+      clearData: () => {
+        clearedNativePayload = true
+        formats.clear()
+      },
+      setData: (format: string, value: string) => formats.set(format, value),
+    }
+    const wrapper = mount(UiWorkspaceTabs, {
+      props: { tabs: pair, activeId: "settings", reorderable: true },
+      slots: {
+        "tab-link": ({ tab }) => h("a", { href: tab.to }, [h("img", { src: "/icon.svg", alt: "" }), tab.label]),
+      },
+    })
+    const link = wrapper.get('a[href="/workspace/settings"]')
+    const items = wrapper.findAll(".ui-workspace-tabs__item")
+
+    expect(link.attributes("draggable")).toBe("false")
+    expect(link.get("img").attributes("draggable")).toBe("false")
+    await link.trigger("dragstart", { dataTransfer })
+    expect(clearedNativePayload).toBe(true)
+    expect([...formats.entries()]).toEqual([["text/plain", "settings"]])
+    await items[1]!.trigger("drop", { clientX: -1 })
     expect(wrapper.emitted("reorder")?.[0]).toEqual([{ tabId: "settings", fromIndex: 0, toIndex: 1 }])
     wrapper.unmount()
   })
