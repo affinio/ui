@@ -33,6 +33,16 @@ const boundedEngine = createDiagramEngine({}, { history: { maxEntries: 200 } })
 
 `updateEntities` applies metadata updates to existing entities in one undoable command. Metadata is merged by key, so omitted keys remain unchanged. The command does not remove metadata keys; assigning `undefined` stores an `undefined` value. Unknown IDs are ignored, and updates with no effective changes create no history entry. Use `setEntityMetadata` to replace the complete metadata object.
 
+### Text orientation policies
+
+`DiagramText.orientationPolicy` controls glyph orientation while the text's stored position continues to follow normal object and group transformations. Omitted policy is `inherit`, preserving legacy rendering. Set or change it through `updateEntities`; this is undoable, batchable, and serialized with the text:
+
+```ts
+engine.dispatch({ type: "updateEntities", updates: [{ id: "t1", orientationPolicy: "keep-readable" }] })
+```
+
+`inherit` preserves rotation and both reflections. `keep-readable` removes glyph reflection, follows the transformed local baseline, then normalizes it into `(-90°, 90°]`; exact `-90°` maps to `+90°`. `keep-horizontal` removes glyph rotation and reflection in document coordinates. The policy is applied centrally in Core geometry, so bounds, hit testing, selection, and Vue rendering share the resolved orientation. The current engine stores object transforms as rotation and axis flips (group operations update child geometry); it does not represent non-uniform glyph scaling or shear. No PDF export adapter exists in this repository.
+
 ### Rectangle corner radius
 
 `DiagramShape.cornerRadius` is an optional world-unit radius for `shape: "rect"`; omission is equivalent to `0`. A radius must be finite and in `0..min(width,height)/2`. Non-rectangular shapes accept only `0` (or an omitted radius). Update it through one undoable command:

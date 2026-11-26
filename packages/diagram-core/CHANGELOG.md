@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.34.0
+
+### Minor Changes
+
+- Added `inherit`, `keep-readable`, and `keep-horizontal` text orientation policies with undoable updates and shared resolved geometry.
+
 ## 0.33.0
 
 ### Minor Changes

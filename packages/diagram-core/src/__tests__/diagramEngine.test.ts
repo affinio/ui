@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { clampViewportToBounds, createCircularArc, createDiagramEngine, createDiagramInteractionController, deserializeDiagramDocument, deserializeScene, getDiagramTableCellAt, intersectLineSegments, parseSvgPathData, rotatePoint, routeOrthogonalConnector, screenToWorld, serializeScene, subtractRectFromCircle, trimAndJoinLines, trimCircleOutsideRect, trimLineByCrossing, trimSelectionByStroke, validateDiagramScene, worldToScreen, zoomViewportAt } from ".."
+import { clampViewportToBounds, createCircularArc, createDiagramEngine, createDiagramInteractionController, deserializeDiagramDocument, deserializeScene, getDiagramTableCellAt, intersectLineSegments, parseSvgPathData, resolveTextGlyphOrientation, rotatePoint, routeOrthogonalConnector, screenToWorld, serializeScene, subtractRectFromCircle, trimAndJoinLines, trimCircleOutsideRect, trimLineByCrossing, trimSelectionByStroke, validateDiagramScene, worldToScreen, zoomViewportAt } from ".."
 import type { DiagramPoint, DiagramSceneInput } from ".."
 
 const scene: DiagramSceneInput = {
@@ -24,6 +24,24 @@ const scene: DiagramSceneInput = {
 }
 
 describe("DiagramEngine", () => {
+  it("resolves readable and horizontal text orientation deterministically and updates it undoably", () => {
+    const readable = (degrees: number) => resolveTextGlyphOrientation(degrees, false, false, "keep-readable").rotation
+    expect([0, 45, 90, 135, 180, 225, 270, 315].map(readable)).toEqual([0, 45, 90, -45, 0, 45, 90, -45])
+    expect(readable(-90)).toBe(90)
+    expect(readable(-135)).toBe(45)
+    expect(resolveTextGlyphOrientation(23, true, false, "keep-readable")).toMatchObject({ rotation: 23, flipX: false, flipY: false })
+    expect(resolveTextGlyphOrientation(45, true, true, "keep-readable").rotation).toBe(45)
+    expect(resolveTextGlyphOrientation(135, false, false, "keep-horizontal")).toMatchObject({ rotation: 0, flipX: false, flipY: false })
+
+    const engine = createDiagramEngine({ texts: [{ id: "label", kind: "text", x: 10, y: 20, text: "A", rotation: 180 }] })
+    engine.dispatch({ type: "updateEntities", updates: [{ id: "label", orientationPolicy: "keep-readable" }] })
+    expect(engine.getGeometrySnapshot("label")).toMatchObject({ rotation: 0, flipX: false, flipY: false })
+    expect(engine.serialize().texts[0]?.orientationPolicy).toBe("keep-readable")
+    engine.undo()
+    expect(engine.getScene().entities.textsById.get("label")?.orientationPolicy).toBeUndefined()
+    engine.redo()
+    expect(engine.getScene().entities.textsById.get("label")?.orientationPolicy).toBe("keep-readable")
+  })
   it("trims the stroke-selected endpoint arms at intersections between selected shapes", () => {
     const engine = createDiagramEngine({ shapes: [
       { id: "horizontal", kind: "shape", shape: "line", x: 0, y: 50, width: 100, height: 0 },

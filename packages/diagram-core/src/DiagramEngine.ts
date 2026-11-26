@@ -1188,7 +1188,7 @@ export class DiagramEngine {
       case "updateEntityStyle":
         return createEntityStylePatch(this.state, command.id, command.visualStyle)
       case "updateEntities":
-        return createEntityUpdatesPatch(this.state, command.updates)
+        return createEntityUpdatesPatchWithTextOrientation(this.state, command.updates)
       case "keyboard":
         return createKeyboardPatch(this.state, command.command, command.options ?? {})
       case "setSelection":
@@ -1444,7 +1444,9 @@ function isBatchNoOp(state: InternalState, command: DiagramCommand): boolean {
   if (command.type === "updateEntities" && command.updates.every((update) => {
     if (!hasEntity(state, update.id)) return false
     const current = getEntityMetadata(state, update.id) ?? {}
-    return update.metadata === undefined || Object.entries(update.metadata).every(([key, value]) => Object.is(current[key], value))
+    const metadataMatches = update.metadata === undefined || Object.entries(update.metadata).every(([key, value]) => Object.is(current[key], value))
+    const text = state.entities.textsById.get(update.id)
+    return metadataMatches && (update.orientationPolicy === undefined || update.orientationPolicy === text?.orientationPolicy)
   })) return true
   if (command.type === "setSelection" && command.selection.ids.length === state.selection.ids.length && command.selection.ids.every((id, index) => id === state.selection.ids[index]) && (command.selection.primaryId ?? null) === state.selection.primaryId) return true
   return false
@@ -1700,7 +1702,7 @@ function validateSceneInput(scene: DiagramSceneInput): DiagramSceneInput {
     const validPosition = legacyNodePort ? nodes.has(port.nodeId) && [port.x, port.y].every(Number.isFinite) : "hostId" in port && typeof port.hostId === "string" && "anchor" in port && Boolean(port.anchor)
     if (!validPosition || (port.radius !== undefined && (!Number.isFinite(port.radius) || port.radius < 0))) throw new TypeError(`Invalid port ${port.id}`)
   }
-  for (const text of textsInput) if (![text.x, text.y, text.width ?? 0, text.height ?? 0, text.fontSize ?? 0, text.rotation ?? 0].every(Number.isFinite) || !validFlipFlags(text)) throw new TypeError(`Invalid geometry for text ${text.id}`)
+  for (const text of textsInput) if (![text.x, text.y, text.width ?? 0, text.height ?? 0, text.fontSize ?? 0, text.rotation ?? 0].every(Number.isFinite) || !validFlipFlags(text) || (text.orientationPolicy !== undefined && !["inherit", "keep-readable", "keep-horizontal"].includes(text.orientationPolicy))) throw new TypeError(`Invalid geometry for text ${text.id}`)
   for (const shape of shapesInput) if (!isValidDiagramShape(shape)) throw new TypeError(`Invalid geometry for shape ${shape.id}`)
   for (const table of tablesInput) validateDiagramTable(table)
   for (const edge of edgesInput) {
@@ -2703,6 +2705,39 @@ function createEntityUpdatesPatch(
     new Map(changedIds.map((id) => [id, previous.get(id)])),
     new Map(changedIds.map((id) => [id, next.get(id)])),
   )
+}
+
+function createEntityUpdatesPatchWithTextOrientation(state: InternalState, updates: ReadonlyArray<{ id: DiagramId; metadata?: Readonly<Record<string, unknown>>; orientationPolicy?: import("./types.js").TextOrientationPolicy }>): Patch | null {
+  let combined = createEntityUpdatesPatch(state, updates)
+  for (const update of updates) {
+    const text = state.entities.textsById.get(update.id)
+    if (!text || update.orientationPolicy === undefined || update.orientationPolicy === text.orientationPolicy) continue
+    const before = text.orientationPolicy
+    const after: import("./types.js").TextOrientationPolicy = update.orientationPolicy
+    const makePatch = (value: import("./types.js").TextOrientationPolicy | undefined, inverseValue: import("./types.js").TextOrientationPolicy | undefined): Patch => {
+      const apply = (draft: InternalState): Set<DiagramId> => {
+        const current = draft.entities.textsById.get(update.id)
+        if (!current) return new Set()
+        if (value === undefined) {
+          const { orientationPolicy: _orientationPolicy, ...rest } = current
+          draft.entities.textsById.set(update.id, rest)
+        } else draft.entities.textsById.set(update.id, { ...current, orientationPolicy: value })
+        return new Set([update.id])
+      }
+      return { apply, inverse: { apply: (draft) => {
+        const current = draft.entities.textsById.get(update.id)
+        if (!current) return new Set()
+        if (inverseValue === undefined) {
+          const { orientationPolicy: _orientationPolicy, ...rest } = current
+          draft.entities.textsById.set(update.id, rest)
+        } else draft.entities.textsById.set(update.id, { ...current, orientationPolicy: inverseValue })
+        return new Set([update.id])
+      }, inverse: undefined as unknown as Patch } }
+    }
+    const policyPatch = makePatch(after, before)
+    combined = combined ? composeUndoablePatches(combined, policyPatch) : policyPatch
+  }
+  return combined
 }
 
 function createEntityStylePatch(state: InternalState, id: DiagramId, visualStyle?: DiagramVisualStyle): Patch | null {

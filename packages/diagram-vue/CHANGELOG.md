@@ -1,5 +1,11 @@
 # @affino/diagram-vue
 
+## 0.31.0
+
+### Minor Changes
+
+- Exported the shared SVG transform helper for consumers rendering Core-resolved geometry.
+
 ## 0.30.0
 
 ### Minor Changes

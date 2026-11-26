@@ -357,7 +357,8 @@ function createEntityGeometryRaw(id: DiagramId, entities: DiagramEntities): Diag
   if (text) {
     const width = text.width ?? Math.max(1, text.text.length) * (text.fontSize ?? 12) * 0.6
     const height = text.height ?? (text.fontSize ?? 12) * 1.2
-    return rectGeometry(id, "text", { x: text.x, y: text.y, width, height }, text.rotation ?? 0, 3, text.flipX, text.flipY)
+    const orientation = resolveTextGlyphOrientation(text.rotation ?? 0, text.flipX === true, text.flipY === true, text.orientationPolicy ?? "inherit")
+    return rectGeometry(id, "text", { x: text.x, y: text.y, width, height }, orientation.rotation, 3, orientation.flipX, orientation.flipY)
   }
   const shape = entities.shapesById.get(id)
   if (shape) {
@@ -395,6 +396,25 @@ function createEntityGeometryRaw(id: DiagramId, entities: DiagramEntities): Diag
     return rectGeometry(id, "table", { x: table.x, y: table.y - headerHeight, width: table.width, height: table.height + headerHeight }, table.rotation ?? 0, 3, table.flipX, table.flipY)
   }
   return null
+}
+
+/** Resolve glyph orientation independently from the text anchor. Reflection parity is tested from both axes. */
+export function resolveTextGlyphOrientation(rotation: number, flipX: boolean, flipY: boolean, policy: import("./types.js").TextOrientationPolicy): Readonly<{ rotation: number; flipX: boolean; flipY: boolean }> {
+  if (policy === "inherit") return { rotation, flipX, flipY }
+  if (!Number.isFinite(rotation)) return { rotation: 0, flipX: false, flipY: false }
+  if (policy === "keep-horizontal") return { rotation: 0, flipX: false, flipY: false }
+
+  // A reflected local X axis points in the opposite direction. Remove reflection first,
+  // then choose the equivalent baseline in [-90°, 90°), mapping either boundary to +90°.
+  const radians = rotation * Math.PI / 180
+  const xx = Math.cos(radians) * (flipX ? -1 : 1)
+  const yx = Math.sin(radians) * (flipX ? -1 : 1)
+  const angle = Math.atan2(yx, xx) * 180 / Math.PI
+  let normalized = ((angle % 360) + 360) % 360
+  if (normalized > 180) normalized -= 360
+  if (normalized > 90) normalized -= 180
+  else if (normalized <= -90) normalized += 180
+  return { rotation: Math.abs(normalized) < 1e-10 ? 0 : normalized, flipX: false, flipY: false }
 }
 
 function orientedLineFrameCorners(start: DiagramPoint, end: DiagramPoint, padding: number): ReadonlyArray<DiagramPoint> | undefined {

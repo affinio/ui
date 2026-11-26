@@ -12,6 +12,7 @@ import {
 } from "@affino/diagram-vue"
 import { createCircularArc, createEntityGeometry, pathContourSvg, subtractRectFromCircle, trimAndJoinLines, trimCircleOutsideRect, trimLineByCrossing, trimSelectionByStroke, type DiagramClipboard, type DiagramGeometry, type DiagramPathContour, type DiagramPoint, type DiagramSceneInput, type DiagramShape, type DiagramSweepTrimResult } from "@affino/diagram-core"
 import { beginDiagramHandleInteraction } from "./diagramHandleInteractions"
+import TextOrientationPoliciesDemo from "./TextOrientationPoliciesDemo.vue"
 
 const stageRef = ref<HTMLElement | null>(null)
 const clipboard = ref<DiagramClipboard | null>(null)
@@ -702,6 +703,8 @@ function clamp(value: number, min: number, max: number): number {
         <p class="diagram-eyebrow">@affino/diagram-vue</p>
         <h1>Switchgear diagram workspace</h1>
       </header>
+
+      <TextOrientationPoliciesDemo />
 
       <div class="diagram-toolbar" role="toolbar" aria-label="Diagram tools">
         <button :class="{ active: tool === 'select' }" type="button" @click="pointer.setTool('select')">Select</button>

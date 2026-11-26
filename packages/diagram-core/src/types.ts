@@ -136,7 +136,12 @@ export type DiagramText = DiagramEntityBase & Readonly<{
   rotation?: number
   flipX?: boolean
   flipY?: boolean
+  /** Controls how this text's glyphs respond to its rotation and reflection. Omitted means `inherit`. */
+  orientationPolicy?: TextOrientationPolicy
 }>
+
+/** Glyph orientation relative to the text object's transformed document-space anchor. */
+export type TextOrientationPolicy = "inherit" | "keep-readable" | "keep-horizontal"
 
 export type DiagramShape = DiagramEntityBase & Readonly<{
   kind: "shape"
@@ -478,6 +483,7 @@ export type DiagramCommand =
 export type DiagramEntityUpdate = Readonly<{
   id: DiagramId
   metadata?: Readonly<Record<string, unknown>>
+  orientationPolicy?: TextOrientationPolicy
 }>
 
 export type DiagramCommandResult = Readonly<{
