@@ -247,6 +247,7 @@ const lastInteractionLabel = computed(() => {
   const event = lastInteraction.value
   if (!event) return "No completed interaction yet"
   if (event.type === "clipboard") return `${event.action} intent · ${event.selectedValues.length} selected · target ${event.targetValue ?? "none"}`
+  if (event.type === "children.load.requested") return `children load requested · ${event.value} · request ${event.requestId}`
   if (event.type === "drag-start" || event.type === "drag-cancel") return `${event.type} · ${event.sourceValues.length} source nodes`
   return `${event.type} · ${event.sourceValues.length} source nodes · ${event.position} ${event.targetValue}`
 })
