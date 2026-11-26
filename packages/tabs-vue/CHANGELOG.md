@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.4
+
+### Patch Changes
+
+- Show the insertion position and make center drops select a move in the drag direction.
+
 ## 0.2.3
 
 ### Patch Changes

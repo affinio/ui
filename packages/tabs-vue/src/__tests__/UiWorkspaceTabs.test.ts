@@ -106,4 +106,47 @@ describe("UiWorkspaceTabs", () => {
     expect(wrapper.emitted("reorder")).toBeUndefined()
     wrapper.unmount()
   })
+
+  it("shows a drop position and moves a tab dropped in the center of its neighbor", async () => {
+    const wrapper = mount(UiWorkspaceTabs, {
+      props: { tabs, activeId: "settings", reorderable: true },
+    })
+    const items = wrapper.findAll(".ui-workspace-tabs__item")
+    Object.defineProperty(items[1]!.element, "getBoundingClientRect", {
+      value: () => ({ left: 0, width: 100 }),
+    })
+    const dataTransfer = { effectAllowed: "", setData: () => undefined }
+
+    await items[0]!.trigger("dragstart", { dataTransfer })
+    await items[1]!.trigger("dragover", { clientX: 50 })
+    expect(items[1]!.classes()).toContain("is-drop-after")
+    expect(items[1]!.find(".ui-workspace-tabs__drop-indicator").attributes("style")).toContain("right: 0px")
+    await items[1]!.trigger("drop", { clientX: 50 })
+    expect(wrapper.emitted("reorder")?.[0]).toEqual([{ tabId: "settings", fromIndex: 0, toIndex: 1 }])
+    wrapper.unmount()
+  })
+
+  it("uses the left and right edges as explicit insertion positions", async () => {
+    const wrapper = mount(UiWorkspaceTabs, {
+      props: { tabs, activeId: "settings", reorderable: true },
+    })
+    const items = wrapper.findAll(".ui-workspace-tabs__item")
+    Object.defineProperty(items[1]!.element, "getBoundingClientRect", {
+      value: () => ({ left: 0, width: 100 }),
+    })
+    const dataTransfer = { effectAllowed: "", setData: () => undefined }
+
+    await items[0]!.trigger("dragstart", { dataTransfer })
+    await items[1]!.trigger("dragover", { clientX: 5 })
+    expect(items[1]!.classes()).toContain("is-drop-before")
+    await items[1]!.trigger("drop", { clientX: 5 })
+    expect(wrapper.emitted("reorder")).toBeUndefined()
+
+    await items[0]!.trigger("dragstart", { dataTransfer })
+    await items[1]!.trigger("dragover", { clientX: 95 })
+    expect(items[1]!.classes()).toContain("is-drop-after")
+    await items[1]!.trigger("drop", { clientX: 95 })
+    expect(wrapper.emitted("reorder")?.[0]).toEqual([{ tabId: "settings", fromIndex: 0, toIndex: 1 }])
+    wrapper.unmount()
+  })
 })

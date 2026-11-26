@@ -1,4 +1,4 @@
-import { defineComponent, h, nextTick } from "vue"
+import { defineComponent, h, nextTick, ref } from "vue"
 import type { PropType } from "vue"
 
 export interface WorkspaceTab {
@@ -48,6 +48,7 @@ export const UiWorkspaceTabs = defineComponent({
   setup(props, { emit, slots }) {
     const tabElements = new Map<string, HTMLElement>()
     let draggedTabId: string | null = null
+    const insertionMarker = ref<{ tabId: string; side: "before" | "after" } | null>(null)
 
     function bindTabElement(id: string, element: unknown): void {
       if (typeof HTMLElement === "undefined") return
@@ -97,22 +98,43 @@ export const UiWorkspaceTabs = defineComponent({
         return
       }
       draggedTabId = tab.id
+      insertionMarker.value = null
       event.dataTransfer.effectAllowed = "move"
       event.dataTransfer.setData("text/plain", tab.id)
+    }
+
+    function insertionSide(targetTab: WorkspaceTab, event: DragEvent): "before" | "after" {
+      const targetIndex = props.tabs.findIndex((tab) => tab.id === targetTab.id)
+      const fromIndex = props.tabs.findIndex((tab) => tab.id === draggedTabId)
+      const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
+      const position = rect.width > 0 ? (event.clientX - rect.left) / rect.width : 0.5
+      if (position < 1 / 3) return "before"
+      if (position > 2 / 3) return "after"
+      return fromIndex < targetIndex ? "after" : "before"
+    }
+
+    function onDragOver(targetTab: WorkspaceTab, event: DragEvent): void {
+      if (!props.reorderable || !draggedTabId) return
+      event.preventDefault()
+      if (draggedTabId === targetTab.id) {
+        insertionMarker.value = null
+        return
+      }
+      insertionMarker.value = { tabId: targetTab.id, side: insertionSide(targetTab, event) }
     }
 
     function onDrop(targetTab: WorkspaceTab, event: DragEvent): void {
       event.preventDefault()
       const tabId = draggedTabId
+      const side = tabId && tabId !== targetTab.id ? insertionSide(targetTab, event) : null
       draggedTabId = null
+      insertionMarker.value = null
       if (!props.reorderable || !tabId || tabId === targetTab.id) return
       const fromIndex = props.tabs.findIndex((tab) => tab.id === tabId)
       const targetIndex = props.tabs.findIndex((tab) => tab.id === targetTab.id)
       if (fromIndex < 0 || targetIndex < 0) return
 
-      const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
-      const insertAfter = event.clientX >= rect.left + rect.width / 2
-      const insertionIndex = targetIndex + (insertAfter ? 1 : 0)
+      const insertionIndex = targetIndex + (side === "after" ? 1 : 0)
       const toIndex = insertionIndex > fromIndex ? insertionIndex - 1 : insertionIndex
       if (fromIndex !== toIndex) emit("reorder", { tabId, fromIndex, toIndex })
     }
@@ -155,16 +177,38 @@ export const UiWorkspaceTabs = defineComponent({
         }
         return h("div", {
           key: tab.id,
-          class: ["ui-workspace-tabs__item", { "is-active": active }],
+          class: ["ui-workspace-tabs__item", {
+            "is-active": active,
+            "is-drop-before": insertionMarker.value?.tabId === tab.id && insertionMarker.value.side === "before",
+            "is-drop-after": insertionMarker.value?.tabId === tab.id && insertionMarker.value.side === "after",
+          }],
           role: "presentation",
+          style: props.reorderable ? { position: "relative" } : undefined,
           draggable: props.reorderable,
           onDragstart: (event: DragEvent) => onDragStart(tab, event),
-          onDragend: () => { draggedTabId = null },
-          onDragover: (event: DragEvent) => {
-            if (props.reorderable && draggedTabId) event.preventDefault()
-          },
+          onDragend: () => { draggedTabId = null; insertionMarker.value = null },
+          onDragover: (event: DragEvent) => onDragOver(tab, event),
           onDrop: (event: DragEvent) => onDrop(tab, event),
-        }, children)
+        }, [
+          ...children,
+          insertionMarker.value?.tabId === tab.id
+            ? h("span", {
+                class: "ui-workspace-tabs__drop-indicator",
+                "aria-hidden": "true",
+                style: {
+                  position: "absolute",
+                  top: "0",
+                  bottom: "0",
+                  width: "3px",
+                  [insertionMarker.value.side === "before" ? "left" : "right"]: "0",
+                  backgroundColor: "currentColor",
+                  boxShadow: "0 0 0 2px color-mix(in srgb, currentColor 25%, transparent)",
+                  pointerEvents: "none",
+                  zIndex: "1",
+                },
+              })
+            : null,
+        ])
       }),
     )
   },
