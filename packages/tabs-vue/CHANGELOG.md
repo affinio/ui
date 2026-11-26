@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.6
+
+### Patch Changes
+
+- Allow themes to customize insertion marker color, width, and shadow through CSS custom properties.
+
 ## 0.2.5
 
 ### Patch Changes

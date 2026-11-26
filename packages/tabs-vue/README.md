@@ -25,6 +25,18 @@ Each tab is `{ id, label, to, closable? }`. `activeId` is controlled by the appl
 
 Set `reorderable` to enable pointer drag and drop. Dragging from custom `tab-link` content, including links and icons, starts a tab reorder rather than a native URL or image drag. A visible insertion marker shows whether the tab will land before or after the hovered tab. The left and right thirds select those positions; the center selects the direction that changes the current order. After a successful drop, `reorder` emits `{ tabId, fromIndex, toIndex }`; the component does not change the controlled `tabs` array. `toIndex` is the tab's resulting index. Reordering is disabled by default.
 
+Themes can customize the insertion marker with CSS custom properties set on the tab list or an ancestor:
+
+```css
+.workspace {
+  --affino-tabs-drop-indicator-color: #2563eb;
+  --affino-tabs-drop-indicator-width: 2px;
+  --affino-tabs-drop-indicator-shadow: 0 0 0 2px rgb(37 99 235 / 25%);
+}
+```
+
+The defaults are `currentColor`, `3px`, and `0 0 0 2px color-mix(in srgb, currentColor 25%, transparent)` respectively.
+
 The tab list uses `role="tablist"` and `role="tab"`, exposes selection with `aria-selected`, keeps one roving tab stop, and supports Left/Right, Home/End, and Delete/Backspace for closable tabs. Close buttons have per-tab accessible labels.
 
 ## Selection controller
