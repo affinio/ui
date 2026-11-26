@@ -35,13 +35,19 @@ export const UiWorkspaceTabs = defineComponent({
       type: String,
       default: "workspace-tab-panel",
     },
+    reorderable: {
+      type: Boolean,
+      default: false,
+    },
   },
   emits: {
     activate: (_tab: WorkspaceTab, _source: WorkspaceTabActivationSource) => true,
     close: (_tab: WorkspaceTab) => true,
+    reorder: (_detail: { tabId: string; fromIndex: number; toIndex: number }) => true,
   },
   setup(props, { emit, slots }) {
     const tabElements = new Map<string, HTMLElement>()
+    let draggedTabId: string | null = null
 
     function bindTabElement(id: string, element: unknown): void {
       if (typeof HTMLElement === "undefined") return
@@ -85,6 +91,32 @@ export const UiWorkspaceTabs = defineComponent({
       if (next) focusTab(next, "keyboard")
     }
 
+    function onDragStart(tab: WorkspaceTab, event: DragEvent): void {
+      if (!props.reorderable || !event.dataTransfer) {
+        event.preventDefault()
+        return
+      }
+      draggedTabId = tab.id
+      event.dataTransfer.effectAllowed = "move"
+      event.dataTransfer.setData("text/plain", tab.id)
+    }
+
+    function onDrop(targetTab: WorkspaceTab, event: DragEvent): void {
+      event.preventDefault()
+      const tabId = draggedTabId
+      draggedTabId = null
+      if (!props.reorderable || !tabId || tabId === targetTab.id) return
+      const fromIndex = props.tabs.findIndex((tab) => tab.id === tabId)
+      const targetIndex = props.tabs.findIndex((tab) => tab.id === targetTab.id)
+      if (fromIndex < 0 || targetIndex < 0) return
+
+      const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
+      const insertAfter = event.clientX >= rect.left + rect.width / 2
+      const insertionIndex = targetIndex + (insertAfter ? 1 : 0)
+      const toIndex = insertionIndex > fromIndex ? insertionIndex - 1 : insertionIndex
+      if (fromIndex !== toIndex) emit("reorder", { tabId, fromIndex, toIndex })
+    }
+
     return () => h(
       "div",
       {
@@ -117,12 +149,21 @@ export const UiWorkspaceTabs = defineComponent({
             "aria-label": `Close ${tab.label}`,
             title: `Close ${tab.label}`,
             onClick: (event: MouseEvent) => closeTab(tab, event),
+            draggable: false,
+            onDragStart: (event: DragEvent) => event.stopPropagation(),
           }, "×"))
         }
         return h("div", {
           key: tab.id,
           class: ["ui-workspace-tabs__item", { "is-active": active }],
           role: "presentation",
+          draggable: props.reorderable,
+          onDragstart: (event: DragEvent) => onDragStart(tab, event),
+          onDragend: () => { draggedTabId = null },
+          onDragover: (event: DragEvent) => {
+            if (props.reorderable && draggedTabId) event.preventDefault()
+          },
+          onDrop: (event: DragEvent) => onDrop(tab, event),
         }, children)
       }),
     )

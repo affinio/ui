@@ -79,4 +79,31 @@ describe("UiWorkspaceTabs", () => {
     expect(document.activeElement).toBe(wrapper.get('[href="/workspace/documents/b"]').element)
     wrapper.unmount()
   })
+
+  it("emits controlled reorder details only when reorder is enabled", async () => {
+    const wrapper = mount(UiWorkspaceTabs, {
+      props: { tabs, activeId: "settings", reorderable: true },
+    })
+    const items = wrapper.findAll(".ui-workspace-tabs__item")
+    const dataTransfer = {
+      effectAllowed: "",
+      setData: () => undefined,
+    }
+
+    await items[2]!.trigger("dragstart", { dataTransfer })
+    await items[0]!.trigger("drop", { clientX: -1 })
+    expect(wrapper.emitted("reorder")?.[0]).toEqual([{ tabId: "doc-b", fromIndex: 2, toIndex: 0 }])
+    wrapper.unmount()
+  })
+
+  it("disables dragging by default and ignores cancelled drags", async () => {
+    const wrapper = mount(UiWorkspaceTabs, { props: { tabs, activeId: "settings" } })
+    expect(wrapper.findAll(".ui-workspace-tabs__item")[2]!.attributes("draggable")).toBe("false")
+    await wrapper.findAll(".ui-workspace-tabs__item")[2]!.trigger("dragstart", {
+      dataTransfer: { effectAllowed: "", setData: () => undefined },
+    })
+    await wrapper.findAll(".ui-workspace-tabs__item")[0]!.trigger("drop", { clientX: -1 })
+    expect(wrapper.emitted("reorder")).toBeUndefined()
+    wrapper.unmount()
+  })
 })
