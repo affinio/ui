@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.0
+
+### Minor Changes
+
+- Add pinned virtual rows with viewport, row-range, and scroll target calculations that exclude pinned entries from the scrolling list.
+
 ## 0.6.0
 
 ### Minor Changes

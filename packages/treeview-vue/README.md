@@ -41,6 +41,14 @@ if (!focus.ok) {
 
 Both controllers expose `removeNodes(ids)` (including subtree deletion) and `batch(callback)`. Batches publish one final state notification, including when a nested callback throws; applied changes are not rolled back. Virtual row state updates synchronously after core notifications. Scroll-driven updates remain coalesced through animation frames.
 
+## Pinned virtual rows
+
+`useVirtualTreeviewController()` accepts `pinnedValues` and exposes matching, currently visible rows through `pinnedRows`. These rows stay in a separate fixed region above `visibleRows` and are removed from the scrollable list, so they are not duplicated. Collapsed or otherwise hidden values are not rendered as pinned. The full-tree `depth`, selection, expansion, active, and child metadata are preserved for accessible rendering; use `depth + 1` for `aria-level`.
+
+`viewportHeight` describes the combined viewport. Visible pinned rows consume `rowHeight` each from the scrolling viewport, and `totalHeight` is the height of the remaining scrollable rows. `visibleRows` and `visibleWindow` contain only that scrollable virtual window. Row `index` and `top` are local to their pinned or scrollable region; `treeIndex` retains the index in the complete core-visible tree. Core keyboard navigation order is unchanged. `scrollToValue()` and `scrollToIndex()` accept full-tree positions; targeting a pinned row leaves the current scroll position alone, while other targets map around pinned rows. With no `pinnedValues`, the previous virtual range and height behavior is unchanged.
+
+The `pinnedValues` list is read on each window refresh. If the list changes after controller creation, call `refreshWindow()` to apply the new pins.
+
 ## Lazy children
 
 Declare a branch before its children are available with `hasChildren: true`. The `childCount` metadata continues to count only registered children; `hasChildren` stays true while the node is unloaded so it remains expandable. `getNodeMeta(value)` and `getChildrenLoadState(value)` expose a typed `childrenLoadState` of `unloaded`, `loading`, `loaded`, or `error`.

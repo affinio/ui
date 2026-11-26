@@ -31,6 +31,7 @@ describe("useVirtualTreeviewController", () => {
     })
 
     expect(controller.totalHeight.value).toBe(60)
+    expect(controller.pinnedRows.value).toEqual([])
     expect(controller.visibleWindow.value.map((row) => row.value)).toEqual(["root", "alpha", "beta"])
     expect(controller.visibleWindow.value[2]).toMatchObject({
       value: "beta",
@@ -418,6 +419,70 @@ describe("useVirtualTreeviewController", () => {
     expect(controller.scrollTop.value).toBe(30)
     expect(controller.visibleRows.value.map((row) => row.value)).toEqual(["tail"])
     expect(controller.totalHeight.value).toBe(40)
+    scope.stop()
+    vi.useRealTimers()
+  })
+
+  it("pins a tree row outside the scroll window and maps scrolling by tree index", async () => {
+    vi.useFakeTimers()
+    const scope = effectScope()
+    let controller!: VirtualTreeviewController<string>
+    scope.run(() => {
+      controller = useVirtualTreeviewController<string>({
+        nodes: [
+          { value: "workspace:root", parent: null },
+          ...Array.from({ length: 10 }, (_, index) => ({
+            value: `project:${index}`,
+            parent: "workspace:root",
+          })),
+        ],
+        defaultExpanded: ["workspace:root"],
+        defaultSelected: "workspace:root",
+        defaultActive: "workspace:root",
+        pinnedValues: ["workspace:root"],
+        rowHeight: 10,
+        viewportHeight: 30,
+        overscan: 1,
+      })
+    })
+
+    expect(controller.totalHeight.value).toBe(100)
+    expect(controller.pinnedRows.value.map((row) => row.value)).toEqual(["workspace:root"])
+    expect(controller.pinnedRows.value[0]).toMatchObject({ index: 0, treeIndex: 0, top: 0, pinned: true, depth: 0, selected: true, expanded: true })
+    expect(controller.visibleRows.value.map((row) => row.value)).toEqual(["project:0", "project:1", "project:2"])
+    expect(controller.visibleRows.value.every((row) => row.pinned === false && row.depth === 1)).toBe(true)
+    expect(controller.visibleRows.value.some((row) => row.value === "workspace:root")).toBe(false)
+
+    controller.setScrollTop(50)
+    vi.runOnlyPendingTimers()
+    await nextTick()
+    expect(controller.pinnedRows.value.map((row) => row.value)).toEqual(["workspace:root"])
+    expect(controller.visibleRows.value.map((row) => row.value)).toEqual(["project:4", "project:5", "project:6", "project:7"])
+
+    controller.scrollToValue("workspace:root")
+    vi.runOnlyPendingTimers()
+    expect(controller.scrollTop.value).toBe(50)
+    controller.scrollToValue("project:9")
+    vi.runOnlyPendingTimers()
+    await nextTick()
+    expect(controller.scrollTop.value).toBe(80)
+    expect(controller.visibleRows.value.some((row) => row.value === "project:9")).toBe(true)
+
+    expect(controller.requestFocusNext()).toMatchObject({ ok: true })
+    controller.scrollToValue(controller.state.value.active!)
+    vi.runOnlyPendingTimers()
+    expect(controller.pinnedRows.value[0]?.active).toBe(false)
+    expect(controller.visibleRows.value.find((row) => row.active)?.value).toBe("project:0")
+    expect(controller.requestArrowLeft()).toMatchObject({ ok: true })
+    controller.scrollToValue(controller.state.value.active!)
+    expect(controller.pinnedRows.value[0]?.active).toBe(true)
+    expect(controller.scrollTop.value).toBe(0)
+
+    controller.requestCollapse("workspace:root")
+    expect(controller.totalHeight.value).toBe(0)
+    expect(controller.visibleRows.value).toEqual([])
+    expect(controller.pinnedRows.value.map((row) => row.value)).toEqual(["workspace:root"])
+
     scope.stop()
     vi.useRealTimers()
   })

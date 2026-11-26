@@ -14,12 +14,18 @@ export type VirtualTreeviewOptions<Value = string> = TreeviewOptions<Value> & {
   rowHeight?: number
   overscan?: number
   viewportHeight?: number
+  /** Visible values rendered in a fixed region above the scrollable virtual rows. */
+  pinnedValues?: ReadonlyArray<Value>
 }
 
 export type VirtualTreeviewRow<Value = string> = Readonly<TreeviewNodeMeta<Value> & {
+  /** Index within the pinned or scrollable row set. */
   index: number
+  /** Index in the complete core-visible tree, including pinned values. */
+  treeIndex: number
   top: number
   height: number
+  pinned: boolean
 }>
 
 type FrameHandle = number | ReturnType<typeof globalThis.setTimeout>
@@ -31,6 +37,7 @@ export interface VirtualTreeviewController<Value = string> extends TreeviewContr
   readonly totalHeight: ShallowRef<number>
   readonly visibleWindow: ShallowRef<ReadonlyArray<TreeviewNodeMeta<Value>>>
   readonly visibleRows: ShallowRef<ReadonlyArray<VirtualTreeviewRow<Value>>>
+  readonly pinnedRows: ShallowRef<ReadonlyArray<VirtualTreeviewRow<Value>>>
   readonly setScrollTop: (value: number) => void
   readonly setViewportHeight: (value: number) => void
   readonly scrollToIndex: (index: number) => void
@@ -45,6 +52,7 @@ export function useVirtualTreeviewController<Value = string>(
     rowHeight: initialRowHeight = 32,
     overscan: initialOverscan = 4,
     viewportHeight: initialViewportHeight = 320,
+    pinnedValues = [],
     ...treeOptions
   } = options
   const controller = useTreeviewController<Value>(treeOptions)
@@ -54,44 +62,98 @@ export function useVirtualTreeviewController<Value = string>(
   const totalHeight = shallowRef(0)
   const visibleWindow = shallowRef<ReadonlyArray<TreeviewNodeMeta<Value>>>(Object.freeze([]))
   const visibleRows = shallowRef<ReadonlyArray<VirtualTreeviewRow<Value>>>(Object.freeze([]))
+  const pinnedRows = shallowRef<ReadonlyArray<VirtualTreeviewRow<Value>>>(Object.freeze([]))
   const overscan = Math.max(0, Math.floor(normalizeNonNegativeNumber(initialOverscan, 4)))
   let frame: FrameHandle | null = null
   let disposed = false
 
+  const getVisiblePinnedIndexes = (): number[] => {
+    const seen = new Set<Value>()
+    const indexes: number[] = []
+    for (const value of pinnedValues) {
+      if (seen.has(value)) continue
+      seen.add(value)
+      const index = controller.getVisibleIndex(value)
+      if (index >= 0) indexes.push(index)
+    }
+    return indexes.sort((a, b) => a - b)
+  }
+
+  const getScrollableIndex = (treeIndex: number, pinnedIndexes: ReadonlyArray<number>): number => {
+    let scrollIndex = treeIndex
+    for (const pinnedIndex of pinnedIndexes) {
+      if (pinnedIndex >= treeIndex) break
+      scrollIndex -= 1
+    }
+    return scrollIndex
+  }
+
+  const getTreeIndex = (scrollIndex: number, pinnedIndexes: ReadonlyArray<number>): number => {
+    let treeIndex = scrollIndex
+    for (const pinnedIndex of pinnedIndexes) {
+      if (pinnedIndex > treeIndex) break
+      treeIndex += 1
+    }
+    return treeIndex
+  }
+
   const refreshWindow = () => {
     const count = controller.getVisibleCount()
-    totalHeight.value = count * rowHeight.value
-    const safeScrollTop = clamp(scrollTop.value, 0, Math.max(0, totalHeight.value - viewportHeight.value))
+    const pinnedIndexes = getVisiblePinnedIndexes()
+    const scrollableCount = Math.max(0, count - pinnedIndexes.length)
+    const pinnedHeight = pinnedIndexes.length * rowHeight.value
+    const scrollViewportHeight = Math.max(0, viewportHeight.value - pinnedHeight)
+    totalHeight.value = scrollableCount * rowHeight.value
+    const safeScrollTop = clamp(scrollTop.value, 0, Math.max(0, totalHeight.value - scrollViewportHeight))
     if (safeScrollTop !== scrollTop.value) {
       scrollTop.value = safeScrollTop
     }
     const firstVisibleIndex = Math.floor(safeScrollTop / rowHeight.value)
-    const visibleRowCount = viewportHeight.value === 0 ? 0 : Math.ceil(viewportHeight.value / rowHeight.value)
+    const visibleRowCount = scrollViewportHeight === 0 ? 0 : Math.ceil(scrollViewportHeight / rowHeight.value)
     const start = Math.max(0, firstVisibleIndex - overscan)
-    const lastVisibleIndex = Math.ceil((safeScrollTop + viewportHeight.value) / rowHeight.value)
-    const end = Math.min(count, Math.max(firstVisibleIndex + visibleRowCount, lastVisibleIndex) + overscan)
+    const lastVisibleIndex = Math.ceil((safeScrollTop + scrollViewportHeight) / rowHeight.value)
+    const end = Math.min(scrollableCount, Math.max(firstVisibleIndex + visibleRowCount, lastVisibleIndex) + overscan)
     const metas: TreeviewNodeMeta<Value>[] = []
     const rows: VirtualTreeviewRow<Value>[] = []
-    controller.getVisibleWindow(start, end).forEach((value, offset) => {
+    for (let index = start; index < end; index += 1) {
+      const treeIndex = getTreeIndex(index, pinnedIndexes)
+      const value = controller.getVisibleAt(treeIndex)
+      if (value === null) continue
       const meta = controller.getNodeMeta(value)
       if (!meta) {
-        return
+        continue
       }
-      const index = start + offset
       const top = index * rowHeight.value
       metas.push(meta)
       rows.push(Object.freeze({
         ...meta,
         index,
+        treeIndex,
         top,
         height: rowHeight.value,
+        pinned: false,
+      }))
+    }
+    const pins: VirtualTreeviewRow<Value>[] = []
+    pinnedIndexes.forEach((treeIndex, index) => {
+      const value = controller.getVisibleAt(treeIndex)
+      if (value === null) return
+      const meta = controller.getNodeMeta(value)
+      if (!meta) return
+      pins.push(Object.freeze({
+        ...meta,
+        index,
+        treeIndex,
+        top: index * rowHeight.value,
+        height: rowHeight.value,
+        pinned: true,
       }))
     })
-    if (rowsEqual(visibleRows.value, rows)) {
-      return
+    if (!rowsEqual(visibleRows.value, rows)) {
+      visibleWindow.value = Object.freeze(metas)
+      visibleRows.value = Object.freeze(rows)
     }
-    visibleWindow.value = Object.freeze(metas)
-    visibleRows.value = Object.freeze(rows)
+    if (!rowsEqual(pinnedRows.value, pins)) pinnedRows.value = Object.freeze(pins)
   }
 
   const scheduleRefresh = () => {
@@ -126,7 +188,10 @@ export function useVirtualTreeviewController<Value = string>(
     if (!Number.isFinite(index)) {
       return
     }
-    setScrollTop(Math.max(0, Math.trunc(index)) * rowHeight.value)
+    const treeIndex = Math.max(0, Math.trunc(index))
+    const pinnedIndexes = getVisiblePinnedIndexes()
+    if (pinnedIndexes.includes(treeIndex)) return
+    setScrollTop(getScrollableIndex(treeIndex, pinnedIndexes) * rowHeight.value)
   }
 
   const scrollToValue = (value: Value) => {
@@ -161,10 +226,11 @@ export function useVirtualTreeviewController<Value = string>(
       const previousIndex = Math.floor(scrollTop.value / rowHeight.value)
       const previousAnchor = visibleRows.value.find((row) => row.index === previousIndex)
       if (previousAnchor) {
-        const nextIndex = controller.getVisibleIndex(previousAnchor.value)
-        if (nextIndex >= 0 && nextIndex !== previousIndex) {
+          const nextTreeIndex = controller.getVisibleIndex(previousAnchor.value)
+          const nextScrollIndex = nextTreeIndex < 0 ? -1 : getScrollableIndex(nextTreeIndex, getVisiblePinnedIndexes())
+          if (nextScrollIndex >= 0 && nextScrollIndex !== previousIndex) {
           const offset = scrollTop.value - previousIndex * rowHeight.value
-          scrollTop.value = Math.max(0, nextIndex * rowHeight.value + offset)
+            scrollTop.value = Math.max(0, nextScrollIndex * rowHeight.value + offset)
         }
       }
       topologyVersion = nextTopologyVersion
@@ -180,6 +246,7 @@ export function useVirtualTreeviewController<Value = string>(
     totalHeight,
     visibleWindow,
     visibleRows,
+    pinnedRows,
     setScrollTop,
     setViewportHeight,
     scrollToIndex,
@@ -203,8 +270,10 @@ function rowsEqual<Value>(
       !Object.is(currentRow.value, nextRow.value) ||
       !Object.is(currentRow.parent, nextRow.parent) ||
       currentRow.index !== nextRow.index ||
+      currentRow.treeIndex !== nextRow.treeIndex ||
       currentRow.top !== nextRow.top ||
       currentRow.height !== nextRow.height ||
+      currentRow.pinned !== nextRow.pinned ||
       currentRow.depth !== nextRow.depth ||
       currentRow.childCount !== nextRow.childCount ||
       currentRow.hasChildren !== nextRow.hasChildren ||
