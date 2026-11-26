@@ -3,6 +3,7 @@ import type {
   TreeviewActionFailureReason,
   TreeviewActionResult,
   TreeviewClipboardAction,
+  TreeviewChildrenLoadState,
   TreeviewDropIntent,
   TreeviewDropPosition,
   TreeviewInteractionEvent,
@@ -30,6 +31,7 @@ type InternalNode<Value> = {
   parent: Value | null
   disabled: boolean
   text: string
+  hasChildren: boolean
   children: Value[]
 }
 
@@ -70,6 +72,10 @@ export class TreeviewCore<Value = string> {
   private snapshotSelectedValues: ReadonlyArray<Value> = Object.freeze([])
   private subscribers = new Set<TreeviewSubscriber<Value>>()
   private interactionSubscribers = new Set<TreeviewInteractionSubscriber<Value>>()
+  private childrenLoadStates = new Map<Value, TreeviewChildrenLoadState>()
+  private activeChildrenLoadRequests = new Map<Value, number>()
+  private nextChildrenLoadRequestId = 1
+  private topologyVersion = 0
   private activeDragSources: ReadonlyArray<Value> | null = null
   private pendingDropIntent: TreeviewDropIntent<Value> | null = null
   private selectedValuesSet = new Set<Value>()
@@ -144,6 +150,8 @@ export class TreeviewCore<Value = string> {
     if (!result.changed) {
       return result
     }
+    if (result.topologyChanged) this.topologyVersion += 1
+    this.reconcileChildrenLoadStates()
     if (!result.topologyChanged) {
       this.rebuildSearchProjection()
     }
@@ -169,6 +177,7 @@ export class TreeviewCore<Value = string> {
     }
     values.forEach((value) => visit(value, this.nodes.get(value)?.parent ?? null))
     if (!removed.size) return { changed: false, topologyChanged: false }
+    this.topologyVersion += 1
     // Prefer the nearest surviving ancestor when selection or active focus is removed.
     const survivingAncestor = (value: Value | null): Value | null => {
       let current = value
@@ -188,6 +197,7 @@ export class TreeviewCore<Value = string> {
     for (const value of removed) this.nodes.delete(value)
     this.rootValues = this.rootValues.filter((value) => !removed.has(value))
     this.nodes.forEach((node) => { node.children = node.children.filter((value) => !removed.has(value)) })
+    this.reconcileChildrenLoadStates()
     this.state = { ...this.state, active, selected, selectedValues, anchorValue, expanded: this.state.expanded.filter((value) => !removed.has(value)) }
     this.selectedValuesSet = new Set(selectedValues)
     this.expandedSet = new Set(this.state.expanded)
@@ -298,7 +308,7 @@ export class TreeviewCore<Value = string> {
     const node = this.nodes.get(value)
     if (!node) return actionFailure("missing-node")
     if (node.disabled) return actionFailure("disabled-node")
-    if (node.children.length > 0 && this.isVisuallyExpanded(value)) {
+    if (this.hasChildren(value) && this.isVisuallyExpanded(value)) {
       return this.requestCollapse(value)
     }
     return node.parent === null ? actionSuccess(false) : this.requestFocus(node.parent)
@@ -310,7 +320,7 @@ export class TreeviewCore<Value = string> {
     const node = this.nodes.get(value)
     if (!node) return actionFailure("missing-node")
     if (node.disabled) return actionFailure("disabled-node")
-    if (node.children.length === 0) return actionSuccess(false)
+    if (!this.hasChildren(value)) return actionSuccess(false)
     if (!this.isVisuallyExpanded(value)) return this.requestExpand(value)
 
     this.getVisibleValuesCached()
@@ -416,7 +426,7 @@ export class TreeviewCore<Value = string> {
     if (!node) {
       return actionFailure("missing-node")
     }
-    if (node.children.length === 0) {
+    if (!this.hasChildren(value)) {
       return actionFailure("leaf-node")
     }
     const previous = this.state
@@ -424,19 +434,77 @@ export class TreeviewCore<Value = string> {
       const wasSuppressed = this.searchSuppressedExpandedValues.delete(value)
       const wasAdded = !this.searchManuallyExpandedValues.has(value)
       this.searchManuallyExpandedValues.add(value)
-      if (!wasSuppressed && !wasAdded) return actionSuccess(false)
-      this.invalidateVisibleProjection()
-      this.snapshot = this.createSnapshot(this.state)
-      this.emitSnapshot()
-      return actionSuccess(true)
-    }
-    if (!this.isExpanded(value)) {
-      this.patch({
-        ...this.state,
-        expanded: [...this.state.expanded, value],
+      const expansionChanged = wasSuppressed || wasAdded
+      let requestId: number | null = null
+      this.batch(() => {
+        if (expansionChanged) {
+          this.invalidateVisibleProjection()
+          this.snapshot = this.createSnapshot(this.state)
+          this.emitSnapshot()
+        }
+        if (this.childrenLoadStates.get(value)?.status === "unloaded") {
+          requestId = this.startChildrenLoad(value)
+        }
       })
+      return actionSuccess(expansionChanged || requestId !== null)
     }
-    return actionSuccess(!statesEqual(previous, this.state))
+    let requestId: number | null = null
+    this.batch(() => {
+      if (!this.isExpanded(value)) {
+        this.patch({
+          ...this.state,
+          expanded: [...this.state.expanded, value],
+        })
+      }
+      if (this.childrenLoadStates.get(value)?.status === "unloaded") {
+        requestId = this.startChildrenLoad(value)
+      }
+    })
+    return actionSuccess(!statesEqual(previous, this.state) || requestId !== null)
+  }
+
+  /** Starts or supersedes an application-owned child load and emits a request intent. */
+  startChildrenLoad(value: Value): number | null {
+    const node = this.nodes.get(value)
+    if (!node || !this.hasChildren(value) || this.childrenLoadStates.get(value)?.status === "loaded") return null
+    const requestId = this.nextChildrenLoadRequestId++
+    this.activeChildrenLoadRequests.set(value, requestId)
+    this.childrenLoadStates.set(value, Object.freeze({ status: "loading", requestId }))
+    this.publishMetadataChange()
+    this.emitInteraction(Object.freeze({ type: "children.load.requested", value, requestId }))
+    return requestId
+  }
+
+  /** Completes only the current request. Optional nodes are patched atomically when supplied. */
+  completeChildrenLoad(value: Value, requestId: number, nodes?: ReadonlyArray<TreeviewNode<Value>>): boolean {
+    if (this.activeChildrenLoadRequests.get(value) !== requestId) return false
+    let completed = false
+    this.batch(() => {
+      if (nodes?.length) this.registerNodes(nodes, { mode: "patch", emit: false })
+      this.activeChildrenLoadRequests.delete(value)
+      this.childrenLoadStates.set(value, Object.freeze({ status: "loaded" }))
+      this.publishMetadataChange()
+      completed = true
+    })
+    return completed
+  }
+
+  /** Fails only the current request; error details and copy stay with the consumer. */
+  failChildrenLoad(value: Value, requestId: number): boolean {
+    if (this.activeChildrenLoadRequests.get(value) !== requestId) return false
+    this.activeChildrenLoadRequests.delete(value)
+    this.childrenLoadStates.set(value, Object.freeze({ status: "error", requestId }))
+    this.publishMetadataChange()
+    return true
+  }
+
+  /** Retries a failed request with a new request ID. */
+  retryChildrenLoad(value: Value): number | null {
+    return this.childrenLoadStates.get(value)?.status === "error" ? this.startChildrenLoad(value) : null
+  }
+
+  getChildrenLoadState(value: Value): TreeviewChildrenLoadState | null {
+    return this.nodes.has(value) ? this.childrenLoadStates.get(value) ?? null : null
   }
 
   collapse(value: Value): void {
@@ -448,7 +516,7 @@ export class TreeviewCore<Value = string> {
     if (!node) {
       return actionFailure("missing-node")
     }
-    if (node.children.length === 0) {
+    if (!this.hasChildren(value)) {
       return actionFailure("leaf-node")
     }
     if (this.normalizedSearchQuery !== "") {
@@ -488,7 +556,7 @@ export class TreeviewCore<Value = string> {
     if (!node) {
       return actionFailure("missing-node")
     }
-    if (node.children.length === 0) {
+    if (!this.hasChildren(value)) {
       return actionFailure("leaf-node")
     }
     if (this.isVisuallyExpanded(value)) {
@@ -547,6 +615,11 @@ export class TreeviewCore<Value = string> {
     return this.getVisibleValuesCached().length
   }
 
+  /** @internal Used by the virtual adapter to distinguish graph patches from projection-only changes. */
+  getTopologyVersion(): number {
+    return this.topologyVersion
+  }
+
   getVisibleAt(index: number): Value | null {
     if (!Number.isInteger(index) || index < 0) {
       return null
@@ -594,6 +667,8 @@ export class TreeviewCore<Value = string> {
       parent: node.parent,
       depth: this.depthByValue.get(value) ?? 0,
       childCount: node.children.length,
+      hasChildren: this.hasChildren(value),
+      childrenLoadState: this.childrenLoadStates.get(value) ?? Object.freeze({ status: "loaded" }),
       disabled: node.disabled,
       expanded: this.isVisuallyExpanded(value),
       selected: this.isSelected(value),
@@ -704,11 +779,36 @@ export class TreeviewCore<Value = string> {
     this.interactionSubscribers.forEach((subscriber) => subscriber(event))
   }
 
+  private publishMetadataChange(): void {
+    this.snapshot = this.createSnapshot(this.state)
+    this.emitSnapshot()
+  }
+
+  private reconcileChildrenLoadStates(): void {
+    for (const value of this.childrenLoadStates.keys()) {
+      if (!this.nodes.has(value)) {
+        this.childrenLoadStates.delete(value)
+        this.activeChildrenLoadRequests.delete(value)
+      }
+    }
+    this.nodes.forEach((node, value) => {
+      const current = this.childrenLoadStates.get(value)
+      if (node.children.length > 0 || !this.hasChildren(value)) {
+        this.activeChildrenLoadRequests.delete(value)
+        if (current?.status !== "loaded") this.childrenLoadStates.set(value, Object.freeze({ status: "loaded" }))
+      } else if (!current) {
+        this.childrenLoadStates.set(value, Object.freeze({ status: "unloaded" }))
+      }
+    })
+  }
+
   destroy(): void {
     this.subscribers.clear()
     this.interactionSubscribers.clear()
     this.activeDragSources = null
     this.pendingDropIntent = null
+    this.activeChildrenLoadRequests.clear()
+    this.childrenLoadStates.clear()
     this.visibleCache = null
   }
 
@@ -717,6 +817,13 @@ export class TreeviewCore<Value = string> {
     if (this.nodeMapsEqual(this.nodes, next)) {
       return { changed: false, topologyChanged: false }
     }
+    this.nodes.forEach((previous, value) => {
+      const candidate = next.get(value)
+      if (candidate && previous.hasChildren !== candidate.hasChildren && candidate.children.length === 0) {
+        this.activeChildrenLoadRequests.delete(value)
+        this.childrenLoadStates.set(value, Object.freeze({ status: candidate.hasChildren ? "unloaded" : "loaded" }))
+      }
+    })
     this.nodes = next
     return { changed: true, topologyChanged: true }
   }
@@ -728,7 +835,7 @@ export class TreeviewCore<Value = string> {
     if (current.size !== next.size) return false
     for (const [value, node] of current) {
       const candidate = next.get(value)
-      if (!candidate || candidate.parent !== node.parent || candidate.disabled !== node.disabled || candidate.text !== node.text) {
+      if (!candidate || candidate.parent !== node.parent || candidate.disabled !== node.disabled || candidate.text !== node.text || candidate.hasChildren !== node.hasChildren) {
         return false
       }
       if (candidate.children.length !== node.children.length || candidate.children.some((child, index) => child !== node.children[index])) {
@@ -746,6 +853,7 @@ export class TreeviewCore<Value = string> {
         parent: node.parent ?? null,
         disabled: node.disabled ?? false,
         text: this.normalizeNodeText(node),
+        hasChildren: node.hasChildren ?? false,
         children: [],
       })
     })
@@ -770,12 +878,21 @@ export class TreeviewCore<Value = string> {
         if (!existing) continue
         const disabled = node.disabled ?? false
         const text = this.normalizeNodeText(node)
+        const hasChildren = node.hasChildren ?? existing.hasChildren
         if (existing.disabled !== disabled) {
           existing.disabled = disabled
           changed = true
         }
         if (existing.text !== text) {
           existing.text = text
+          changed = true
+        }
+        if (existing.hasChildren !== hasChildren) {
+          existing.hasChildren = hasChildren
+          if (existing.children.length === 0) {
+            this.activeChildrenLoadRequests.delete(node.value)
+            this.childrenLoadStates.set(node.value, Object.freeze({ status: hasChildren ? "unloaded" : "loaded" }))
+          }
           changed = true
         }
       }
@@ -798,6 +915,7 @@ export class TreeviewCore<Value = string> {
       const text = this.normalizeNodeText(node)
       const existing = this.nodes.get(node.value)
       if (existing) {
+        const hasChildren = node.hasChildren ?? existing.hasChildren
         if (existing.parent !== parent) {
           parentPatches.push({ value: node.value, previousParent: existing.parent, parent })
           existing.parent = parent
@@ -812,6 +930,14 @@ export class TreeviewCore<Value = string> {
           existing.text = text
           changed = true
         }
+        if (existing.hasChildren !== hasChildren) {
+          existing.hasChildren = hasChildren
+          if (existing.children.length === 0) {
+            this.activeChildrenLoadRequests.delete(node.value)
+            this.childrenLoadStates.set(node.value, Object.freeze({ status: hasChildren ? "unloaded" : "loaded" }))
+          }
+          changed = true
+        }
         return
       }
       this.nodes.set(node.value, {
@@ -819,6 +945,7 @@ export class TreeviewCore<Value = string> {
         parent,
         disabled,
         text,
+        hasChildren: node.hasChildren ?? false,
         children: [],
       })
       addedNodePatches.push({ value: node.value, parent })
@@ -1488,7 +1615,7 @@ export class TreeviewCore<Value = string> {
 
   private hasChildren(value: Value): boolean {
     const node = this.nodes.get(value)
-    return Boolean(node && node.children.length > 0)
+    return Boolean(node && (node.hasChildren || node.children.length > 0))
   }
 
   private isDescendantOf(candidate: Value | null, ancestor: Value): boolean {

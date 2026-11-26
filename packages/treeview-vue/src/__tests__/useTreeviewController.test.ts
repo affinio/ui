@@ -58,6 +58,8 @@ describe("useTreeviewController", () => {
       parent: "root",
       depth: 1,
       childCount: 1,
+      hasChildren: true,
+      childrenLoadState: { status: "loaded" },
       disabled: false,
       expanded: true,
       selected: false,
@@ -327,6 +329,30 @@ describe("useTreeviewController", () => {
     ])
 
     subscription.unsubscribe()
+    scope.stop()
+  })
+
+  it("exposes lazy child requests and state through the public Vue controller", () => {
+    const scope = effectScope()
+    let controller!: TreeviewController<string>
+    scope.run(() => {
+      controller = useTreeviewController<string>({
+        nodes: [{ value: "root", parent: null, hasChildren: true }],
+      })
+    })
+    const events: unknown[] = []
+    controller.subscribeInteractions((event) => events.push(event))
+
+    expect(controller.getChildrenLoadState("root")).toEqual({ status: "unloaded" })
+    controller.requestExpand("root")
+    const requestId = controller.getChildrenLoadState("root")?.status === "loading"
+      ? controller.getChildrenLoadState("root")!.requestId
+      : -1
+    expect(events).toEqual([{ type: "children.load.requested", value: "root", requestId }])
+    expect(controller.completeChildrenLoad("root", requestId, [{ value: "child", parent: "root" }])).toBe(true)
+    expect(controller.getChildrenLoadState("root")).toEqual({ status: "loaded" })
+    expect(controller.getNodeMeta("root")?.childCount).toBe(1)
+
     scope.stop()
   })
 })

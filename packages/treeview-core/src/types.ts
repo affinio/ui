@@ -3,7 +3,15 @@ export type TreeviewNode<Value = string> = Readonly<{
   parent: Value | null
   disabled?: boolean
   text?: string
+  /** Declares children that may be registered later. `childCount` continues to count registered children only. */
+  hasChildren?: boolean
 }>
+
+export type TreeviewChildrenLoadState =
+  | Readonly<{ status: "unloaded" }>
+  | Readonly<{ status: "loading"; requestId: number }>
+  | Readonly<{ status: "loaded" }>
+  | Readonly<{ status: "error"; requestId: number }>
 
 export type TreeviewState<Value = string> = {
   active: Value | null
@@ -29,6 +37,8 @@ export type TreeviewNodeMeta<Value = string> = Readonly<{
   parent: Value | null
   depth: number
   childCount: number
+  hasChildren: boolean
+  childrenLoadState: TreeviewChildrenLoadState
   disabled: boolean
   expanded: boolean
   selected: boolean
@@ -62,6 +72,7 @@ export type TreeviewDropIntent<Value = string> = Readonly<{
 }>
 
 export type TreeviewInteractionEvent<Value = string> =
+  | Readonly<{ type: "children.load.requested"; value: Value; requestId: number }>
   | Readonly<{ type: "drag-start"; sourceValues: ReadonlyArray<Value> }>
   | Readonly<{ type: "drag-over" } & TreeviewDropIntent<Value>>
   | Readonly<{ type: "drop-accepted" | "drop-rejected" } & TreeviewDropIntent<Value>>

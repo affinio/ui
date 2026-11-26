@@ -40,3 +40,23 @@ if (!focus.ok) {
 `registerNodes()` returns `{ changed, topologyChanged }`. The `request*` methods return the same `TreeviewActionResult` as `@affino/treeview-core`; legacy imperative methods remain available for compatibility. `requestArrowLeft()` and `requestArrowRight()` forward the core APG navigation actions; renderer keyboard handlers can use them without coupling focus to selection. The virtual controller refreshes its visible window after these operations while returning the original result.
 
 Both controllers expose `removeNodes(ids)` (including subtree deletion) and `batch(callback)`. Batches publish one final state notification, including when a nested callback throws; applied changes are not rolled back. Virtual row state updates synchronously after core notifications. Scroll-driven updates remain coalesced through animation frames.
+
+## Lazy children
+
+Declare a branch before its children are available with `hasChildren: true`. The `childCount` metadata continues to count only registered children; `hasChildren` stays true while the node is unloaded so it remains expandable. `getNodeMeta(value)` and `getChildrenLoadState(value)` expose a typed `childrenLoadState` of `unloaded`, `loading`, `loaded`, or `error`.
+
+Expanding an unloaded branch starts one request and emits the typed `children.load.requested` interaction with `{ value, requestId }`. The package performs no I/O. A loading request is not repeated by collapse/re-expand; a failed request also requires an explicit retry. `startChildrenLoad(value)` can start or supersede an in-flight request, `failChildrenLoad(value, requestId)` records a current failure, and `retryChildrenLoad(value)` starts a fresh request only from the error state. Completion accepts only the active request ID. Pass returned nodes to `completeChildrenLoad` to atomically register them with patch mode and reject stale results:
+
+```ts
+const unsubscribe = controller.subscribeInteractions((event) => {
+  if (event.type !== "children.load.requested") return
+  loadChildren(event.value).then(
+    (children) => controller.completeChildrenLoad(event.value, event.requestId, children),
+    () => controller.failChildrenLoad(event.value, event.requestId),
+  )
+})
+
+controller.requestExpand("root")
+```
+
+`completeChildrenLoad(value, requestId, nodes?)` patches supplied nodes through the public `registerNodes(nodes, { mode: "patch" })` path in one notification batch. It returns `false` for a superseded request and does not register those nodes. Applications can alternatively use `registerNodes` directly when they own stale-result checks. Retry policy, caching, placeholder rows, loading/error copy, and ARIA rendering remain application responsibilities. Lazy rows retain normal `hasChildren`/`childCount` metadata, and the virtual adapter refreshes its bounded window and total height after accepted child registration while anchoring the current visible row.

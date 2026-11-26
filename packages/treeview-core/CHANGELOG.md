@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.0
+
+### Minor Changes
+
+- Add declared lazy children, typed load states, request-ID guarded load lifecycle methods, and a typed load request interaction.
+
 ## 0.6.1
 
 ### Patch Changes

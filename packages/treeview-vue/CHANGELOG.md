@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.0
+
+### Minor Changes
+
+- Expose lazy child loading state and lifecycle methods through both controllers.
+- Preserve virtual row bounds and scroll anchoring when lazy children are patched in.
+
 ## 0.5.1
 
 ### Patch Changes

@@ -22,7 +22,7 @@
 | TV-11 | P2 / S+V | public types, Vue wrappers, destroy | Core patch mode не проброшен через wrapper registerNodes; request* results также доступны только через core. Нет явного remove/reorder/batch API, terminal destroy guard; lazy loading remains outside the API. |
 | TV-12 | P2 / V | package tests/scripts/CI | Нет evidence реального браузера для virtual focus/ARIA; perf gate не подключён в CI. Тесты private counters не гарантируют bounded total work. |
 
-Ограничения существующей архитектуры: flat parent model, opt-in multiple selection (see the 2026-11 interaction contract addendum), and fixed-height virtual rows. Async child loading and variable heights remain outside this plan.
+Ограничения существующей архитектуры: flat parent model, opt-in multiple selection (see the 2026-11 interaction contract addendum), and fixed-height virtual rows. Async child loading is covered by the public core/Vue contract described in the package READMEs; variable heights remain outside this plan.
 
 ## API-решения
 
@@ -135,6 +135,8 @@
 ## Журнал
 
 2026-11-11: Approved additive interaction contract implemented in workspace: core/Vue now provide opt-in multi-selection with visible enabled-node ranges and stable anchor, focus/selection separation, and typed app-owned drag/drop and clipboard intents. Core/Vue tests cover modifier clicks, keyboard range extension, disabled nodes, hidden descendants, intent event payloads, and no model mutation. No DOM component exists in these packages, so renderer geometry, ARIA attributes, native key ownership, drop validation, and domain persistence remain consumer responsibilities. Package-level test/build and packed consumer release gates remain to be run before release.
+
+2026-11-26: Added an app-owned lazy-child contract to core/Vue: declared child availability, typed per-node load states, request IDs with stale completion rejection, atomic patch registration, and virtual row anchoring after topology changes. Loading UI, retry policy, and ARIA rendering remain the consumer's responsibility.
 
 2026-09-19: аудит и baseline treeview 47 tests (core 32, Vue 11, Laravel 4), builds passed на Node 24. Закрыты T01–T06, T08 и T09: prospective cycle normalization, structural notifications/no-op replace, search active invariants, fractional virtual range, core-owned virtual invalidation, bottom-up search projection, attribute-aware Laravel rehydrate с сохранением selection/expansion и explicit consumer/accessibility envelope в README + ESM consumer verification. T07 начат: topology patch больше не перестраивает search projection второй раз; benchmark получил deterministic no-op gates для source finalization, visible recompute и snapshot emission, отдельный field-patch workload подтвердил нулевые topology/traversal rebuilds, Node24 smoke на 1k nodes прошёл. T10 остаётся открытым; T07 требует полного calibrated patch cost model.
 2026-09-19: T10 продвинут: Node24 core benchmark на 10k прошёл с no-op/field-patch counter gates, Vue virtual benchmark на 10k прошёл с blanks=0 и heap delta 7.97MB; все 52 treeview tests, builds и pack dry-run прошли. Browser-native interaction gate остаётся validation gap из-за отсутствия component E2E fixtures.

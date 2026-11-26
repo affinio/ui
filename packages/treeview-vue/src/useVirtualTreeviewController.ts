@@ -154,7 +154,23 @@ export function useVirtualTreeviewController<Value = string>(
   }
 
   refreshWindow()
-  const coreSubscription = controller.core.subscribe(() => refreshWindow())
+  let topologyVersion = controller.core.getTopologyVersion()
+  const coreSubscription = controller.core.subscribe(() => {
+    const nextTopologyVersion = controller.core.getTopologyVersion()
+    if (nextTopologyVersion !== topologyVersion) {
+      const previousIndex = Math.floor(scrollTop.value / rowHeight.value)
+      const previousAnchor = visibleRows.value.find((row) => row.index === previousIndex)
+      if (previousAnchor) {
+        const nextIndex = controller.getVisibleIndex(previousAnchor.value)
+        if (nextIndex >= 0 && nextIndex !== previousIndex) {
+          const offset = scrollTop.value - previousIndex * rowHeight.value
+          scrollTop.value = Math.max(0, nextIndex * rowHeight.value + offset)
+        }
+      }
+      topologyVersion = nextTopologyVersion
+    }
+    refreshWindow()
+  })
 
   return {
     ...controller,
@@ -191,6 +207,9 @@ function rowsEqual<Value>(
       currentRow.height !== nextRow.height ||
       currentRow.depth !== nextRow.depth ||
       currentRow.childCount !== nextRow.childCount ||
+      currentRow.hasChildren !== nextRow.hasChildren ||
+      currentRow.childrenLoadState.status !== nextRow.childrenLoadState.status ||
+      loadRequestId(currentRow.childrenLoadState) !== loadRequestId(nextRow.childrenLoadState) ||
       currentRow.disabled !== nextRow.disabled ||
       currentRow.expanded !== nextRow.expanded ||
       currentRow.selected !== nextRow.selected ||
@@ -201,6 +220,10 @@ function rowsEqual<Value>(
     }
   }
   return true
+}
+
+function loadRequestId(state: TreeviewNodeMeta["childrenLoadState"]): number | null {
+  return state.status === "loading" || state.status === "error" ? state.requestId : null
 }
 
 function normalizePositiveNumber(value: number, fallback: number): number {

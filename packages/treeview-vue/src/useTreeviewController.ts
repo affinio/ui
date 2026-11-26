@@ -4,6 +4,7 @@ import {
   TreeviewCore,
   type TreeviewActionResult,
   type TreeviewClipboardAction,
+  type TreeviewChildrenLoadState,
   type TreeviewDropPosition,
   type TreeviewInteractionSubscriber,
   type TreeviewNode,
@@ -59,6 +60,11 @@ export interface TreeviewController<Value = string> {
   readonly getVisibleIndex: (value: Value) => number
   readonly getVisibleWindow: (start: number, end: number) => ReadonlyArray<Value>
   readonly getNodeMeta: (value: Value) => TreeviewNodeMeta<Value> | null
+  readonly getChildrenLoadState: (value: Value) => TreeviewChildrenLoadState | null
+  readonly startChildrenLoad: (value: Value) => number | null
+  readonly completeChildrenLoad: (value: Value, requestId: number, nodes?: ReadonlyArray<TreeviewNode<Value>>) => boolean
+  readonly failChildrenLoad: (value: Value, requestId: number) => boolean
+  readonly retryChildrenLoad: (value: Value) => number | null
   readonly setSearchQuery: (query: string) => void
   readonly clearSearchQuery: () => void
   readonly getSearchMatchCount: () => number
@@ -135,6 +141,11 @@ export function useTreeviewController<Value = string>(
     getVisibleIndex: (value) => core.getVisibleIndex(value),
     getVisibleWindow: (start, end) => core.getVisibleWindow(start, end),
     getNodeMeta: (value) => core.getNodeMeta(value),
+    getChildrenLoadState: (value) => core.getChildrenLoadState(value),
+    startChildrenLoad: (value) => core.startChildrenLoad(value),
+    completeChildrenLoad: (value, requestId, nodes) => core.completeChildrenLoad(value, requestId, nodes),
+    failChildrenLoad: (value, requestId) => core.failChildrenLoad(value, requestId),
+    retryChildrenLoad: (value) => core.retryChildrenLoad(value),
     setSearchQuery: (query) => core.setSearchQuery(query),
     clearSearchQuery: () => core.clearSearchQuery(),
     getSearchMatchCount: () => core.getSearchMatchCount(),

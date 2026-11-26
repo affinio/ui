@@ -32,6 +32,12 @@ Multiple selection is opt-in with `selectionMode: "multiple"`; single selection 
 
 Snapshots retain the legacy `selected` field and add `selectedValues`, `anchorValue`, and `focusedValue` (an alias of `active`). In multiple mode, the legacy scalar points to the active value while it is selected, otherwise to the last selected value in tree order. `TreeviewNodeMeta.selected` and `isSelected(value)` reflect membership in the full selection.
 
+## Lazy children
+
+Set `hasChildren: true` when a node is expandable but its children are not registered yet. `TreeviewNodeMeta.childCount` always counts registered children; `hasChildren` indicates expandability, and `childrenLoadState` reports `unloaded`, `loading`, `loaded`, or `error`.
+
+Expanding an unloaded node emits `children.load.requested` with a unique `{ value, requestId }` interaction and enters `loading`; the core performs no I/O. Collapse/re-expand does not duplicate a pending request. Errors require an explicit `retryChildrenLoad(value)`. `startChildrenLoad(value)` starts or supersedes a pending attempt; completion and failure apply only to the active request ID. Pass loaded nodes to `completeChildrenLoad(value, requestId, nodes)` to register them through `{ mode: "patch" }` atomically and ignore stale results. The application owns transport, retry policy, caching, and loading/error presentation.
+
 ## Request API (deterministic)
 
 Use `request*` methods for explicit success/failure semantics:

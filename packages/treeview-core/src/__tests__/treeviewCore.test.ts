@@ -124,6 +124,8 @@ describe("TreeviewCore", () => {
       parent: "root",
       depth: 1,
       childCount: 1,
+      hasChildren: true,
+      childrenLoadState: { status: "loaded" },
       disabled: false,
       expanded: true,
       selected: false,
@@ -135,6 +137,8 @@ describe("TreeviewCore", () => {
       parent: "beta",
       depth: 2,
       childCount: 0,
+      hasChildren: false,
+      childrenLoadState: { status: "loaded" },
       disabled: false,
       expanded: false,
       selected: true,
@@ -174,6 +178,51 @@ describe("TreeviewCore", () => {
 
     expect(after).not.toBe(before)
     expect(after).toEqual(["root", "alpha", "beta"])
+  })
+
+  it("loads declared children on expansion and rejects superseded completion", () => {
+    const core = new TreeviewCore<string>({
+      nodes: [{ value: "root", parent: null, hasChildren: true }],
+      defaultActive: "root",
+      defaultSelected: "root",
+    })
+    const requests: Array<{ value: string; requestId: number }> = []
+    core.subscribeInteractions((event) => {
+      if (event.type === "children.load.requested") requests.push(event)
+    })
+
+    expect(core.getNodeMeta("root")).toMatchObject({
+      childCount: 0,
+      hasChildren: true,
+      childrenLoadState: { status: "unloaded" },
+    })
+    expect(core.requestExpand("root")).toEqual({ ok: true, changed: true })
+    expect(core.getChildrenLoadState("root")).toMatchObject({ status: "loading" })
+    expect(requests).toHaveLength(1)
+    const originalRequest = requests[0]!.requestId
+
+    core.requestCollapse("root")
+    core.requestExpand("root")
+    expect(requests).toHaveLength(1)
+
+    expect(core.failChildrenLoad("root", originalRequest)).toBe(true)
+    expect(core.getChildrenLoadState("root")).toEqual({ status: "error", requestId: originalRequest })
+    const retryRequest = core.retryChildrenLoad("root")!
+    expect(retryRequest).not.toBe(originalRequest)
+    expect(requests).toHaveLength(2)
+    const supersedingRequest = core.startChildrenLoad("root")!
+    expect(core.completeChildrenLoad("root", retryRequest, [{ value: "stale", parent: "root" }])).toBe(false)
+    expect(core.getChildren("root")).toEqual([])
+    expect(core.completeChildrenLoad("root", supersedingRequest, [{ value: "child", parent: "root" }])).toBe(true)
+    expect(core.getNodeMeta("root")).toMatchObject({
+      childCount: 1,
+      hasChildren: true,
+      expanded: true,
+      selected: true,
+      active: true,
+      childrenLoadState: { status: "loaded" },
+    })
+    expect(core.getVisibleValues()).toEqual(["root", "child"])
   })
 
   it("filters visible projection to search matches and ancestors while preserving expansion state", () => {

@@ -349,4 +349,77 @@ describe("useVirtualTreeviewController", () => {
     vi.useRealTimers()
   })
 
+  it("refreshes bounded virtual rows and height after lazy children load", () => {
+    const scope = effectScope()
+    let controller!: VirtualTreeviewController<string>
+    scope.run(() => {
+      controller = useVirtualTreeviewController<string>({
+        nodes: [{ value: "root", parent: null, hasChildren: true }],
+        defaultSelected: "root",
+        rowHeight: 10,
+        viewportHeight: 10,
+        overscan: 1,
+      })
+    })
+
+    controller.requestExpand("root")
+    const requestState = controller.getChildrenLoadState("root")
+    expect(requestState?.status).toBe("loading")
+    expect(controller.visibleRows.value[0]?.childrenLoadState).toMatchObject({ status: "loading" })
+    expect(controller.totalHeight.value).toBe(10)
+    expect(controller.visibleRows.value.map((row) => row.value)).toEqual(["root"])
+
+    expect(controller.failChildrenLoad("root", requestState!.status === "loading" ? requestState.requestId : -1)).toBe(true)
+    expect(controller.visibleRows.value[0]?.childrenLoadState).toMatchObject({ status: "error" })
+    const retryRequest = controller.retryChildrenLoad("root")!
+    expect(controller.visibleRows.value[0]?.childrenLoadState).toMatchObject({ status: "loading", requestId: retryRequest })
+
+    expect(controller.completeChildrenLoad("root", retryRequest, [
+      { value: "one", parent: "root" },
+      { value: "two", parent: "root" },
+      { value: "three", parent: "root" },
+    ])).toBe(true)
+    expect(controller.totalHeight.value).toBe(40)
+    expect(controller.visibleRows.value.map((row) => row.value)).toEqual(["root", "one"])
+    expect(controller.visibleRows.value.length).toBeLessThan(4)
+    expect(controller.visibleRows.value[0]?.selected).toBe(true)
+    expect(controller.visibleRows.value[0]?.expanded).toBe(true)
+
+    scope.stop()
+  })
+
+  it("keeps the visible row anchored when lazy children are inserted above it", async () => {
+    vi.useFakeTimers()
+    const scope = effectScope()
+    let controller!: VirtualTreeviewController<string>
+    scope.run(() => {
+      controller = useVirtualTreeviewController<string>({
+        nodes: [
+          { value: "root", parent: null, hasChildren: true },
+          { value: "tail", parent: null },
+        ],
+        rowHeight: 10,
+        viewportHeight: 10,
+        overscan: 0,
+      })
+    })
+    controller.setScrollTop(10)
+    vi.runOnlyPendingTimers()
+    expect(controller.visibleRows.value.map((row) => row.value)).toEqual(["tail"])
+
+    controller.requestExpand("root")
+    const loadState = controller.getChildrenLoadState("root")
+    expect(loadState?.status).toBe("loading")
+    controller.completeChildrenLoad("root", loadState!.status === "loading" ? loadState.requestId : -1, [
+      { value: "child-a", parent: "root" },
+      { value: "child-b", parent: "root" },
+    ])
+
+    expect(controller.scrollTop.value).toBe(30)
+    expect(controller.visibleRows.value.map((row) => row.value)).toEqual(["tail"])
+    expect(controller.totalHeight.value).toBe(40)
+    scope.stop()
+    vi.useRealTimers()
+  })
+
 })
