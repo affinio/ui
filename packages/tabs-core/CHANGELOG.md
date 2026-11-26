@@ -1,10 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.1.1
 
-### Fixed
+### Patch Changes
 
-- Use explicit `.js` specifiers for generated ESM imports so native Node resolution can load the package.
+- Use explicit `.js` specifiers for generated ESM imports so native Node resolution can load the package without experimental flags.
 
 ## 0.1.0
 

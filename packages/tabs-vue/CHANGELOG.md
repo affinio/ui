@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1
+
+### Patch Changes
+
+- Updated `@affino/tabs-core` to 0.1.1, which fixes native Node ESM resolution for package consumers.
+
 ## 0.2.0
 
 ### Minor Changes
