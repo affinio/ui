@@ -2,6 +2,8 @@
 
 Headless tabs primitive for single-value selection.
 
+The package is published as native ESM. Relative imports in the generated entrypoints use `.js` specifiers so Node can load `@affino/tabs-core` without experimental resolution flags.
+
 ## Installation
 
 ```bash

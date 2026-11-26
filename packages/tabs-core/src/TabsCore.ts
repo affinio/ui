@@ -1,4 +1,4 @@
-import type { TabsSnapshot, TabsState, TabsSubscriber } from "./types"
+import type { TabsSnapshot, TabsState, TabsSubscriber } from "./types.js"
 
 export class TabsCore<Value = string> {
   private value: Value | null

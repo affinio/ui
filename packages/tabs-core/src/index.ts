@@ -1,2 +1,2 @@
-export type * from "./types"
-export { TabsCore } from "./TabsCore"
+export type * from "./types.js"
+export { TabsCore } from "./TabsCore.js"
