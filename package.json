@@ -47,6 +47,7 @@
     "quality:max": "node ./scripts/quality-max-pipeline.mjs",
     "test:diagram:browser": "node ./scripts/smoke-diagram-connectors.mjs && node ./scripts/accept-diagram-table.mjs && node ./scripts/smoke-diagram-drag-preview.mjs && node ./scripts/accept-diagram-presentation.mjs",
     "test:diagram:presentation": "node ./scripts/accept-diagram-presentation.mjs",
+    "test:diagram:rulers": "node ./scripts/accept-diagram-rulers.mjs",
     "quality:workspace:references": "node ./scripts/check-workspace-quality-references.mjs",
     "release:check:package": "node ./scripts/check-package-release.mjs"
   },

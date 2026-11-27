@@ -138,10 +138,43 @@ try {
     geometryEvidence = { scenarioId: "R2-UI22", previewPoints: previewRoute, committedPoints: pts, previewPortY: previewY, committedPortY: committedY, previewNodeY, committedNodeY, snapResult, orthogonal: orthogonal(pts), previewEqualsCommit: JSON.stringify(previewRoute) === JSON.stringify(pts) }
     assert(previewY === 185 && committedY === 185 && previewNodeY === 150 && committedNodeY === 150, `alignment snap drift: ${JSON.stringify({ previewY, committedY, previewNodeY, committedNodeY, snapResult })}`)
     assert(pts.length === 2 && orthogonal(pts) && JSON.stringify(previewRoute) === JSON.stringify(pts), `aligned route should preview and commit straight: ${JSON.stringify({ previewRoute, pts })}`)
+    const zoomPrecisionEvidence = []
     const moveHostTop = async (top) => {
+      const startingTop = Number(await page.locator('[data-node-id="host-b"]').getAttribute('data-world-y'))
       const rect = await page.locator('[data-node-id="host-b"] rect').boundingBox(), from = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 }, to = await xy(495, top + 35)
+      const traceToken = `${Date.now()}-${Math.random()}`
+      await page.evaluate((token) => {
+        const svg = document.querySelector('.workbench-stage')
+        const events = []
+        const listener = (event) => {
+          if (event.type !== 'pointerdown' && event.type !== 'pointerup') return
+          const point = new DOMPoint(event.clientX, event.clientY).matrixTransform(svg.getScreenCTM().inverse())
+          events.push({ type: event.type, client: { x: event.clientX, y: event.clientY }, world: { x: point.x, y: point.y } })
+        }
+        svg.addEventListener('pointerdown', listener, true)
+        svg.addEventListener('pointerup', listener, true)
+        window.__diagramDragTraces ??= new Map()
+        window.__diagramDragTraces.set(token, { svg, listener, events })
+      }, traceToken)
       await page.mouse.move(from.x, from.y); await page.mouse.down(); await page.mouse.move(to.x, to.y, { steps: 2 }); await page.mouse.up(); await page.waitForTimeout(25)
-      return { top: Number(await page.locator('[data-node-id="host-b"]').getAttribute("data-world-y")), route: await route("fixture-wire") }
+      const trace = await page.evaluate((token) => {
+        const entry = window.__diagramDragTraces.get(token)
+        entry.svg.removeEventListener('pointerdown', entry.listener, true)
+        entry.svg.removeEventListener('pointerup', entry.listener, true)
+        window.__diagramDragTraces.delete(token)
+        return entry.events
+      }, traceToken)
+      const committedTop = Number(await page.locator('[data-node-id="host-b"]').getAttribute("data-world-y"))
+      const startPointer = trace.find((event) => event.type === 'pointerdown')
+      const endPointer = trace.find((event) => event.type === 'pointerup')
+      const inputDeltaY = startPointer && endPointer ? endPointer.world.y - startPointer.world.y : NaN
+      const requestedFromWorld = await page.locator('.workbench-stage').evaluate((svg, point) => {
+        const world = new DOMPoint(point.x, point.y).matrixTransform(svg.getScreenCTM().inverse())
+        return { x: world.x, y: world.y }
+      }, from)
+      // Browser layout bounds can be fractional and are the actual source of the drag start.
+      // Compare committed geometry with the event coordinates after the same SVG inverse transform Core receives.
+      return { top: committedTop, startingTop, route: await route("fixture-wire"), requestedTop: top, requestedScreen: { from, to }, requestedFromWorld, expectedFromWorld: { x: 495, y: startingTop + 35 }, requestedFromWorldErrorY: requestedFromWorld.y - (startingTop + 35), requestedToWorld: { x: 495, y: top + 35 }, inputDeltaY, expectedTopFromDeliveredInput: startingTop + inputDeltaY, pointerTrace: trace }
     }
     const away = await moveHostTop(260), returned = await moveHostTop(150)
     assert(Math.abs(away.top - 260) < 0.001 && away.route.length > 2, `moving away did not restore an offset route: ${JSON.stringify(away)}`)
@@ -150,13 +183,15 @@ try {
     for (const [delta, awayTop] of [[150, 170], [-300, 175]]) {
       await page.keyboard.down("Control"); await page.mouse.move(stage.x + stage.width / 2, stage.y + stage.height / 2); await page.mouse.wheel(0, delta); await page.keyboard.up("Control"); await page.waitForTimeout(60)
       const zoomAway = await moveHostTop(awayTop), zoomBack = await moveHostTop(150)
-      assert(Math.abs(zoomAway.top - awayTop) < 0.001 && zoomAway.route.length > 2 && zoomBack.top === 150 && zoomBack.route.length === 2, `alignment was inconsistent at zoom: ${JSON.stringify({ delta, zoomAway, zoomBack })}`)
+      zoomPrecisionEvidence.push({ zoomDelta: delta, requestedTop: awayTop, ...zoomAway, zoomBackTop: zoomBack.top })
+      assert(Math.abs(zoomAway.top - zoomAway.expectedTopFromDeliveredInput) < 1e-6 && zoomAway.route.length > 2 && zoomBack.top === 150 && zoomBack.route.length === 2, `alignment was inconsistent at zoom: ${JSON.stringify({ delta, zoomAway, zoomBack })}`)
     }
     for (let index = 0; index < 8; index += 1) {
       await moveHostTop(163)
       const stable = await moveHostTop(150)
       assert(stable.top === 150 && stable.route.length === 2, `alignment drifted on repetition ${index}: ${JSON.stringify(stable)}`)
     }
+    geometryEvidence.zoomPrecisionEvidence = zoomPrecisionEvidence
     await page.screenshot({ path: `${artifactDir}/aligned-straight-committed.png` })
   })
   check("R2-UI23", "manual route keeps interior bends while host moves", async () => { await fixture("manual"); const before=await route("fixture-wire"); await page.getByRole("button",{name:"Select",exact:true}).click(); const b=await page.locator('[data-node-id="host-a"] rect').boundingBox(); await page.mouse.move(b.x+b.width/2,b.y+b.height/2); await page.mouse.down(); await page.mouse.move(b.x+b.width/2+25,b.y+b.height/2+20,{steps:4}); await page.waitForTimeout(30); await page.mouse.up(); await page.waitForTimeout(30); const after=await route("fixture-wire"); assert(orthogonal(after)&&after.some(p=>p[0]===before[2][0]&&p[1]===before[2][1]), "manual interior bend was not preserved"); assert(await page.getByTestId("preview-commit-equality").innerText()==="true", "manual connected-object preview differs from commit"); await captureEditEvidence("R2-UI23","fixture-wire") })
