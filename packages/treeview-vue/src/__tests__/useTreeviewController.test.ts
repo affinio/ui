@@ -345,8 +345,9 @@ describe("useTreeviewController", () => {
 
     expect(controller.getChildrenLoadState("root")).toEqual({ status: "unloaded" })
     controller.requestExpand("root")
-    const requestId = controller.getChildrenLoadState("root")?.status === "loading"
-      ? controller.getChildrenLoadState("root")!.requestId
+    const loadState = controller.getChildrenLoadState("root")
+    const requestId = loadState?.status === "loading"
+      ? loadState.requestId
       : -1
     expect(events).toEqual([{ type: "children.load.requested", value: "root", requestId }])
     expect(controller.completeChildrenLoad("root", requestId, [{ value: "child", parent: "root" }])).toBe(true)

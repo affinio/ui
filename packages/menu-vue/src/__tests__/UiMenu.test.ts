@@ -196,7 +196,7 @@ describe("UiMenu", () => {
     await fireEvent.click(item)
 
     expect(handleSelect).toHaveBeenCalledTimes(1)
-    expect(handleSelect.mock.calls[0][0].id).toBe("first")
+    expect(handleSelect.mock.calls[0]![0].id).toBe("first")
 
     await waitFor(() => {
       expect(screen.queryByRole("menu")).toBeNull()

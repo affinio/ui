@@ -124,7 +124,7 @@ describe("hydrateTooltip", () => {
     vi.stubGlobal("cancelAnimationFrame", cancelFrame)
     const typedRoot = root as HTMLElement & { affinoTooltip?: { open(): void; close(): void } }
 
-    hydrateTooltip(typedRoot)
+    hydrateTooltip(typedRoot as unknown as RootEl)
     typedRoot.affinoTooltip?.open()
     for (let index = 0; index < frames.length; index += 1) frames[index]?.(0)
     expect(requestFrame).toHaveBeenCalledTimes(3)
@@ -145,7 +145,7 @@ describe("hydrateTooltip", () => {
     document.body.appendChild(root)
     const typedRoot = root as HTMLElement & { affinoTooltip?: { open(): void } }
 
-    hydrateTooltip(typedRoot)
+    hydrateTooltip(typedRoot as unknown as RootEl)
     typedRoot.affinoTooltip?.open()
 
     expect(surface.style.position).toBe("fixed")
@@ -164,7 +164,7 @@ describe("hydrateTooltip", () => {
     vi.stubGlobal("cancelAnimationFrame", cancelFrame)
     const typedRoot = root as HTMLElement & { affinoTooltip?: { open(): void; close(): void } }
 
-    hydrateTooltip(typedRoot)
+    hydrateTooltip(typedRoot as unknown as RootEl)
     typedRoot.affinoTooltip?.open()
     frames.shift()?.(0)
     const measuredBeforeRelayout = vi.mocked(trigger.getBoundingClientRect).mock.calls.length
@@ -195,7 +195,7 @@ describe("hydrateTooltip", () => {
     const { root } = setupTooltipFixture()
     document.body.appendChild(root)
     const handle = root as HTMLElement & { affinoTooltip?: { open(): void; close(): void } }
-    hydrateTooltip(handle)
+    hydrateTooltip(handle as unknown as RootEl)
     expect(resizeObserverCallbacks).toHaveLength(0)
     handle.affinoTooltip?.open()
     expect(resizeObserverCallbacks).toHaveLength(1)
@@ -223,7 +223,7 @@ describe("hydrateTooltip", () => {
     const { root, trigger, surface } = setupTooltipFixture()
     document.body.appendChild(root)
     const handle = root as HTMLElement & { affinoTooltip?: { open(): void; getSnapshot(): { open: boolean } } }
-    hydrateTooltip(handle)
+    hydrateTooltip(handle as unknown as RootEl)
     handle.affinoTooltip?.open()
     trigger.dispatchEvent(new Event("pointerleave"))
     surface.dispatchEvent(new Event("pointerenter"))
@@ -236,7 +236,7 @@ describe("hydrateTooltip", () => {
     const { root, trigger } = setupTooltipFixture()
     document.body.appendChild(root)
     const handle = root as HTMLElement & { affinoTooltip?: { getSnapshot(): { open: boolean } } }
-    hydrateTooltip(handle)
+    hydrateTooltip(handle as unknown as RootEl)
     const oldHandle = handle.affinoTooltip
     trigger.dispatchEvent(new Event("pointerenter"))
     registry.get(handle as never)?.()
@@ -248,7 +248,7 @@ describe("hydrateTooltip", () => {
     const { root } = setupTooltipFixture()
     document.body.appendChild(root)
     const handle = root as HTMLElement & { affinoTooltip?: { open(): void; getSnapshot(): { open: boolean } } }
-    hydrateTooltip(handle)
+    hydrateTooltip(handle as unknown as RootEl)
     setupPointerGuards()
     handle.affinoTooltip?.open()
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }))
@@ -263,7 +263,7 @@ describe("hydrateTooltip", () => {
     vi.mocked(surface.getBoundingClientRect).mockReturnValue({ x: 0, y: 0, width: 200, height: 80 } as DOMRect)
     document.body.appendChild(root)
     const handle = root as HTMLElement & { affinoTooltip?: { open(): void } }
-    hydrateTooltip(handle)
+    hydrateTooltip(handle as unknown as RootEl)
     handle.affinoTooltip?.open()
     expect(parseFloat(surface.style.left) + 200).toBeLessThanOrEqual(window.innerWidth)
     expect(parseFloat(surface.style.top) + 80).toBeLessThanOrEqual(window.innerHeight)
@@ -371,11 +371,11 @@ describe("hydrateTooltip", () => {
     const { root, surface } = setupTooltipFixture()
     const typedRoot = root as HTMLElement & { affinoTooltip?: unknown }
 
-    hydrateTooltip(typedRoot)
+    hydrateTooltip(typedRoot as unknown as RootEl)
     expect(typedRoot.affinoTooltip).toBeDefined()
 
     surface.remove()
-    hydrateTooltip(typedRoot)
+    hydrateTooltip(typedRoot as unknown as RootEl)
 
     expect(typedRoot.affinoTooltip).toBeUndefined()
     expect(root.dataset.affinoTooltipState).toBe("closed")

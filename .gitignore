@@ -28,6 +28,10 @@ tmp/
 # Editor files
 # -----------------------
 .vscode/
+!/.vscode/
+/.vscode/*
+!/.vscode/settings.json
+!/.vscode/tasks.json
 .idea/
 *.iml
 

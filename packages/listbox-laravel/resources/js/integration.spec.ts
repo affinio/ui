@@ -385,8 +385,8 @@ describe("listbox integration", () => {
     const { root, trigger, surface } = createListboxFixture()
     root.dataset.affinoListboxMode = "multiple"
     const options = surface.querySelectorAll<HTMLButtonElement>("[data-affino-listbox-option]")
-    const optionAlpha = options[0]
-    const optionBeta = options[1]
+    const optionAlpha = options[0]!
+    const optionBeta = options[1]!
     optionBeta.dataset.affinoListboxDisabled = "true"
 
     hydrateListbox(root as any)

@@ -14,7 +14,7 @@ export function registerTooltipCore(root: RootEl, core: TooltipCore | null): voi
 export function isTooltipTopmost(root: RootEl): boolean {
   const core = tooltipCores.get(root)
   const manager = core?.getOverlayManager()
-  return !manager || manager.isTopMost(core.id)
+  return !core || !manager || manager.isTopMost(core.id)
 }
 
 const activeByDocument = new WeakMap<Document, RootEl | null>()

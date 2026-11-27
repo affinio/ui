@@ -1,0 +1,37 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": [
+      "ES2019",
+      "ES2022.Array",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "noEmit": true,
+    "composite": false,
+    "declaration": true,
+    "emitDeclarationOnly": false,
+    "declarationMap": false,
+    "types": [
+      "vitest/globals",
+      "node",
+      "vite/client"
+    ],
+    "rootDir": "../..",
+    "allowImportingTsExtensions": true
+  },
+  "include": [
+    "**/__tests__/**/*.ts",
+    "**/__tests__/**/*.tsx",
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "**/*.spec.ts",
+    "**/*.spec.tsx",
+    "vitest.setup.ts"
+  ],
+  "exclude": [
+    "dist",
+    "node_modules",
+    "coverage"
+  ]
+}

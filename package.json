@@ -16,6 +16,7 @@
     "dev": "pnpm --filter demo-vue dev",
     "build": "pnpm -r --if-present build",
     "type-check": "pnpm -r --if-present type-check",
+    "type-check:tests": "node ./scripts/type-check-tests.mjs",
     "lint": "pnpm -r --if-present lint",
     "format": "pnpm -r --if-present format",
     "test": "pnpm -r --if-present test",

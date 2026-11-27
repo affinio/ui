@@ -16,6 +16,10 @@ import type { MenuController } from "../useMenuController"
 
 let capturedRootController: MenuController | null = null
 
+function expectDataState(element: Element | null | undefined, state: string) {
+  expect(element?.getAttribute("data-state")).toBe(state)
+}
+
 function CaptureRootController() {
   const provider = useMenuProvider()
   useEffect(() => {
@@ -51,14 +55,14 @@ describe("UiMenu (React)", () => {
 
     const panel = await screen.findByRole("menu")
     await waitFor(() => {
-      expect(panel).toHaveAttribute("data-state", "open")
+      expectDataState(panel, "open")
     })
 
     const item = await screen.findByRole("menuitem", { name: /first/i })
     await user.click(item)
 
     expect(handleSelect).toHaveBeenCalledTimes(1)
-    expect(handleSelect.mock.calls[0][0].id).toBe("first")
+    expect(handleSelect.mock.calls[0]![0].id).toBe("first")
 
     await waitFor(() => {
       expect(screen.queryByRole("menu")).toBeNull()
@@ -122,7 +126,7 @@ describe("UiMenu (React)", () => {
     const panel = await screen.findByRole("menu")
 
     await waitFor(() => {
-      expect(panel).toHaveAttribute("data-state", "open")
+      expectDataState(panel, "open")
       expect(document.activeElement).toBe(panel)
     })
   })
@@ -197,17 +201,18 @@ describe("UiMenu (React)", () => {
     await user.keyboard("{ArrowDown}")
 
     const [firstTrigger, secondTrigger, thirdTrigger] = await screen.findAllByRole("menuitem")
+    if (!firstTrigger || !secondTrigger || !thirdTrigger) throw new Error("Expected three menu items")
     const getActiveItemId = () => capturedRootController?.state.activeItemId
 
     await waitFor(() => {
-      expect(firstTrigger).toHaveAttribute("data-state", "highlighted")
+      expectDataState(firstTrigger, "highlighted")
       expect(getActiveItemId()).toBe(firstTrigger.id)
     })
 
     await user.keyboard("{ArrowDown}")
     await waitFor(() => {
-      expect(secondTrigger).toHaveAttribute("data-state", "highlighted")
-      expect(firstTrigger).toHaveAttribute("data-state", "idle")
+      expectDataState(secondTrigger, "highlighted")
+      expectDataState(firstTrigger, "idle")
       expect(getActiveItemId()).toBe(secondTrigger.id)
     })
     expect(getActiveItemId()).toBe(secondTrigger.id)
@@ -217,12 +222,12 @@ describe("UiMenu (React)", () => {
       expect(getActiveItemId()).toBe(thirdTrigger.id)
     })
     await waitFor(() => {
-      expect(thirdTrigger).toHaveAttribute("data-state", "highlighted")
+      expectDataState(thirdTrigger, "highlighted")
     })
 
     await user.keyboard("{ArrowUp}")
     await waitFor(() => {
-      expect(secondTrigger).toHaveAttribute("data-state", "highlighted")
+      expectDataState(secondTrigger, "highlighted")
     })
   })
 
@@ -242,33 +247,33 @@ describe("UiMenu (React)", () => {
     const trigger = screen.getByRole("button", { name: /keyboard menu/i })
     await user.click(trigger)
     await waitFor(() => {
-      expect(screen.getByRole("menu")).toHaveAttribute("data-state", "open")
+      expectDataState(screen.getByRole("menu"), "open")
     })
 
     await user.keyboard("{ArrowDown}")
     const alpha = await screen.findByRole("menuitem", { name: /alpha/i })
     await waitFor(() => {
-      expect(alpha).toHaveAttribute("data-state", "highlighted")
+      expectDataState(alpha, "highlighted")
       expect(document.activeElement).toBe(alpha)
     })
 
     await user.keyboard("{ArrowDown}")
     const beta = await screen.findByRole("menuitem", { name: /beta/i })
     await waitFor(() => {
-      expect(beta).toHaveAttribute("data-state", "highlighted")
+      expectDataState(beta, "highlighted")
       expect(document.activeElement).toBe(beta)
     })
 
     await user.keyboard("{ArrowDown}")
     const gamma = await screen.findByRole("menuitem", { name: /gamma/i })
     await waitFor(() => {
-      expect(gamma).toHaveAttribute("data-state", "highlighted")
+      expectDataState(gamma, "highlighted")
       expect(document.activeElement).toBe(gamma)
     })
 
     await user.keyboard("{ArrowUp}")
     await waitFor(() => {
-      expect(beta).toHaveAttribute("data-state", "highlighted")
+      expectDataState(beta, "highlighted")
     })
   })
 

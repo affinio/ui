@@ -1,0 +1,19 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Affino: report test TypeScript diagnostics",
+      "type": "shell",
+      "command": "pnpm run type-check:tests",
+      "problemMatcher": "$tsc",
+      "isBackground": false,
+      "runOptions": {
+        "runOn": "folderOpen"
+      },
+      "presentation": {
+        "reveal": "never",
+        "panel": "dedicated"
+      }
+    }
+  ]
+}

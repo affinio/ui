@@ -46,7 +46,7 @@ describe("SubmenuCore", () => {
     submenu.open("programmatic")
 
     const preventDefault = vi.fn()
-    submenu.getTriggerProps().onKeyDown?.({ key: "ArrowLeft", preventDefault } as KeyboardEvent)
+    submenu.getTriggerProps().onKeyDown?.({ key: "ArrowLeft", preventDefault } as unknown as KeyboardEvent)
 
     expect(preventDefault).toHaveBeenCalledOnce()
     expect(submenu.getSnapshot().open).toBe(false)

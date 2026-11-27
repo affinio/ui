@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-vi.mock("@affino/overlay-kernel", () => ({}), { virtual: true })
+vi.mock("@affino/overlay-kernel", () => ({}))
 
 async function loadHelpers() {
   return import("../dialog/hydrate")

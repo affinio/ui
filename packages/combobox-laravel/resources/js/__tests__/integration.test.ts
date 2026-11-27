@@ -5,6 +5,7 @@ import { bootstrapAffinoComboboxes, hydrateCombobox } from "../index"
 
 type ComboboxTestRoot = HTMLDivElement & {
   affinoCombobox?: {
+    close(): void
     getSnapshot(): { open: boolean; values: string[]; state: { activeIndex: number } }
   } | undefined
 }

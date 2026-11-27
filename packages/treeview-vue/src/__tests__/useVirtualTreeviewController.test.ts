@@ -370,7 +370,8 @@ describe("useVirtualTreeviewController", () => {
     expect(controller.totalHeight.value).toBe(10)
     expect(controller.visibleRows.value.map((row) => row.value)).toEqual(["root"])
 
-    expect(controller.failChildrenLoad("root", requestState!.status === "loading" ? requestState.requestId : -1)).toBe(true)
+    if (requestState?.status !== "loading") throw new Error("Expected child load to be pending")
+    expect(controller.failChildrenLoad("root", requestState.requestId)).toBe(true)
     expect(controller.visibleRows.value[0]?.childrenLoadState).toMatchObject({ status: "error" })
     const retryRequest = controller.retryChildrenLoad("root")!
     expect(controller.visibleRows.value[0]?.childrenLoadState).toMatchObject({ status: "loading", requestId: retryRequest })
@@ -411,7 +412,8 @@ describe("useVirtualTreeviewController", () => {
     controller.requestExpand("root")
     const loadState = controller.getChildrenLoadState("root")
     expect(loadState?.status).toBe("loading")
-    controller.completeChildrenLoad("root", loadState!.status === "loading" ? loadState.requestId : -1, [
+    if (loadState?.status !== "loading") throw new Error("Expected child load to be pending")
+    controller.completeChildrenLoad("root", loadState.requestId, [
       { value: "child-a", parent: "root" },
       { value: "child-b", parent: "root" },
     ])

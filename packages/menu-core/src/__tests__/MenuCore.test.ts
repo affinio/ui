@@ -127,10 +127,10 @@ describe("MenuCore", () => {
     menu.open("programmatic")
 
     const preventDefault = vi.fn()
-    menu.getItemProps("last").onKeyDown?.({ key: "Home", preventDefault } as KeyboardEvent)
+    menu.getItemProps("last").onKeyDown?.({ key: "Home", preventDefault } as unknown as KeyboardEvent)
     expect(menu.getSnapshot().activeItemId).toBe("first")
 
-    menu.getItemProps("first").onKeyDown?.({ key: "End", preventDefault } as KeyboardEvent)
+    menu.getItemProps("first").onKeyDown?.({ key: "End", preventDefault } as unknown as KeyboardEvent)
     expect(menu.getSnapshot().activeItemId).toBe("last")
     expect(preventDefault).toHaveBeenCalledTimes(2)
   })

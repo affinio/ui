@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { createOverlayInteractionMatrix } from "../overlay/interactionMatrix.js"
-import { OverlayInteractionTelemetryEvent } from "../types.js"
+import type { OverlayInteractionTelemetryEvent } from "../types.js"
 
 const customRule = {
   source: "sheet" as const,

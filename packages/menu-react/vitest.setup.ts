@@ -23,6 +23,17 @@ if (typeof window !== "undefined" && !window.requestAnimationFrame) {
 
 if (typeof window !== "undefined" && !("PointerEvent" in window)) {
   class PointerEventPolyfill extends MouseEvent {
+    pointerId = 0
+    width = 0
+    height = 0
+    pressure = 0
+    tangentialPressure = 0
+    tiltX = 0
+    tiltY = 0
+    twist = 0
+    pointerType = "mouse"
+    isPrimary = true
+
     constructor(type: string, init?: PointerEventInit) {
       super(type, init)
       this.pointerId = init?.pointerId ?? 0

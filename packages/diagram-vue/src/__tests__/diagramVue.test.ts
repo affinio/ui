@@ -1073,8 +1073,8 @@ describe("diagram-vue", () => {
 
     expect(visible.projection.value.nodes[0]?.geometry.corners).toHaveLength(4)
     expect(visible.projection.value.activeHandles.filter((handle) => handle.kind === "resize").map((handle) => handle.resizeHandle)).toEqual(["nw", "n", "ne", "e", "se", "s", "sw", "w"])
-    expect(visible.projection.value.activeHandles.find((handle) => handle.resizeHandle === "nw")?.point).toEqual(visible.projection.value.nodes[0]?.geometry.corners[0])
-    expect(visible.projection.value.activeHandles.find((handle) => handle.resizeHandle === "ne")?.point).toEqual(visible.projection.value.nodes[0]?.geometry.corners[1])
+    expect(visible.projection.value.activeHandles.find((handle) => handle.resizeHandle === "nw")?.point).toEqual(visible.projection.value.nodes[0]!.geometry.corners![0]!)
+    expect(visible.projection.value.activeHandles.find((handle) => handle.resizeHandle === "ne")?.point).toEqual(visible.projection.value.nodes[0]!.geometry.corners![1]!)
     const rotated = visible.projection.value.nodes[0]!
     expect(getSvgEntityProps(rotated)).toMatchObject({ x: 0, y: 0, width: 100, height: 40, transform: "rotate(90 50 20)" })
     expect(getDomEntityStyle(rotated).transform).toBe("translate(0px, 0px) rotate(90deg)")
@@ -1124,8 +1124,9 @@ describe("diagram-vue", () => {
       nodes: [{ id: "node", kind: "node", x: 0, y: 0, width: 20, height: 20 }],
       viewport: { x: 200, y: 220, width: 400, height: 300, zoom: 1 },
     })
+    const callbacks: Array<(entries: ReadonlyArray<{ contentRect: { width: number; height: number } }>) => void> = []
     let callback!: (entries: ReadonlyArray<{ contentRect: { width: number; height: number } }>) => void
-    class FakeResizeObserver { constructor(next: typeof callback) { callback = next } observe() {} disconnect() {} }
+    class FakeResizeObserver { constructor(next: typeof callback) { callback = next; callbacks.push(next) } observe() {} disconnect() {} }
     const viewport = useDiagramViewport(controller, {
       element: document.createElement("div"),
       resizeObserver: FakeResizeObserver,
@@ -1137,8 +1138,8 @@ describe("diagram-vue", () => {
     controller.dispatch({ type: "undo" })
     expect(controller.engine.canRedo()).toBe(true)
 
-    for (const [width, height] of [[998, 798], [1002, 802], [996, 796], [1000, 800]]) {
-      callback([{ contentRect: { width, height } }])
+    for (const [width, height] of [[998, 798], [1002, 802], [996, 796], [1000, 800]] as const) {
+      callbacks[0]!([{ contentRect: { width, height } }])
       expect(viewport.viewport.value).toMatchObject({ ...camera, width: width / camera.zoom, height: height / camera.zoom })
       expect(controller.engine.canRedo()).toBe(true)
     }
@@ -1337,12 +1338,12 @@ describe("diagram-vue", () => {
     const engine = createDiagramEngine({
       edges: [{ id: "e1", kind: "edge", source: { kind: "point", point: { x: 0, y: 0 } }, target: { kind: "point", point: { x: 100, y: 0 } } }],
     })
-    let scheduledFrame: (() => void) | null = null
-    const interaction = createDiagramInteractionController(engine, { scheduleFrame: (callback) => { scheduledFrame = callback; return 1 } })
+    const scheduledFrames: Array<() => void> = []
+    const interaction = createDiagramInteractionController(engine, { scheduleFrame: (callback) => { scheduledFrames.push(callback); return 1 } })
     const started = beginDiagramHandleInteraction(interaction, { id: "e1:source", ownerId: "e1", kind: "edge-endpoint", point: { x: 0, y: 0 } }, { id: 7, point: { x: 0, y: 0 } })
     expect(started).toBe(true)
     interaction.pointerMove({ id: 7, point: { x: 15, y: 20 } })
-    scheduledFrame?.()
+    scheduledFrames.shift()?.()
     interaction.pointerUp({ id: 7, point: { x: 15, y: 20 } })
     expect(engine.getScene().entities.edgesById.get("e1")?.source).toEqual({ kind: "point", point: { x: 15, y: 20 } })
     expect(engine.canUndo()).toBe(true)

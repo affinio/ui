@@ -4,7 +4,7 @@ import {
   createStandardModalDialogOptions,
   DialogController,
 } from "../dialogController.js"
-import { CloseGuardDecision } from "../types.js"
+import type { CloseGuardDecision } from "../types.js"
 import { createOverlayManager } from "@affino/overlay-kernel"
 
 const deferred = <T>() => {
@@ -335,7 +335,7 @@ describe("DialogController", () => {
 
     controller.open()
     expect(register).toHaveBeenCalledTimes(1)
-    const registration = register.mock.calls[0][0]
+    const registration = register.mock.calls[0]![0]
     expect(registration).toMatchObject({ kind: "dialog" })
 
     await controller.requestClose("programmatic")
@@ -485,7 +485,7 @@ describe("DialogController", () => {
       },
     })
 
-    const registration = register.mock.calls[0][0]
+    const registration = register.mock.calls[0]![0]
     const didClose = await controller.requestClose("backdrop")
     expect(didClose).toBe(false)
     expect(isTopMost).toHaveBeenCalledWith(registration.id)
