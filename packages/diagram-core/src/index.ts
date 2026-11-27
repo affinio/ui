@@ -6,4 +6,5 @@ export { clampViewportToBounds, screenToWorld, worldToScreen, zoomViewportAt, zo
 export * from "./geometry.js"
 export * from "./pathOperations.js"
 export * from "./renderStyle.js"
+export * from "./metadata.js"
 export type * from "./types.js"

@@ -1,5 +1,13 @@
 # demo-vue
 
+## 0.0.6
+
+### Patch Changes
+
+- Added separate diagram table, connector, grid, and free-canvas workbenches with production Core editing, routing, transform, and history flows.
+- Extended connector demos with serialization and advanced-router acceptance fixtures, exact alignment-snap diagnostics, and browser-only test hooks backed by production Core document APIs.
+- Updated the free canvas for live object and connector previews, touch zoom gestures, and orthogonal connector drawing and editing.
+
 ## 0.0.5
 
 ### Patch Changes

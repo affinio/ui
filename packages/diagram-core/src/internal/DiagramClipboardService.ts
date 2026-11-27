@@ -70,16 +70,22 @@ export class DiagramClipboardService {
     for (const entity of [...clipboard.nodes, ...clipboard.ports, ...clipboard.edges, ...clipboard.texts, ...clipboard.shapes, ...(clipboard.groups ?? []), ...(clipboard.tables ?? []), ...(clipboard.junctions ?? [])]) reserve(entity.id)
     const nodes = clipboard.nodes.map((node) => ({ ...node, id: remap.get(node.id)!, x: node.x + offset.x, y: node.y + offset.y, portIds: node.portIds?.map((id) => remap.get(id) ?? id) }))
     const ports = clipboard.ports.map((port) => {
-      if ("nodeId" in port && port.nodeId) return { id: remap.get(port.id)!, kind: "port" as const, metadata: port.metadata, radius: port.radius, nodeId: remap.get(port.nodeId) ?? port.nodeId, x: port.x, y: port.y }
+      if ("nodeId" in port && port.nodeId) return { id: remap.get(port.id)!, kind: "port" as const, metadata: port.metadata, radius: port.radius, direction: port.direction, nodeId: remap.get(port.nodeId) ?? port.nodeId, x: port.x, y: port.y }
       const anchored = port as Extract<typeof port, { hostId: string }>
-      return { id: remap.get(port.id)!, kind: "port" as const, metadata: port.metadata, radius: port.radius, hostId: remap.get(anchored.hostId) ?? anchored.hostId, anchor: anchored.anchor }
+      return { id: remap.get(port.id)!, kind: "port" as const, metadata: port.metadata, radius: port.radius, direction: port.direction, hostId: remap.get(anchored.hostId) ?? anchored.hostId, anchor: anchored.anchor }
     })
     const edges = clipboard.edges.map((edge) => ({ ...edge, id: remap.get(edge.id)!, source: remapEndpoint(edge.source, remap, offset), target: remapEndpoint(edge.target, remap, offset), points: edge.points?.map((point) => ({ x: point.x + offset.x, y: point.y + offset.y })), ...(edge.routing?.mode === "auto" ? { routing: { ...edge.routing, ...(edge.routing.waypoints ? { waypoints: edge.routing.waypoints.map((point) => ({ x: point.x + offset.x, y: point.y + offset.y })) } : {}), ...(edge.routing.routeHint ? { routeHint: { x: edge.routing.routeHint.x + offset.x, y: edge.routing.routeHint.y + offset.y } } : {}) } } : {}) }))
     const junctions = (clipboard.junctions ?? []).map((junction): DiagramJunction => ({ ...junction, id: remap.get(junction.id)!, hostEdgeId: remap.get(junction.hostEdgeId) ?? junction.hostEdgeId }))
     const texts = clipboard.texts.map((text) => ({ ...text, id: remap.get(text.id)!, x: text.x + offset.x, y: text.y + offset.y }))
     const shapes = clipboard.shapes.map((shape) => ({ ...shape, id: remap.get(shape.id)!, x: shape.x + offset.x, y: shape.y + offset.y }))
     const groups = (clipboard.groups ?? []).map((group) => ({ ...group, id: remap.get(group.id)!, childIds: group.childIds.map((id) => remap.get(id) ?? id) }))
-    const tables = (clipboard.tables ?? []).map((table) => ({ ...table, id: remap.get(table.id)!, x: table.x + offset.x, y: table.y + offset.y }))
+    const tables = (clipboard.tables ?? []).map((table) => {
+      const id = remap.get(table.id)!
+      const cellIds = new Map<string, string>()
+      table.cells?.forEach((row, rowIndex) => row.forEach((cell, columnIndex) => { if (cell.id) cellIds.set(cell.id, `${id}:cell:${rowIndex}:${columnIndex}`) }))
+      const cells = table.cells?.map((row, rowIndex) => row.map((cell, columnIndex) => ({ ...cell, id: cell.id ? cellIds.get(cell.id)! : `${id}:cell:${rowIndex}:${columnIndex}` })))
+      return { ...table, id, x: table.x + offset.x, y: table.y + offset.y, ...(cells ? { cells } : {}), ...(table.merges ? { merges: table.merges.map((merge) => ({ ...merge, anchorCellId: cellIds.get(merge.anchorCellId) ?? `${id}:${merge.anchorCellId}` })) } : {}) }
+    })
     const pastedIds = [...nodes, ...ports, ...edges, ...texts, ...shapes, ...groups, ...tables, ...junctions].map((entity) => entity.id)
     if (!pastedIds.length) return null
     return {

@@ -21,13 +21,14 @@ export type DiagramPointerController = Readonly<{
   beginBezierHandle: (id: DiagramId, contourIndex: number, segmentIndex: number, handle: DiagramBezierHandleKind, event: PointerEvent, anchorSide?: "start" | "end") => boolean
   beginPortCreation: (id: DiagramId, event: PointerEvent, options?: DiagramPortCreationOptions) => boolean
   beginPathVertexHandle: (id: string, index: number, event: PointerEvent) => boolean
+  beginEdgeEndpointHandle: (id: string, endpoint: "source" | "target", event: PointerEvent) => boolean
   beginEdgeWaypointHandle: (id: string, index: number, event: PointerEvent) => boolean
   beginEdgeSegmentHandle: (id: string, segmentIndex: number, event: PointerEvent) => boolean
   beginResizeHandle: (id: DiagramId, handle: DiagramResizeHandle, event: PointerEvent) => boolean
   beginResizeSelectionHandle: (handle: DiagramResizeHandle, event: PointerEvent) => boolean
   addPathVertex: (point?: DiagramPoint, finish?: boolean) => boolean
   finishPathCreation: () => boolean
-  beginTableResizeHandle: (id: DiagramId, axis: DiagramTableResizeAxis, index: number, event: PointerEvent) => boolean
+  beginTableResizeHandle: (id: DiagramId, axis: DiagramTableResizeAxis, index: number, event: PointerEvent, policy?: "fixed" | "flexible") => boolean
   cancel: () => void
   getSvgPointerProps: () => {
     onPointerdown: (event: PointerEvent) => void
@@ -130,16 +131,22 @@ export function useDiagramPointerController(controller: DiagramEngineController,
       return accepted
     },
     beginPathVertexHandle: (id, index, event) => { const accepted = interaction.beginPathVertexHandle(id, index, toEvent(event)); refresh(); return accepted },
+    beginEdgeEndpointHandle: (id, endpoint, event) => {
+      options.setPointerCapture?.(event)
+      const accepted = interaction.beginEdgeEndpointHandle(id, endpoint, toEvent(event))
+      refresh()
+      return accepted
+    },
     beginEdgeWaypointHandle: (id, index, event) => { const accepted = interaction.beginEdgeWaypointHandle(id, index, toEvent(event)); refresh(); return accepted },
     beginEdgeSegmentHandle: (id, segmentIndex, event) => { options.setPointerCapture?.(event); const accepted = interaction.beginEdgeSegmentHandle(id, segmentIndex, toEvent(event)); refresh(); return accepted },
     beginResizeHandle: (id, handle, event) => { options.setPointerCapture?.(event); const accepted = interaction.beginResizeHandle(id, handle, toEvent(event)); refresh(); return accepted },
     beginResizeSelectionHandle: (handle, event) => { options.setPointerCapture?.(event); const accepted = interaction.beginResizeSelectionHandle(handle, toEvent(event)); refresh(); return accepted },
     addPathVertex: (point, finish) => { const accepted = interaction.addPathVertex(point, finish); refresh(); return accepted },
     finishPathCreation: () => { const accepted = interaction.finishPathCreation(); refresh(); return accepted },
-    beginTableResizeHandle: (id, axis, index, event) => {
+    beginTableResizeHandle: (id, axis, index, event, policy) => {
       if (options.setPointerCapture) options.setPointerCapture(event)
       else (event.currentTarget as Element | null)?.setPointerCapture?.(event.pointerId)
-      const accepted = interaction.beginTableResizeHandle(id, axis, index, toEvent(event))
+      const accepted = interaction.beginTableResizeHandle(id, axis, index, toEvent(event), policy)
       refresh()
       return accepted
     },

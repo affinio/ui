@@ -22,9 +22,9 @@ const initialScene = {
 const engine = createDiagramEngine(initialScene)
 const revision = ref(0)
 engine.subscribe(() => { revision.value += 1 })
-const shapes = computed(() => { revision.value; return ["orientation-body", "orientation-marker"].map((id) => ({ entity: engine.getScene().entities.shapesById.get(id)!, geometry: engine.getGeometrySnapshot(id)! })) })
-const texts = computed(() => { revision.value; return ["orientation-inherit", "orientation-readable", "orientation-horizontal"].map((id) => ({ entity: engine.getScene().entities.textsById.get(id)!, geometry: engine.getGeometrySnapshot(id)! })) })
-const ports = computed(() => { revision.value; return ["orientation-port-a", "orientation-port-b"].map((id) => engine.getGeometrySnapshot(id)!) })
+const shapes = computed(() => { void revision.value; return ["orientation-body", "orientation-marker"].map((id) => ({ entity: engine.getScene().entities.shapesById.get(id)!, geometry: engine.getGeometrySnapshot(id)! })) })
+const texts = computed(() => { void revision.value; return ["orientation-inherit", "orientation-readable", "orientation-horizontal"].map((id) => ({ entity: engine.getScene().entities.textsById.get(id)!, geometry: engine.getGeometrySnapshot(id)! })) })
+const ports = computed(() => { void revision.value; return ["orientation-port-a", "orientation-port-b"].map((id) => engine.getGeometrySnapshot(id)!) })
 const degrees = ref(30)
 const policy = ref<TextOrientationPolicy>("keep-readable")
 function rotate(degrees: number) { engine.dispatch({ type: "rotateEntities", entries: [{ id: "orientation-group", rotation: (engine.getScene().entities.groupsById.get("orientation-group")?.rotation ?? 0) + degrees }] }) }

@@ -43,6 +43,25 @@ engine.dispatch({ type: "updateEntities", updates: [{ id: "t1", orientationPolic
 
 `inherit` preserves rotation and both reflections. `keep-readable` removes glyph reflection, follows the transformed local baseline, then normalizes it into `(-90°, 90°]`; exact `-90°` maps to `+90°`. `keep-horizontal` removes glyph rotation and reflection in document coordinates. The policy is applied centrally in Core geometry, so bounds, hit testing, selection, and Vue rendering share the resolved orientation. The current engine stores object transforms as rotation and axis flips (group operations update child geometry); it does not represent non-uniform glyph scaling or shear. No PDF export adapter exists in this repository.
 
+### Transform origins
+
+Nodes, shapes, text, tables, and groups accept an optional `transformOrigin`. Omission keeps the existing center pivot. `relative` resolves against the untransformed object bounds; `absolute` is an offset in the object's local coordinate plane from its local bounds origin. Both accept finite coordinates outside the bounds. Read the configured origin with `getTransformOrigin(id)`, the local offset with `resolveLocalTransformOrigin(id)`, and its document-space pivot with `resolveWorldTransformOrigin(id)`. The returned geometry also includes `transformOrigin` when a non-default pivot is needed by a renderer.
+
+Use `setTransformOrigin` to change or clear a pivot. It preserves existing world geometry by default; set `preserveWorldGeometry: false` to retain object placement and allow the geometry to move around the new pivot. The origin edit and placement correction are one undoable patch. Relative pivots follow resized bounds; absolute offsets remain fixed in the object's local frame. Temporary resize and multi-selection pivots remain independent.
+
+```ts
+engine.dispatch({ type: "setTransformOrigin", id: "housing", transformOrigin: { mode: "relative", x: 0, y: 0.5 } })
+engine.dispatch({ type: "setTransformOrigin", id: "housing", transformOrigin: null }) // reset to centre
+```
+
+Ports, junctions, and connection endpoints do not have independent transform origins. The Core does not provide non-uniform affine scaling or shear. SVG and DOM render helpers consume Core-resolved transforms; the repository has no PDF export adapter.
+
+### Directional ports
+
+`DiagramPort.direction` is an optional host-local outward direction: `north`, `east`, `south`, `west`, `auto`, or `any`. Omitted values preserve legacy unrestricted routing. `auto` infers a direction only when a local rectangular boundary anchor identifies exactly one side; corners, interior anchors, vertex anchors, and route anchors are unrestricted. `resolvePortWorldDirection(port, entities)` applies the host and retained parent linear transforms. If an explicitly directional port resolves to a non-cardinal world vector, it returns `null`; orthogonal automatic edge resolution reports no geometry rather than quantizing that vector.
+
+Automatic routes combine connector-level direction options (which take precedence) with resolved port directions. Port directions point outward from their hosts. The existing connector `sourceDirection` is also an outward direction; `targetDirection` retains its established meaning as the final travel direction, so Core converts a target port's outward direction to the opposite travel direction before routing. Directional routes use a minimum 12 document-unit terminal lead; a larger configured lead is preserved. Direction editing is undoable through `setPortDirection`; omit `direction` to restore legacy unrestricted behavior or set `auto` to enable boundary inference. Direction is stored independently of metadata and survives scene/document serialization and clipboard duplication.
+
 ### Rectangle corner radius
 
 `DiagramShape.cornerRadius` is an optional world-unit radius for `shape: "rect"`; omission is equivalent to `0`. A radius must be finite and in `0..min(width,height)/2`. Non-rectangular shapes accept only `0` (or an omitted radius). Update it through one undoable command:
@@ -97,22 +116,28 @@ engine.dispatch({ type: "createShape", shape: { id: "guide", kind: "shape", shap
 
 ### Groups
 
-Groups are structural scene entities with stable IDs and ordered `childIds`. Group only existing, ungrouped nodes, edges, texts, shapes, or tables; ports cannot be direct children because they follow their owning node. Nested groups are rejected with a `TypeError` during scene construction, `transact()`, and deserialization.
+Groups are structural scene entities with stable IDs, ordered `childIds`, and retained parent-local transforms. New groups are created by `groupEntities`; they start with at least two unique members. Nested groups are supported, each graphical entity has at most one parent, and cycles or unknown members are rejected. Ports remain host-owned entities rather than direct group members.
 
 ```ts
 engine.dispatch({ type: "groupEntities", id: "g1", ids: ["n1", "n2"] })
 engine.dispatch({ type: "moveEntities", ids: ["g1"], delta: { x: 24, y: 0 } })
-engine.dispatch({ type: "resizeEntities", entries: [{ id: "g1", x: 0, y: 0, width: 240, height: 128 }] })
+engine.dispatch({ type: "rotateEntities", entries: [{ id: "g1", rotation: 90 }] })
+engine.dispatch({ type: "reparentEntity", id: "n1", parentId: "g1" })
+engine.dispatch({ type: "reparentEntity", id: "n1", parentId: null })
 engine.dispatch({ type: "ungroupEntities", ids: ["g1"] })
 ```
 
-Group and ungroup commands participate in undo/redo. `serialize()`, `DiagramSceneInput`, and `DiagramDocument` preserve groups and their members. Copy, paste, and duplicate remap group and member IDs together; edges between copied nodes retain their remapped port references. Deleting a group deletes its members and dependent ports/edges. Ungrouping removes only the group and keeps child IDs and geometry.
+Group creation, reparenting, ungrouping, and deletion participate in undo/redo and atomic batches. Reparenting preserves world geometry while retaining intrinsic geometry; Core records any required parent-local placement offset. Reparenting rejects cycles, singular/non-orthogonal transforms, attached connectors, and automatic connectors whose route is endpoint/world-resolved. Free routes can be reparented only when their required local linear transform is identity, preserving document-space orthogonality. Child-owned ports remain attached through host identity. Group-owned ports retain their identity on ungroup only when every one has an explicit valid `portRemaps` entry; otherwise the ungroup is rejected atomically.
 
-`engine.canRotate()` returns true for a selected group when all children are rotatable and unlocked. `rotateEntities` accepts the group ID with an absolute target angle in degrees; Core rotates every child around the current shared bounds center and stores that target in `DiagramGroup.rotation`. Nodes, shapes, text, and tables update their position and orientation; tables expose the same optional `rotation` field. Edge waypoints and free endpoints rotate while node/port endpoint references stay attached and follow rotated owners. Undo/redo restores group and member state without changing IDs. All current groupable kinds (node, edge, text, shape, table) participate; ports follow nodes and remain invalid direct group children.
+Deleting a group deletes its descendant hierarchy and dependent attachments. Deleting a child removes only that membership and preserves the surviving group's transform, metadata, and world geometry. Single-child and empty groups are valid scene states; empty groups have no geometry until members are added or the group is deleted. New group creation still requires at least two members. Copy, paste, and duplicate remap nested group/member IDs and attached references.
+
+`engine.canRotate()` returns true for supported groups. Translation, rotation, and reflection update the group transform; descendant authoritative local geometry is not rewritten. Group resize remains unsupported because the model does not yet define retained scaling semantics across stroke width, text size, table tracks, and child geometry. Use geometric resize commands for individual objects.
+
+Legacy serialized groups that omit retained `x`/`y` are normalized on load to retained identity groups when no descendant attached connector would be double-transformed. Their already world-positioned child coordinates, IDs, ports, origins, and metadata remain unchanged. Legacy hierarchies containing attached descendant connectors remain on the deprecated baked compatibility path because connector endpoint coordinates are resolved in document space. New functionality must use retained groups; see [diagram hierarchy deprecations](../../docs/diagram-hierarchy-deprecations.md).
 
 ### Visual tables
 
-`DiagramTable` is a plain text table object, not a spreadsheet. It stores a stable ID, world bounds, cells, row/column sizes, per-cell alignment, table-level grid/border styles, and an optional title header. Missing cell content defaults to empty text; omitted row and column sizes are initialized evenly. Tables are included in scene/document serialization, render order, hit testing, selection, move/resize, z-order, history, batch commands, copy/paste, duplicate, and delete.
+`DiagramTable` is a plain text table object, not a spreadsheet. It stores a stable ID, world bounds, cells, row/column sizes, per-cell alignment and metadata, table-level grid/border styles, optional merged regions, and an optional title header. Core assigns a distinct stable ID to every logical cell when legacy/input cells omit one; the default cell is a content/style template and has no logical identity. Cell IDs serialize with the table. Missing cell content defaults to empty text; omitted row and column sizes are initialized evenly. Tables are included in scene/document serialization, render order, hit testing, selection, move/resize, z-order, history, batch commands, copy/paste, duplicate, and delete.
 
 ```ts
 engine.dispatch({ type: "createTable", table: {
@@ -128,6 +153,55 @@ engine.dispatch({ type: "updateTableHeader", id: "notes", header: null }) // exp
 ```
 
 Row/column indexes are zero-based. Insert accepts indexes `0..count`; delete and resize accept `0..count-1`. Deleting the last row or column is rejected as a no-op. Empty text is valid. Tables and row/column dimensions must be finite and positive; row heights and column widths sum to the data-grid body height and width. Alignment is `left|center|right` and `top|middle|bottom`. Line style is `solid|dashed|dotted`; colors must be non-empty strings; stroke widths, cell padding, and corner radius must be finite and non-negative. Invalid constructor/deserialization input throws `TypeError`; invalid commands return `changed: false` and create no history entry. Table cell hit testing is available through `getDiagramTableCellAt(table, worldPoint)`.
+
+`resolveDiagramTableLayout(table, { textMeasurementProvider })` resolves document-unit tracks, active visible cells, merged bounds, padded content bounds, line positions, overflow, and border segments. `visibleCells` contains each active logical cell once; `coveredCellIds` identifies hidden matrix cells, whose metadata remains stored but inactive until unmerge. Table and cell styles inherit as table defaults followed by cell overrides. Cell padding can override each side independently; excessive padding is proportionally clamped to an empty non-negative content rectangle. Borders resolve to one segment per physical boundary: explicit left/top ownership wins, otherwise right/bottom ownership is used; an explicit hidden side suppresses the shared segment, then table grid defaults apply. Explicit outer cell-side borders are also resolved. Merged internal segments are omitted.
+
+See [Diagram Table T5 validation](../../docs/diagram-table-t5-validation.md) for benchmark methodology, current measured results, browser evidence, and deferred capabilities.
+
+Use `engine.getTableLayout(tableId, provider?)` for repeated queries. Core caches immutable local layouts in the existing `DiagramGeometryService`, keyed by table ID and current immutable Table snapshot, plus measurement provider identity/revision. It retains only the current snapshot for each live table ID and at most four provider entries for that snapshot; deleted table IDs are evicted during geometry invalidation. A Table content/style/topology/track update produces a new snapshot and therefore a new layout. Selection, viewport changes, and parent group transforms preserve the local Table snapshot and cache entry. `engine.getTableCellAt(id, worldPoint)` uses that cached layout and binary-searches cumulative track edges; exact internal edges belong to the following track, and the outer maximum edge belongs to the last track. `getTableLayoutReadCount()` is diagnostic. The standalone `getDiagramTableCellAt()` remains a pure query unless passed a resolved layout.
+
+`updateTableCellRange` applies cell content/style fields atomically to active logical cells in the expanded rectangular range. `resizeTableRow` and `resizeTableColumn` support `policy: "flexible"` (the default, preserving unrelated tracks and changing total size) and `policy: "fixed"` (redistributing against the adjacent track, preserving total size). `setTableSize` uses proportional track distribution and preserves exact requested totals by assigning the floating remainder to the last track. All dimensions are document units. These layout edits do not change text size or padding.
+
+Cell overflow supports `clip`, `wrap`, and `visible`; defaults to `clip`. Text layout preserves explicit newlines, wraps words and long tokens, and reports `overflowed`. The generic `DiagramTextMeasurementProvider` supplies `measureText(text, resolvedStyle)` metrics in document units plus a `revision`; increment the revision when font availability or measurement behavior changes. Core owns wrapping, vertical alignment, baseline, and per-line positions. Without a provider, Core uses a deterministic approximate glyph-width fallback (Latin characters 0.56em, other code points 1em; line height 1.2em). This fallback is useful for headless determinism but is not typographically exact. Vue's exported `createCanvasTextMeasurementProvider()` uses browser Canvas metrics and refreshes its revision on font loading events; the renderer consumes Core-resolved lines and positions. Matching browser and PDF typography still requires matching font inputs and measurement metrics. There is no auto-fit or ellipsis behavior.
+
+`setTableCellBorders` atomically applies `all`, `outside`, `inside`, individual side, `none`, or `reset` operations to an inclusive range. `none` writes explicit hidden side overrides; `reset` removes those overrides and inherits table grid defaults. Shared physical boundaries are emitted once; merged interior edges are suppressed. `inside` and `outside` affect the selected range perimeter/interior and preserve other appearance fields. Row and column style defaults are deferred; style precedence is currently table defaults followed by cell overrides.
+
+Merged regions are stored as `{ anchorCellId, rowSpan, columnSpan }` in `DiagramTable.merges`. The cell matrix and tracks remain present; Core resolves covered positions to the anchor, derives merged bounds by summing tracks, and omits internal grid-boundary segments. `mergeTableCells` accepts an inclusive rectangular range and defaults to `reject-non-empty`, which rejects non-empty text or metadata outside the top-left anchor with `reason: "merge-content-conflict"`. `keep-anchor` is an explicit policy for hiding secondary content while merged; covered matrix cells remain stored and become visible again on unmerge. Partial intersections with existing merged regions are rejected with `reason: "invalid-table-range"`. `unmergeTableCell` accepts any grid position in the merged region. Insertion inside a region expands its span; insertion before shifts it; insertion after leaves it unchanged. Deletion inside contracts the span, deleting the anchor track promotes the surviving top-left cell while retaining the anchor ID/content/metadata, and a vanished 1×1 span becomes ordinary. Structural mutations are atomic and undoable.
+
+`DiagramTableCell.id` is stable within a table and is the merge anchor identity. Covered cells retain their own IDs and values while merged; ordinary updates to covered cells are rejected. Text edits or metadata replacement on the anchor preserve other cell fields. Cell metadata is opaque JSON-shaped application data, copied and frozen by Core. `updateTableCell({ metadata })` replaces cell metadata; `setEntityMetadata` replaces entity metadata, while the separate `updateEntities` metadata patch continues to merge keys. Port creation accepts metadata directly in `DiagramPortCreationOptions` and commits it with the Port. Metadata cannot contain functions, cycles, non-finite numbers, or non-plain objects.
+
+`resolveDiagramTableLayout(table).visibleCells` enumerates active logical cells exactly once. Each entry includes the active anchor's optional `metadata`, plus `coveredCellIds` for underlying positions retained while the region is merged. Metadata on those covered positions is inactive: it is not included in the visible-cell entry or treated as active resolved content. Under `keep-anchor`, the original covered cell objects and metadata remain stored, become visible again after `unmergeTableCell`, and are restored by undo. Duplicating a merged table remaps cell IDs and merge anchors while preserving both active and covered metadata. Serialization, history, and copy/duplicate retain the opaque values.
+
+Metadata ownership example (application keys remain opaque to Core):
+
+```ts
+const portMetadata = { binding: { key: "signals.input" } }
+engine.dispatch({
+  type: "createPort",
+  port: { id: "input-port", kind: "port", nodeId: "equipment", x: 20, y: 10, metadata: portMetadata },
+})
+
+engine.dispatch({
+  type: "createTable",
+  table: {
+    id: "schedule", kind: "table", x: 0, y: 0, width: 80, height: 20,
+    rowCount: 1, columnCount: 1,
+    cells: [[{ text: "", metadata: { binding: { key: "document.number" } } }]],
+  },
+})
+engine.dispatch({
+  type: "updateTableCell",
+  id: "schedule", row: 0, column: 0,
+  cell: { metadata: { binding: { key: "document.number", source: "drawing" } } },
+})
+
+const table = engine.getScene().entities.tablesById.get("schedule")!
+for (const cell of resolveDiagramTableLayout(table).visibleCells) {
+  consumeActiveCell(cell.anchorCellId, cell.metadata)
+}
+```
+
+Creation and metadata changes are atomic, undoable replacements; external input objects are copied and frozen when accepted. A failed metadata validation creates no scene mutation or document revision. The default merge policy rejects non-empty secondary text or metadata. Explicit `keep-anchor` hides secondary content and metadata while retaining the covered cell data; it does not concatenate or discard those values. The anchor's metadata remains the active merged-cell metadata until edited or the region is unmerged.
 
 `header` is omitted on legacy tables. When present, its `height` is a positive world-unit band above the data grid. `horizontalAlign` and `verticalAlign` are optional (`left`/`center`/`right` and `top`/`middle`/`bottom`); omitted vertical alignment renders as `middle`. Update these fields through `updateTableHeader`, which is undoable and preserved by serialization. The existing `table.y` and `table.height` continue to describe the grid body, while geometry bounds, hit testing, selection, and outer-border rendering include the header band. Resizing the whole table scales the header band and data rows proportionally; row/column edit commands affect only data cells. `getDiagramTableCellAt()` returns `null` for the header region and maps grid points through the table rotation/reflection. Header text may be empty; clearing the title is explicit with `header: null`. Existing scene/document format version 1 accepts both old tables without headers and new tables with headers.
 
@@ -203,6 +277,12 @@ engine.dispatch({
 
 `routeOrthogonalConnector(source, target, options)` returns a deterministic orthogonal route and diagnostics. It uses a coordinate-compressed visibility graph over the supplied world-space obstacle bounds (not a raster grid). Obstacles are inflated by `clearance`; `sourceDirection` and `targetDirection` constrain the terminal lead segments, and ordered `waypoints` are hard route constraints. `existingRoutes` are a soft preference: strict crossings are minimized after bend count and total length. The optimization order is collision-free route, endpoint leads and waypoints, fewer bends, shorter length, fewer crossings, then stable coordinate/direction ties. Rotated hosts use their conservative world AABB. An impossible lead/waypoint/obstacle combination returns an empty route with a typed diagnostic; it does not mutate a scene.
 
+For interactive connectors that should be allowed to cross unrelated shapes, select `strategy: "simple"`. It picks from direct, one-bend, two-bend, and direction-constrained route candidates without scanning scene obstacles. When a directionally constrained endpoint is attached to a host, Core still routes around that host so the connector cannot pass through the object it leaves or enters. Existing calls that omit `strategy` keep the legacy obstacle-aware strategy. `beginEdgeCreation()` defaults to simple routing unless the caller explicitly supplies `mode: "auto"`; callers that need full-scene obstacle routing should pass `strategy: "obstacle-aware"` explicitly. The Vue playground's Connector tool opts into simple routing. Simple routes retain exact endpoint coordinates and return an empty path with a diagnostic when hard direction or bend constraints cannot be met.
+
+`routing.mode` describes route ownership. `auto` derives intermediate geometry from the endpoints and options; `manual` stores the route points as user geometry. Dragging a simple automatic segment commits the displayed route as manual geometry in one undoable change. `setEdgeRoute` is the headless command for replacing an orthogonal route: its points are validated and normalized before the command is accepted. `updateEdgeRouting` with `{ mode: "auto", strategy: "simple" }` resets an edge to derived routing. Legacy edges without routing metadata keep their existing point geometry and rendering.
+
+Interactive creation exposes `getSnapshot().edgeCreationPreview`; preview and commit share the same captured endpoint candidates and simple route options. Click-to-place bends remain explicit user geometry; press Enter or call `finishEdgePathCreation()` to finish, and Escape or `cancel()` to discard the transient draft. A direct drag of a simple automatic segment is local geometry editing and does not run obstacle pathfinding. Advanced obstacle-aware routes remain available and keep their existing route invalidation behavior.
+
 ```ts
 const route = routeOrthogonalConnector(source, target, {
   terminalLead: 12,
@@ -247,7 +327,7 @@ Use `beginBezierCreation(id, firstClick, { closeTolerancePx })` to start a nativ
 
 Selected cubic paths expose anchor and tangent handles through the Vue visible projection. Core `beginBezierHandle(id, contourIndex, segmentIndex, handle, event)` previews an edit and commits the resulting contour with one `updateShapePath` operation on pointerup. Anchors preserve adjacent tangent offsets; incoming/outgoing controls can be moved independently. Existing non-cubic path geometry and serialized documents are unchanged.
 
-For existing orthogonal connectors, `beginEdgeSegmentHandle(edgeId, segmentIndex, pointer)` starts a transient segment drag. The selected segment moves perpendicular to its direction, adjoining bends move with it, and adjacent orthogonal segments stretch. Collinear route sections move as a run. Free endpoints move when included in the run; attached node/port endpoints stay fixed and gain an elbow where required. For automatic routes, Core reroutes the preview from the moved free endpoints and the dragged segment constraint, so the preview observes `maxBends` and `maxRouteBends`. `getSnapshot().edgeSegmentPreview` exposes that resolved route and reports `no-route` when constraints cannot be satisfied. In that case `pointerUp()` returns `{ status: "no-route", diagnostics }` and leaves the document unchanged. Otherwise pointerup commits endpoint and route changes as one atomic undoable operation; cancel leaves scene and history unchanged.
+For existing orthogonal connectors, `beginEdgeSegmentHandle(edgeId, segmentIndex, pointer)` starts a transient segment drag. The selected segment moves perpendicular to its direction, adjoining bends move with it, and adjacent orthogonal segments stretch. Collinear route sections move as a run. Free endpoints move when included in the run; attached node/port endpoints stay fixed and gain an elbow where required. For simple automatic routes, the local edited polyline becomes manual route geometry on commit; obstacle-aware automatic routes retain the legacy constrained reroute behavior and report `no-route` when the solver cannot satisfy its constraints. `getSnapshot().edgeSegmentPreview` exposes the candidate route. Pointerup commits endpoint and route changes as one atomic undoable operation; cancel leaves scene and history unchanged.
 
 `DiagramPathSegment` also accepts exact cubic Béziers (`start`, `control1`, `control2`, `end`). `parseSvgPathData()` parses the supported SVG-like `M`, `L`, `C`, and `Z` commands into one or more contours. Cubic control points are retained through serialization and transforms; bounds use exact curve extrema and Vue renders native SVG `C` commands. Hit testing uses deterministic adaptive subdivision with a 0.01 world-unit flatness target. Geometry algorithms that do not yet support cubic curves return a typed `unsupported-geometry` result rather than silently converting them to lines.
 
@@ -484,3 +564,13 @@ const bounded = clampViewportToBounds(zoomed, page)
 Pass the same `viewportConstraints` to `createDiagramInteractionController()` to constrain pan preview and commit with one effective delta.
 
 Persist `viewport` with the scene. Restore it before attaching the adapter; without viewport constraints, a resize only updates world extent and never changes `x`, `y`, or `zoom`.
+
+## Retained group transforms
+
+Groups created with `groupEntities` own their translation, rotation, reflection, and `transformOrigin`. Their children are converted to group-local coordinates once when grouping; later group transforms leave child-local geometry unchanged. Groups can contain other groups. `getGeometrySnapshot()` returns world-space bounds and a `parentTransform` for flat renderers. The headless engine also exposes `getParentGroupId()`, `getGroupChildren()`, `resolveLocalTransform()`, `resolveWorldTransform()`, `localToWorld()`, and `worldToLocal()`.
+
+For backward compatibility, a serialized group without `x` and `y` is treated as a legacy group with already-baked child geometry. Safe hierarchies normalize to retained identity groups without changing child coordinates. Groups with descendant attached routes remain on the deprecated compatibility path because those routes and their endpoints are resolved in document coordinates. New group serialization writes `x` and `y`; see the [deprecation inventory](../../docs/diagram-hierarchy-deprecations.md). Relative pivots resolve from stable group-local bounds, excluding the group's own transform.
+
+The current group model supports rigid affine transforms (translation, rotation, and reflection). Affine group scaling is not implemented; retained groups therefore reject group resize rather than resizing every child. Free connectors with manually stored points can be grouped; their points become group-local once. Edges with attached endpoints cannot be grouped or reparented because routes/endpoints are world-resolved. Automatic routes also cannot be reparented. Cardinal group rotations preserve orthogonality; non-cardinal rotations that would make descendant orthogonal routes diagonal are rejected. Connectors whose endpoint host lies outside a transformed group continue resolving that host in world space and are not themselves group-transformed. Ungroup composes retained transforms into child transforms and rejects non-representable transforms. Group-owned ports require an explicit `portRemaps` entry on ungroup; without one, ungroup is rejected rather than detaching endpoint references. Group-owned port local anchors may lie outside descendant bounds after children are removed, so deleting the final child is rejected if that would leave an owned port without a valid host geometry.
+
+The Vue SVG/DOM adapters consume Core's `parentTransform`. External flat renderers should apply this matrix before each object's local rotation/reflection. `parentTransform` is the ancestor transform only, except for non-inheriting text policies, where Core resolves glyph orientation into that matrix while retaining the transformed text anchor.

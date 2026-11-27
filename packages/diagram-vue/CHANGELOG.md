@@ -1,5 +1,17 @@
 # @affino/diagram-vue
 
+## 0.32.0
+
+### Minor Changes
+
+- Generalized live, ghost, and outline presentation from object translation to all Core-resolved edit candidates. Ghost and outline retain committed object geometry while exposing transient candidates, including actual attached connector routes; the old drag-named options and projection fields remain deprecated aliases through the current major.
+- Added optional pointer-preview projection to `useDiagramVisibleEntities()` so dragged entities, attached ports, selection handles, and overlay anchors stay aligned during interaction.
+- Applied Core-resolved parent transforms in SVG, DOM, and table rendering.
+- Added Core-driven merged Table rendering, cell-range selection, border presets, track resizing, editing overlays, and optional browser Canvas text measurement.
+- Hid segment drag handles for terminal runs attached to ports while retaining editable interior segment handles.
+- Updated SVG, DOM, and table rendering to consume Core-resolved transform origins.
+- Documented the Core-owned simple interactive connector preview and explicit advanced routing boundary; no routing mathematics was added to Vue.
+
 ## 0.31.0
 
 ### Minor Changes

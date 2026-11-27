@@ -11,7 +11,7 @@ if (!existsSync(DIST_ENTRY)) {
   throw new Error("packages/diagram-core/dist/index.js is missing. Run `pnpm --filter @affino/diagram-core build` first.")
 }
 
-const { createDiagramEngine, routeOrthogonalConnector } = await import(DIST_ENTRY)
+const { createDiagramEngine, createDiagramInteractionController, routeOrthogonalConnector } = await import(DIST_ENTRY)
 const COUNTS = readCounts(process.env.BENCH_DIAGRAM_ENTITY_COUNTS ?? "1000,5000,10000")
 const OUTPUT_JSON = resolve(ROOT, process.env.BENCH_OUTPUT_JSON ?? "artifacts/performance/bench-diagram-core.json")
 
@@ -94,6 +94,28 @@ function runForCount(count) {
     }
     return { samples, candidateCount }
   })
+  const simpleRouting = measureDistribution(() => {
+    const samples = []
+    for (let index = 0; index < 200; index += 1) {
+      const start = performance.now()
+      routeOrthogonalConnector({ x: index, y: index % 2 ? 0 : 20 }, { x: index + 300, y: index % 2 ? 80 : 20 }, { strategy: "simple" })
+      samples.push(performance.now() - start)
+    }
+    return { samples }
+  })
+  const previewRouting = measureDistribution(() => {
+    const controller = createDiagramInteractionController(engine, { snap: { enabled: false }, scheduleFrame: (callback) => callback() })
+    const samples = []
+    for (let index = 0; index < 100; index += 1) {
+      const start = performance.now()
+      controller.beginEdgeCreation(`bench-preview-${index}`, { id: index + 1, point: { x: 10, y: 10 } }, { strategy: "simple" })
+      controller.pointerMove({ id: index + 1, point: { x: 110, y: 50 } })
+      controller.getSnapshot().edgeCreationPreview
+      samples.push(performance.now() - start)
+      controller.cancel()
+    }
+    return { samples }
+  })
   const diagnostics = engine.getDiagnostics()
   const nearestPort = measure(() => engine.nearestPort({ x: 120, y: 64 }, 48))
   const serialized = measure(() => engine.serialize())
@@ -119,7 +141,14 @@ function runForCount(count) {
     fitSceneMs: fitScene.ms,
     routeCandidateSearchAndSolveP50Ms: routing.p50Ms,
     routeCandidateSearchAndSolveP95Ms: routing.p95Ms,
+    routeCandidateSearchAndSolveP99Ms: routing.p99Ms,
     routeLocalObstacleCount: routing.value.candidateCount,
+    simpleRouteP50Ms: simpleRouting.p50Ms,
+    simpleRouteP95Ms: simpleRouting.p95Ms,
+    simpleRouteP99Ms: simpleRouting.p99Ms,
+    simplePreviewP50Ms: previewRouting.p50Ms,
+    simplePreviewP95Ms: previewRouting.p95Ms,
+    simplePreviewP99Ms: previewRouting.p99Ms,
     nearestPortMs: nearestPort.ms,
     serializeMs: serialized.ms,
     diagnostics,
@@ -136,6 +165,7 @@ function measureDistribution(run) {
     value,
     p50Ms: percentile(samples, 0.5),
     p95Ms: percentile(samples, 0.95),
+    p99Ms: percentile(samples, 0.99),
   }
 }
 

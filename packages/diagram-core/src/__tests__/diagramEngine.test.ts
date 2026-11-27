@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { clampViewportToBounds, createCircularArc, createDiagramEngine, createDiagramInteractionController, deserializeDiagramDocument, deserializeScene, getDiagramTableCellAt, intersectLineSegments, parseSvgPathData, resolveTextGlyphOrientation, rotatePoint, routeOrthogonalConnector, screenToWorld, serializeScene, subtractRectFromCircle, trimAndJoinLines, trimCircleOutsideRect, trimLineByCrossing, trimSelectionByStroke, validateDiagramScene, worldToScreen, zoomViewportAt } from ".."
+import { clampViewportToBounds, createCircularArc, createDiagramEngine, createDiagramInteractionController, deserializeDiagramDocument, deserializeScene, getDiagramTableCellAt, intersectLineSegments, parseSvgPathData, resolveDiagramTableLayout, resolveEdgePath, resolveManualOrthogonalPath, resolvePortWorldDirection, resolveTextGlyphOrientation, resolveTransformOrigin, rotatePoint, routeOrthogonalConnector, screenToWorld, serializeScene, subtractRectFromCircle, trimAndJoinLines, trimCircleOutsideRect, trimLineByCrossing, trimSelectionByStroke, validateDiagramScene, worldToScreen, zoomViewportAt } from ".."
 import type { DiagramPoint, DiagramSceneInput } from ".."
 
 const scene: DiagramSceneInput = {
@@ -24,6 +24,374 @@ const scene: DiagramSceneInput = {
 }
 
 describe("DiagramEngine", () => {
+  it("resolves transform origins and preserves geometry when changing a rotated object's pivot", () => {
+    const bounds = { x: -20, y: 10, width: 40, height: 20 }
+    expect(resolveTransformOrigin(bounds, { mode: "relative", x: 0, y: 0 })).toEqual({ x: -20, y: 10 })
+    expect(resolveTransformOrigin(bounds, { mode: "relative", x: 1, y: 1 })).toEqual({ x: 20, y: 30 })
+    expect(resolveTransformOrigin(bounds, { mode: "relative", x: 1.5, y: -0.5 })).toEqual({ x: 40, y: 0 })
+    expect(resolveTransformOrigin(bounds, { mode: "absolute", x: 25, y: -4 })).toEqual({ x: 5, y: 6 })
+    expect([[0, 0], [.5, 0], [1, 0], [0, .5], [.5, .5], [1, .5], [0, 1], [.5, 1], [1, 1]].map(([x, y]) => resolveTransformOrigin(bounds, { mode: "relative", x: x!, y: y! }))).toEqual([
+      { x: -20, y: 10 }, { x: 0, y: 10 }, { x: 20, y: 10 }, { x: -20, y: 20 }, { x: 0, y: 20 }, { x: 20, y: 20 }, { x: -20, y: 30 }, { x: 0, y: 30 }, { x: 20, y: 30 },
+    ])
+
+    const engine = createDiagramEngine({
+      shapes: [{ id: "pivot", kind: "shape", shape: "rect", x: 10, y: 20, width: 20, height: 10, rotation: 90 }],
+    })
+    const before = engine.getGeometrySnapshot("pivot")?.bounds
+    engine.dispatch({ type: "setTransformOrigin", id: "pivot", transformOrigin: { mode: "relative", x: 0, y: 0.5 } })
+    expect(engine.getGeometrySnapshot("pivot")?.bounds).toEqual(before)
+    expect(engine.resolveLocalTransformOrigin("pivot")).toEqual({ x: 0, y: 5 })
+    expect(engine.resolveWorldTransformOrigin("pivot")).toEqual({ x: 20, y: 15 })
+    expect(engine.getTransformOrigin("pivot")).toEqual({ mode: "relative", x: 0, y: 0.5 })
+    expect(engine.serialize().shapes[0]?.transformOrigin).toEqual({ mode: "relative", x: 0, y: 0.5 })
+    const roundTrip = createDiagramEngine(deserializeScene(engine.serialize()))
+    expect(roundTrip.getTransformOrigin("pivot")).toEqual({ mode: "relative", x: 0, y: 0.5 })
+    expect(roundTrip.getGeometrySnapshot("pivot")?.bounds).toEqual(before)
+    engine.undo()
+    expect(engine.getGeometrySnapshot("pivot")?.bounds).toEqual(before)
+    expect(engine.getTransformOrigin("pivot")).toBeUndefined()
+    engine.redo()
+    expect(engine.getGeometrySnapshot("pivot")?.bounds).toEqual(before)
+    engine.dispatch({ type: "setTransformOrigin", id: "pivot", transformOrigin: { mode: "relative", x: 1, y: 1 }, preserveWorldGeometry: false })
+    expect(engine.getGeometrySnapshot("pivot")?.bounds).not.toEqual(before)
+    expect(() => createDiagramEngine({ shapes: [{ id: "bad-origin", kind: "shape", shape: "rect", x: 0, y: 0, width: 10, height: 10, transformOrigin: { mode: "relative", x: Number.NaN, y: 0 } }] })).toThrow()
+  })
+
+  it("keeps attached port and edge world positions when a rotated host origin changes", () => {
+    const engine = createDiagramEngine({
+      nodes: [{ id: "host", kind: "node", x: 10, y: 20, width: 20, height: 10, rotation: 90 }],
+      ports: [{ id: "out", kind: "port", nodeId: "host", x: 20, y: 5 }],
+      edges: [{ id: "link", kind: "edge", source: { kind: "port", portId: "out" }, target: { kind: "point", point: { x: 60, y: 30 } } }],
+    })
+    const portBefore = engine.getGeometrySnapshot("out")?.point
+    const edgeBefore = engine.getGeometrySnapshot("link")?.path
+    engine.dispatch({ type: "setTransformOrigin", id: "host", transformOrigin: { mode: "relative", x: 0, y: 0.5 } })
+    expect(engine.getGeometrySnapshot("out")?.point).toEqual(portBefore)
+    expect(engine.getGeometrySnapshot("link")?.path).toEqual(edgeBefore)
+  })
+
+  it("rotates group members and group-hosted ports around the configured group pivot", () => {
+    const engine = createDiagramEngine({
+      shapes: [
+        { id: "a", kind: "shape", shape: "rect", x: 10, y: 20, width: 20, height: 10 },
+        { id: "b", kind: "shape", shape: "rect", x: 40, y: 20, width: 10, height: 10 },
+      ],
+      groups: [{ id: "g", kind: "group", childIds: ["a", "b"], transformOrigin: { mode: "relative", x: 0, y: 0 } }],
+      ports: [{ id: "gp", kind: "port", hostId: "g", anchor: { kind: "local", x: 30, y: 0 } }],
+    })
+    engine.dispatch({ type: "rotateEntities", entries: [{ id: "g", rotation: 90 }] })
+    expect(engine.getGeometrySnapshot("a")?.bounds.x).toBeCloseTo(0, 8)
+    expect(engine.getGeometrySnapshot("a")?.bounds).toMatchObject({ y: 20, width: 10, height: 20 })
+    expect(engine.getGeometrySnapshot("gp")?.point?.x).toBeCloseTo(10, 8)
+    expect(engine.getGeometrySnapshot("gp")?.point?.y).toBeCloseTo(50, 8)
+  })
+
+  it("retains group transforms and composes nested groups without rewriting member-local geometry", () => {
+    const engine = createDiagramEngine({
+      shapes: [
+        { id: "a", kind: "shape", shape: "rect", x: 10, y: 20, width: 20, height: 10 },
+        { id: "b", kind: "shape", shape: "rect", x: 40, y: 20, width: 10, height: 10 },
+        { id: "c", kind: "shape", shape: "rect", x: 80, y: 20, width: 10, height: 10 },
+      ],
+    })
+    engine.dispatch({ type: "groupEntities", id: "inner", ids: ["a", "b"] })
+    const localBefore = engine.getScene().entities.shapesById.get("a")
+    const before = engine.getGeometrySnapshot("a")!.bounds
+    engine.dispatch({ type: "rotateEntities", entries: [{ id: "inner", rotation: 90 }] })
+    expect(engine.getScene().entities.shapesById.get("a")).toEqual(localBefore)
+    expect(engine.getGeometrySnapshot("a")!.bounds).not.toEqual(before)
+    const rotatedX = engine.getGeometrySnapshot("a")!.bounds.x
+    engine.dispatch({ type: "groupEntities", id: "outer", ids: ["inner", "c"] })
+    const nestedBefore = engine.getScene().entities.shapesById.get("a")
+    engine.dispatch({ type: "moveEntities", ids: ["outer"], delta: { x: 7, y: -3 } })
+    expect(engine.getScene().entities.shapesById.get("a")).toEqual(nestedBefore)
+    expect(engine.getGeometrySnapshot("a")!.bounds.x).toBeCloseTo(rotatedX + 7, 8)
+    engine.dispatch({ type: "rotateEntities", entries: [{ id: "outer", rotation: 45 }] })
+    expect(engine.getScene().entities.shapesById.get("a")).toEqual(nestedBefore)
+    expect(engine.getGeometrySnapshot("a")!.parentTransform).toBeDefined()
+    engine.dispatch({ type: "undo" })
+    expect(engine.getGeometrySnapshot("a")!.bounds.x).toBeCloseTo(rotatedX + 7, 8)
+    const restored = createDiagramEngine(engine.serialize())
+    expect(restored.getParentGroupId("inner")).toBe("outer")
+    expect(restored.getGeometrySnapshot("a")!.bounds).toEqual(engine.getGeometrySnapshot("a")!.bounds)
+    const beforeUngroup = ["a", "b", "c"].map((id) => engine.getGeometrySnapshot(id)!.bounds)
+    engine.dispatch({ type: "ungroupEntities", ids: ["outer"] })
+    expect(engine.getScene().entities.groupsById.has("outer")).toBe(false)
+    expect(engine.getParentGroupId("inner")).toBeNull()
+    ;["a", "b", "c"].forEach((id, index) => {
+      const bounds = engine.getGeometrySnapshot(id)!.bounds
+      expect(bounds.x).toBeCloseTo(beforeUngroup[index]!.x, 8)
+      expect(bounds.y).toBeCloseTo(beforeUngroup[index]!.y, 8)
+    })
+    engine.dispatch({ type: "undo" })
+    expect(engine.getParentGroupId("inner")).toBe("outer")
+  })
+
+  it("normalizes safe legacy baked groups to retained identity while preserving world geometry and metadata", () => {
+    const legacy = {
+      shapes: [
+        { id: "old-a", kind: "shape" as const, shape: "rect", x: 20, y: 30, width: 18, height: 9, metadata: { role: "body" } },
+        { id: "old-b", kind: "shape" as const, shape: "rect", x: 51, y: 34, width: 6, height: 11 },
+      ],
+      groups: [{ id: "old-group", kind: "group" as const, childIds: ["old-a", "old-b"], rotation: 90, flipX: true, transformOrigin: { mode: "absolute" as const, x: 4, y: 7 }, metadata: { source: "legacy" } }],
+    }
+    const before = createDiagramEngine(legacy)
+    const beforeBounds = ["old-a", "old-b"].map((id) => before.getGeometrySnapshot(id)?.bounds)
+    const restored = createDiagramEngine(deserializeScene(serializeScene(before.getScene())))
+    expect(restored.getScene().entities.groupsById.get("old-group")).toMatchObject({ x: 0, y: 0, rotation: 0, flipX: false, flipY: false, transformOrigin: legacy.groups[0]!.transformOrigin, metadata: { source: "legacy" } })
+    expect(["old-a", "old-b"].map((id) => restored.getGeometrySnapshot(id)?.bounds)).toEqual(beforeBounds)
+    expect(restored.getScene().entities.shapesById.get("old-a")?.metadata).toEqual({ role: "body" })
+  })
+
+  it("keeps legacy groups with attached descendant connectors on the compatibility path", () => {
+    const engine = createDiagramEngine({
+      nodes: [{ id: "legacy-host", kind: "node", x: 10, y: 10, width: 20, height: 20 }],
+      shapes: [{ id: "legacy-shape", kind: "shape", shape: "rect", x: 50, y: 10, width: 12, height: 12 }],
+      ports: [{ id: "legacy-port", kind: "port", nodeId: "legacy-host", x: 20, y: 10 }],
+      edges: [{ id: "legacy-edge", kind: "edge", source: { kind: "port", portId: "legacy-port" }, target: { kind: "point", point: { x: 60, y: 16 } } }],
+      groups: [{ id: "legacy-attached", kind: "group", childIds: ["legacy-host", "legacy-shape", "legacy-edge"], metadata: { source: "old-format" } }],
+    })
+    const before = engine.getGeometrySnapshot("legacy-edge")!.path
+    expect(engine.getScene().entities.groupsById.get("legacy-attached")).toMatchObject({ metadata: { source: "old-format" } })
+    expect(engine.getScene().entities.groupsById.get("legacy-attached")).not.toHaveProperty("x")
+    const restored = createDiagramEngine(deserializeScene(engine.serialize()))
+    expect(restored.getScene().entities.groupsById.get("legacy-attached")).not.toHaveProperty("x")
+    expect(restored.getGeometrySnapshot("legacy-edge")!.path).toEqual(before)
+    expect(restored.getGeometrySnapshot("legacy-port")!.point).toEqual(engine.getGeometrySnapshot("legacy-port")!.point)
+  })
+
+  it("reparents through rotated and reflected groups without rewriting intrinsic geometry and undoes atomically", () => {
+    const engine = createDiagramEngine({
+      shapes: [
+        { id: "moving", kind: "shape", shape: "rect", x: 20, y: 30, width: 25, height: 12, metadata: { tag: "kept" } },
+        { id: "source-peer", kind: "shape", shape: "rect", x: 60, y: 20, width: 10, height: 10 },
+        { id: "target-a", kind: "shape", shape: "rect", x: 150, y: 40, width: 10, height: 10 },
+        { id: "target-b", kind: "shape", shape: "rect", x: 180, y: 50, width: 10, height: 10 },
+      ],
+      ports: [
+        { id: "source-port", kind: "port", hostId: "source", anchor: { kind: "local", x: 2, y: 3 } },
+        { id: "target-port", kind: "port", hostId: "target", anchor: { kind: "local", x: 4, y: 5 } },
+      ],
+      groups: [
+        { id: "source", kind: "group", childIds: ["moving", "source-peer"], x: 7, y: -11, rotation: 35 },
+        { id: "target", kind: "group", childIds: ["target-a", "target-b"], x: -15, y: 20, rotation: 120, flipX: true },
+      ],
+    })
+    const original = engine.getScene().entities.shapesById.get("moving")!
+    const before = engine.getGeometrySnapshot("moving")!.bounds
+    const sourceSiblingBefore = engine.getGeometrySnapshot("source-peer")!.bounds
+    const sourcePortBefore = engine.getGeometrySnapshot("source-port")!.point!
+    const targetPortBefore = engine.getGeometrySnapshot("target-port")!.point!
+    const result = engine.dispatch({ type: "reparentEntity", id: "moving", parentId: "target" })
+    expect(result.changed).toBe(true)
+    expect(engine.getParentGroupId("moving")).toBe("target")
+    expect(engine.getScene().entities.groupsById.get("source")?.childIds).toEqual(["source-peer"])
+    expect(engine.getScene().entities.shapesById.get("moving")).toMatchObject({ x: original.x, y: original.y, width: original.width, height: original.height, metadata: original.metadata })
+    expect(engine.getGeometrySnapshot("moving")!.bounds.x).toBeCloseTo(before.x, 7)
+    expect(engine.getGeometrySnapshot("moving")!.bounds.y).toBeCloseTo(before.y, 7)
+    expect(engine.getGeometrySnapshot("source-peer")!.bounds.x).toBeCloseTo(sourceSiblingBefore.x, 7)
+    expect(engine.getGeometrySnapshot("source-peer")!.bounds.y).toBeCloseTo(sourceSiblingBefore.y, 7)
+    expect(engine.getGeometrySnapshot("source-port")!.point!.x).toBeCloseTo(sourcePortBefore.x, 7)
+    expect(engine.getGeometrySnapshot("source-port")!.point!.y).toBeCloseTo(sourcePortBefore.y, 7)
+    expect(engine.getGeometrySnapshot("target-port")!.point!.x).toBeCloseTo(targetPortBefore.x, 7)
+    expect(engine.getGeometrySnapshot("target-port")!.point!.y).toBeCloseTo(targetPortBefore.y, 7)
+    const committed = engine.getGeometrySnapshot("moving")!.bounds
+    engine.undo()
+    expect(engine.getParentGroupId("moving")).toBe("source")
+    expect(engine.getGeometrySnapshot("moving")!.bounds.x).toBeCloseTo(before.x, 7)
+    engine.redo()
+    expect(engine.getGeometrySnapshot("moving")!.bounds.x).toBeCloseTo(committed.x, 7)
+    expect(engine.getGeometrySnapshot("moving")!.bounds.y).toBeCloseTo(committed.y, 7)
+  })
+
+  it("reparents root and nested groups while preserving descendants and rejects cycles atomically", () => {
+    const engine = createDiagramEngine({
+      shapes: [
+        { id: "leaf", kind: "shape", shape: "rect", x: 10, y: 15, width: 12, height: 8 },
+        { id: "sibling-a", kind: "shape", shape: "rect", x: 40, y: 10, width: 10, height: 10 },
+        { id: "sibling-b", kind: "shape", shape: "rect", x: 120, y: 40, width: 10, height: 10 },
+        { id: "target-a1", kind: "shape", shape: "rect", x: 180, y: 25, width: 10, height: 10 },
+        { id: "target-a2", kind: "shape", shape: "rect", x: 210, y: 40, width: 10, height: 10 },
+      ],
+      groups: [
+        { id: "inner", kind: "group", childIds: ["leaf", "sibling-a"], x: 4, y: 8, rotation: 17 },
+        { id: "source", kind: "group", childIds: ["inner", "sibling-b"], x: -9, y: 12, rotation: 28 },
+        { id: "target-a", kind: "group", childIds: ["target-a1", "target-a2"], x: 160, y: -30, rotation: 73, flipY: true },
+      ],
+    })
+    const beforeLeaf = engine.getGeometrySnapshot("leaf")!.bounds
+    const beforeInner = engine.getGeometrySnapshot("inner")!.bounds
+    expect(engine.dispatch({ type: "reparentEntity", id: "inner", parentId: "target-a" }).changed).toBe(true)
+    expect(engine.getParentGroupId("inner")).toBe("target-a")
+    expect(engine.getGeometrySnapshot("leaf")!.bounds.x).toBeCloseTo(beforeLeaf.x, 7)
+    expect(engine.getGeometrySnapshot("leaf")!.bounds.y).toBeCloseTo(beforeLeaf.y, 7)
+    expect(engine.getGeometrySnapshot("inner")!.bounds.x).toBeCloseTo(beforeInner.x, 7)
+    expect(engine.getGeometrySnapshot("inner")!.bounds.y).toBeCloseTo(beforeInner.y, 7)
+    const rejected = engine.dispatch({ type: "reparentEntity", id: "target-a", parentId: "inner" })
+    expect(rejected.changed).toBe(false)
+    expect(engine.getParentGroupId("inner")).toBe("target-a")
+    expect(engine.dispatch({ type: "reparentEntity", id: "inner", parentId: null }).changed).toBe(true)
+    expect(engine.getParentGroupId("inner")).toBeNull()
+    engine.undo()
+    expect(engine.getParentGroupId("inner")).toBe("target-a")
+    engine.undo()
+    expect(engine.getParentGroupId("inner")).toBe("source")
+    engine.redo()
+    expect(engine.getParentGroupId("inner")).toBe("target-a")
+    const restored = createDiagramEngine(deserializeScene(engine.serialize()))
+    expect(restored.getGeometrySnapshot("leaf")!.bounds.x).toBeCloseTo(engine.getGeometrySnapshot("leaf")!.bounds.x, 7)
+    expect(restored.getGeometrySnapshot("leaf")!.bounds.y).toBeCloseTo(engine.getGeometrySnapshot("leaf")!.bounds.y, 7)
+  })
+
+  it("keeps child-owned port identities and attached connector endpoints through reparenting", () => {
+    const engine = createDiagramEngine({
+      nodes: [{ id: "host", kind: "node", x: 12, y: 14, width: 20, height: 16, metadata: { owner: "preserve" } }],
+      shapes: [
+        { id: "source-peer", kind: "shape", shape: "rect", x: 50, y: 10, width: 10, height: 10 },
+        { id: "target-a", kind: "shape", shape: "rect", x: 120, y: 20, width: 12, height: 12 },
+        { id: "target-b", kind: "shape", shape: "rect", x: 160, y: 40, width: 12, height: 12 },
+      ],
+      ports: [{ id: "host-port", kind: "port", nodeId: "host", x: 20, y: 8, metadata: { anchor: "stable" } }],
+      edges: [{ id: "attached", kind: "edge", source: { kind: "port", portId: "host-port" }, target: { kind: "point", point: { x: 220, y: 90 } } }],
+      groups: [
+        { id: "source", kind: "group", childIds: ["host", "source-peer"], x: -7, y: 9, rotation: 22 },
+        { id: "target", kind: "group", childIds: ["target-a", "target-b"], x: 4, y: -11, rotation: 113, flipY: true },
+      ],
+    })
+    const portBefore = engine.getGeometrySnapshot("host-port")!.point!
+    const edgeBefore = engine.getGeometrySnapshot("attached")!.path
+    expect(engine.dispatch({ type: "reparentEntity", id: "host", parentId: "target" }).changed).toBe(true)
+    expect(engine.getGeometrySnapshot("host-port")!.point!.x).toBeCloseTo(portBefore.x, 7)
+    expect(engine.getGeometrySnapshot("host-port")!.point!.y).toBeCloseTo(portBefore.y, 7)
+    expect(engine.getGeometrySnapshot("attached")!.path?.[0]?.x).toBeCloseTo(edgeBefore?.[0]?.x ?? 0, 7)
+    expect(engine.getGeometrySnapshot("attached")!.path?.[0]?.y).toBeCloseTo(edgeBefore?.[0]?.y ?? 0, 7)
+    expect(engine.getScene().entities.portsById.get("host-port")?.metadata).toEqual({ anchor: "stable" })
+    expect(engine.getScene().entities.nodesById.get("host")?.metadata).toEqual({ owner: "preserve" })
+    engine.undo()
+    expect(engine.getParentGroupId("host")).toBe("source")
+    expect(engine.getGeometrySnapshot("host-port")!.point!.x).toBeCloseTo(portBefore.x, 7)
+  })
+
+  it("keeps surviving groups and retained state when children are deleted, including empty groups", () => {
+    const engine = createDiagramEngine({
+      shapes: [{ id: "delete-me", kind: "shape", shape: "rect", x: 1, y: 2, width: 10, height: 8 }, { id: "keep-me", kind: "shape", shape: "rect", x: 30, y: 20, width: 10, height: 8 }],
+      ports: [{ id: "group-port", kind: "port", hostId: "survivor", anchor: { kind: "local", x: 2, y: 3 } }],
+      groups: [{ id: "survivor", kind: "group", childIds: ["delete-me", "keep-me"], x: 0, y: 0, rotation: 25, transformOrigin: { mode: "absolute", x: -3, y: 4 }, metadata: { retained: true } }],
+    })
+    const before = engine.getGeometrySnapshot("keep-me")!.bounds
+    const portBefore = engine.getGeometrySnapshot("group-port")!.point!
+    expect(engine.dispatch({ type: "deleteEntities", ids: ["delete-me"] }).changed).toBe(true)
+    expect(engine.getScene().entities.groupsById.get("survivor")).toMatchObject({ childIds: ["keep-me"], rotation: 25, transformOrigin: { mode: "absolute", x: -3, y: 4 }, metadata: { retained: true } })
+    const afterDelete = engine.getGeometrySnapshot("keep-me")!.bounds
+    expect(afterDelete.x).toBeCloseTo(before.x, 7)
+    expect(afterDelete.y).toBeCloseTo(before.y, 7)
+    expect(afterDelete.width).toBeCloseTo(before.width, 7)
+    expect(afterDelete.height).toBeCloseTo(before.height, 7)
+    expect(engine.getGeometrySnapshot("group-port")!.point!.x).toBeCloseTo(portBefore.x, 7)
+    expect(engine.getGeometrySnapshot("group-port")!.point!.y).toBeCloseTo(portBefore.y, 7)
+    expect(engine.dispatch({ type: "deleteEntities", ids: ["keep-me"] }).changed).toBe(false)
+    expect(engine.getScene().entities.groupsById.get("survivor")?.childIds).toEqual(["keep-me"])
+    expect(engine.dispatch({ type: "deleteEntities", ids: ["survivor"] }).changed).toBe(true)
+    expect(engine.getScene().entities.groupsById.has("survivor")).toBe(false)
+    expect(engine.getScene().entities.portsById.has("group-port")).toBe(false)
+    engine.undo()
+    expect(engine.getScene().entities.groupsById.get("survivor")?.childIds).toEqual(["keep-me"])
+  })
+
+  it("preserves pivot and text-policy geometry through retained parent reflection and ungroup", () => {
+    const engine = createDiagramEngine({
+      texts: [{ id: "readable", kind: "text", x: 15, y: 25, width: 40, height: 12, text: "Readable", orientationPolicy: "keep-readable", rotation: 25 }, { id: "horizontal", kind: "text", x: 15, y: 45, width: 40, height: 12, text: "Horizontal", orientationPolicy: "keep-horizontal" }],
+      shapes: [{ id: "box", kind: "shape", shape: "rect", x: 10, y: 10, width: 70, height: 60 }],
+    })
+    engine.dispatch({ type: "groupEntities", id: "g", ids: ["readable", "horizontal", "box"] })
+    engine.dispatch({ type: "rotateEntities", entries: [{ id: "g", rotation: 135 }] })
+    engine.dispatch({ type: "flipEntities", ids: ["g"], axis: "horizontal" })
+    const readable = engine.getGeometrySnapshot("readable")!
+    const horizontal = engine.getGeometrySnapshot("horizontal")!
+    expect(readable.flipX).toBe(false)
+    expect(readable.flipY).toBe(false)
+    const glyphAngle = Math.atan2(readable.parentTransform!.b, readable.parentTransform!.a) * 180 / Math.PI
+    expect(glyphAngle).toBeCloseTo(20, 8)
+    expect(horizontal.flipX).toBe(false)
+    expect(horizontal.flipY).toBe(false)
+    expect(horizontal.rotation).toBe(0)
+    const before = ["readable", "horizontal", "box"].map((id) => engine.getGeometrySnapshot(id)!.bounds)
+    engine.dispatch({ type: "ungroupEntities", ids: ["g"] })
+    const after = ["readable", "horizontal", "box"].map((id) => engine.getGeometrySnapshot(id)!.bounds)
+    after.forEach((bounds, index) => {
+      expect(bounds.x).toBeCloseTo(before[index]!.x, 8)
+      expect(bounds.y).toBeCloseTo(before[index]!.y, 8)
+      expect(bounds.width).toBeCloseTo(before[index]!.width, 8)
+      expect(bounds.height).toBeCloseTo(before[index]!.height, 8)
+    })
+  })
+
+  it("preserves descendant and port world positions when editing a retained group pivot", () => {
+    const engine = createDiagramEngine({
+      nodes: [{ id: "host", kind: "node", x: 10, y: 20, width: 20, height: 10 }, { id: "peer", kind: "node", x: 80, y: 20, width: 20, height: 10 }],
+      ports: [{ id: "out", kind: "port", nodeId: "host", x: 20, y: 5 }],
+      edges: [{ id: "link", kind: "edge", source: { kind: "port", portId: "out" }, target: { kind: "point", point: { x: 130, y: 30 } } }],
+    })
+    engine.dispatch({ type: "groupEntities", id: "g", ids: ["host", "peer"] })
+    engine.dispatch({ type: "rotateEntities", entries: [{ id: "g", rotation: 37 }] })
+    const world = ["host", "peer", "out", "link"].map((id) => engine.getGeometrySnapshot(id))
+    engine.dispatch({ type: "setTransformOrigin", id: "g", transformOrigin: { mode: "absolute", x: 100, y: -20 } })
+    const afterPivot = ["host", "peer", "out", "link"].map((id) => engine.getGeometrySnapshot(id))
+    afterPivot.forEach((geometry, index) => {
+      const before = world[index]!
+      expect(geometry?.bounds.x).toBeCloseTo(before.bounds.x, 8)
+      expect(geometry?.bounds.y).toBeCloseTo(before.bounds.y, 8)
+      expect(geometry?.bounds.width).toBeCloseTo(before.bounds.width, 8)
+      expect(geometry?.bounds.height).toBeCloseTo(before.bounds.height, 8)
+      if (geometry?.point && before.point) {
+        expect(geometry.point.x).toBeCloseTo(before.point.x, 8)
+        expect(geometry.point.y).toBeCloseTo(before.point.y, 8)
+      }
+    })
+    const local = { x: 12, y: 8 }
+    const worldPoint = engine.localToWorld("host", local)!
+    const roundTrip = engine.worldToLocal("host", worldPoint)!
+    expect(roundTrip.x).toBeCloseTo(local.x, 10)
+    expect(roundTrip.y).toBeCloseTo(local.y, 10)
+    expect(engine.getParentGroupId("host")).toBe("g")
+    expect(engine.getGroupChildren("g")).toEqual(["host", "peer"])
+  })
+
+  it("keeps repeated nested group pivot and inverse transforms numerically stable", () => {
+    const engine = createDiagramEngine({
+      nodes: [{ id: "host", kind: "node", x: 10.25, y: 20.5, width: 20, height: 10 }, { id: "peer", kind: "node", x: 80.5, y: 20.25, width: 20, height: 10 }],
+      ports: [{ id: "out", kind: "port", nodeId: "host", x: 20, y: 5 }],
+    })
+    engine.dispatch({ type: "groupEntities", id: "inner", ids: ["host"] })
+    engine.dispatch({ type: "groupEntities", id: "outer", ids: ["inner", "peer"] })
+    const localBefore = engine.getScene().entities.nodesById.get("host")
+    const localPortBefore = engine.getScene().entities.portsById.get("out")
+    const worldBefore = ["host", "peer", "out"].map((id) => engine.getGeometrySnapshot(id)!)
+
+    for (let cycle = 0; cycle < 12; cycle += 1) {
+      engine.dispatch({ type: "setTransformOrigin", id: "outer", transformOrigin: { mode: "absolute", x: 100 + cycle, y: -20 - cycle } })
+      engine.dispatch({ type: "rotateEntities", entries: [{ id: "outer", rotation: 37 + cycle }] })
+      engine.dispatch({ type: "rotateEntities", entries: [{ id: "outer", rotation: 0 }] })
+      engine.dispatch({ type: "flipEntities", ids: ["outer"], axis: "horizontal" })
+      engine.dispatch({ type: "flipEntities", ids: ["outer"], axis: "horizontal" })
+      engine.dispatch({ type: "setTransformOrigin", id: "outer", transformOrigin: { mode: "relative", x: 0.5, y: 0.5 } })
+    }
+
+    expect(engine.getScene().entities.nodesById.get("host")).toEqual(localBefore)
+    expect(engine.getScene().entities.portsById.get("out")).toEqual(localPortBefore)
+    for (const [index, id] of ["host", "peer", "out"].entries()) {
+      const after = engine.getGeometrySnapshot(id)!
+      const before = worldBefore[index]!
+      expect(after.bounds.x).toBeCloseTo(before.bounds.x, 8)
+      expect(after.bounds.y).toBeCloseTo(before.bounds.y, 8)
+      expect(after.bounds.width).toBeCloseTo(before.bounds.width, 8)
+      expect(after.bounds.height).toBeCloseTo(before.bounds.height, 8)
+      if (after.point && before.point) {
+        expect(after.point.x).toBeCloseTo(before.point.x, 8)
+        expect(after.point.y).toBeCloseTo(before.point.y, 8)
+      }
+    }
+  })
   it("resolves readable and horizontal text orientation deterministically and updates it undoably", () => {
     const readable = (degrees: number) => resolveTextGlyphOrientation(degrees, false, false, "keep-readable").rotation
     expect([0, 45, 90, 135, 180, 225, 270, 315].map(readable)).toEqual([0, 45, 90, -45, 0, 45, 90, -45])
@@ -539,6 +907,431 @@ describe("DiagramEngine", () => {
     expect(createDiagramEngine(deserializeDiagramDocument(engine.serializeDocument())).serialize().tables).toEqual(saved.tables)
   })
 
+  it("merges rectangular table cells with stable anchors, exact geometry, hit testing, and undo", () => {
+    const engine = createDiagramEngine({ tables: [{ id: "merge", kind: "table", x: 10, y: 20, width: 90, height: 30, rowCount: 2, columnCount: 3, rowHeights: [10, 20], columnWidths: [20, 35, 35], cells: [[{ text: "Anchor" }, { text: "" }, { text: "C" }], [{ text: "" }, { text: "" }, { text: "F" }]] }] })
+    const original = engine.getScene().entities.tablesById.get("merge")!
+    const anchorId = original.cells![0]![0]!.id!
+    const beforeRevision = engine.getDocumentRevision()
+    const result = engine.dispatch({ type: "mergeTableCells", id: "merge", startRow: 0, endRow: 1, startColumn: 0, endColumn: 1 })
+    expect(result.changed).toBe(true)
+    const merged = engine.getScene().entities.tablesById.get("merge")!
+    expect(merged.merges).toEqual([{ anchorCellId: anchorId, rowSpan: 2, columnSpan: 2 }])
+    expect(engine.getDocumentRevision()).toBe(beforeRevision + 1)
+    const layout = resolveDiagramTableLayout(merged)
+    expect(layout.visibleCells).toHaveLength(3)
+    expect(layout.cellBounds[1]![1]).toEqual({ x: 10, y: 20, width: 55, height: 30 })
+    expect(layout.cellContentBounds[0]![0]).toEqual({ x: 18, y: 28, width: 39, height: 14 })
+    expect(layout.gridBoundaries).toHaveLength(3)
+    expect(getDiagramTableCellAt(merged, { x: 30, y: 25 })).toEqual({ row: 0, column: 0 })
+    expect(engine.dispatch({ type: "unmergeTableCell", id: "merge", row: 1, column: 1 }).changed).toBe(true)
+    expect(engine.getScene().entities.tablesById.get("merge")?.merges).toEqual([])
+    expect(engine.getScene().entities.tablesById.get("merge")?.cells?.[0]?.[0]?.text).toBe("Anchor")
+    engine.dispatch({ type: "undo" })
+    engine.dispatch({ type: "undo" })
+    expect(engine.getScene().entities.tablesById.get("merge")).toEqual(original)
+    engine.dispatch({ type: "redo" })
+    expect(engine.getScene().entities.tablesById.get("merge")?.merges).toEqual([{ anchorCellId: anchorId, rowSpan: 2, columnSpan: 2 }])
+  })
+
+  it("rejects partial merged selections and content conflicts without mutation", () => {
+    const engine = createDiagramEngine({ tables: [{ id: "merge-reject", kind: "table", x: 0, y: 0, width: 60, height: 20, rowCount: 2, columnCount: 3, cells: [[{ text: "A" }, { text: "" }, { text: "C" }], [{ text: "" }, { text: "" }, { text: "F" }]] }] })
+    engine.dispatch({ type: "mergeTableCells", id: "merge-reject", startRow: 0, endRow: 1, startColumn: 0, endColumn: 1 })
+    const before = engine.serialize()
+    const partial = engine.dispatch({ type: "mergeTableCells", id: "merge-reject", startRow: 0, endRow: 1, startColumn: 1, endColumn: 2 })
+    expect(partial).toMatchObject({ changed: false, reason: "invalid-table-range" })
+    expect(engine.serialize()).toEqual(before)
+    engine.dispatch({ type: "unmergeTableCell", id: "merge-reject", row: 0, column: 0 })
+    engine.dispatch({ type: "updateTableCell", id: "merge-reject", row: 0, column: 1, cell: { text: "B" } })
+    const conflict = engine.dispatch({ type: "mergeTableCells", id: "merge-reject", startRow: 0, endRow: 0, startColumn: 0, endColumn: 1 })
+    expect(conflict).toMatchObject({ changed: false, reason: "merge-content-conflict", diagnostic: expect.stringContaining("non-anchor") })
+    expect(engine.getScene().entities.tablesById.get("merge-reject")?.cells?.[0]?.[1]?.text).toBe("B")
+  })
+
+  it("updates merged spans across row and column insertion and anchor-track deletion", () => {
+    const engine = createDiagramEngine({ tables: [{ id: "merge-structure", kind: "table", x: 0, y: 0, width: 90, height: 60, rowCount: 3, columnCount: 3, cells: [[{ text: "anchor" }, { text: "" }, { text: "" }], [{ text: "" }, { text: "" }, { text: "" }], [{ text: "" }, { text: "" }, { text: "" }]] }] })
+    const anchorId = engine.getScene().entities.tablesById.get("merge-structure")!.cells![0]![0]!.id!
+    engine.dispatch({ type: "mergeTableCells", id: "merge-structure", startRow: 0, endRow: 1, startColumn: 0, endColumn: 1 })
+    engine.dispatch({ type: "insertTableRow", id: "merge-structure", index: 1 })
+    expect(engine.getScene().entities.tablesById.get("merge-structure")?.merges?.[0]?.rowSpan).toBe(3)
+    engine.dispatch({ type: "insertTableColumn", id: "merge-structure", index: 0 })
+    let table = engine.getScene().entities.tablesById.get("merge-structure")!
+    expect(table.merges?.[0]?.columnSpan).toBe(2)
+    expect(table.cells?.[0]?.[1]?.id).toBe(anchorId)
+    engine.dispatch({ type: "deleteTableRow", id: "merge-structure", index: 0 })
+    table = engine.getScene().entities.tablesById.get("merge-structure")!
+    expect(table.merges?.[0]?.rowSpan).toBe(2)
+    expect(table.cells?.[0]?.[1]).toMatchObject({ id: anchorId, text: "anchor" })
+    engine.dispatch({ type: "deleteTableColumn", id: "merge-structure", index: 1 })
+    table = engine.getScene().entities.tablesById.get("merge-structure")!
+    expect(table.merges?.[0]).toMatchObject({ anchorCellId: anchorId, rowSpan: 2, columnSpan: 1 })
+    expect(table.cells?.[0]?.[1]?.text).toBe("anchor")
+    engine.dispatch({ type: "undo" })
+    expect(engine.getScene().entities.tablesById.get("merge-structure")?.merges?.[0]).toMatchObject({ rowSpan: 2, columnSpan: 2 })
+    engine.dispatch({ type: "undo" })
+    expect(engine.getScene().entities.tablesById.get("merge-structure")?.merges?.[0]?.rowSpan).toBe(3)
+    expect(resolveDiagramTableLayout(table).visibleCells.length).toBeGreaterThan(0)
+  })
+
+  it("preserves opaque cell and port metadata through edits, merge conflict checks, history, and copy", () => {
+    const portMetadata = { binding: { key: "pin.signal" } }
+    const engine = createDiagramEngine({ nodes: [{ id: "host", kind: "node", x: 0, y: 0, width: 20, height: 20 }], tables: [{ id: "meta-table", kind: "table", x: 30, y: 0, width: 60, height: 20, rowCount: 1, columnCount: 2, cells: [[{ text: "A", metadata: { binding: { key: "a" } } }, { text: "", metadata: { binding: { key: "b" } } }]] }] })
+    engine.dispatch({ type: "createPort", port: { id: "meta-port", kind: "port", nodeId: "host", x: 20, y: 10, metadata: portMetadata } })
+    portMetadata.binding.key = "mutated"
+    expect(engine.getScene().entities.portsById.get("meta-port")?.metadata).toEqual({ binding: { key: "pin.signal" } })
+    engine.dispatch({ type: "updateTableCell", id: "meta-table", row: 0, column: 0, cell: { text: "Edited" } })
+    expect(engine.getScene().entities.tablesById.get("meta-table")?.cells?.[0]?.[0]?.metadata).toEqual({ binding: { key: "a" } })
+    engine.dispatch({ type: "updateTableCell", id: "meta-table", row: 0, column: 0, cell: { metadata: { binding: { key: "a.updated" } } } })
+    expect(engine.getScene().entities.tablesById.get("meta-table")?.cells?.[0]?.[0]?.metadata).toEqual({ binding: { key: "a.updated" } })
+    engine.dispatch({ type: "undo" })
+    expect(engine.getScene().entities.tablesById.get("meta-table")?.cells?.[0]?.[0]?.metadata).toEqual({ binding: { key: "a" } })
+    const metadataRevision = engine.getDocumentRevision()
+    expect(engine.dispatch({ type: "updateTableCell", id: "meta-table", row: 0, column: 0, cell: { metadata: { bad: () => "not-json" } } as never }).changed).toBe(false)
+    expect(engine.getDocumentRevision()).toBe(metadataRevision)
+    const conflict = engine.dispatch({ type: "mergeTableCells", id: "meta-table", startRow: 0, endRow: 0, startColumn: 0, endColumn: 1 })
+    expect(conflict.reason).toBe("merge-content-conflict")
+    engine.dispatch({ type: "updateTableCell", id: "meta-table", row: 0, column: 0, cell: { text: "" } })
+    engine.dispatch({ type: "mergeTableCells", id: "meta-table", startRow: 0, endRow: 0, startColumn: 0, endColumn: 1, contentPolicy: "keep-anchor" })
+    const saved = engine.serialize()
+    expect(createDiagramEngine(deserializeScene(saved)).serialize()).toEqual(saved)
+    engine.dispatch({ type: "setSelection", selection: { ids: ["meta-table"], primaryId: "meta-table" } })
+    engine.duplicateSelection()
+    const duplicate = [...engine.getScene().entities.tablesById.values()].find((table) => table.id !== "meta-table")!
+    expect(duplicate.cells?.[0]?.[0]?.metadata).toEqual({ binding: { key: "a" } })
+    expect(new Set(duplicate.cells?.flatMap((row) => row.map((cell) => cell.id))).size).toBe(2)
+    expect(duplicate.merges?.map(({ rowSpan, columnSpan }) => ({ rowSpan, columnSpan }))).toEqual(engine.getScene().entities.tablesById.get("meta-table")?.merges?.map(({ rowSpan, columnSpan }) => ({ rowSpan, columnSpan })))
+    expect(duplicate.merges?.[0]?.anchorCellId).toBe(duplicate.cells?.[0]?.[0]?.id)
+    expect(duplicate.cells?.[0]?.[0]?.id).not.toBe(engine.getScene().entities.tablesById.get("meta-table")?.cells?.[0]?.[0]?.id)
+    engine.dispatch({ type: "unmergeTableCell", id: "meta-table", row: 0, column: 0 })
+    expect(engine.getScene().entities.tablesById.get("meta-table")?.cells?.[0]?.[1]?.metadata).toEqual({ binding: { key: "b" } })
+  })
+
+  it("keeps port metadata through host transforms and group transforms, history, and serialization", () => {
+    const metadata = { binding: { key: "external.signal" }, tags: ["input"] }
+    const engine = createDiagramEngine({ nodes: [{ id: "host", kind: "node", x: 10, y: 20, width: 20, height: 10 }, { id: "peer", kind: "node", x: 80, y: 20, width: 20, height: 10 }] })
+    expect(engine.dispatch({ type: "createPort", port: { id: "metadata-port", kind: "port", nodeId: "host", x: 20, y: 5, metadata } }).changed).toBe(true)
+    const original = engine.getScene().entities.portsById.get("metadata-port")!
+    engine.dispatch({ type: "moveEntities", ids: ["host"], delta: { x: 5, y: 7 } })
+    engine.dispatch({ type: "rotateEntities", entries: [{ id: "host", rotation: 90 }] })
+    engine.dispatch({ type: "flipEntities", ids: ["host"], axis: "horizontal" })
+    expect(engine.getScene().entities.portsById.get("metadata-port")).toMatchObject({ id: original.id, metadata })
+    engine.dispatch({ type: "groupEntities", id: "metadata-group", ids: ["host", "peer"] })
+    engine.dispatch({ type: "moveEntities", ids: ["metadata-group"], delta: { x: 4, y: -3 } })
+    engine.dispatch({ type: "rotateEntities", entries: [{ id: "metadata-group", rotation: 27 }] })
+    engine.dispatch({ type: "flipEntities", ids: ["metadata-group"], axis: "vertical" })
+    expect(engine.getScene().entities.portsById.get("metadata-port")).toMatchObject({ id: original.id, metadata })
+    const saved = engine.serialize()
+    expect(createDiagramEngine(deserializeScene(saved)).getScene().entities.portsById.get("metadata-port")).toMatchObject({ id: original.id, metadata })
+    engine.dispatch({ type: "undo" })
+    engine.dispatch({ type: "redo" })
+    expect(engine.getScene().entities.portsById.get("metadata-port")).toMatchObject({ id: original.id, metadata })
+  })
+
+  it("preserves cell metadata and identities across track edits and promotes merged anchor metadata", () => {
+    const engine = createDiagramEngine({ tables: [{ id: "metadata-structure", kind: "table", x: 0, y: 0, width: 90, height: 60, rowCount: 3, columnCount: 3, cells: [[{ text: "anchor", metadata: { binding: { key: "anchor" } } }, { text: "", metadata: { binding: { key: "covered" } } }, { text: "", metadata: { binding: { key: "unaffected" } } }], [{ text: "", metadata: { binding: { key: "row-1" } } }, { text: "" }, { text: "" }], [{ text: "", metadata: { binding: { key: "row-2" } } }, { text: "" }, { text: "" }]] }] })
+    const initial = engine.getScene().entities.tablesById.get("metadata-structure")!
+    const unaffectedId = initial.cells![0]![2]!.id
+    engine.dispatch({ type: "insertTableRow", id: initial.id, index: 1 })
+    engine.dispatch({ type: "insertTableColumn", id: initial.id, index: 1 })
+    let table = engine.getScene().entities.tablesById.get(initial.id)!
+    expect(table.cells!.find((row) => row.some((cell) => cell.id === unaffectedId))!.find((cell) => cell.id === unaffectedId)!.metadata).toEqual({ binding: { key: "unaffected" } })
+    const afterInsert = table
+    engine.dispatch({ type: "undo" }); engine.dispatch({ type: "undo" })
+    expect(engine.getScene().entities.tablesById.get(initial.id)).toEqual(initial)
+    engine.dispatch({ type: "redo" }); engine.dispatch({ type: "redo" })
+    expect(engine.getScene().entities.tablesById.get(initial.id)).toEqual(afterInsert)
+    engine.dispatch({ type: "deleteTableRow", id: initial.id, index: 1 })
+    engine.dispatch({ type: "deleteTableColumn", id: initial.id, index: 1 })
+    table = engine.getScene().entities.tablesById.get(initial.id)!
+    const restoredUnaffected = table.cells!.flat().find((cell) => cell.id === unaffectedId)!
+    expect(restoredUnaffected.metadata).toEqual({ binding: { key: "unaffected" } })
+    expect(createDiagramEngine(deserializeScene(engine.serialize())).getScene().entities.tablesById.get(initial.id)?.cells?.flat().find((cell) => cell.id === unaffectedId)?.metadata).toEqual({ binding: { key: "unaffected" } })
+
+    const anchorId = table.cells![0]![0]!.id!
+    engine.dispatch({ type: "mergeTableCells", id: initial.id, startRow: 0, endRow: 1, startColumn: 0, endColumn: 1, contentPolicy: "keep-anchor" })
+    const merged = engine.getScene().entities.tablesById.get(initial.id)!
+    const activeBefore = resolveDiagramTableLayout(merged).visibleCells.find((cell) => cell.anchorCellId === anchorId)!
+    expect(activeBefore.metadata).toEqual({ binding: { key: "anchor" } })
+    expect(activeBefore.coveredCellIds).toContain(merged.cells![0]![1]!.id)
+    expect(resolveDiagramTableLayout(merged).visibleCells).toHaveLength(merged.rowCount * merged.columnCount - 3)
+    engine.dispatch({ type: "deleteTableRow", id: initial.id, index: 0 })
+    table = engine.getScene().entities.tablesById.get(initial.id)!
+    const surviving = resolveDiagramTableLayout(table).visibleCells.find((cell) => cell.anchorCellId === anchorId)!
+    expect(surviving.metadata).toEqual({ binding: { key: "anchor" } })
+    const afterDelete = table
+    expect(createDiagramEngine(deserializeScene(engine.serialize())).getScene().entities.tablesById.get(initial.id)).toEqual(table)
+    engine.dispatch({ type: "undo" })
+    expect(engine.getScene().entities.tablesById.get(initial.id)).toEqual(merged)
+    engine.dispatch({ type: "redo" })
+    expect(engine.getScene().entities.tablesById.get(initial.id)).toEqual(afterDelete)
+  })
+
+  it("exposes only active merged-cell metadata and keeps covered metadata inactive until unmerge", () => {
+    const engine = createDiagramEngine({ tables: [{ id: "visible-metadata", kind: "table", x: 0, y: 0, width: 60, height: 20, rowCount: 1, columnCount: 3, cells: [[{ text: "A", metadata: { binding: { key: "active" } } }, { text: "", metadata: { binding: { key: "covered-1" } } }, { text: "", metadata: { binding: { key: "covered-2" } } }]] }] })
+    const tableId = "visible-metadata"
+    const original = engine.getScene().entities.tablesById.get(tableId)!
+    engine.dispatch({ type: "mergeTableCells", id: tableId, startRow: 0, endRow: 0, startColumn: 0, endColumn: 2, contentPolicy: "keep-anchor" })
+    let table = engine.getScene().entities.tablesById.get(tableId)!
+    let layout = resolveDiagramTableLayout(table)
+    expect(layout.visibleCells).toEqual([expect.objectContaining({ anchorCellId: original.cells![0]![0]!.id, metadata: { binding: { key: "active" } }, coveredCellIds: [original.cells![0]![1]!.id, original.cells![0]![2]!.id] })])
+    expect(layout.visibleCells.some((cell) => JSON.stringify(cell.metadata).includes("covered"))).toBe(false)
+    const mergedState = table
+    engine.dispatch({ type: "updateTableCell", id: tableId, row: 0, column: 0, cell: { metadata: { binding: { key: "active-updated" } } } })
+    table = engine.getScene().entities.tablesById.get(tableId)!
+    expect(table.cells![0]![1]!.metadata).toEqual({ binding: { key: "covered-1" } })
+    expect(table.cells![0]![2]!.metadata).toEqual({ binding: { key: "covered-2" } })
+    const duplicateEngine = createDiagramEngine({ tables: [table] })
+    duplicateEngine.dispatch({ type: "setSelection", selection: { ids: [tableId], primaryId: tableId } })
+    duplicateEngine.duplicateSelection()
+    const duplicate = [...duplicateEngine.getScene().entities.tablesById.values()].find((entry) => entry.id !== tableId)!
+    expect(duplicate.cells![0]!.map((cell) => cell.metadata)).toEqual(table.cells![0]!.map((cell) => cell.metadata))
+    expect(duplicate.cells![0]!.map((cell) => cell.id)).not.toEqual(table.cells![0]!.map((cell) => cell.id))
+    expect(duplicate.merges![0]!.anchorCellId).toBe(duplicate.cells![0]![0]!.id)
+    engine.dispatch({ type: "undo" })
+    expect(engine.getScene().entities.tablesById.get(tableId)).toEqual(mergedState)
+    engine.dispatch({ type: "undo" })
+    expect(engine.getScene().entities.tablesById.get(tableId)).toEqual(original)
+    engine.dispatch({ type: "redo" })
+    engine.dispatch({ type: "redo" })
+    expect(engine.getScene().entities.tablesById.get(tableId)).toEqual(table)
+    engine.dispatch({ type: "unmergeTableCell", id: tableId, row: 0, column: 2 })
+    layout = resolveDiagramTableLayout(engine.getScene().entities.tablesById.get(tableId)!)
+    expect(layout.visibleCells.map((cell) => cell.metadata?.binding?.key)).toEqual(["active-updated", "covered-1", "covered-2"])
+  })
+
+  it("resolves fractional table tracks and non-negative padded content bounds", () => {
+    const layout = resolveDiagramTableLayout({ id: "layout", kind: "table", x: 10, y: 20, width: 100, height: 40, rowCount: 2, columnCount: 2, columnWidths: [12.5, 87.5], rowHeights: [7.5, 32.5], style: { grid: { visible: true, stroke: { color: "#000", width: 1, style: "solid" } }, border: { visible: true, stroke: { color: "#000", width: 1, style: "solid" }, radius: 0 }, cellPadding: 8 } })
+    expect(layout.bounds).toEqual({ x: 10, y: 20, width: 100, height: 40 })
+    expect(layout.cellBounds[1]![1]).toEqual({ x: 22.5, y: 27.5, width: 87.5, height: 32.5 })
+    expect(layout.cellContentBounds[0]![0]).toEqual({ x: 16.25, y: 23.75, width: 0, height: 0 })
+    expect(layout.cellContentBounds[1]![1]).toEqual({ x: 30.5, y: 35.5, width: 71.5, height: 16.5 })
+  })
+
+  it("resolves inherited and per-cell appearance, asymmetric padding, borders, and deterministic text overflow", () => {
+    const cellAppearance = {
+      background: "#ffeeaa",
+      padding: { top: 1, right: 2, bottom: 3, left: 4 },
+      overflow: "wrap" as const,
+      text: { fontWeight: 700 },
+      borders: { right: { visible: true, stroke: { color: "#ff0000", width: 2, style: "dashed" as const } } },
+    }
+    const engine = createDiagramEngine({ tables: [{
+      id: "appearance", kind: "table", x: 0, y: 0, width: 50, height: 60, rowCount: 2, columnCount: 2,
+      columnWidths: [25, 25], rowHeights: [30, 30],
+      style: {
+        grid: { visible: true, stroke: { color: "#777777", width: 1, style: "solid" } },
+        border: { visible: true, stroke: { color: "#222222", width: 1, style: "solid" }, radius: 0 },
+        cellPadding: 4, background: "#ffffff", text: { fontSize: 10, color: "#123456" }, overflow: "clip",
+      },
+      cells: [
+        [
+          { text: "AB CD", style: cellAppearance },
+          { text: "B", style: { borders: { left: { visible: false } } } },
+        ],
+        [
+          { text: "C" },
+          { text: "D", style: { borders: { left: { visible: true, stroke: { color: "#00aa00", width: 3 } } } } },
+        ],
+      ],
+    }] })
+    const table = engine.getScene().entities.tablesById.get("appearance")!
+    const layout = resolveDiagramTableLayout(table)
+    const topLeft = layout.visibleCells[0]!
+    expect(topLeft.contentBounds).toEqual({ x: 4, y: 1, width: 19, height: 26 })
+    expect(topLeft.style).toMatchObject({ background: "#ffeeaa", padding: { top: 1, right: 2, bottom: 3, left: 4 }, text: { fontSize: 10, fontWeight: 700, color: "#123456" }, overflow: "wrap" })
+    expect(topLeft.lines).toEqual(["AB", "CD"])
+    expect(topLeft.overflowed).toBe(false)
+    const vertical = layout.gridBoundaries.filter((line) => line.axis === "vertical")
+    expect(vertical[0]?.border).toMatchObject({ visible: true, color: "#ff0000", width: 2, style: "dashed", ownerCellId: table.cells![0]![0]!.id })
+    expect(vertical[1]?.border).toMatchObject({ visible: true, color: "#00aa00", width: 3, ownerCellId: table.cells![1]![1]!.id })
+    const clipEngine = createDiagramEngine({ tables: [{ ...table, id: "clipped", style: { ...table.style, cellPadding: 0 }, rowCount: 1, columnCount: 1, width: 10, height: 10, cells: [[{ text: "A very long line", style: { overflow: "clip", text: { fontSize: 12 } } }]], rowHeights: [10], columnWidths: [10], merges: [] }] })
+    expect(resolveDiagramTableLayout(clipEngine.getScene().entities.tablesById.get("clipped")!).visibleCells[0]?.overflowed).toBe(true)
+  })
+
+  it("applies range styles once and supports fixed, flexible, and exact proportional table sizing", () => {
+    const engine = createDiagramEngine({ tables: [{ id: "size-style", kind: "table", x: 0, y: 0, width: 150, height: 40, rowCount: 1, columnCount: 3, columnWidths: [40, 60, 50], cells: [[{ text: "A" }, { text: "B" }, { text: "C" }]] }] })
+    const history = engine.getDiagnostics().undoDepth
+    expect(engine.dispatch({ type: "updateTableCellRange", id: "size-style", startRow: 0, endRow: 0, startColumn: 0, endColumn: 1, cell: { style: { background: "#eeeeee", padding: { left: 2 } } } })).toMatchObject({ changed: true })
+    expect(engine.getDiagnostics().undoDepth).toBe(history + 1)
+    expect(engine.getScene().entities.tablesById.get("size-style")?.cells?.[0]?.slice(0, 2).map((cell) => cell.style?.background)).toEqual(["#eeeeee", "#eeeeee"])
+    engine.dispatch({ type: "undo" })
+    expect(engine.getScene().entities.tablesById.get("size-style")?.cells?.[0]?.[0]?.style).toBeUndefined()
+    engine.dispatch({ type: "resizeTableColumn", id: "size-style", index: 1, width: 80, policy: "fixed" })
+    expect(engine.getScene().entities.tablesById.get("size-style")).toMatchObject({ width: 150, columnWidths: [40, 80, 30] })
+    engine.dispatch({ type: "undo" })
+    engine.dispatch({ type: "resizeTableColumn", id: "size-style", index: 1, width: 80 })
+    expect(engine.getScene().entities.tablesById.get("size-style")).toMatchObject({ width: 170, columnWidths: [40, 80, 50] })
+    engine.dispatch({ type: "setTableSize", id: "size-style", width: 100, height: 20 })
+    const resized = engine.getScene().entities.tablesById.get("size-style")!
+    expect(resized.width).toBe(100)
+    expect(resized.columnWidths!.reduce((sum, value) => sum + value, 0)).toBe(100)
+    expect(resized.columnWidths![0]).toBeCloseTo(100 * 40 / 170, 10)
+    expect(resized.columnWidths![1]).toBeCloseTo(100 * 80 / 170, 10)
+    expect(resized.columnWidths![2]).toBeCloseTo(100 * 50 / 170, 10)
+    expect(resized.rowHeights).toEqual([20])
+    engine.dispatch({ type: "undo" })
+    expect(engine.getScene().entities.tablesById.get("size-style")?.width).toBe(170)
+  })
+
+  it("caches immutable local Table layouts, binary-searches hit tests, and refreshes measured text by provider revision", () => {
+    const engine = createDiagramEngine({ tables: [{ id: "layout-cache", kind: "table", x: 10, y: 20, width: 100, height: 40, rowCount: 2, columnCount: 2, columnWidths: [30, 70], rowHeights: [10, 30], cells: [[{ text: "abcdef", verticalAlign: "top", style: { padding: { top: 0, right: 0, bottom: 0, left: 0 }, overflow: "wrap" } }, { text: "wide" }], [{ text: "x" }, { text: "y" }]] }], groups: [{ id: "layout-parent", kind: "group", x: 0, y: 0, childIds: ["layout-cache"] }] })
+    const first = engine.getTableLayout("layout-cache")!
+    expect(engine.getTableLayout("layout-cache")).toBe(first)
+    expect(engine.getTableLayoutReadCount()).toBe(1)
+    engine.dispatch({ type: "rotateEntities", entries: [{ id: "layout-parent", rotation: 25 }] })
+    engine.dispatch({ type: "flipEntities", ids: ["layout-parent"], axis: "horizontal" })
+    engine.dispatch({ type: "moveEntities", ids: ["layout-parent"], delta: { x: 7.5, y: -3.25 } })
+    engine.dispatch({ type: "setSelection", selection: { ids: ["layout-cache"], primaryId: "layout-cache" } })
+    expect(engine.getTableLayout("layout-cache")).toBe(first)
+    expect(engine.getTableLayoutReadCount()).toBe(1)
+    engine.dispatch({ type: "rotateEntities", entries: [{ id: "layout-cache", rotation: 37 }] })
+    expect(engine.getTableLayout("layout-cache")).toBe(first)
+    expect(engine.getTableLayoutReadCount()).toBe(1)
+    expect(Object.isFrozen(first)).toBe(true)
+    expect(Object.isFrozen(first.cellAnchors[0])).toBe(true)
+    const sharedEdgePoint = engine.localToWorld("layout-cache", { x: 40, y: 25 })!
+    expect(engine.getTableCellAt("layout-cache", sharedEdgePoint)).toEqual({ row: 0, column: 1 })
+    expect(engine.getTableLayoutReadCount()).toBe(1)
+
+    let revision = 1
+    let charWidth = 6
+    const provider = {
+      get revision() { return revision },
+      measureText(text: string) { return { width: Array.from(text).length * charWidth, lineHeight: 20, ascent: 15, descent: 5 } },
+    }
+    const measured = engine.getTableLayout("layout-cache", provider)!
+    expect(measured.visibleCells[0]?.lines).toEqual(["abcde", "f"])
+    expect(measured.visibleCells[0]?.linePositions[0]?.y).toBe(35)
+    expect(engine.getTableLayout("layout-cache", provider)).toBe(measured)
+    charWidth = 4
+    revision += 1
+    const refreshed = engine.getTableLayout("layout-cache", provider)!
+    expect(refreshed).not.toBe(measured)
+    expect(refreshed.visibleCells[0]?.lines).toEqual(["abcdef"])
+
+    engine.dispatch({ type: "updateTableCell", id: "layout-cache", row: 0, column: 0, cell: { text: "changed" } })
+    const afterEdit = engine.getTableLayout("layout-cache", provider)!
+    expect(afterEdit).not.toBe(refreshed)
+    engine.dispatch({ type: "undo" })
+    const afterUndo = engine.getTableLayout("layout-cache", provider)!
+    expect(afterUndo).not.toBe(refreshed)
+    expect(afterUndo.visibleCells[0]?.lines).toEqual(refreshed.visibleCells[0]?.lines)
+    expect(engine.getTableLayoutReadCount()).toBe(5)
+  })
+
+  it("invalidates local layout for cell metadata, appearance, topology, tracks, and structural edits", () => {
+    const engine = createDiagramEngine({ tables: [{ id: "layout-invalidation", kind: "table", x: 0, y: 0, width: 80, height: 40, rowCount: 2, columnCount: 2, columnWidths: [30, 50], rowHeights: [15, 25] }] })
+    let layout = engine.getTableLayout("layout-invalidation")!
+    engine.dispatch({ type: "updateTableCell", id: "layout-invalidation", row: 0, column: 0, cell: { metadata: { binding: { key: "drawing.number" } } } })
+    const metadataLayout = engine.getTableLayout("layout-invalidation")!
+    expect(metadataLayout).not.toBe(layout)
+    expect(metadataLayout.visibleCells[0]?.metadata).toEqual({ binding: { key: "drawing.number" } })
+    layout = metadataLayout
+    engine.dispatch({ type: "updateTableCell", id: "layout-invalidation", row: 0, column: 0, cell: { style: { background: "#ffeedd", padding: { left: 2 } } } })
+    const styleLayout = engine.getTableLayout("layout-invalidation")!
+    expect(styleLayout).not.toBe(layout)
+    expect(styleLayout.visibleCells[0]?.style.background).toBe("#ffeedd")
+    layout = styleLayout
+    engine.dispatch({ type: "mergeTableCells", id: "layout-invalidation", startRow: 0, endRow: 1, startColumn: 0, endColumn: 1 })
+    const mergeLayout = engine.getTableLayout("layout-invalidation")!
+    expect(mergeLayout).not.toBe(layout)
+    expect(mergeLayout.visibleCells).toHaveLength(1)
+    layout = mergeLayout
+    engine.dispatch({ type: "resizeTableColumn", id: "layout-invalidation", index: 0, width: 35 })
+    const resizedLayout = engine.getTableLayout("layout-invalidation")!
+    expect(resizedLayout).not.toBe(layout)
+    expect(resizedLayout.visibleCells[0]?.bounds.width).toBe(85)
+    layout = resizedLayout
+    engine.dispatch({ type: "unmergeTableCell", id: "layout-invalidation", row: 0, column: 0 })
+    expect(engine.getTableLayout("layout-invalidation")!).not.toBe(layout)
+    engine.dispatch({ type: "insertTableRow", id: "layout-invalidation", index: 1 })
+    expect(engine.getTableLayout("layout-invalidation")!.rowBounds).toHaveLength(3)
+    engine.dispatch({ type: "deleteTableRow", id: "layout-invalidation", index: 1 })
+    expect(engine.getTableLayout("layout-invalidation")!.rowBounds).toHaveLength(2)
+  })
+
+  it("uses provider metrics for glyph widths, weight, Unicode, line breaks, alignment and empty overflow", () => {
+    const table = {
+      id: "measured-lines", kind: "table" as const, x: 0, y: 0, width: 80, height: 40, rowCount: 1, columnCount: 4,
+      columnWidths: [20, 20, 20, 20], rowHeights: [40], style: { cellPadding: 0, overflow: "wrap" as const, text: { fontSize: 10 } },
+      cells: [[
+        { text: "iiiii" },
+        { text: "WWWW" },
+        { text: "漢字", style: { text: { fontWeight: 700 } } },
+        { text: "i\ni", horizontalAlign: "right" as const, verticalAlign: "bottom" as const },
+      ]],
+    }
+    const provider = {
+      revision: 1,
+      measureText(text: string, style: { fontSize?: number; fontWeight?: string | number }) {
+        const size = style.fontSize ?? 10
+        const width = Array.from(text).reduce((sum, glyph) => sum + (glyph === "i" ? 2 : glyph === "W" ? style.fontWeight === 700 ? 10 : 8 : 12) * size / 10, 0)
+        return { width, lineHeight: size * 1.5, ascent: size, descent: size * .5 }
+      },
+    }
+    const layout = resolveDiagramTableLayout(table, { textMeasurementProvider: provider })
+    expect(layout.visibleCells.map((cell) => cell.lines)).toEqual([["iiiii"], ["WW", "WW"], ["漢", "字"], ["i", "i"]])
+    expect(layout.visibleCells[3]?.textAnchor).toBe("end")
+    expect(layout.visibleCells[3]?.linePositions).toEqual([{ x: 80, y: 20 }, { x: 80, y: 35 }])
+    const merged = resolveDiagramTableLayout({
+      ...table,
+      cells: [[{ id: "merged-anchor", text: "WW", horizontalAlign: "right" as const, verticalAlign: "bottom" as const }, ...table.cells[0]!.slice(1)]],
+      merges: [{ anchorCellId: "merged-anchor", rowSpan: 1, columnSpan: 2 }],
+    }, { textMeasurementProvider: provider }).visibleCells[0]
+    expect(merged?.bounds.width).toBe(40)
+    expect(merged?.textAnchor).toBe("end")
+    expect(merged?.linePositions).toEqual([{ x: 40, y: 35 }])
+    expect(resolveDiagramTableLayout({ ...table, cells: [[{ text: "", verticalAlign: "middle" }, ...table.cells[0]!.slice(1)]] }, { textMeasurementProvider: provider }).visibleCells[0]?.overflowed).toBe(false)
+  })
+
+  it("applies Table border presets atomically and resolves merged outer borders without covered edges", () => {
+    const engine = createDiagramEngine({ tables: [{ id: "border-presets", kind: "table", x: 0, y: 0, width: 100, height: 60, rowCount: 2, columnCount: 2, columnWidths: [40, 60], rowHeights: [25, 35] }] })
+    const initialHistory = engine.getDiagnostics().undoDepth
+    expect(engine.dispatch({ type: "setTableCellBorders", id: "border-presets", startRow: 0, endRow: 1, startColumn: 0, endColumn: 1, preset: "outside", border: { visible: true, stroke: { color: "#f00", width: 2 } } }).changed).toBe(true)
+    const table = engine.getScene().entities.tablesById.get("border-presets")!
+    expect(new Set(table.cells?.flat().map((cell) => cell.id)).size).toBe(4)
+    expect(engine.getDiagnostics().undoDepth).toBe(initialHistory + 1)
+    expect(table.cells?.[0]?.[0]?.style?.borders).toMatchObject({ top: { visible: true }, left: { visible: true } })
+    expect(table.cells?.[0]?.[1]?.style?.borders).toMatchObject({ top: { visible: true }, right: { visible: true } })
+    expect(table.cells?.[1]?.[0]?.style?.borders).toMatchObject({ bottom: { visible: true }, left: { visible: true } })
+    expect(table.cells?.[1]?.[1]?.style?.borders).toMatchObject({ bottom: { visible: true }, right: { visible: true } })
+    expect(resolveDiagramTableLayout(table).gridBoundaries).toHaveLength(12)
+    engine.dispatch({ type: "mergeTableCells", id: "border-presets", startRow: 0, endRow: 0, startColumn: 0, endColumn: 1 })
+    const mergedLayout = resolveDiagramTableLayout(engine.getScene().entities.tablesById.get("border-presets")!)
+    expect(mergedLayout.gridBoundaries.filter((segment) => segment.axis === "horizontal" && segment.start.y === 0)).toHaveLength(1)
+    engine.dispatch({ type: "setTableCellBorders", id: "border-presets", startRow: 0, endRow: 1, startColumn: 0, endColumn: 1, preset: "none" })
+    expect(engine.getScene().entities.tablesById.get("border-presets")?.cells?.[0]?.[0]?.style?.borders?.top).toEqual({ visible: false })
+    engine.dispatch({ type: "setTableCellBorders", id: "border-presets", startRow: 0, endRow: 1, startColumn: 0, endColumn: 1, preset: "reset" })
+    expect(engine.getScene().entities.tablesById.get("border-presets")?.cells?.[0]?.[0]?.style?.borders?.top).toBeUndefined()
+    engine.dispatch({ type: "undo" })
+    expect(engine.getScene().entities.tablesById.get("border-presets")?.cells?.[0]?.[0]?.style?.borders?.top).toEqual({ visible: false })
+    engine.dispatch({ type: "setTableCellBorders", id: "border-presets", startRow: 0, endRow: 1, startColumn: 0, endColumn: 1, preset: "top" })
+    const topOnly = engine.getScene().entities.tablesById.get("border-presets")!
+    expect(topOnly.cells?.[0]?.[0]?.style?.borders?.top?.visible).toBe(true)
+    expect(topOnly.cells?.[1]?.[0]?.style?.borders?.top).toEqual({ visible: false })
+  })
+
+  it("applies every range border preset to the intended logical edges", () => {
+    const engine = createDiagramEngine({ tables: [{ id: "border-matrix", kind: "table", x: 0, y: 0, width: 80, height: 40, rowCount: 2, columnCount: 2, columnWidths: [40, 40], rowHeights: [20, 20] }] })
+    const apply = (preset: "all" | "inside" | "top" | "right" | "bottom" | "left" | "reset") => engine.dispatch({ type: "setTableCellBorders", id: "border-matrix", startRow: 0, endRow: 1, startColumn: 0, endColumn: 1, preset })
+    apply("inside")
+    let cells = engine.getScene().entities.tablesById.get("border-matrix")!.cells!
+    expect(cells[0]![0]!.style?.borders).toMatchObject({ right: { visible: true }, bottom: { visible: true } })
+    expect(cells[1]![1]!.style?.borders).toMatchObject({ left: { visible: true }, top: { visible: true } })
+    apply("reset")
+    for (const [preset, row, column, side, excludedRow, excludedColumn] of [
+      ["top", 0, 0, "top", 1, 0], ["right", 0, 1, "right", 0, 0], ["bottom", 1, 0, "bottom", 0, 0], ["left", 0, 0, "left", 0, 1],
+    ] as const) {
+      apply(preset)
+      cells = engine.getScene().entities.tablesById.get("border-matrix")!.cells!
+      expect(cells[row]![column]!.style?.borders?.[side]).toEqual({ visible: true })
+      expect(cells[excludedRow]![excludedColumn]!.style?.borders?.[side]).toBeUndefined()
+      apply("reset")
+    }
+    apply("all")
+    cells = engine.getScene().entities.tablesById.get("border-matrix")!.cells!
+    for (const cell of cells.flat()) expect(cell.style?.borders).toMatchObject({ top: { visible: true }, right: { visible: true }, bottom: { visible: true }, left: { visible: true } })
+  })
+
   it("updates rectangular corner radius with validation, one history entry, and legacy-safe serialization", () => {
     const engine = createDiagramEngine({ shapes: [{ id: "plain", kind: "shape", shape: "rect", x: 0, y: 0, width: 40, height: 20 }, { id: "ellipse", kind: "shape", shape: "ellipse", x: 50, y: 0, width: 20, height: 20 }] })
     expect(engine.serialize().shapes?.[0]).not.toHaveProperty("cornerRadius")
@@ -645,11 +1438,11 @@ describe("DiagramEngine", () => {
     engine.dispatch({ type: "deleteTableRow", id: "t", index: 1 })
     expect(engine.getScene().entities.tablesById.get("t")?.rowHeights).toEqual([30, 30])
     engine.dispatch({ type: "insertTableColumn", id: "t", index: 1, cells: [{ text: "m" }, { text: "n" }] })
-    expect(engine.getScene().entities.tablesById.get("t")?.cells).toEqual([[{ text: "a" }, { text: "m" }, { text: "b" }], [{ text: "c" }, { text: "n" }, { text: "d" }]])
+    expect(engine.getScene().entities.tablesById.get("t")?.cells?.map((row) => row.map((cell) => cell.text))).toEqual([["a", "m", "b"], ["c", "n", "d"]])
     engine.dispatch({ type: "deleteTableColumn", id: "t", index: 1 })
     const finalTable = engine.getScene().entities.tablesById.get("t")!
     expect(finalTable.columnCount).toBe(2)
-    expect(finalTable.cells).toEqual([[{ text: "a" }, { text: "b" }], [{ text: "c" }, { text: "d" }]])
+    expect(finalTable.cells?.map((row) => row.map((cell) => cell.text))).toEqual([["a", "b"], ["c", "d"]])
     expect(finalTable.columnWidths!.reduce((sum, size) => sum + size, 0)).toBe(120)
     expect(engine.dispatch({ type: "deleteTableRow", id: "t", index: 0 }).changed).toBe(true)
     expect(engine.dispatch({ type: "deleteTableRow", id: "t", index: 0 }).changed).toBe(false)
@@ -660,12 +1453,16 @@ describe("DiagramEngine", () => {
   it("edits cells and alignment as undoable changes and validates cell/style commands", () => {
     const engine = createDiagramEngine({ tables: [{ id: "t", kind: "table", x: 0, y: 0, width: 100, height: 40, rowCount: 1, columnCount: 2 }] })
     engine.dispatch({ type: "updateTableCell", id: "t", row: 0, column: 1, cell: { text: "hello", horizontalAlign: "right", verticalAlign: "middle" } })
-    expect(engine.getScene().entities.tablesById.get("t")?.cells?.[0]?.[1]).toEqual({ text: "hello", horizontalAlign: "right", verticalAlign: "middle" })
+    expect(engine.getScene().entities.tablesById.get("t")?.cells?.[0]?.[1]).toMatchObject({ text: "hello", horizontalAlign: "right", verticalAlign: "middle" })
     engine.dispatch({ type: "undo" })
     expect(engine.getScene().entities.tablesById.get("t")?.cells?.[0]?.[1]?.text).toBe("")
     engine.dispatch({ type: "redo" })
     engine.dispatch({ type: "updateTableStyle", id: "t", style: { grid: { visible: false }, border: { radius: 10, stroke: { color: "#ff0000", width: 2, style: "dotted" } } } })
     expect(engine.getScene().entities.tablesById.get("t")?.style).toMatchObject({ grid: { visible: false }, border: { radius: 10, stroke: { color: "#ff0000", width: 2, style: "dotted" } } })
+    expect(engine.dispatch({ type: "updateTableStyle", id: "t", style: { overflow: "wrap" } }).changed).toBe(true)
+    expect(resolveDiagramTableLayout(engine.getScene().entities.tablesById.get("t")!).visibleCells[0]?.style.overflow).toBe("wrap")
+    engine.dispatch({ type: "undo" })
+    expect(resolveDiagramTableLayout(engine.getScene().entities.tablesById.get("t")!).visibleCells[0]?.style.overflow).toBe("clip")
     expect(engine.dispatch({ type: "updateTableCell", id: "t", row: 3, column: 0, cell: { text: "bad" } }).changed).toBe(false)
     expect(engine.dispatch({ type: "updateTableCell", id: "t", row: 0, column: 0, cell: { horizontalAlign: "justify" as unknown as "left" } }).changed).toBe(false)
     expect(engine.dispatch({ type: "updateTableStyle", id: "t", style: { border: { stroke: { width: -1 } } } }).changed).toBe(false)
@@ -677,9 +1474,31 @@ describe("DiagramEngine", () => {
     expect(engine.getScene().entities.tablesById.get("t")).toMatchObject({ height: 50, rowHeights: [30, 20] })
     engine.dispatch({ type: "undo" })
     expect(engine.getScene().entities.tablesById.get("t")).toMatchObject({ height: 40, rowHeights: [20, 20] })
+    engine.dispatch({ type: "resizeTableRow", id: "t", index: 0, height: 28, policy: "fixed" })
+    expect(engine.getScene().entities.tablesById.get("t")).toMatchObject({ height: 40, rowHeights: [28, 12] })
+    engine.dispatch({ type: "undo" })
     engine.dispatch({ type: "resizeTableColumn", id: "t", index: 1, width: 70 })
     expect(engine.getScene().entities.tablesById.get("t")).toMatchObject({ width: 120, columnWidths: [50, 70] })
     expect(engine.dispatch({ type: "resizeTableColumn", id: "t", index: 4, width: 100 }).changed).toBe(false)
+    expect(engine.dispatch({ type: "resizeTableColumn", id: "t", index: 0, width: 0.5 }).changed).toBe(false)
+    expect(engine.dispatch({ type: "resizeTableRow", id: "t", index: 0, height: 0.5 }).changed).toBe(false)
+  })
+
+  it("preserves fractional track sizes through repeated fixed-resize cycles", () => {
+    const engine = createDiagramEngine({ tables: [{ id: "resize-stability", kind: "table", x: 0, y: 0, width: 49.75, height: 20, rowCount: 2, columnCount: 2, columnWidths: [12.5, 37.25], rowHeights: [7.5, 12.5] }] })
+    for (let cycle = 0; cycle < 100; cycle += 1) {
+      expect(engine.dispatch({ type: "resizeTableColumn", id: "resize-stability", index: 0, width: 17.25, policy: "fixed" }).changed).toBe(true)
+      expect(engine.dispatch({ type: "resizeTableColumn", id: "resize-stability", index: 0, width: 12.5, policy: "fixed" }).changed).toBe(true)
+      expect(engine.dispatch({ type: "resizeTableRow", id: "resize-stability", index: 0, height: 9.25, policy: "fixed" }).changed).toBe(true)
+      expect(engine.dispatch({ type: "resizeTableRow", id: "resize-stability", index: 0, height: 7.5, policy: "fixed" }).changed).toBe(true)
+    }
+    const table = engine.getScene().entities.tablesById.get("resize-stability")!
+    expect(table.columnWidths?.[0]).toBeCloseTo(12.5, 12)
+    expect(table.columnWidths?.[1]).toBeCloseTo(37.25, 12)
+    expect(table.rowHeights?.[0]).toBeCloseTo(7.5, 12)
+    expect(table.rowHeights?.[1]).toBeCloseTo(12.5, 12)
+    expect(table.columnWidths!.reduce((sum, value) => sum + value, 0)).toBeCloseTo(49.75, 12)
+    expect(table.rowHeights!.reduce((sum, value) => sum + value, 0)).toBeCloseTo(20, 12)
   })
 
   it("previews a rotated table row resize and commits exactly once on pointer up", () => {
@@ -715,6 +1534,30 @@ describe("DiagramEngine", () => {
     expect(engine.getScene().entities.tablesById.get("rotated-table")).toMatchObject({ width: 120, columnWidths: [70, 50] })
   })
 
+  it("previews fixed track resizing in a transformed retained group and commits the exact candidate", () => {
+    const engine = createDiagramEngine({
+      tables: [{ id: "fixed-table", kind: "table", x: 10, y: 20, width: 100, height: 40, rowCount: 1, columnCount: 2, columnWidths: [40, 60], rowHeights: [40] }],
+      nodes: [{ id: "fixed-sibling", kind: "node", x: 140, y: 20, width: 20, height: 20 }],
+    })
+    engine.dispatch({ type: "groupEntities", id: "fixed-group", ids: ["fixed-table", "fixed-sibling"] })
+    engine.dispatch({ type: "rotateEntities", entries: [{ id: "fixed-group", rotation: 90 }] })
+    engine.dispatch({ type: "flipEntities", ids: ["fixed-group"], axis: "horizontal" })
+    const boundaryStart = engine.localToWorld("fixed-table", { x: 40, y: 20 })!
+    const boundaryNext = engine.localToWorld("fixed-table", { x: 50, y: 20 })!
+    const interaction = createDiagramInteractionController(engine, { snap: { enabled: false }, scheduleFrame: (callback) => callback() })
+    const undoDepth = engine.getDiagnostics().undoDepth
+    expect(interaction.beginTableResizeHandle("fixed-table", "column", 0, { id: 71, point: boundaryStart }, "fixed")).toBe(true)
+    interaction.pointerMove({ id: 71, point: boundaryNext })
+    const preview = interaction.getSnapshot().tableResizePreview!
+    expect(preview).toMatchObject({ policy: "fixed", size: 50, width: 100, columnWidths: [50, 50] })
+    expect(engine.getScene().entities.tablesById.get("fixed-table")?.columnWidths).toEqual([40, 60])
+    interaction.pointerUp({ id: 71, point: boundaryNext })
+    expect(engine.getScene().entities.tablesById.get("fixed-table")?.columnWidths).toEqual(preview.columnWidths)
+    expect(engine.getScene().entities.tablesById.get("fixed-table")?.width).toBe(preview.width)
+    expect(engine.getDiagnostics().undoDepth).toBe(undoDepth + 1)
+    interaction.dispose()
+  })
+
   it("cancels transient table axis resize without changing scene or history", () => {
     const engine = createDiagramEngine({ tables: [{ id: "cancel-table", kind: "table", x: 0, y: 0, width: 100, height: 40, rowCount: 2, columnCount: 2 }] })
     const frames: Array<() => void> = []
@@ -740,7 +1583,7 @@ describe("DiagramEngine", () => {
     ])
     expect(result).toMatchObject({ ok: true, changed: true })
     expect(engine.getDiagnostics().undoDepth).toBe(1)
-    expect(engine.getScene().entities.tablesById.get("t")?.cells?.[1]?.[0]).toEqual({ text: "second", horizontalAlign: "right" })
+    expect(engine.getScene().entities.tablesById.get("t")?.cells?.[1]?.[0]).toMatchObject({ text: "second", horizontalAlign: "right" })
     engine.dispatch({ type: "undo" })
     expect(engine.getScene().entities.tablesById.has("t")).toBe(false)
     engine.dispatch({ type: "redo" })
@@ -766,8 +1609,7 @@ describe("DiagramEngine", () => {
     expect(engine.getScene().entities.tablesById.get("t")).toMatchObject({ width: 100, height: 50, rowHeights: [20, 30], columnWidths: [40, 60] })
   })
 
-  it("projects group resize previews to member table geometry without changing committed state", () => {
-    const callbacks: Array<() => void> = []
+  it("does not expose destructive resize previews for retained groups", () => {
     const engine = createDiagramEngine({
       tables: [
         { id: "a", kind: "table", x: 0, y: 0, width: 100, height: 50, rowCount: 1, columnCount: 1 },
@@ -775,21 +1617,10 @@ describe("DiagramEngine", () => {
       ],
     })
     engine.dispatch({ type: "groupEntities", id: "g", ids: ["a", "b"] })
-    const controller = createDiagramInteractionController(engine, { scheduleFrame: (callback) => callbacks.push(callback), snap: { enabled: false } })
-    expect(controller.beginResizeHandle("g", "se", { id: 5, point: { x: 200, y: 50 } })).toBe(true)
-    const serialized = engine.serialize()
-    const revision = engine.getDocumentRevision()
-    const undoDepth = engine.getDiagnostics().undoDepth
-    controller.pointerMove({ id: 5, point: { x: 240, y: 100 } })
-    callbacks.shift()?.()
-    expect(controller.getPreviewGeometry("a")?.bounds).toEqual({ x: 0, y: 0, width: 120, height: 100 })
-    expect(controller.getPreviewGeometry("b")?.bounds).toEqual({ x: 180, y: 0, width: 60, height: 100 })
-    expect(engine.serialize()).toEqual(serialized)
-    expect(engine.getDocumentRevision()).toBe(revision)
-    expect(engine.getDiagnostics().undoDepth).toBe(undoDepth)
-    controller.cancel()
-    expect(controller.getPreviewGeometry("a")?.bounds).toEqual({ x: 0, y: 0, width: 100, height: 50 })
-    expect(engine.serialize()).toEqual(serialized)
+    const controller = createDiagramInteractionController(engine, { snap: { enabled: false } })
+    expect(controller.beginResizeHandle("g", "se", { id: 5, point: { x: 200, y: 50 } })).toBe(false)
+    expect(engine.getScene().entities.tablesById.get("a")?.width).toBe(100)
+    expect(engine.getScene().entities.tablesById.get("b")?.width).toBe(50)
   })
 
   it("integrates table hit testing, selection, movement, resize, clipboard, duplicate, and delete", () => {
@@ -811,7 +1642,7 @@ describe("DiagramEngine", () => {
     engine.importClipboard(clipboard, { x: 30, y: 40 })
     const pasted = [...engine.getScene().entities.tablesById.values()].find((entity) => entity.id !== "t")!
     expect(pasted.id).not.toBe("t")
-    expect(pasted.cells).toEqual(engine.getScene().entities.tablesById.get("t")?.cells)
+    expect(pasted.cells?.map((row) => row.map((cell) => cell.text))).toEqual(engine.getScene().entities.tablesById.get("t")?.cells?.map((row) => row.map((cell) => cell.text)))
     engine.dispatch({ type: "undo" })
     engine.dispatch({ type: "setSelection", selection: { ids: ["t"], primaryId: "t" } })
     engine.duplicateSelection()
@@ -832,20 +1663,19 @@ describe("DiagramEngine", () => {
     expect(engine.dispatch({ type: "groupEntities", id: "g", ids: ["a", "b"] }).changed).toBe(true)
     expect(engine.getScene().entities.groupsById.get("g")?.childIds).toEqual(["a", "b"])
     expect(engine.canMove(["g"])).toBe(true)
-    expect(engine.canResize(["g"])).toBe(true)
+    expect(engine.canResize(["g"])).toBe(false)
     expect(engine.getGeometrySnapshot("g")?.bounds).toEqual({ x: 0, y: 0, width: 60, height: 10 })
 
     engine.dispatch({ type: "moveEntities", ids: ["g"], delta: { x: 10, y: 5 } })
-    expect(engine.getScene().entities.shapesById.get("a")).toMatchObject({ x: 10, y: 5 })
-    expect(engine.getScene().entities.shapesById.get("b")).toMatchObject({ x: 50, y: 5 })
-    engine.dispatch({ type: "resizeEntities", entries: [{ id: "g", x: 10, y: 5, width: 120, height: 20 }] })
-    expect(engine.getScene().entities.shapesById.get("a")).toMatchObject({ x: 10, y: 5, width: 40, height: 20 })
-    expect(engine.getScene().entities.shapesById.get("b")).toMatchObject({ x: 90, y: 5, width: 40, height: 20 })
+    expect(engine.getScene().entities.shapesById.get("a")).toMatchObject({ x: 0, y: 0 })
+    expect(engine.getScene().entities.shapesById.get("b")).toMatchObject({ x: 40, y: 0 })
+    expect(engine.getGeometrySnapshot("a")?.bounds).toEqual({ x: 10, y: 5, width: 20, height: 10 })
+    expect(engine.dispatch({ type: "resizeEntities", entries: [{ id: "g", x: 10, y: 5, width: 120, height: 20 }] }).changed).toBe(false)
 
     engine.dispatch({ type: "undo" })
-    expect(engine.getScene().entities.shapesById.get("b")).toMatchObject({ x: 50, y: 5, width: 20, height: 10 })
+    expect(engine.getScene().entities.shapesById.get("b")).toMatchObject({ x: 40, y: 0, width: 20, height: 10 })
     engine.dispatch({ type: "redo" })
-    expect(engine.getScene().entities.shapesById.get("b")).toMatchObject({ x: 90, y: 5, width: 40, height: 20 })
+    expect(engine.getScene().entities.shapesById.get("b")).toMatchObject({ x: 40, y: 0, width: 20, height: 10 })
     engine.dispatch({ type: "undo" })
     engine.dispatch({ type: "undo" })
     expect(engine.getScene().entities.shapesById.get("a")).toMatchObject({ x: 0, y: 0, width: 20, height: 10 })
@@ -929,7 +1759,7 @@ describe("DiagramEngine", () => {
     expect(zeroCopy).toMatchObject({ source: { point: { x: 0, y: 0 } }, target: { point: { x: 100, y: 0 } }, points: [{ x: 50, y: 20 }] })
   })
 
-  it("rejects nested and invalid groups at scene boundaries and supports groups in transact", () => {
+  it("validates nested group hierarchy and supports groups in transact", () => {
     const invalid = { shapes: [{ id: "s", kind: "shape" as const, shape: "rect", x: 0, y: 0, width: 10, height: 10 }], groups: [{ id: "g", kind: "group" as const, childIds: ["s", "missing"] }] }
     expect(() => createDiagramEngine(invalid)).toThrow(/Invalid group/)
     const engine = createDiagramEngine()
@@ -938,7 +1768,9 @@ describe("DiagramEngine", () => {
       groups: [{ id: "g", kind: "group" as const, childIds: ["s", "s2"] }],
     }))
     expect(engine.getScene().entities.groupsById.has("g")).toBe(true)
-    expect(() => deserializeScene({ ...engine.serialize(), groups: [{ id: "nested", kind: "group", childIds: ["g", "s"] }] })).toThrow(/nested/)
+    expect(() => deserializeScene({ ...engine.serialize(), groups: [{ id: "nested", kind: "group", childIds: ["g", "s"] }, { id: "cycle", kind: "group", childIds: ["nested", "g"] }] })).toThrow(/already grouped|cycle/)
+    expect(() => deserializeScene({ ...engine.serialize(), groups: [{ id: "nested", kind: "group", childIds: ["g", "s"] }, { id: "cycle", kind: "group", childIds: ["nested", "g", "s"] }] })).toThrow(/already grouped/)
+    expect(() => createDiagramEngine({ shapes: [{ id: "s1", kind: "shape", shape: "rect", x: 0, y: 0, width: 1, height: 1 }, { id: "s2", kind: "shape", shape: "rect", x: 1, y: 0, width: 1, height: 1 }], groups: [{ id: "g1", kind: "group", childIds: ["g2", "s1"], x: 0, y: 0 }, { id: "g2", kind: "group", childIds: ["g1", "s2"], x: 0, y: 0 }] })).toThrow(/cycle/)
   })
 
   it("does not partially delete a group when a dependent port is protected", () => {
@@ -1214,16 +2046,18 @@ describe("DiagramEngine", () => {
     ] })
     const frames: Array<() => void> = []
     const interaction = createDiagramInteractionController(engine, { snap: { tolerancePx: 8 }, scheduleFrame: (callback) => frames.push(callback) })
-    expect(interaction.beginPortCreation("p1", { id: 1, point: { x: 40, y: 30 } })).toBe(true)
+    expect(interaction.beginPortCreation("p1", { id: 1, point: { x: 40, y: 30 } }, { metadata: { binding: { key: "pin.signal" } } })).toBe(true)
     interaction.pointerMove({ id: 1, point: { x: 55, y: 35 } })
     frames.shift()?.()
     const preview = interaction.getSnapshot().portCreationPreview!
     expect(preview).toMatchObject({ id: "p1", hostId: "front", anchor: { kind: "local", x: 35, y: 25 }, point: { x: 55, y: 35 } })
+    expect(preview.metadata).toEqual({ binding: { key: "pin.signal" } })
     const before = engine.serialize()
     const depth = engine.getDiagnostics().undoDepth
     interaction.pointerDown({ id: 1, point: { x: 55, y: 35 } })
     interaction.pointerUp({ id: 1, point: { x: 55, y: 35 } })
     expect(engine.getScene().entities.portsById.get("p1")).toMatchObject({ hostId: preview.hostId, anchor: preview.anchor })
+    expect(engine.getScene().entities.portsById.get("p1")?.metadata).toEqual({ binding: { key: "pin.signal" } })
     expect(engine.getGeometrySnapshot("p1")?.point).toEqual(preview.point)
     expect(engine.getDiagnostics().undoDepth).toBe(depth + 1)
     expect(engine.serialize()).not.toEqual(before)
@@ -1232,6 +2066,16 @@ describe("DiagramEngine", () => {
     expect(engine.getScene().entities.portsById.has("p1")).toBe(false)
     engine.dispatch({ type: "redo" })
     expect(engine.getGeometrySnapshot("p1")?.point).toEqual(preview.point)
+  })
+
+  it("commits a clicked port placement through its begin and pointer-up events", () => {
+    const engine = createDiagramEngine({ shapes: [{ id: "host", kind: "shape", shape: "rect", x: 0, y: 0, width: 100, height: 80 }] })
+    const interaction = createDiagramInteractionController(engine)
+    expect(interaction.beginPortCreation("placed-port", { id: 1, point: { x: 40, y: 30 } })).toBe(true)
+
+    interaction.pointerUp({ id: 1, point: { x: 40, y: 30 } })
+
+    expect(engine.getScene().entities.portsById.get("placed-port")).toMatchObject({ hostId: "host", anchor: { kind: "local", x: 40, y: 30 } })
   })
 
   it("snaps port placement to path vertices within screen tolerance and projects onto distant segments", () => {
@@ -2338,11 +3182,15 @@ describe("DiagramEngine", () => {
     interaction.pointerDown({ id: 30, point: { x: 15, y: 20 } })
     interaction.pointerMove({ id: 30, point: { x: 42, y: 48 } })
     const preview = ["first", "second"].map((id) => interaction.getPreviewGeometry(id)!.bounds)
-    expect(preview.every((bounds) => [bounds.x, bounds.y, bounds.x + bounds.width, bounds.y + bounds.height].every((value) => value % 10 === 0))).toBe(true)
+    const previewGroup = interaction.getPreviewGeometry("group")!.bounds
+    expect(previewGroup.x % 10).toBe(0)
+    expect(previewGroup.y % 10).toBe(0)
+    expect(engine.getScene().entities.shapesById.get("first")?.x).toBe(0)
     interaction.pointerUp({ id: 30, point: { x: 42, y: 48 } })
     const committed = ["first", "second"].map((id) => engine.getGeometrySnapshot(id)!.bounds)
     expect(committed).toEqual(preview)
-    expect(committed.every((bounds) => [bounds.x, bounds.y, bounds.x + bounds.width, bounds.y + bounds.height].every((value) => value % 10 === 0))).toBe(true)
+    expect(engine.getGeometrySnapshot("group")?.bounds).toEqual(previewGroup)
+    expect(engine.getScene().entities.shapesById.get("first")?.x).toBe(0)
     expect(engine.getDiagnostics().undoDepth).toBe(2)
   })
 
@@ -2569,6 +3417,22 @@ describe("DiagramEngine", () => {
     }
     expect(runAtZoom(2).some((guide) => guide.kind === "alignment" && guide.start.x === guide.end.x)).toBe(true)
     expect(runAtZoom(4).some((guide) => guide.kind === "alignment" && guide.start.x === guide.end.x)).toBe(false)
+  })
+
+  it("snaps a moving object to an aligned guide across a separated horizontal gap", () => {
+    const engine = createDiagramEngine({
+      viewport: { x: 0, y: 0, width: 900, height: 600, zoom: 1 },
+      nodes: [
+        { id: "fixed", kind: "node", x: 100, y: 150, width: 110, height: 70 },
+        { id: "moving", kind: "node", x: 440, y: 280, width: 110, height: 70 },
+      ],
+    })
+    const result = engine.snapTranslation({ ids: ["moving"], primaryId: "moving" }, { x: 0, y: -129.999992661046 }, { radius: 6, snapToPorts: false, snapToEqualSpacing: false })
+    expect(result.source).toBe("alignment")
+    expect(result.point).toEqual({ x: 0, y: -130 })
+    expect(result.guides).toContainEqual(expect.objectContaining({ kind: "alignment", axis: "y", start: { x: 100, y: 150 }, end: { x: 550, y: 150 } }))
+    engine.dispatch({ type: "moveEntities", ids: ["moving"], delta: result.point })
+    expect(engine.getScene().entities.nodesById.get("moving")?.y).toBe(150)
   })
 
   it("keeps nearest equal-spacing guides stable near a farther exact pair across zoom levels", () => {
@@ -3543,9 +4407,13 @@ describe("DiagramEngine", () => {
     const clockwise = createEngine()
     expect(clockwise.canRotate()).toBe(true)
     const ids = [clockwise.getScene().entities.nodesById.get("n")?.id, clockwise.getScene().entities.shapesById.get("s")?.id]
+    const localNode = clockwise.getScene().entities.nodesById.get("n")
+    const localShape = clockwise.getScene().entities.shapesById.get("s")
     clockwise.dispatch({ type: "rotateEntities", entries: [{ id: "g", rotation: 90 }] })
-    expect(clockwise.getScene().entities.nodesById.get("n")).toMatchObject({ x: 15, y: -5, rotation: 90 })
-    expect(clockwise.getScene().entities.shapesById.get("s")).toMatchObject({ x: 15, y: 15, rotation: 90 })
+    expect(clockwise.getScene().entities.nodesById.get("n")).toEqual(localNode)
+    expect(clockwise.getScene().entities.shapesById.get("s")).toEqual(localShape)
+    expect(clockwise.getScene().entities.groupsById.get("g")?.rotation).toBe(90)
+    expect(clockwise.getGeometrySnapshot("n")?.bounds).toEqual({ x: 20, y: -10, width: 10, height: 20 })
     expect(clockwise.getGeometrySnapshot("g")?.bounds).toEqual({ x: 10, y: -10, width: 20, height: 40 })
     clockwise.dispatch({ type: "undo" })
     expect(clockwise.getScene().entities.nodesById.get("n")).toMatchObject({ x: 0, y: 0 })
@@ -3553,13 +4421,18 @@ describe("DiagramEngine", () => {
     expect(clockwise.getScene().entities.shapesById.get("s")).toMatchObject({ x: 30, y: 0 })
     expect(clockwise.getScene().entities.shapesById.get("s")?.rotation).toBeUndefined()
     clockwise.dispatch({ type: "redo" })
-    expect(clockwise.getScene().entities.nodesById.get("n")).toMatchObject({ x: 15, y: -5, rotation: 90 })
+    expect(clockwise.getScene().entities.nodesById.get("n")).toEqual(localNode)
     expect([clockwise.getScene().entities.nodesById.get("n")?.id, clockwise.getScene().entities.shapesById.get("s")?.id]).toEqual(ids)
 
     const counterClockwise = createEngine()
     counterClockwise.dispatch({ type: "rotateEntities", entries: [{ id: "g", rotation: -90 }] })
-    expect(counterClockwise.getScene().entities.nodesById.get("n")).toMatchObject({ x: 5, y: 15, rotation: 270 })
-    expect(counterClockwise.getScene().entities.shapesById.get("s")).toMatchObject({ x: 15, y: -15, rotation: 270 })
+    expect(counterClockwise.getScene().entities.nodesById.get("n")).toEqual(localNode)
+    expect(counterClockwise.getScene().entities.shapesById.get("s")).toEqual(localShape)
+    const counterBounds = counterClockwise.getGeometrySnapshot("n")!.bounds
+    expect(counterBounds.x).toBeCloseTo(10, 8)
+    expect(counterBounds.y).toBeCloseTo(10, 8)
+    expect(counterBounds.width).toBeCloseTo(10, 8)
+    expect(counterBounds.height).toBeCloseTo(20, 8)
   })
 
   it("rotates mixed groupable entities and preserves connections, serialization, and IDs through undo/redo", () => {
@@ -3654,18 +4527,21 @@ describe("DiagramEngine", () => {
       engine.getScene().entities.edgesById.get("e"),
     ].map((entity) => entity?.id)
     engine.dispatch({ type: "flipEntities", axis: "horizontal" })
-    expect(engine.getScene().entities.nodesById.get("n")).toMatchObject({ x: 30, flipX: true })
-    expect(engine.getScene().entities.shapesById.get("s")).toMatchObject({ x: 0, flipX: true })
-    expect(engine.getScene().entities.textsById.get("t")).toMatchObject({ x: 30, flipX: true })
-    expect(engine.getScene().entities.tablesById.get("table")).toMatchObject({ x: 0, flipX: true })
+    expect(engine.getScene().entities.groupsById.get("g")).toMatchObject({ flipX: true })
+    expect(engine.getScene().entities.nodesById.get("n")).toMatchObject({ x: 0 })
+    expect(engine.getScene().entities.shapesById.get("s")).toMatchObject({ x: 40 })
+    expect(engine.getScene().entities.textsById.get("t")).toMatchObject({ x: 0 })
+    expect(engine.getScene().entities.tablesById.get("table")).toMatchObject({ x: 30 })
     expect(engine.getGeometrySnapshot("e")?.path).toEqual([{ x: 40, y: 10 }, { x: 20, y: 30 }, { x: 0, y: 50 }])
     engine.dispatch({ type: "flipEntities", ids: ["g"], axis: "vertical" })
-    expect(engine.getScene().entities.nodesById.get("n")).toMatchObject({ x: 30, y: 30, flipX: true, flipY: true })
+    expect(engine.getScene().entities.groupsById.get("g")).toMatchObject({ flipX: true, flipY: true })
+    expect(engine.getScene().entities.nodesById.get("n")).toMatchObject({ x: 0, y: 0 })
     const loaded = createDiagramEngine(deserializeScene(engine.serialize()))
-    expect(loaded.getScene().entities.nodesById.get("n")).toMatchObject({ flipX: true, flipY: true })
-    expect(loaded.getScene().entities.shapesById.get("s")).toMatchObject({ flipX: true, flipY: true })
-    expect(loaded.getScene().entities.textsById.get("t")).toMatchObject({ flipX: true, flipY: true })
-    expect(loaded.getScene().entities.tablesById.get("table")).toMatchObject({ x: 0, y: 0, flipX: true, flipY: true })
+    expect(loaded.getScene().entities.groupsById.get("g")).toMatchObject({ flipX: true, flipY: true })
+    expect(loaded.getScene().entities.nodesById.get("n")).toMatchObject({ x: 0, y: 0 })
+    expect(loaded.getScene().entities.shapesById.get("s")).toMatchObject({ x: 40 })
+    expect(loaded.getScene().entities.textsById.get("t")).toMatchObject({ x: 0 })
+    expect(loaded.getScene().entities.tablesById.get("table")).toMatchObject({ x: 30 })
     expect(loaded.getScene().entities.edgesById.get("e")?.points).toEqual(engine.getScene().entities.edgesById.get("e")?.points)
     engine.dispatch({ type: "undo" })
     engine.dispatch({ type: "undo" })
@@ -3997,22 +4873,14 @@ describe("DiagramEngine", () => {
     expect(engine.getDiagnostics().undoDepth).toBe(undoDepth)
   })
 
-  it("keeps an attached endpoint fixed while committing an auto segment drag", () => {
+  it("rejects dragging the terminal segment attached to a port", () => {
     const engine = createDiagramEngine({
       nodes: [{ id: "host", kind: "node", x: 0, y: 0, width: 20, height: 20, portIds: ["port"] }],
       ports: [{ id: "port", kind: "port", nodeId: "host", x: 20, y: 10 }],
       edges: [{ id: "attached-auto", kind: "edge", source: { kind: "port", portId: "port" }, target: { kind: "point", point: { x: 150, y: 10 } }, routing: { mode: "auto", terminalLead: 12, maxRouteBends: 2 } }],
     })
     const interaction = createDiagramInteractionController(engine, { snap: { enabled: false }, scheduleFrame: (callback) => callback() })
-    const originalEndpoint = engine.getGeometrySnapshot("attached-auto")!.path![0]
-    expect(interaction.beginEdgeSegmentHandle("attached-auto", 0, { id: 1, point: { x: 80, y: 10 } })).toBe(true)
-    interaction.pointerMove({ id: 1, point: { x: 80, y: 30 } })
-    const preview = interaction.getSnapshot().edgeSegmentPreview!
-    expect(preview.source).toEqual({ kind: "port", portId: "port" })
-    expect(preview.path[0]).toEqual(originalEndpoint)
-    expect(interaction.pointerUp({ id: 1, point: { x: 80, y: 30 } })).toEqual({ status: "committed" })
-    expect(engine.getScene().entities.edgesById.get("attached-auto")?.source).toEqual({ kind: "port", portId: "port" })
-    expect(engine.getGeometrySnapshot("attached-auto")?.path).toEqual(preview.path)
+    expect(interaction.beginEdgeSegmentHandle("attached-auto", 0, { id: 1, point: { x: 80, y: 10 } })).toBe(false)
   })
 
   it("uses a port-only screen tolerance consistently across viewport zoom levels", () => {
@@ -4447,7 +5315,47 @@ describe("DiagramEngine", () => {
     expect(engine.getScene().entities.edgesById.get("attached")?.points).toEqual(preview.points)
   })
 
-  it("keeps free endpoints movable and adds a bend at attached endpoints when dragging terminal segments", () => {
+  it("rejects terminal segment drags on an automatic route attached to ports at both ends", () => {
+    const engine = createDiagramEngine({
+      nodes: [
+        { id: "a", kind: "node", x: 0, y: 0, width: 20, height: 20, portIds: ["pa"] },
+        { id: "b", kind: "node", x: 200, y: 100, width: 20, height: 20, portIds: ["pb"] },
+      ],
+      ports: [
+        { id: "pa", kind: "port", nodeId: "a", x: 20, y: 10 },
+        { id: "pb", kind: "port", nodeId: "b", x: 0, y: 10 },
+      ],
+      edges: [{ id: "auto-attached", kind: "edge", source: { kind: "port", portId: "pa" }, target: { kind: "port", portId: "pb" }, routing: { mode: "auto", strategy: "simple", firstAxis: "horizontal", targetDirection: "east" } }],
+    })
+    const interaction = createDiagramInteractionController(engine, { snap: { enabled: false }, scheduleFrame: (callback) => callback() })
+    const path = engine.getGeometrySnapshot("auto-attached")!.path!
+    expect(interaction.beginEdgeSegmentHandle("auto-attached", 0, { id: 9, point: path[0]! })).toBe(false)
+    expect(interaction.beginEdgeSegmentHandle("auto-attached", path.length - 2, { id: 10, point: path.at(-1)! })).toBe(false)
+  })
+
+  it("clamps a moved segment between the perpendicular coordinates of its endpoints", () => {
+    const engine = createDiagramEngine({
+      nodes: [
+        { id: "left", kind: "node", x: -20, y: -10, width: 20, height: 20, portIds: ["left-port"] },
+        { id: "right", kind: "node", x: 100, y: 90, width: 20, height: 20, portIds: ["right-port"] },
+      ],
+      ports: [
+        { id: "left-port", kind: "port", nodeId: "left", x: 20, y: 10 },
+        { id: "right-port", kind: "port", nodeId: "right", x: 0, y: 10 },
+      ],
+      edges: [{ id: "bounded", kind: "edge", source: { kind: "port", portId: "left-port" }, target: { kind: "port", portId: "right-port" }, points: [{ x: 50, y: 0 }, { x: 50, y: 100 }] }],
+    })
+    const interaction = createDiagramInteractionController(engine, { snap: { enabled: false }, scheduleFrame: (callback) => callback() })
+    expect(interaction.beginEdgeSegmentHandle("bounded", 1, { id: 1, point: { x: 50, y: 50 } })).toBe(true)
+
+    interaction.pointerMove({ id: 1, point: { x: 300, y: 50 } })
+
+    expect(interaction.getSnapshot().edgeSegmentPreview?.path).toEqual([{ x: 0, y: 0 }, { x: 86, y: 0 }, { x: 86, y: 100 }, { x: 100, y: 100 }])
+    interaction.pointerUp({ id: 1, point: { x: 300, y: 50 } })
+    expect(engine.getScene().entities.edgesById.get("bounded")).toMatchObject({ source: { kind: "port", portId: "left-port" }, target: { kind: "port", portId: "right-port" }, points: [{ x: 86, y: 0 }, { x: 86, y: 100 }] })
+  })
+
+  it("keeps free endpoints movable and rejects terminal segment drags at attached endpoints", () => {
     const free = createDiagramEngine({ edges: [{ id: "free", kind: "edge", source: { kind: "point", point: { x: 0, y: 0 } }, target: { kind: "point", point: { x: 100, y: 0 } } }] })
     const interaction = createDiagramInteractionController(free, { snap: { enabled: false }, scheduleFrame: (callback) => callback() })
     expect(interaction.beginEdgeSegmentHandle("free", 0, { id: 1, point: { x: 50, y: 0 } })).toBe(true)
@@ -4458,12 +5366,8 @@ describe("DiagramEngine", () => {
 
     const attached = createDiagramEngine({ nodes: [{ id: "host", kind: "node", x: 0, y: 0, width: 20, height: 20, portIds: ["p"] }], ports: [{ id: "p", kind: "port", nodeId: "host", x: 20, y: 10 }], edges: [{ id: "edge", kind: "edge", source: { kind: "port", portId: "p" }, target: { kind: "point", point: { x: 100, y: 10 } }, points: [{ x: 60, y: 10 }] }] })
     const attachedInteraction = createDiagramInteractionController(attached, { snap: { enabled: false }, scheduleFrame: (callback) => callback() })
-    expect(attachedInteraction.beginEdgeSegmentHandle("edge", 0, { id: 2, point: { x: 40, y: 10 } })).toBe(true)
-    attachedInteraction.pointerMove({ id: 2, point: { x: 40, y: 0 } })
-    expect(attachedInteraction.getSnapshot().edgeSegmentPreview?.path).toEqual([{ x: 20, y: 10 }, { x: 20, y: 0 }, { x: 100, y: 0 }])
-    const beforeCancel = attached.serialize()
-    attachedInteraction.cancel()
-    expect(attached.serialize()).toEqual(beforeCancel)
+    expect(attachedInteraction.beginEdgeSegmentHandle("edge", 0, { id: 2, point: { x: 40, y: 10 } })).toBe(false)
+    expect(attachedInteraction.getSnapshot().edgeSegmentPreview).toBeNull()
     expect(attached.getDiagnostics().undoDepth).toBe(0)
   })
 
@@ -4913,7 +5817,7 @@ describe("DiagramEngine", () => {
     ] })
     const pointer = createDiagramInteractionController(engine, { scheduleFrame: (callback) => callback(), snap: { tolerancePx: 8 } })
     const beforeDepth = engine.getDiagnostics().undoDepth
-    expect(pointer.beginEdgePathCreation("branch", { id: 2, point: { x: 50, y: 0 } }, { mode: "manual" })).toBe(true)
+    expect(pointer.beginEdgePathCreation("branch", { id: 2, point: { x: 50, y: 0 }, shiftKey: true }, { mode: "manual" })).toBe(true)
     pointer.pointerMove({ id: 2, point: { x: 90, y: 50 } })
     const preview = pointer.getSnapshot().edgeCreationPreview!
     expect(preview.source.kind).toBe("junction")
@@ -5142,7 +6046,7 @@ describe("DiagramEngine", () => {
     })
     const interaction = createDiagramInteractionController(engine, { scheduleFrame: (callback) => callback(), snap: { tolerancePx: 8, connectorTolerancePx: 8 } })
     expect(interaction.beginEdgeCreation("branch", { id: 5, point: { x: 100, y: 100 } })).toBe(true)
-    interaction.pointerMove({ id: 5, point: { x: 0, y: 1 } })
+    interaction.pointerMove({ id: 5, point: { x: 0, y: 1 }, shiftKey: true })
     expect(interaction.getSnapshot().edgeCreationPreview?.target.kind).toBe("junction")
     expect(interaction.getSnapshot().snapResult).toMatchObject({ source: "connector", targetId: "trunk" })
     interaction.cancel()
@@ -5169,5 +6073,236 @@ describe("DiagramEngine", () => {
     expect(engine.getScene().entities.edgesById.get("wire")?.target).toEqual({ kind: "port", portId: "target-port" })
     expect(engine.getDiagnostics().undoDepth).toBe(historyDepthAfterDocumentChange + 1)
     interaction.dispose()
+  })
+
+  it("uses simple orthogonal families for interactive connectors and preserves preview geometry", () => {
+    const straight = routeOrthogonalConnector({ x: 0, y: 0 }, { x: 100, y: 0 }, { strategy: "simple" })
+    expect(straight.path).toEqual([{ x: 0, y: 0 }, { x: 100, y: 0 }])
+    expect(straight.points).toEqual([])
+    const elbow = routeOrthogonalConnector({ x: 0, y: 0 }, { x: 100, y: 60 }, { strategy: "simple" })
+    expect(elbow.path).toEqual([{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 60 }])
+    expect(elbow.diagnostics).toEqual([])
+    const z = routeOrthogonalConnector({ x: 0, y: 0 }, { x: 100, y: 60 }, { strategy: "simple", sourceDirection: "east", targetDirection: "west" })
+    expect(z.path).toHaveLength(4)
+    expect(z.path[1]?.y).toBe(0)
+    expect(z.path[2]?.y).toBe(60)
+    expect(z.path.every((point, index) => index === 0 || point.x === z.path[index - 1]!.x || point.y === z.path[index - 1]!.y)).toBe(true)
+    const u = routeOrthogonalConnector({ x: 0, y: 0 }, { x: 100, y: 60 }, { strategy: "simple", sourceDirection: "east", targetDirection: "east" })
+    expect(u.path).toEqual([{ x: 0, y: 0 }, { x: 50, y: 0 }, { x: 50, y: 60 }, { x: 100, y: 60 }])
+    expect(routeOrthogonalConnector({ x: 0, y: 0 }, { x: 100, y: 60 }, { strategy: "simple", sourceDirection: "east", targetDirection: "east" }).path).toEqual(u.path)
+    expect(routeOrthogonalConnector({ x: 10, y: 10 }, { x: 10, y: 10 }, { strategy: "simple", sourceDirection: "east" }).diagnostics[0]?.code).toBe("no-route")
+    expect(() => routeOrthogonalConnector({ x: Number.NaN, y: 0 }, { x: 100, y: 0 }, { strategy: "simple" })).toThrow(RangeError)
+
+    const engine = createDiagramEngine()
+    const interaction = createDiagramInteractionController(engine, { snap: { enabled: false }, scheduleFrame: (callback) => callback() })
+    expect(interaction.beginEdgeCreation("free-wire", { id: 1, point: { x: 0, y: 0 } })).toBe(true)
+    interaction.pointerMove({ id: 1, point: { x: 100, y: 0 } })
+    const preview = interaction.getSnapshot().edgeCreationPreview!
+    expect(preview.path).toEqual([{ x: 0, y: 0 }, { x: 100, y: 0 }])
+    interaction.pointerUp({ id: 1, point: { x: 100, y: 0 } })
+    expect(engine.getGeometrySnapshot("free-wire")?.path).toEqual(preview.path)
+    expect(engine.getScene().entities.edgesById.get("free-wire")?.routing).toMatchObject({ mode: "auto", strategy: "simple" })
+    interaction.dispose()
+  })
+
+  it("keeps exact alignment distinct from intentional micro-offsets and preserves route ownership", () => {
+    expect(routeOrthogonalConnector({ x: 0, y: 0 }, { x: 100, y: 0 }, { strategy: "simple" }).path).toEqual([{ x: 0, y: 0 }, { x: 100, y: 0 }])
+    expect(routeOrthogonalConnector({ x: 0, y: 0 }, { x: 0, y: 100 }, { strategy: "simple" }).path).toEqual([{ x: 0, y: 0 }, { x: 0, y: 100 }])
+    const microOffset = routeOrthogonalConnector({ x: 0, y: 0 }, { x: 100, y: 0.000001 }, { strategy: "simple" })
+    expect(microOffset.path).toEqual([{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 0.000001 }])
+    expect(microOffset.path.every((point, index) => index === 0 || point.x === microOffset.path[index - 1]!.x || point.y === microOffset.path[index - 1]!.y)).toBe(true)
+    const manual = resolveManualOrthogonalPath({ x: 0, y: 0 }, [{ x: 40, y: 0 }, { x: 40, y: 30 }, { x: 80, y: 30 }], { x: 100, y: 30 })
+    expect(manual).toEqual([{ x: 0, y: 0 }, { x: 40, y: 0 }, { x: 40, y: 30 }, { x: 100, y: 30 }])
+  })
+
+  it("simplifies attached automatic routes on alignment, expands them when moved away, and does not drift", () => {
+    const engine = createDiagramEngine({
+      nodes: [
+        { id: "source-host", kind: "node", x: 0, y: 0, width: 20, height: 20 },
+        { id: "target-host", kind: "node", x: 100, y: 30, width: 20, height: 20 },
+      ],
+      ports: [
+        { id: "source-port", kind: "port", nodeId: "source-host", x: 20, y: 10 },
+        { id: "target-port", kind: "port", nodeId: "target-host", x: 0, y: 10 },
+      ],
+      edges: [{ id: "attached-auto", kind: "edge", source: { kind: "port", portId: "source-port" }, target: { kind: "port", portId: "target-port" }, routing: { mode: "auto", strategy: "simple", terminalLead: 0 } }],
+    })
+    const route = () => engine.getGeometrySnapshot("attached-auto")!.path!
+    expect(route().length).toBeGreaterThan(2)
+    engine.dispatch({ type: "moveEntities", ids: ["target-host"], delta: { x: 0, y: -30 } })
+    expect(route()).toEqual([{ x: 20, y: 10 }, { x: 100, y: 10 }])
+    for (let index = 0; index < 20; index += 1) {
+      engine.dispatch({ type: "moveEntities", ids: ["target-host"], delta: { x: 0, y: 30 } })
+      expect(route().length).toBeGreaterThan(2)
+      engine.dispatch({ type: "moveEntities", ids: ["target-host"], delta: { x: 0, y: -30 } })
+      expect(route()).toEqual([{ x: 20, y: 10 }, { x: 100, y: 10 }])
+      expect(engine.getScene().entities.nodesById.get("target-host")?.y).toBe(0)
+    }
+  })
+
+  it("changes a simple automatic route to manual ownership on segment drag", () => {
+    const engine = createDiagramEngine({ edges: [{ id: "wire", kind: "edge", source: { kind: "point", point: { x: 0, y: 0 } }, target: { kind: "point", point: { x: 100, y: 60 } }, routing: { mode: "auto", strategy: "simple", terminalLead: 0 } }] })
+    const interaction = createDiagramInteractionController(engine, { snap: { enabled: false }, scheduleFrame: (callback) => callback() })
+    const original = engine.getGeometrySnapshot("wire")!.path!
+    expect(original).toHaveLength(3)
+    const segmentIndex = original[0]!.y === original[1]!.y ? 0 : 1
+    const start = original[segmentIndex]!, end = original[segmentIndex + 1]!
+    const midpoint = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 }
+    expect(interaction.beginEdgeSegmentHandle("wire", segmentIndex, { id: 2, point: midpoint })).toBe(true)
+    interaction.pointerMove({ id: 2, point: { x: midpoint.x, y: midpoint.y + (segmentIndex === 0 ? 20 : 0), } })
+    const preview = interaction.getSnapshot().edgeSegmentPreview!
+    expect(preview.path.every((point, index) => index === 0 || point.x === preview.path[index - 1]!.x || point.y === preview.path[index - 1]!.y)).toBe(true)
+    interaction.pointerUp({ id: 2, point: { x: midpoint.x, y: midpoint.y + (segmentIndex === 0 ? 20 : 0) } })
+    expect(engine.getScene().entities.edgesById.get("wire")?.routing?.mode).toBe("manual")
+    expect(engine.getGeometrySnapshot("wire")?.path).toEqual(preview.path)
+    engine.dispatch({ type: "undo" })
+    expect(engine.getScene().entities.edgesById.get("wire")?.routing?.mode).toBe("auto")
+    expect(engine.getGeometrySnapshot("wire")?.path).toEqual(original)
+    interaction.dispose()
+  })
+
+  it("keeps manual route interiors stable and repairs endpoint legs when an attached host moves", () => {
+    const engine = createDiagramEngine({
+      nodes: [{ id: "source", kind: "node", x: 0, y: 0, width: 20, height: 20 }, { id: "target", kind: "node", x: 200, y: 0, width: 20, height: 20 }],
+      ports: [{ id: "source-port", kind: "port", nodeId: "source", x: 20, y: 10 }, { id: "target-port", kind: "port", nodeId: "target", x: 0, y: 10 }],
+      edges: [{ id: "manual-wire", kind: "edge", source: { kind: "port", portId: "source-port" }, target: { kind: "port", portId: "target-port" }, points: [{ x: 80, y: 10 }, { x: 80, y: 40 }, { x: 120, y: 40 }, { x: 120, y: 10 }], routing: { mode: "manual" } }],
+    })
+    engine.dispatch({ type: "moveNode", id: "source", delta: { x: 0, y: 20 } })
+    const path = engine.getGeometrySnapshot("manual-wire")!.path!
+    expect(path[0]).toEqual({ x: 20, y: 30 })
+    expect(path).toEqual([{ x: 20, y: 30 }, { x: 80, y: 30 }, { x: 80, y: 40 }, { x: 120, y: 40 }, { x: 120, y: 10 }, { x: 200, y: 10 }])
+    expect(path.at(-1)).toEqual({ x: 200, y: 10 })
+    expect(path.every((point, index) => index === 0 || point.x === path[index - 1]!.x || point.y === path[index - 1]!.y)).toBe(true)
+    expect(engine.getScene().entities.edgesById.get("manual-wire")?.points).toEqual([{ x: 80, y: 10 }, { x: 80, y: 40 }, { x: 120, y: 40 }, { x: 120, y: 10 }])
+  })
+
+  it("creates a pointer-drawn multi-bend route on pointer up and commits the last preview", () => {
+    const engine = createDiagramEngine()
+    const interaction = createDiagramInteractionController(engine, { snap: { enabled: false }, scheduleFrame: (callback) => callback() })
+    expect(interaction.beginEdgeCreation("gesture-wire", { id: 40, point: { x: 0, y: 0 } }, { strategy: "simple" })).toBe(true)
+    interaction.pointerMove({ id: 40, point: { x: 100, y: 0 } })
+    expect(interaction.getSnapshot().edgeCreationPreview?.path).toEqual([{ x: 0, y: 0 }, { x: 100, y: 0 }])
+    interaction.pointerMove({ id: 40, point: { x: 100, y: 60 } })
+    expect(interaction.getSnapshot().edgeCreationPreview?.path).toEqual([{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 60 }])
+    interaction.pointerMove({ id: 40, point: { x: 180, y: 60 } })
+    const preview = interaction.getSnapshot().edgeCreationPreview!.path
+    expect(preview).toEqual([{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 60 }, { x: 180, y: 60 }])
+    interaction.pointerUp({ id: 40, point: { x: 180, y: 60 } })
+    expect(engine.getGeometrySnapshot("gesture-wire")?.path).toEqual(preview)
+    expect(engine.getScene().entities.edgesById.get("gesture-wire")?.routing?.mode).toBe("manual")
+    interaction.dispose()
+  })
+
+  it("routes directional ports with outward terminal constraints and resolves transformed directions", () => {
+    const engine = createDiagramEngine({
+      nodes: [
+        { id: "source-host", kind: "node", x: 0, y: 0, width: 20, height: 20 },
+        { id: "target-host", kind: "node", x: 100, y: 40, width: 20, height: 20 },
+        { id: "rotated-host", kind: "node", x: 200, y: 0, width: 20, height: 20, rotation: 90 },
+      ],
+      ports: [
+        { id: "east-port", kind: "port", nodeId: "source-host", x: 20, y: 10, direction: "east" },
+        { id: "west-port", kind: "port", nodeId: "target-host", x: 0, y: 10, direction: "west" },
+        { id: "auto-port", kind: "port", nodeId: "rotated-host", x: 20, y: 10, direction: "auto" },
+      ],
+      edges: [{ id: "directional", kind: "edge", source: { kind: "port", portId: "east-port" }, target: { kind: "port", portId: "west-port" }, routing: { mode: "auto", strategy: "simple" } }],
+    })
+    const entities = engine.getScene().entities
+    const points = resolveEdgePath(entities.edgesById.get("directional")!, entities)
+    expect(points[0]).toEqual({ x: 20, y: 10 })
+    expect(points.at(-1)).toEqual({ x: 100, y: 50 })
+    expect(points[1]!.x).toBeGreaterThan(points[0]!.x)
+    expect(points.at(-2)!.x).toBeLessThan(points.at(-1)!.x)
+    const aligned = createDiagramEngine({
+      nodes: [{ id: "a", kind: "node", x: 0, y: 0, width: 20, height: 20 }, { id: "b", kind: "node", x: 100, y: 0, width: 20, height: 20 }],
+      ports: [{ id: "a-east", kind: "port", nodeId: "a", x: 20, y: 10, direction: "east" }, { id: "b-west", kind: "port", nodeId: "b", x: 0, y: 10, direction: "west" }],
+      edges: [{ id: "aligned", kind: "edge", source: { kind: "port", portId: "a-east" }, target: { kind: "port", portId: "b-west" }, routing: { mode: "auto", strategy: "simple" } }],
+    })
+    expect(resolveEdgePath(aligned.getScene().entities.edgesById.get("aligned")!, aligned.getScene().entities)).toEqual([{ x: 20, y: 10 }, { x: 100, y: 10 }])
+    const beforeDirectionChange = resolveEdgePath(entities.edgesById.get("directional")!, entities)
+    expect(resolvePortWorldDirection(entities.portsById.get("auto-port")!, entities)).toBe("south")
+    expect(engine.dispatch({ type: "setPortDirection", id: "east-port", direction: "south" }).changed).toBe(true)
+    expect(engine.getScene().entities.portsById.get("east-port")?.direction).toBe("south")
+    expect(resolveEdgePath(engine.getScene().entities.edgesById.get("directional")!, engine.getScene().entities)).not.toEqual(beforeDirectionChange)
+    engine.undo()
+    expect(engine.getScene().entities.portsById.get("east-port")?.direction).toBe("east")
+    const restored = createDiagramEngine(deserializeScene(engine.serialize()))
+    expect(restored.getScene().entities.portsById.get("east-port")?.direction).toBe("east")
+  })
+
+  it("infers only unambiguous auto boundary directions and keeps omitted legacy ports unrestricted", () => {
+    const engine = createDiagramEngine({ nodes: [{ id: "n", kind: "node", x: 0, y: 0, width: 20, height: 20 }], ports: [
+      { id: "west", kind: "port", nodeId: "n", x: 0, y: 10, direction: "auto" },
+      { id: "corner", kind: "port", nodeId: "n", x: 0, y: 0, direction: "auto" },
+      { id: "legacy", kind: "port", nodeId: "n", x: 20, y: 10 },
+    ] })
+    const ports = engine.getScene().entities.portsById
+    expect(resolvePortWorldDirection(ports.get("west")!, engine.getScene().entities)).toBe("west")
+    expect(resolvePortWorldDirection(ports.get("corner")!, engine.getScene().entities)).toBe("any")
+    expect(resolvePortWorldDirection(ports.get("legacy")!, engine.getScene().entities)).toBe("any")
+    const routed = createDiagramEngine({
+      nodes: [{ id: "route-a", kind: "node", x: 0, y: 0, width: 30, height: 30 }, { id: "route-b", kind: "node", x: 200, y: 100, width: 30, height: 30 }],
+      ports: [{ id: "route-east", kind: "port", nodeId: "route-a", x: 30, y: 15, direction: "auto" }, { id: "route-west", kind: "port", nodeId: "route-b", x: 0, y: 15, direction: "auto" }],
+      edges: [{ id: "auto-boundary-route", kind: "edge", source: { kind: "port", portId: "route-east" }, target: { kind: "port", portId: "route-west" }, routing: { mode: "auto", strategy: "simple", terminalLead: 0 } }],
+    })
+    const path = resolveEdgePath(routed.getScene().entities.edgesById.get("auto-boundary-route")!, routed.getScene().entities)
+    expect(path).toHaveLength(4)
+    expect(path[1]!.x).toBeGreaterThan(path[0]!.x)
+    expect(path[3]!.x).toBeGreaterThan(path[2]!.x)
+  })
+
+  it("composes port directions through nested retained transforms and rejects non-cardinal results", () => {
+    const nested = createDiagramEngine({
+      nodes: [{ id: "leaf", kind: "node", x: 20, y: 20, width: 40, height: 20 }],
+      groups: [
+        { id: "inner", kind: "group", childIds: ["leaf"], x: 5, y: 3, rotation: 90 },
+        { id: "outer", kind: "group", childIds: ["inner"], x: -2, y: 4, rotation: 90 },
+      ],
+      ports: [{ id: "leaf-east", kind: "port", nodeId: "leaf", x: 40, y: 10, direction: "east" }],
+    })
+    expect(resolvePortWorldDirection(nested.getScene().entities.portsById.get("leaf-east")!, nested.getScene().entities)).toBe("west")
+    const angled = createDiagramEngine({ nodes: [{ id: "angled", kind: "node", x: 0, y: 0, width: 20, height: 20, rotation: 30 }], ports: [{ id: "angled-port", kind: "port", nodeId: "angled", x: 20, y: 10, direction: "east" }] })
+    expect(resolvePortWorldDirection(angled.getScene().entities.portsById.get("angled-port")!, angled.getScene().entities)).toBeNull()
+  })
+
+  it("keeps directional automatic connectors routable when source and target hosts pass each other", () => {
+    const engine = createDiagramEngine({
+      nodes: [{ id: "host-a", kind: "node", x: 500, y: 0, width: 30, height: 30 }, { id: "host-b", kind: "node", x: 100, y: 100, width: 30, height: 30 }],
+      ports: [{ id: "a-east", kind: "port", nodeId: "host-a", x: 30, y: 15, direction: "auto" }, { id: "b-west", kind: "port", nodeId: "host-b", x: 0, y: 15, direction: "auto" }],
+      edges: [{ id: "passed-hosts", kind: "edge", source: { kind: "port", portId: "a-east" }, target: { kind: "port", portId: "b-west" }, routing: { mode: "auto", strategy: "simple", terminalLead: 0 } }],
+    })
+    const entities = engine.getScene().entities
+    const path = resolveEdgePath(entities.edgesById.get("passed-hosts")!, entities)
+    expect(path.length).toBeGreaterThanOrEqual(6)
+    expect(path[1]!.x).toBeGreaterThan(path[0]!.x)
+    expect(path.at(-2)!.x).toBeLessThan(path.at(-1)!.x)
+    expect(path.every((point, index) => index === 0 || point.x === path[index - 1]!.x || point.y === path[index - 1]!.y)).toBe(true)
+  })
+
+  it("routes aligned ports facing away from each other around the hosts instead of through them", () => {
+    const engine = createDiagramEngine({
+      nodes: [{ id: "host-a", kind: "node", x: 500, y: 0, width: 30, height: 30 }, { id: "host-b", kind: "node", x: 100, y: 0, width: 30, height: 30 }],
+      ports: [{ id: "a-east", kind: "port", nodeId: "host-a", x: 30, y: 15, direction: "auto" }, { id: "b-west", kind: "port", nodeId: "host-b", x: 0, y: 15, direction: "auto" }],
+      edges: [{ id: "aligned-passed-hosts", kind: "edge", source: { kind: "port", portId: "a-east" }, target: { kind: "port", portId: "b-west" }, routing: { mode: "auto", strategy: "simple", terminalLead: 0 } }],
+    })
+    const entities = engine.getScene().entities
+    const path = resolveEdgePath(entities.edgesById.get("aligned-passed-hosts")!, entities)
+
+    expect(path[0]).toEqual({ x: 530, y: 15 })
+    expect(path.at(-1)).toEqual({ x: 100, y: 15 })
+    expect(path[1]!.x).toBeGreaterThan(path[0]!.x)
+    expect(path.at(-2)!.x).toBeLessThan(path.at(-1)!.x)
+    expect(path.some((point) => point.y !== 15)).toBe(true)
+    expect(path.every((point, index) => index === 0 || point.x === path[index - 1]!.x || point.y === path[index - 1]!.y)).toBe(true)
+    const hosts = [{ x: 500, y: 0, width: 30, height: 30 }, { x: 100, y: 0, width: 30, height: 30 }]
+    for (let index = 1; index < path.length; index += 1) {
+      const start = path[index - 1]!, end = path[index]!
+      for (const host of hosts) {
+        const crossesInterior = start.y === end.y
+          ? start.y > host.y && start.y < host.y + host.height && Math.max(Math.min(start.x, end.x), host.x) < Math.min(Math.max(start.x, end.x), host.x + host.width)
+          : start.x > host.x && start.x < host.x + host.width && Math.max(Math.min(start.y, end.y), host.y) < Math.min(Math.max(start.y, end.y), host.y + host.height)
+        expect(crossesInterior).toBe(false)
+      }
+    }
   })
 })

@@ -62,6 +62,30 @@ const router = createRouter({
       component: () => import("@/pages/TreeviewPage.vue"),
     },
     {
+      path: "/diagram/table",
+      name: "diagram-table-workbench",
+      component: () => import("@/pages/DiagramTablePage.vue"),
+      meta: { layoutWidth: "full", fitViewport: true, lockMainScroll: true },
+    },
+    {
+      path: "/diagram/connectors",
+      name: "diagram-connector-workbench",
+      component: () => import("@/pages/ConnectorWorkbench.vue"),
+      meta: { layoutWidth: "full", fitViewport: true, lockMainScroll: true },
+    },
+    {
+      path: "/diagram/grid",
+      name: "diagram-grid-lab",
+      component: () => import("@/pages/DiagramGridPage.vue"),
+      meta: { layoutWidth: "full", fitViewport: true, lockMainScroll: true },
+    },
+    {
+      path: "/diagram/canvas",
+      name: "diagram-free-canvas",
+      component: () => import("@/pages/DiagramCanvasPage.vue"),
+      meta: { layoutWidth: "full", fitViewport: true, lockMainScroll: true },
+    },
+    {
       path: "/diagram",
       name: "diagram-demo",
       component: () => import("@/pages/DiagramPage.vue"),

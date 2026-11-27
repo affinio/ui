@@ -17,6 +17,9 @@ export type DiagramPoint = Readonly<{
   y: number
 }>
 
+/** Pivot coordinates in an object's untransformed local coordinate plane. */
+export type TransformOrigin = Readonly<{ mode: "relative"; x: number; y: number }> | Readonly<{ mode: "absolute"; x: number; y: number }>
+
 export type DiagramVisualStyle = Readonly<{
   fill?: string
   stroke?: string
@@ -30,6 +33,15 @@ export type DiagramVisualStyle = Readonly<{
   fontStyle?: string
 }>
 export type DiagramResolvedStyle = DiagramVisualStyle
+
+/** Font measurement for one candidate text line. Width and vertical metrics are in diagram document units. */
+export type DiagramTextMeasurement = Readonly<{ width: number; lineHeight: number; ascent?: number; descent?: number }>
+/** Provider identity and revision participate in resolved Table layout caching. Increment revision when fonts or measurement behavior change. */
+export type DiagramTextMeasurementProvider = Readonly<{
+  revision: string | number
+  measureText: (text: string, style: DiagramVisualStyle) => DiagramTextMeasurement
+  subscribe?: (listener: () => void) => (() => void)
+}>
 
 export type DiagramPathSegment = Readonly<{ kind: "line"; start: DiagramPoint; end: DiagramPoint }>
   | Readonly<{ kind: "arc"; center: DiagramPoint; radius: number; startAngle: number; sweepAngle: number }>
@@ -72,7 +84,13 @@ export type DiagramEntityBase = Readonly<{
   visualStyle?: DiagramVisualStyle
 }>
 
-export type DiagramNode = DiagramEntityBase & Readonly<{
+export type DiagramTransformable = Readonly<{
+  transformOrigin?: TransformOrigin
+  /** Parent-local translation separated from intrinsic geometry; Core uses it for lossless reparenting. */
+  parentOffset?: DiagramPoint
+}>
+
+export type DiagramNode = DiagramEntityBase & DiagramTransformable & Readonly<{
   kind: "node"
   x: number
   y: number
@@ -92,7 +110,8 @@ export type DiagramPortAnchor = Readonly<{ kind: "local"; x: number; y: number }
   | Readonly<{ kind: "route"; fraction: number }>
 
 export type DiagramPortHost = Readonly<{ hostId: DiagramId; anchor: DiagramPortAnchor }>
-export type DiagramPort = DiagramEntityBase & Readonly<{ kind: "port"; radius?: number }> & (
+export type DiagramPortDirection = DiagramCardinalDirection | "auto" | "any"
+export type DiagramPort = DiagramEntityBase & Readonly<{ kind: "port"; radius?: number; /** Host-local outward direction. Omitted legacy values remain unrestricted. */ direction?: DiagramPortDirection }> & (
   /** Legacy node ports keep their existing node-local x/y contract. */
   Readonly<{ nodeId: DiagramId; x: number; y: number; hostId?: never; anchor?: never }>
   | DiagramPortHost & Readonly<{ nodeId?: never; x?: never; y?: never }>
@@ -114,7 +133,7 @@ export type DiagramJunction = DiagramEntityBase & Readonly<{
   anchor: Readonly<{ kind: "route"; fraction: number }> | Readonly<{ kind: "fixed"; point: DiagramPoint }>
 }>
 
-export type DiagramEdge = DiagramEntityBase & Readonly<{
+export type DiagramEdge = DiagramEntityBase & DiagramTransformable & Readonly<{
   kind: "edge"
   source: DiagramEdgeEndpoint
   target: DiagramEdgeEndpoint
@@ -125,7 +144,7 @@ export type DiagramEdge = DiagramEntityBase & Readonly<{
   routing?: DiagramEdgeRouting
 }>
 
-export type DiagramText = DiagramEntityBase & Readonly<{
+export type DiagramText = DiagramEntityBase & DiagramTransformable & Readonly<{
   kind: "text"
   x: number
   y: number
@@ -143,7 +162,7 @@ export type DiagramText = DiagramEntityBase & Readonly<{
 /** Glyph orientation relative to the text object's transformed document-space anchor. */
 export type TextOrientationPolicy = "inherit" | "keep-readable" | "keep-horizontal"
 
-export type DiagramShape = DiagramEntityBase & Readonly<{
+export type DiagramShape = DiagramEntityBase & DiagramTransformable & Readonly<{
   kind: "shape"
   x: number
   y: number
@@ -162,26 +181,51 @@ export type DiagramShape = DiagramEntityBase & Readonly<{
 }>
 
 /** Input to `createPath`; use exactly one non-empty representation. Coordinates are world-space and become local to the stored DiagramShape. */
-export type DiagramPath = DiagramEntityBase & Readonly<{ kind: "path"; points?: ReadonlyArray<DiagramPoint>; contours?: ReadonlyArray<DiagramPathContour>; metadata?: DiagramMetadata }>
+export type DiagramPath = DiagramEntityBase & DiagramTransformable & Readonly<{ kind: "path"; points?: ReadonlyArray<DiagramPoint>; contours?: ReadonlyArray<DiagramPathContour>; metadata?: DiagramMetadata }>
 
 export type DiagramTableHorizontalAlignment = "left" | "center" | "right"
 export type DiagramTableVerticalAlignment = "top" | "middle" | "bottom"
 export type DiagramTableLineStyle = "solid" | "dashed" | "dotted"
+export type DiagramTableCellPadding = Readonly<{ top: number; right: number; bottom: number; left: number }>
+export type DiagramTableCellBorderSide = "top" | "right" | "bottom" | "left"
+export type DiagramTableCellOverflow = "clip" | "visible" | "wrap"
+/** An explicit side border. `visible: false` suppresses the shared boundary. */
+export type DiagramTableCellBorder = Readonly<{ visible: boolean; stroke?: Partial<DiagramTableStroke> }>
+export type DiagramTableBorderPreset = "all" | "outside" | "inside" | "top" | "right" | "bottom" | "left" | "none" | "reset"
+export type DiagramTableCellStyle = Readonly<{
+  /** `null` explicitly clears an inherited background. */
+  background?: string | null
+  padding?: Partial<DiagramTableCellPadding>
+  text?: DiagramVisualStyle
+  borders?: Partial<Record<DiagramTableCellBorderSide, DiagramTableCellBorder>>
+  overflow?: DiagramTableCellOverflow
+}>
 export type DiagramTableCell = Readonly<{
+  /** Stable cell identity. Omitted only for legacy/input cells; Core assigns one when normalizing. */
+  id?: DiagramId
   text: string
   horizontalAlign?: DiagramTableHorizontalAlignment
   verticalAlign?: DiagramTableVerticalAlignment
+  metadata?: DiagramMetadata
+  style?: DiagramTableCellStyle
 }>
+export type DiagramTableMerge = Readonly<{ anchorCellId: DiagramId; rowSpan: number; columnSpan: number }>
 export type DiagramTableStroke = Readonly<{ color: string; width: number; style: DiagramTableLineStyle }>
 export type DiagramTableStyle = Readonly<{
   grid: Readonly<{ visible: boolean; stroke: DiagramTableStroke }>
   border: Readonly<{ visible: boolean; stroke: DiagramTableStroke; radius: number }>
   cellPadding?: number
+  background?: string | null
+  text?: DiagramVisualStyle
+  overflow?: DiagramTableCellOverflow
 }>
 export type DiagramTableStyleUpdate = Readonly<{
   grid?: Readonly<{ visible?: boolean; stroke?: Partial<DiagramTableStroke> }>
   border?: Readonly<{ visible?: boolean; stroke?: Partial<DiagramTableStroke>; radius?: number }>
   cellPadding?: number
+  background?: string | null
+  text?: DiagramVisualStyle
+  overflow?: DiagramTableCellOverflow
 }>
 export type DiagramTableHeader = Readonly<{
   text: string
@@ -190,7 +234,7 @@ export type DiagramTableHeader = Readonly<{
   horizontalAlign?: DiagramTableHorizontalAlignment
   verticalAlign?: DiagramTableVerticalAlignment
 }>
-export type DiagramTable = DiagramEntityBase & Readonly<{
+export type DiagramTable = DiagramEntityBase & DiagramTransformable & Readonly<{
   kind: "table"
   x: number
   y: number
@@ -199,6 +243,8 @@ export type DiagramTable = DiagramEntityBase & Readonly<{
   rowCount: number
   columnCount: number
   cells?: ReadonlyArray<ReadonlyArray<DiagramTableCell>>
+  /** Rectangular spans anchored by stable cell ID; covered matrix cells remain present but are not independently visible. */
+  merges?: ReadonlyArray<DiagramTableMerge>
   rowHeights?: ReadonlyArray<number>
   columnWidths?: ReadonlyArray<number>
   defaultCell?: DiagramTableCell
@@ -211,11 +257,16 @@ export type DiagramTable = DiagramEntityBase & Readonly<{
 }>
 export type DiagramTableCellPosition = Readonly<{ row: number; column: number }>
 
-export type DiagramGroup = DiagramEntityBase & Readonly<{
+export type DiagramGroup = DiagramEntityBase & DiagramTransformable & Readonly<{
   kind: "group"
   childIds: ReadonlyArray<DiagramId>
-  /** Absolute group rotation in degrees; children are transformed when it changes. */
+  /** Translation in the owning parent coordinate space. Missing values are accepted only for legacy documents. */
+  x?: number
+  y?: number
+  /** Retained local rotation in degrees. */
   rotation?: number
+  flipX?: boolean
+  flipY?: boolean
 }>
 
 export type DiagramEntities = Readonly<{
@@ -372,7 +423,16 @@ export type DiagramGeometry = Readonly<{
   hostId?: DiagramId
   anchor?: DiagramPortAnchor
   style?: DiagramResolvedStyle
+  /** Resolved pivot in document coordinates, before the object's own rotation/reflection. */
+  transformOrigin?: DiagramPoint
+  /** Resolved pivot in the object's local parent coordinate space for hierarchical renderers. */
+  localTransformOrigin?: DiagramPoint
+  /** Ancestor transform for flat renderers; excludes this entity's own rotation/reflection. */
+  parentTransform?: DiagramAffineTransform
 }>
+
+/** Column-vector affine transform: x'=a*x+c*y+e, y'=b*x+d*y+f. */
+export type DiagramAffineTransform = Readonly<{ a: number; b: number; c: number; d: number; e: number; f: number }>
 
 /** Transient rendering settings for connectors. Values are world units and are never serialized. */
 export type DiagramConnectorRenderOptions = Readonly<{
@@ -432,19 +492,27 @@ export type DiagramCommand =
   | Readonly<{ type: "movePathVertex"; id: DiagramId; index: number; point: DiagramPoint; portRemaps?: Readonly<Record<DiagramId, DiagramPortRemap>>; historyKey?: string }>
   | Readonly<{ type: "removePathVertex"; id: DiagramId; index: number; portRemaps?: Readonly<Record<DiagramId, DiagramPortRemap>>; historyKey?: string }>
   | Readonly<{ type: "updateShape"; id: DiagramId; cornerRadius: number; historyKey?: string }>
+  | Readonly<{ type: "setTransformOrigin"; id: DiagramId; transformOrigin: TransformOrigin | null; preserveWorldGeometry?: boolean; historyKey?: string }>
   | Readonly<{ type: "createTable"; table: DiagramTable; historyKey?: string }>
+  | Readonly<{ type: "mergeTableCells"; id: DiagramId; startRow: number; endRow: number; startColumn: number; endColumn: number; contentPolicy?: "reject-non-empty" | "keep-anchor"; historyKey?: string }>
+  | Readonly<{ type: "unmergeTableCell"; id: DiagramId; row: number; column: number; historyKey?: string }>
   | Readonly<{ type: "insertTableRow"; id: DiagramId; index: number; cells?: ReadonlyArray<DiagramTableCell>; historyKey?: string }>
   | Readonly<{ type: "deleteTableRow"; id: DiagramId; index: number; historyKey?: string }>
   | Readonly<{ type: "insertTableColumn"; id: DiagramId; index: number; cells?: ReadonlyArray<DiagramTableCell>; historyKey?: string }>
   | Readonly<{ type: "deleteTableColumn"; id: DiagramId; index: number; historyKey?: string }>
-  | Readonly<{ type: "resizeTableRow"; id: DiagramId; index: number; height: number; historyKey?: string }>
-  | Readonly<{ type: "resizeTableColumn"; id: DiagramId; index: number; width: number; historyKey?: string }>
+  | Readonly<{ type: "resizeTableRow"; id: DiagramId; index: number; height: number; policy?: "flexible" | "fixed"; historyKey?: string }>
+  | Readonly<{ type: "resizeTableColumn"; id: DiagramId; index: number; width: number; policy?: "flexible" | "fixed"; historyKey?: string }>
+  | Readonly<{ type: "setTableSize"; id: DiagramId; width?: number; height?: number; distribution?: "proportional"; historyKey?: string }>
   | Readonly<{ type: "updateTableCell"; id: DiagramId; row: number; column: number; cell: Partial<DiagramTableCell>; historyKey?: string }>
+  | Readonly<{ type: "updateTableCellRange"; id: DiagramId; startRow: number; endRow: number; startColumn: number; endColumn: number; cell: Partial<DiagramTableCell>; historyKey?: string }>
+  | Readonly<{ type: "setTableCellBorders"; id: DiagramId; startRow: number; endRow: number; startColumn: number; endColumn: number; preset: DiagramTableBorderPreset; border?: DiagramTableCellBorder; historyKey?: string }>
   | Readonly<{ type: "updateTableStyle"; id: DiagramId; style: DiagramTableStyleUpdate; historyKey?: string }>
   | Readonly<{ type: "updateTableHeader"; id: DiagramId; header: DiagramTableHeader | null; historyKey?: string }>
-  | Readonly<{ type: "groupEntities"; id: DiagramId; ids?: ReadonlyArray<DiagramId>; historyKey?: string }>
+  | Readonly<{ type: "groupEntities"; id: DiagramId; ids?: ReadonlyArray<DiagramId>; transformOrigin?: TransformOrigin; historyKey?: string }>
   | Readonly<{ type: "ungroupEntities"; ids: ReadonlyArray<DiagramId>; portRemaps?: Readonly<Record<DiagramId, DiagramPortRemap>>; historyKey?: string }>
+  | Readonly<{ type: "reparentEntity"; id: DiagramId; parentId: DiagramId | null; historyKey?: string }>
   | Readonly<{ type: "createPort"; port: DiagramPort; historyKey?: string }>
+  | Readonly<{ type: "setPortDirection"; id: DiagramId; direction: DiagramPortDirection | undefined; historyKey?: string }>
   | Readonly<{ type: "createJunction"; junction: DiagramJunction; historyKey?: string }>
   | Readonly<{ type: "updateJunction"; id: DiagramId; anchor: DiagramJunction["anchor"]; historyKey?: string }>
   | Readonly<{ type: "deleteEntities"; ids: ReadonlyArray<DiagramId>; historyKey?: string }>
@@ -453,6 +521,7 @@ export type DiagramCommand =
   | Readonly<{ type: "moveEntities"; ids: ReadonlyArray<DiagramId>; delta: DiagramPoint; snap?: DiagramGridSnapOptions; historyKey?: string }>
   | Readonly<{ type: "moveNode"; id: DiagramId; delta: DiagramPoint; historyKey?: string }>
   | Readonly<{ type: "moveEdgeEndpoint"; id: DiagramId; endpoint: "source" | "target"; point: DiagramPoint; historyKey?: string }>
+  | Readonly<{ type: "setEdgeRoute"; id: DiagramId; points: ReadonlyArray<DiagramPoint>; historyKey?: string }>
   | Readonly<{ type: "insertEdgeWaypoint"; id: DiagramId; index: number; point: DiagramPoint; historyKey?: string }>
   | Readonly<{ type: "moveEdgeWaypoint"; id: DiagramId; index: number; point: DiagramPoint; historyKey?: string }>
   | Readonly<{ type: "removeEdgeWaypoint"; id: DiagramId; index: number; historyKey?: string }>
@@ -489,7 +558,7 @@ export type DiagramEntityUpdate = Readonly<{
 export type DiagramCommandResult = Readonly<{
   changed: boolean
   revision: number
-  reason?: "scene-locked" | "invalid-command"
+  reason?: "scene-locked" | "invalid-command" | "merge-content-conflict" | "invalid-table-range"
   diagnostic?: string
 }>
 
@@ -574,12 +643,18 @@ export type DiagramPortCreationOptions = Readonly<{
   hostId?: DiagramId
   /** Screen-pixel radius for preferring an existing line/path vertex. Defaults to interaction snap tolerance. */
   vertexTolerancePx?: number
+  /** Opaque application-owned metadata copied into the created Port. */
+  metadata?: DiagramMetadata
+  /** Host-local outward direction; `auto` infers an unambiguous cardinal boundary side. */
+  direction?: DiagramPortDirection
 }>
 export type DiagramPortCreationPreview = Readonly<{
   id: DiagramId
   hostId: DiagramId
   anchor: DiagramPortAnchor
   point: DiagramPoint
+  metadata?: DiagramMetadata
+  direction?: DiagramPortDirection
   snapResult?: DiagramSnapResult
 }>
 
@@ -605,6 +680,7 @@ export type DiagramTableResizePreview = Readonly<{
   height: number
   rowHeights: ReadonlyArray<number>
   columnWidths: ReadonlyArray<number>
+  policy: "flexible" | "fixed"
 }>
 
 export type DiagramMarqueeMode = "intersect" | "contain"
@@ -665,7 +741,9 @@ export type DiagramEdgeCreationPreview = Readonly<{
 }>
 export type DiagramCardinalDirection = "north" | "east" | "south" | "west"
 export type DiagramEdgeRouting = Readonly<{
-  mode: "auto"
+  mode: "auto" | "manual"
+  /** `simple` is the interactive direct/L/Z/U strategy. Omission preserves legacy obstacle-aware auto routing. */
+  strategy?: "simple" | "obstacle-aware"
   /** Preserve grid-aligned generated route vertices when the host scene changes. */
   strictGrid?: boolean
   gridSize?: number
@@ -685,6 +763,8 @@ export type DiagramEdgeRouting = Readonly<{
 export type DiagramRouteObstacle = Readonly<{ id?: DiagramId; bounds: DiagramRect }>
 export type DiagramRouteCrossingCandidate = Readonly<{ id: DiagramId; points: ReadonlyArray<DiagramPoint> }>
 export type DiagramOrthogonalRouteOptions = Readonly<{
+  /** `simple` skips obstacle search; omission preserves the existing obstacle-aware public behavior. */
+  strategy?: "simple" | "obstacle-aware"
   mode?: "manual" | "auto"
   /** Restrict endpoints, leads, waypoints, obstacle bounds, and generated bends to this grid. */
   strictGrid?: boolean

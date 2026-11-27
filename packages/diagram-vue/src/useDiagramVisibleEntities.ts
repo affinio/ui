@@ -1,12 +1,19 @@
-import { getCurrentScope, onScopeDispose, shallowRef } from "vue"
-import type { ShallowRef } from "vue"
+import { getCurrentScope, onScopeDispose, shallowRef, unref, watch } from "vue"
+import type { MaybeRef, ShallowRef } from "vue"
 import { createEntityGeometry, rotatePoint, type DiagramGeometry, type DiagramId, type DiagramPoint, type DiagramRect, type DiagramResizeHandle } from "@affino/diagram-core"
 import type { DiagramEngineController } from "./useDiagramEngine.js"
-import type { DiagramHandle, DiagramOverlayAnchor, DiagramRenderEntity, DiagramVisibleProjection } from "./types.js"
+import type { DiagramPointerController } from "./useDiagramPointerController.js"
+import type { DiagramDragPreviewMode, DiagramHandle, DiagramInteractionPreviewMode, DiagramOverlayAnchor, DiagramRenderEntity, DiagramVisibleProjection } from "./types.js"
 
 export type DiagramVisibleEntitiesOptions = Readonly<{
   overscan?: number
   includeSelection?: boolean
+  /** Applies transient pointer geometry to entities, points, and selection handles during an active gesture. */
+  pointer?: MaybeRef<DiagramPointerController>
+  /** Controls presentation of every Core-resolved candidate during an active edit. Defaults to live. */
+  interactionPreviewMode?: MaybeRef<DiagramInteractionPreviewMode>
+  /** @deprecated Use `interactionPreviewMode`; removed in next major (TODO(next-major)). */
+  dragPreviewMode?: MaybeRef<DiagramDragPreviewMode>
 }>
 
 export type DiagramVisibleEntitiesController = Readonly<{
@@ -16,6 +23,10 @@ export type DiagramVisibleEntitiesController = Readonly<{
 }>
 
 const EMPTY_PROJECTION: DiagramVisibleProjection = Object.freeze({
+  interactionPreviewMode: "live",
+  interactionPreview: Object.freeze([]),
+  dragPreviewMode: "live",
+  dragPreview: Object.freeze([]),
   ordered: Object.freeze([]),
   ids: Object.freeze([]),
   nodes: Object.freeze([]),
@@ -31,6 +42,10 @@ const EMPTY_PROJECTION: DiagramVisibleProjection = Object.freeze({
 export function useDiagramVisibleEntities(controller: DiagramEngineController, options: DiagramVisibleEntitiesOptions = {}): DiagramVisibleEntitiesController {
   const projection = shallowRef<DiagramVisibleProjection>(EMPTY_PROJECTION)
   const entityCache = new Map<DiagramId, { geometry: DiagramGeometry; selected: boolean; entity: DiagramRenderEntity }>()
+  const getPointer = () => options.pointer ? unref(options.pointer) : undefined
+  const getInteractionPreviewMode = () => options.interactionPreviewMode
+    ? unref(options.interactionPreviewMode)
+    : options.dragPreviewMode ? unref(options.dragPreviewMode) : "live"
   const refreshVisible = (bounds?: DiagramRect) => {
     const viewportBounds: DiagramRect = bounds ?? controller.scene.value.viewport
     projection.value = buildProjection(
@@ -38,9 +53,15 @@ export function useDiagramVisibleEntities(controller: DiagramEngineController, o
       inflate(viewportBounds, options.overscan ?? 0),
       options.includeSelection ?? true,
       entityCache,
+      getPointer(),
+      getInteractionPreviewMode(),
     )
   }
   const subscription = controller.engine.subscribe(() => refreshVisible())
+  const stopPointerWatch = options.pointer || options.interactionPreviewMode || options.dragPreviewMode ? watch(
+    () => [getPointer()?.state.value, getInteractionPreviewMode()] as const,
+    () => refreshVisible(),
+  ) : null
   let disposed = false
   const dispose = () => {
     if (disposed) {
@@ -48,6 +69,7 @@ export function useDiagramVisibleEntities(controller: DiagramEngineController, o
     }
     disposed = true
     subscription.unsubscribe()
+    stopPointerWatch?.()
   }
   if (getCurrentScope()) {
     onScopeDispose(dispose)
@@ -60,8 +82,13 @@ function buildProjection(
   bounds: DiagramRect,
   includeSelection: boolean,
   entityCache: Map<DiagramId, { geometry: DiagramGeometry; selected: boolean; entity: DiagramRenderEntity }>,
+  pointer?: DiagramPointerController,
+  interactionPreviewMode: DiagramInteractionPreviewMode = "live",
 ): DiagramVisibleProjection {
   const scene = controller.scene.value
+  const pointerState = pointer?.state.value
+  const previewActive = pointerState?.active === true
+  const preserveCommittedPresentation = pointerState?.active === true && interactionPreviewMode !== "live"
   const ids = new Set(controller.engine.queryVisible(bounds))
   if (includeSelection) {
     for (const id of scene.selection.ids) {
@@ -70,8 +97,14 @@ function buildProjection(
   }
   const selected = new Set(scene.selection.ids)
   const entities: DiagramRenderEntity[] = []
+  const interactionPreview: DiagramRenderEntity[] = []
   for (const id of ids) {
-    const geometry = controller.engine.getGeometrySnapshot(id)
+    const previewGeometry = previewActive ? pointer?.getPreviewGeometry(id) : null
+    const committedGeometry = controller.engine.getGeometrySnapshot(id)
+    if (preserveCommittedPresentation && previewGeometry && committedGeometry && previewGeometry !== committedGeometry) {
+      interactionPreview.push(Object.freeze({ id, kind: previewGeometry.kind, layer: "svg" as const, geometry: previewGeometry, selected: false, ...(previewGeometry.style ? { style: previewGeometry.style } : {}) }))
+    }
+    const geometry = preserveCommittedPresentation ? committedGeometry : previewGeometry ?? committedGeometry
     if (!geometry) {
       continue
     }
@@ -96,9 +129,13 @@ function buildProjection(
     ...(anchorGeometries.length > 1 ? createGroupHandles(anchorGeometries) : activeGeometries.flatMap(createHandles)),
     ...activeGeometries.flatMap((geometry) => geometry.kind === "edge" ? createEdgeWaypointHandles(geometry, scene.entities.edgesById.get(geometry.id)) : geometry.kind === "shape" ? [...createPathVertexHandles(geometry), ...createBezierHandles(geometry)] : []),
     ...activeGeometries.filter((geometry) => geometry.kind === "edge").flatMap(createEdgeEndpointHandles),
-    ...activeGeometries.filter((geometry) => geometry.kind === "edge").flatMap(createEdgeSegmentHandles),
+    ...activeGeometries.filter((geometry) => geometry.kind === "edge").flatMap((geometry) => createEdgeSegmentHandles(geometry, scene.entities.edgesById.get(geometry.id))),
   ]
   return Object.freeze({
+    interactionPreviewMode,
+    interactionPreview: Object.freeze(interactionPreview),
+    dragPreviewMode: interactionPreviewMode,
+    dragPreview: Object.freeze(interactionPreview),
     ordered: Object.freeze(entities),
     ids: Object.freeze(entities.map((entity) => entity.id)),
     nodes: freezeKind(entities, "node"),
@@ -139,16 +176,37 @@ function createEdgeEndpointHandles(geometry: DiagramGeometry): DiagramHandle[] {
 }
 
 function createEdgeWaypointHandles(geometry: DiagramGeometry, edge?: import("@affino/diagram-core").DiagramEdge): DiagramHandle[] {
-  if (edge?.routing?.mode === "auto") return (edge.routing.waypoints ?? []).map((point, index) => ({ id: `${geometry.id}:waypoint:${index}`, ownerId: geometry.id, kind: "waypoint", point }))
+  if (edge?.routing?.mode === "auto") return (edge.routing.waypoints ?? []).map((point, index) => ({ id: `${geometry.id}:waypoint:${index}`, ownerId: geometry.id, kind: "waypoint", segmentIndex: index, point }))
   if (geometry.kind !== "edge" || !geometry.path || geometry.path.length < 3) return []
-  return geometry.path.slice(1, -1).map((point, index) => ({ id: `${geometry.id}:waypoint:${index}`, ownerId: geometry.id, kind: "waypoint", point }))
+  return geometry.path.slice(1, -1).map((point, index) => ({ id: `${geometry.id}:waypoint:${index}`, ownerId: geometry.id, kind: "waypoint", segmentIndex: index, point }))
 }
 
-function createEdgeSegmentHandles(geometry: DiagramGeometry): DiagramHandle[] {
+function createEdgeSegmentHandles(geometry: DiagramGeometry, edge?: import("@affino/diagram-core").DiagramEdge): DiagramHandle[] {
   if (geometry.kind !== "edge" || !geometry.path || geometry.path.length < 2) return []
+  const path = geometry.path
+  const hiddenSegments = new Set<number>()
+  const axisAt = (index: number): "horizontal" | "vertical" | null => {
+    const start = path[index]!, end = path[index + 1]!
+    if (Math.abs(start.y - end.y) <= 1e-6 && start.x !== end.x) return "horizontal"
+    if (Math.abs(start.x - end.x) <= 1e-6 && start.y !== end.y) return "vertical"
+    return null
+  }
+  const sameRun = (left: number, right: number): boolean => {
+    const axis = axisAt(left)
+    if (!axis || axisAt(right) !== axis) return false
+    const a = path[left]!, b = path[right]!
+    return axis === "horizontal" ? a.y === b.y : a.x === b.x
+  }
+  if (edge && edge.source.kind !== "point") {
+    for (let index = 0; index < path.length - 1 && (index === 0 || sameRun(index - 1, index)); index += 1) hiddenSegments.add(index)
+  }
+  if (edge && edge.target.kind !== "point") {
+    for (let index = path.length - 2; index >= 0 && (index === path.length - 2 || sameRun(index, index + 1)); index -= 1) hiddenSegments.add(index)
+  }
   const handles: DiagramHandle[] = []
-  for (let index = 0; index < geometry.path.length - 1; index += 1) {
-    const start = geometry.path[index]!, end = geometry.path[index + 1]!
+  for (let index = 0; index < path.length - 1; index += 1) {
+    if (hiddenSegments.has(index)) continue
+    const start = path[index]!, end = path[index + 1]!
     const horizontal = Math.abs(start.y - end.y) <= 1e-6 && start.x !== end.x
     const vertical = Math.abs(start.x - end.x) <= 1e-6 && start.y !== end.y
     if (!horizontal && !vertical) continue

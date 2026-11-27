@@ -1,6 +1,10 @@
 import type { DiagramConnectorBridge, DiagramEntityKind, DiagramGeometry, DiagramId, DiagramJunctionRenderGeometry, DiagramPoint, DiagramRect, DiagramResizeHandle, DiagramResolvedStyle } from "@affino/diagram-core"
 
 export type DiagramRenderLayer = "svg" | "dom"
+export type InteractionPreviewMode = "live" | "ghost" | "outline"
+export type DiagramInteractionPreviewMode = InteractionPreviewMode
+/** @deprecated Use `DiagramInteractionPreviewMode`; removed in next major (TODO(next-major)). */
+export type DiagramDragPreviewMode = DiagramInteractionPreviewMode
 
 export type DiagramRenderEntity = Readonly<{
   id: DiagramId
@@ -32,6 +36,14 @@ export type DiagramOverlayAnchor = Readonly<{
 }>
 
 export type DiagramVisibleProjection = Readonly<{
+  /** Presentation used for any active interaction candidate geometry. */
+  interactionPreviewMode: DiagramInteractionPreviewMode
+  /** Core-resolved transient candidate geometry for any active edit; never scene entities or hit-test targets. */
+  interactionPreview: ReadonlyArray<DiagramRenderEntity>
+  /** @deprecated Use `interactionPreviewMode`; removed in next major (TODO(next-major)). */
+  dragPreviewMode: DiagramDragPreviewMode
+  /** @deprecated Use `interactionPreview`; removed in next major (TODO(next-major)). */
+  dragPreview: ReadonlyArray<DiagramRenderEntity>
   /** Unified Core render order across entity kinds. */
   ordered: ReadonlyArray<DiagramRenderEntity>
   ids: ReadonlyArray<DiagramId>

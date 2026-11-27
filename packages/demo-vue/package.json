@@ -1,6 +1,6 @@
 {
   "name": "demo-vue",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "private": true,
   "type": "module",
   "engines": {
@@ -60,5 +60,14 @@
     "vue-tsc": "^3.2.5"
   },
   "description": "Sandbox package for Affino Vue component demos",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/affinio/affinio.git",
+    "directory": "packages/demo-vue"
+  },
+  "homepage": "https://github.com/affinio/affinio/tree/main/packages/demo-vue#readme",
+  "bugs": {
+    "url": "https://github.com/affinio/affinio/issues"
+  },
   "license": "MIT"
 }

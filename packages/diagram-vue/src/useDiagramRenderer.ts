@@ -59,7 +59,7 @@ export function getSvgPortCreationPreviewProps(preview: DiagramPortCreationPrevi
 export function getSvgEntityProps(entity: DiagramRenderEntity): SvgEntityProps {
   const { geometry } = entity
   const bounds = geometry.unrotatedBounds ?? geometry.bounds
-  const transform = svgTransform(geometry.rotation ?? 0, geometry.flipX === true, geometry.flipY === true, bounds)
+  const transform = svgTransform(geometry.rotation ?? 0, geometry.flipX === true, geometry.flipY === true, bounds, geometry.localTransformOrigin ?? geometry.transformOrigin, geometry.parentTransform)
   const style = entity.style ?? geometry.style
   const styleProps = svgStyleProps(style)
   const common = {
@@ -141,20 +141,34 @@ export function getDomEntityStyle(entity: DiagramRenderEntity, viewport?: Diagra
   const flip = entity.geometry.flipX || entity.geometry.flipY
     ? " scale(" + (entity.geometry.flipX ? -1 : 1) + ", " + (entity.geometry.flipY ? -1 : 1) + ")"
     : ""
+  const pivot = entity.geometry.localTransformOrigin ?? entity.geometry.transformOrigin
+  const pivotX = pivot ? (pivot.x - bounds.x) / (bounds.width || 1) * 100 : 50
+  const pivotY = pivot ? (pivot.y - bounds.y) / (bounds.height || 1) * 100 : 50
   return Object.freeze({
     position: "absolute",
-    transform: "translate(" + left + "px, " + top + "px)" + rotation + flip,
+    transform: cssParentTransform(entity.geometry.parentTransform, viewport) + "translate(" + left + "px, " + top + "px)" + rotation + flip,
     width: bounds.width * zoom + "px",
     height: bounds.height * zoom + "px",
-    ...(rotation || flip ? { transformOrigin: "center center" } : {}),
+    ...(rotation || flip ? { transformOrigin: `${pivotX}% ${pivotY}%` } : {}),
   })
 }
 
-export function svgTransform(rotation: number, flipX: boolean, flipY: boolean, bounds: Readonly<{ x: number; y: number; width: number; height: number }>): string | undefined {
-  const centerX = bounds.x + bounds.width / 2
-  const centerY = bounds.y + bounds.height / 2
+export function svgTransform(rotation: number, flipX: boolean, flipY: boolean, bounds: Readonly<{ x: number; y: number; width: number; height: number }>, origin?: Readonly<{ x: number; y: number }>, parent?: import("@affino/diagram-core").DiagramAffineTransform): string | undefined {
+  const centerX = origin?.x ?? bounds.x + bounds.width / 2
+  const centerY = origin?.y ?? bounds.y + bounds.height / 2
   const transforms: string[] = []
+  if (parent) transforms.push(`matrix(${parent.a} ${parent.b} ${parent.c} ${parent.d} ${parent.e} ${parent.f})`)
   if (rotation) transforms.push(`rotate(${rotation} ${centerX} ${centerY})`)
   if (flipX || flipY) transforms.push(`translate(${centerX} ${centerY}) scale(${flipX ? -1 : 1} ${flipY ? -1 : 1}) translate(${-centerX} ${-centerY})`)
   return transforms.length ? transforms.join(" ") : undefined
+}
+
+function cssParentTransform(parent: import("@affino/diagram-core").DiagramAffineTransform | undefined, viewport?: DiagramViewport): string {
+  if (!parent) return ""
+  const zoom = viewport?.zoom ?? 1
+  const vx = viewport?.x ?? 0
+  const vy = viewport?.y ?? 0
+  const e = zoom * (parent.e + parent.a * vx + parent.c * vy - vx)
+  const f = zoom * (parent.f + parent.b * vx + parent.d * vy - vy)
+  return `matrix(${parent.a}, ${parent.b}, ${parent.c}, ${parent.d}, ${e}, ${f}) `
 }

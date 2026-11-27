@@ -1,6 +1,27 @@
 # @affino/diagram-core
 
-## Unreleased
+## 0.35.0
+
+### Minor Changes
+
+- Added retained group translation, rotation, reflection, nested membership, local-coordinate grouping, and affine-preserving ungrouping with legacy flat-group compatibility.
+- Added Core parent/world transform and local/world point-conversion queries; geometry snapshots carry ancestor transforms for flat renderers.
+- Preserved text `keep-readable` and `keep-horizontal` orientation through retained parent transforms.
+- Added relative and absolute transform origins, origin-preserving edits, origin-aware geometry and port transforms, and Core queries for configured/local/document pivots.
+- Added deterministic simple route-family selection for interactive orthogonal connectors while preserving the explicitly selectable obstacle-aware router.
+- Added orthogonal route normalization and validation plus the undoable `setEdgeRoute` command for manual route ownership.
+- Fixed alignment snapping across separated objects by querying indexed viewport-wide axis bands; exact movement alignment now commits exact resolved port coordinates.
+- Added host-local geometric port directions, boundary-only `auto` inference, retained-transform world-direction resolution, and undoable direction changes; automatic simple and obstacle-aware routes now honor directional port terminals.
+- Added opaque application-owned metadata to Port creation and Table cells, with validation, cloning, history, serialization, and copy/paste preservation.
+- Completed graphical Table topology, active logical-cell resolution, structural row/column editing, cell appearance, text layout, and fixed/flexible track sizing through headless commands.
+- Added cached immutable Table layout, merged-cell-aware binary-search hit testing, resolved border/text geometry, and a pluggable headless text-measurement provider.
+- Kept directionally attached endpoint hosts as routing obstacles for simple connectors, preventing routes from crossing the objects they leave or enter.
+- Rejected drags of terminal connector segment runs attached to endpoints while keeping interior segment runs editable.
+- Kept internal offset lanes movable when both attached terminals leave no safe interval between their coordinates.
+
+### Compatibility notes
+
+- `DiagramGroup.x` and `DiagramGroup.y` are new optional fields relative to the prior public contract, which had no group coordinates. They remain optional because unsupported legacy groups with attached descendant routes must keep the baked-geometry path. Current retained group commands set finite coordinates; consumers that accept both old and retained group records should narrow or default the new fields. See `docs/diagram-hierarchy-deprecations.md`.
 
 ## 0.34.0
 

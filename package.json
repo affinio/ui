@@ -124,7 +124,8 @@
     "bench:datagrid:harness:ci:gate": "pnpm run bench:datagrid:harness:ci && node ./scripts/check-datagrid-benchmark-report.mjs",
     "bench:regression": "pnpm run bench:datagrid:harness:ci:gate",
     "test:datagrid:tree:contracts": "pnpm --filter @affino/datagrid-core test:unit -- src/models/__tests__/rowModel.spec.ts src/models/__tests__/clientRowModel.spec.ts src/selection/__tests__/selectionState.grouped.contract.spec.ts src/runtime/__tests__/dataGridRuntime.events.contract.spec.ts src/adapters/__tests__/adapterRuntimeProtocol.contract.spec.ts && pnpm --filter @affino/datagrid-vue test:unit -- src/composables/__tests__/useAffinoDataGrid.contract.spec.ts",
-    "quality:max": "node ./scripts/quality-max-pipeline.mjs"
+    "quality:max": "node ./scripts/quality-max-pipeline.mjs",
+    "test:diagram:browser": "node ./scripts/smoke-diagram-connectors.mjs && node ./scripts/accept-diagram-table.mjs && node ./scripts/smoke-diagram-drag-preview.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",

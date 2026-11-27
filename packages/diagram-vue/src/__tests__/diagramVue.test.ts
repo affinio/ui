@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest"
 import { computed, createApp, effectScope, h, nextTick, shallowRef } from "vue"
-import { createCircularArc, createDiagramEngine, type DiagramSceneInput } from "@affino/diagram-core"
+import { createCircularArc, createDiagramEngine, resolveDiagramTableLayout, type DiagramSceneInput } from "@affino/diagram-core"
 import { createDiagramInteractionController } from "@affino/diagram-core"
-import { DiagramBezierOverlay, DiagramTableView, getDomEntityStyle, getSvgConnectorRenderProps, getSvgEntityProps, getSvgJunctionRenderProps, getSvgPortCreationPreviewProps, useDiagramConnectorRendering, useDiagramEngine, useDiagramPointerController, useDiagramSelection, useDiagramTable, useDiagramTextEditor, useDiagramViewport, useDiagramVisibleEntities } from ".."
+import { DiagramBezierOverlay, DiagramTableView, getDomEntityStyle, getSvgConnectorRenderProps, getSvgEntityProps, getSvgJunctionRenderProps, getSvgPortCreationPreviewProps, svgTransform, useDiagramConnectorRendering, useDiagramEngine, useDiagramPointerController, useDiagramSelection, useDiagramTable, useDiagramTextEditor, useDiagramViewport, useDiagramVisibleEntities } from ".."
 import { beginDiagramHandleInteraction } from "../../../demo-vue/src/pages/diagramHandleInteractions"
 
 const scene: DiagramSceneInput = {
@@ -27,6 +27,31 @@ const scene: DiagramSceneInput = {
 }
 
 describe("diagram-vue", () => {
+  it("uses the Core-resolved transform origin for SVG and DOM rendering", () => {
+    const controller = useDiagramEngine({ shapes: [{ id: "pivot", kind: "shape", shape: "rect", x: 10, y: 20, width: 20, height: 10, rotation: 90, transformOrigin: { mode: "relative", x: 0, y: 0.5 } }] })
+    const geometry = controller.engine.getGeometrySnapshot("pivot")!
+    const entity = { id: "pivot", kind: "shape" as const, layer: "svg" as const, geometry, selected: false }
+    expect(geometry.transformOrigin).toEqual({ x: 10, y: 25 })
+    expect(getSvgEntityProps(entity).transform).toBe("rotate(90 10 25)")
+    expect(getDomEntityStyle(entity).transformOrigin).toBe("0% 50%")
+    expect(svgTransform(90, false, false, { x: 10, y: 20, width: 20, height: 10 }, { x: 10, y: 25 })).toBe("rotate(90 10 25)")
+    controller.dispose()
+  })
+  it("applies the Core parent matrix once in SVG and DOM projections", () => {
+    const controller = useDiagramEngine({
+      shapes: [
+        { id: "member", kind: "shape", shape: "rect", x: 0, y: 0, width: 20, height: 10 },
+        { id: "sibling", kind: "shape", shape: "rect", x: 0, y: 0, width: 20, height: 10 },
+      ],
+      groups: [{ id: "group", kind: "group", childIds: ["member", "sibling"], x: 30, y: 20, rotation: 90 }],
+    })
+    const geometry = controller.engine.getGeometrySnapshot("member")!
+    const entity = { id: "member", kind: "shape" as const, layer: "svg" as const, geometry, selected: false }
+    expect(geometry.parentTransform).toMatchObject({ a: 0, b: 1, c: -1, d: 0, e: 45, f: 15 })
+    expect(getSvgEntityProps(entity).transform).toContain("matrix(0 1 -1 0 45 15)")
+    expect(getDomEntityStyle(entity).transform).toContain("matrix(0, 1, -1, 0,")
+    controller.dispose()
+  })
   it("reactively exposes Core connector curves and bridges as standard SVG path props", async () => {
     const controller = useDiagramEngine({ edges: [
       { id: "horizontal", kind: "edge", source: { kind: "point", point: { x: 0, y: 40 } }, target: { kind: "point", point: { x: 100, y: 40 } }, points: [{ x: 25, y: 40 }, { x: 75, y: 40 }] },
@@ -287,7 +312,7 @@ describe("diagram-vue", () => {
     expect(controller.engine.getScene().entities.tablesById.get("t")).toMatchObject({ width: 150, height: 90 })
     expect(outerRect().getAttribute("width")).toBe("150")
     expect(outerRect().getAttribute("height")).toBe("90")
-    expect(tableRoot().querySelectorAll("line")).toHaveLength(2)
+    expect(tableRoot().querySelectorAll("line")).toHaveLength(4)
     app.unmount()
     pointer.dispose()
     controller.dispose()
@@ -334,7 +359,7 @@ describe("diagram-vue", () => {
     expect(mount.querySelector('[aria-label="Horizontal text alignment"]')).not.toBeNull()
     expect(mount.querySelector('[aria-label="Border thickness"]')).not.toBeNull()
     const gridLines = mount.querySelectorAll("line")
-    expect(gridLines).toHaveLength(2)
+    expect(gridLines).toHaveLength(4)
     expect(gridLines[0]?.getAttribute("stroke")).toBe("#D1D5DB")
     expect(mount.querySelector('[stroke="#9CA3AF"]')?.getAttribute("rx")).toBe("8")
     table.updateStyle({ grid: { visible: false } })
@@ -346,6 +371,70 @@ describe("diagram-vue", () => {
     app.unmount()
     mount.remove()
     visible.dispose()
+    controller.dispose()
+  })
+
+  it("selects a pointer-dragged range, merges it, renders one region, and unmerges through toolbar commands", async () => {
+    const controller = useDiagramEngine({ tables: [{ id: "range-table", kind: "table", x: 0, y: 0, width: 80, height: 40, rowCount: 2, columnCount: 2, cells: [[{ text: "A" }, { text: "" }], [{ text: "" }, { text: "" }]] }], viewport: { x: 0, y: 0, width: 120, height: 80, zoom: 1 } })
+    controller.dispatch({ type: "setSelection", selection: { ids: ["range-table"], primaryId: "range-table" } })
+    const mount = document.createElement("div")
+    document.body.append(mount)
+    const app = createApp({ render: () => h("svg", [h(DiagramTableView, { controller, id: "range-table" })]) })
+    app.mount(mount)
+    const anchor = mount.querySelector<SVGRectElement>('[data-table-row="0"][data-table-column="0"]')!
+    const adjacent = mount.querySelector<SVGRectElement>('[data-table-row="0"][data-table-column="1"]')!
+    Object.defineProperty(document, "elementFromPoint", { configurable: true, value: vi.fn(() => adjacent) })
+    const pointerEvent = (type: string) => Object.assign(new Event(type, { bubbles: true, cancelable: true }), { pointerId: 9, clientX: 10, clientY: 10, shiftKey: false })
+    anchor.dispatchEvent(pointerEvent("pointerdown"))
+    anchor.dispatchEvent(pointerEvent("pointermove"))
+    anchor.dispatchEvent(pointerEvent("pointerup"))
+    anchor.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 }))
+    await nextTick()
+    expect(anchor.getAttribute("aria-selected")).toBe("true")
+    expect(adjacent.getAttribute("aria-selected")).toBe("true")
+    mount.querySelector<HTMLButtonElement>('[aria-label="Merge cells"]')!.click()
+    await nextTick()
+    expect(controller.scene.value.entities.tablesById.get("range-table")?.merges?.[0]).toMatchObject({ rowSpan: 1, columnSpan: 2 })
+    expect(mount.querySelectorAll('[data-table-row="0"][role="gridcell"]')).toHaveLength(1)
+    expect(mount.querySelectorAll("line")).toHaveLength(3)
+    expect([...mount.querySelectorAll("text")].filter((node) => node.textContent === "A")).toHaveLength(1)
+    mount.querySelector<HTMLButtonElement>('[aria-label="Unmerge cells"]')!.click()
+    await nextTick()
+    expect(controller.scene.value.entities.tablesById.get("range-table")?.merges).toEqual([])
+    expect(mount.querySelectorAll("line")).toHaveLength(4)
+    app.unmount()
+    mount.remove()
+    controller.dispose()
+  })
+
+  it("renders resolved cell appearance, wrapped lines, and the merged content editor bounds", async () => {
+    const controller = useDiagramEngine({ tables: [{
+      id: "styled-table", kind: "table", x: 0, y: 0, width: 120, height: 40, rowCount: 1, columnCount: 2,
+      columnWidths: [60, 60], rowHeights: [40],
+      style: { grid: { visible: true, stroke: { color: "#777", width: 1, style: "solid" } }, border: { visible: true, stroke: { color: "#222", width: 1, style: "solid" }, radius: 0 }, cellPadding: 2, text: { fontSize: 10 } },
+      cells: [[{ text: "Alpha beta gamma", style: { background: "#ffeeaa", padding: { left: 4, right: 4, top: 3, bottom: 3 }, overflow: "wrap" } }, { text: "" }]],
+    }] })
+    controller.dispatch({ type: "setSelection", selection: { ids: ["styled-table"], primaryId: "styled-table" } })
+    const mount = document.createElement("div")
+    document.body.append(mount)
+    const app = createApp({ render: () => h("svg", [h(DiagramTableView, { controller, id: "styled-table", showToolbar: false })]) })
+    app.mount(mount)
+    const table = controller.scene.value.entities.tablesById.get("styled-table")!
+    const region = resolveDiagramTableLayout(table).visibleCells[0]!
+    expect(mount.querySelector('[data-table-cell-background="' + region.anchorCellId + '"]')?.getAttribute("fill")).toBe("#ffeeaa")
+    expect(region.contentBounds).toEqual({ x: 4, y: 3, width: 52, height: 34 })
+    expect(region.lines.length).toBeGreaterThan(1)
+    expect(mount.querySelectorAll(`[data-table-cell-text="${region.anchorCellId}"] tspan`)).toHaveLength(region.lines.length)
+    controller.dispatch({ type: "mergeTableCells", id: "styled-table", startRow: 0, endRow: 0, startColumn: 0, endColumn: 1 })
+    await nextTick()
+    const anchor = mount.querySelector<SVGRectElement>('[data-table-row="0"][data-table-column="0"]')!
+    anchor.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }))
+    await nextTick()
+    const editor = mount.querySelector<HTMLTextAreaElement>('[aria-label="Edit row 1, column 1"]')!
+    expect(editor).not.toBeNull()
+    expect(editor.parentElement?.getAttribute("width")).toBe("112")
+    app.unmount()
+    mount.remove()
     controller.dispose()
   })
 
@@ -586,6 +675,143 @@ describe("diagram-vue", () => {
     expect(getDomEntityStyle(text).transform).toBe("translate(10px, 80px)")
     const node = visible.projection.value.nodes[0]!
     expect(getSvgEntityProps(node)).toMatchObject({ x: 0, y: 0, width: 100, height: 60 })
+  })
+
+  it("projects live drag geometry into entities, ports, and selection handles", async () => {
+    const frames: Array<FrameRequestCallback> = []
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { frames.push(callback); return frames.length })
+    const controller = useDiagramEngine({
+      nodes: [{ id: "moving", kind: "node", x: 10, y: 20, width: 40, height: 30, portIds: ["moving-port"] }],
+      ports: [{ id: "moving-port", kind: "port", nodeId: "moving", x: 40, y: 15 }],
+      selection: { ids: ["moving"], primaryId: "moving" },
+      viewport: { x: 0, y: 0, width: 200, height: 120, zoom: 1 },
+    })
+    const pointer = useDiagramPointerController(controller, { snap: { enabled: false }, toWorldPoint: (event) => ({ x: event.clientX, y: event.clientY }) })
+    const visible = useDiagramVisibleEntities(controller, { pointer })
+    try {
+      const props = pointer.getSvgPointerProps()
+      const event = (x: number, y: number) => ({ pointerId: 42, clientX: x, clientY: y, shiftKey: false }) as PointerEvent
+      expect(visible.projection.value.nodes[0]?.geometry.bounds).toMatchObject({ x: 10, y: 20 })
+      expect(visible.projection.value.activeHandles.find((handle) => handle.id === "moving:nw")?.point).toEqual({ x: 10, y: 20 })
+      props.onPointerdown(event(20, 30))
+      props.onPointermove(event(35, 40))
+      frames.shift()?.(0)
+      await nextTick()
+
+      expect(visible.projection.value.nodes[0]?.geometry.bounds).toMatchObject({ x: 25, y: 30 })
+      expect(visible.projection.value.ports[0]?.geometry.point).toEqual({ x: 65, y: 45 })
+      expect(visible.projection.value.activeHandles.find((handle) => handle.id === "moving:nw")?.point).toEqual({ x: 25, y: 30 })
+      expect(visible.projection.value.overlayAnchors.find((anchor) => anchor.id === "moving")?.rect.x).toBe(21)
+    } finally {
+      pointer.dispose()
+      visible.dispose()
+      controller.dispose()
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it("presents the same Core move candidate as live, ghost, or outline without changing scene geometry", async () => {
+    const frames: Array<FrameRequestCallback> = []
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { frames.push(callback); return frames.length })
+    const controller = useDiagramEngine({
+      nodes: [
+        { id: "move-a", kind: "node", x: 10, y: 20, width: 40, height: 30, portIds: ["move-a-port"] },
+        { id: "move-b", kind: "node", x: 110, y: 20, width: 40, height: 30, portIds: ["move-b-port"] },
+      ],
+      ports: [
+        { id: "move-a-port", kind: "port", nodeId: "move-a", x: 40, y: 15 },
+        { id: "move-b-port", kind: "port", nodeId: "move-b", x: 0, y: 15 },
+      ],
+      edges: [{ id: "move-edge", kind: "edge", source: { kind: "port", portId: "move-a-port" }, target: { kind: "port", portId: "move-b-port" } }],
+      selection: { ids: ["move-a"], primaryId: "move-a" },
+      viewport: { x: 0, y: 0, width: 240, height: 140, zoom: 1 },
+    })
+    const pointer = useDiagramPointerController(controller, { snap: { enabled: false }, toWorldPoint: (event) => ({ x: event.clientX, y: event.clientY }) })
+    const mode = shallowRef<"live" | "ghost" | "outline">("ghost")
+    const visible = useDiagramVisibleEntities(controller, { pointer, interactionPreviewMode: mode })
+    const committedNode = controller.engine.getGeometrySnapshot("move-a")!
+    const committedEdge = controller.engine.getGeometrySnapshot("move-edge")!
+    const committedScene = JSON.stringify(controller.engine.serialize())
+    const event = (x: number, y: number) => ({ pointerId: 45, clientX: x, clientY: y, shiftKey: false }) as PointerEvent
+    try {
+      const props = pointer.getSvgPointerProps()
+      props.onPointerdown(event(20, 30))
+      props.onPointermove(event(40, 50))
+      frames.shift()?.(0)
+      await nextTick()
+
+      expect(visible.projection.value.interactionPreviewMode).toBe("ghost")
+      expect(visible.projection.value.nodes.find((entity) => entity.id === "move-a")?.geometry).toBe(committedNode)
+      expect(visible.projection.value.edges.find((entity) => entity.id === "move-edge")?.geometry).toBe(committedEdge)
+      expect(visible.projection.value.interactionPreview.find((entity) => entity.id === "move-a")?.geometry.bounds).toMatchObject({ x: 30, y: 40 })
+      expect(visible.projection.value.interactionPreview.find((entity) => entity.id === "move-edge")?.geometry.path).not.toEqual(committedEdge.path)
+
+      mode.value = "outline"
+      await nextTick()
+      expect(visible.projection.value.interactionPreviewMode).toBe("outline")
+      expect(visible.projection.value.interactionPreview.map((entity) => entity.id)).toContain("move-a")
+      expect(visible.projection.value.interactionPreview.map((entity) => entity.id)).toContain("move-a-port")
+      expect(visible.projection.value.interactionPreview.map((entity) => entity.id)).toContain("move-edge")
+      expect(visible.projection.value.nodes.find((entity) => entity.id === "move-a")?.geometry).toBe(committedNode)
+
+      mode.value = "live"
+      await nextTick()
+      expect(visible.projection.value.nodes.find((entity) => entity.id === "move-a")?.geometry.bounds).toMatchObject({ x: 30, y: 40 })
+      pointer.cancel()
+      await nextTick()
+      expect(visible.projection.value.interactionPreview).toHaveLength(0)
+      expect(controller.engine.getGeometrySnapshot("move-a")).toBe(committedNode)
+      expect(JSON.stringify(controller.engine.serialize())).toBe(committedScene)
+      expect(controller.engine.getDiagnostics().undoDepth).toBe(0)
+
+      const depthBeforeCommit = controller.engine.getDiagnostics().undoDepth
+      props.onPointerdown(event(20, 30))
+      props.onPointermove(event(40, 50))
+      frames.shift()?.(0)
+      props.onPointerup(event(40, 50))
+      expect(controller.engine.getGeometrySnapshot("move-a")?.bounds).toMatchObject({ x: 30, y: 40 })
+      expect(controller.engine.getDiagnostics().undoDepth).toBe(depthBeforeCommit + 1)
+      controller.engine.dispatch({ type: "undo" })
+      expect(controller.engine.getGeometrySnapshot("move-a")?.bounds).toMatchObject({ x: 10, y: 20 })
+      controller.engine.dispatch({ type: "redo" })
+      expect(controller.engine.getGeometrySnapshot("move-a")?.bounds).toMatchObject({ x: 30, y: 40 })
+    } finally {
+      pointer.dispose()
+      visible.dispose()
+      controller.dispose()
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it("presents Core-resolved resize candidates in ghost and outline modes", async () => {
+    const frames: Array<FrameRequestCallback> = []
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { frames.push(callback); return frames.length })
+    const controller = useDiagramEngine({ nodes: [{ id: "resize-candidate", kind: "node", x: 10, y: 20, width: 40, height: 30 }], selection: { ids: ["resize-candidate"], primaryId: "resize-candidate" }, viewport: { x: 0, y: 0, width: 200, height: 120, zoom: 1 } })
+    const pointer = useDiagramPointerController(controller, { snap: { enabled: false }, toWorldPoint: (event) => ({ x: event.clientX, y: event.clientY }) })
+    const mode = shallowRef<"live" | "ghost" | "outline">("ghost")
+    const visible = useDiagramVisibleEntities(controller, { pointer, interactionPreviewMode: mode })
+    const committed = controller.engine.getGeometrySnapshot("resize-candidate")!
+    const event = (x: number, y: number) => ({ pointerId: 46, clientX: x, clientY: y, shiftKey: false }) as PointerEvent
+    try {
+      expect(pointer.beginResizeHandle("resize-candidate", "e", event(50, 35))).toBe(true)
+      pointer.getSvgPointerProps().onPointermove(event(65, 35))
+      frames.shift()?.(0)
+      await nextTick()
+      const candidate = visible.projection.value.interactionPreview.find((entity) => entity.id === "resize-candidate")
+      expect(candidate?.geometry.bounds.width).toBeGreaterThan(committed.bounds.width)
+      expect(visible.projection.value.nodes.find((entity) => entity.id === "resize-candidate")?.geometry).toBe(committed)
+      expect(visible.projection.value.interactionPreviewMode).toBe("ghost")
+      mode.value = "outline"
+      await nextTick()
+      expect(visible.projection.value.interactionPreview.find((entity) => entity.id === "resize-candidate")?.geometry.bounds).toEqual(candidate?.geometry.bounds)
+      expect(controller.engine.getGeometrySnapshot("resize-candidate")).toBe(committed)
+      pointer.cancel()
+      await nextTick()
+      expect(visible.projection.value.interactionPreview).toHaveLength(0)
+      expect(controller.engine.getGeometrySnapshot("resize-candidate")).toBe(committed)
+    } finally {
+      pointer.dispose(); visible.dispose(); controller.dispose(); vi.unstubAllGlobals()
+    }
   })
 
   it("projects selected orthogonal segment handles and bridges transient segment previews", () => {
@@ -991,10 +1217,10 @@ describe("diagram-vue", () => {
     await nextTick()
     expect(canRotate.value).toBe(true)
     expect(visible.projection.value.overlayAnchors.find((anchor) => anchor.id === "g")?.rect).toEqual({ x: 4, y: -16, width: 32, height: 52 })
-    expect(visible.projection.value.activeHandles.map((handle) => handle.point)).toEqual([
-      { x: 10, y: -10 }, { x: 20, y: -10 }, { x: 30, y: -10 }, { x: 30, y: 10 },
-      { x: 30, y: 30 }, { x: 20, y: 30 }, { x: 10, y: 30 }, { x: 10, y: 10 },
-    ])
+    expect(visible.projection.value.activeHandles.map((handle) => handle.point)).toEqual(expect.arrayContaining([
+      { x: 10, y: -10 }, { x: 30, y: -10 }, { x: 30, y: 10 }, { x: 30, y: 30 },
+      { x: 20, y: 30 }, { x: 10, y: 30 }, { x: 10, y: 10 },
+    ]))
     visible.dispose()
     controller.dispose()
   })
@@ -1012,8 +1238,8 @@ describe("diagram-vue", () => {
     app.mount(mount)
     controller.dispatch({ type: "rotateEntities", entries: [{ id: "group", rotation: 90 }] })
     await nextTick()
-    expect(controller.scene.value.entities.tablesById.get("table")).toMatchObject({ x: 15, y: -5, rotation: 90 })
-    expect(mount.querySelector('[data-diagram-id="table"] > g')?.getAttribute("transform")).toBe("rotate(90 25 0)")
+    expect(controller.scene.value.entities.tablesById.get("table")).toMatchObject({ x: 0, y: 0 })
+    expect(mount.querySelector('[data-diagram-id="table"]')?.getAttribute("transform")).toBe("matrix(0 1 -1 0 30 -10)")
     app.unmount()
     mount.remove()
     controller.dispose()
@@ -1027,7 +1253,6 @@ describe("diagram-vue", () => {
     expect(visible.projection.value.activeHandles).toEqual([
       { id: "e1:source", ownerId: "e1", kind: "edge-endpoint", point: { x: 100, y: 30 } },
       { id: "e1:target", ownerId: "e1", kind: "edge-endpoint", point: { x: 400, y: 30 } },
-      { id: "e1:segment:0", ownerId: "e1", kind: "edge-segment", segmentIndex: 0, point: { x: 250, y: 30 } },
     ])
   })
 
@@ -1056,7 +1281,7 @@ describe("diagram-vue", () => {
 
     expect(visible.projection.value.edges.map((entity) => entity.id)).toContain("e1")
     expect(visible.projection.value.overlayAnchors.map((anchor) => anchor.id)).not.toContain("e1")
-    expect(visible.projection.value.activeHandles.map((handle) => handle.id)).toEqual(["e1:source", "e1:target", "e1:segment:0"])
+    expect(visible.projection.value.activeHandles.map((handle) => handle.id)).toEqual(["e1:source", "e1:target"])
   })
 
   it("projects a free straight edge selection frame aligned with its rotated geometry", () => {
@@ -1093,6 +1318,20 @@ describe("diagram-vue", () => {
     interaction.pointerUp({ id: 7, point: { x: 15, y: 20 } })
     expect(engine.getScene().entities.edgesById.get("e1")?.source).toEqual({ kind: "point", point: { x: 15, y: 20 } })
     expect(engine.canUndo()).toBe(true)
+  })
+
+  it("exposes endpoint reconnection through the Vue pointer controller", () => {
+    const controller = useDiagramEngine({
+      edges: [{ id: "reconnect", kind: "edge", source: { kind: "point", point: { x: 0, y: 0 } }, target: { kind: "point", point: { x: 100, y: 0 } } }],
+    })
+    const pointer = useDiagramPointerController(controller, { toWorldPoint: (event) => ({ x: event.clientX, y: event.clientY }) })
+    const event = { pointerId: 3, clientX: 100, clientY: 0 } as PointerEvent
+
+    expect(pointer.beginEdgeEndpointHandle("reconnect", "target", event)).toBe(true)
+    expect(pointer.state.value.tool).toBe("drag-edge-endpoint")
+
+    pointer.dispose()
+    controller.dispose()
   })
 
   it("keeps selection in the projection even when outside the viewport", () => {

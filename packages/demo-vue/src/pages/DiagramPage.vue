@@ -8,11 +8,14 @@ import {
   useDiagramSelection,
   useDiagramViewport,
   useDiagramVisibleEntities,
+  type DiagramInteractionPreviewMode,
   type DiagramRenderEntity,
 } from "@affino/diagram-vue"
 import { createCircularArc, createEntityGeometry, pathContourSvg, subtractRectFromCircle, trimAndJoinLines, trimCircleOutsideRect, trimLineByCrossing, trimSelectionByStroke, type DiagramClipboard, type DiagramGeometry, type DiagramPathContour, type DiagramPoint, type DiagramSceneInput, type DiagramShape, type DiagramSweepTrimResult } from "@affino/diagram-core"
 import { beginDiagramHandleInteraction } from "./diagramHandleInteractions"
+import { useDiagramCanvasGestures } from "./useDiagramCanvasGestures"
 import TextOrientationPoliciesDemo from "./TextOrientationPoliciesDemo.vue"
+import TransformOriginDemo from "./TransformOriginDemo.vue"
 
 const stageRef = ref<HTMLElement | null>(null)
 const clipboard = ref<DiagramClipboard | null>(null)
@@ -23,6 +26,7 @@ const joinShoulders = ref<DiagramPoint[]>([])
 const trimStroke = ref<DiagramPoint[]>([])
 const trimStrokeActive = ref(false)
 const geometryMessage = ref("")
+const interactionPreviewMode = ref<DiagramInteractionPreviewMode>("live")
 let nextGeometryId = 1
 let trimStrokePointerId: number | null = null
 let trimStrokeDocumentRevision: number | null = null
@@ -48,21 +52,28 @@ const generatedNodes = Array.from({ length: GENERATED_NODE_COUNT }, (_, index) =
     metadata: { label: `Bay ${index + 1}` },
   }
 })
+const previewFixtureNodes = [
+  { id: "preview-connected-a", kind: "node" as const, x: 500, y: 250, width: 94, height: 56, portIds: ["preview-connected-port-a"] },
+  { id: "preview-connected-b", kind: "node" as const, x: 700, y: 335, width: 94, height: 56, portIds: ["preview-connected-port-b"] },
+]
 
-const generatedPorts = generatedNodes.map((node, index) => ({
+const generatedPorts = [...generatedNodes.map((node, index) => ({
   id: `port-${index}`,
   kind: "port" as const,
   nodeId: node.id,
   x: 104,
   y: 29,
-}))
+})),
+  { id: "preview-connected-port-a", kind: "port" as const, nodeId: "preview-connected-a", x: 94, y: 28, direction: "east" as const },
+  { id: "preview-connected-port-b", kind: "port" as const, nodeId: "preview-connected-b", x: 0, y: 28, direction: "west" as const },
+]
 
-const generatedEdges = Array.from({ length: GENERATED_NODE_COUNT - 1 }, (_, index) => ({
+const generatedEdges = [...Array.from({ length: GENERATED_NODE_COUNT - 1 }, (_, index) => ({
   id: `edge-${index}`,
   kind: "edge" as const,
   source: { kind: "port" as const, portId: `port-${index}` },
   target: { kind: "port" as const, portId: `port-${index + 1}` },
-}))
+})), { id: "preview-connected-edge", kind: "edge" as const, source: { kind: "port" as const, portId: "preview-connected-port-a" }, target: { kind: "port" as const, portId: "preview-connected-port-b" } }]
 
 const generatedTexts = generatedNodes.map((node, index) => ({
   id: `label-${index}`,
@@ -74,7 +85,7 @@ const generatedTexts = generatedNodes.map((node, index) => ({
   height: 18,
 }))
 
-const generatedShapes = Array.from({ length: Math.ceil(GENERATED_NODE_COUNT / GRID_COLUMNS) }, (_, row) => ({
+const generatedShapes = [...Array.from({ length: Math.ceil(GENERATED_NODE_COUNT / GRID_COLUMNS) }, (_, row) => ({
   id: `bus-${row}`,
   kind: "shape" as const,
   shape: "rect",
@@ -82,28 +93,47 @@ const generatedShapes = Array.from({ length: Math.ceil(GENERATED_NODE_COUNT / GR
   y: 84 + row * 125,
   width: GRID_COLUMNS * 150,
   height: 6,
-}))
+})),
+  { id: "preview-simple", kind: "shape" as const, shape: "rect", x: 500, y: 95, width: 92, height: 58 },
+  { id: "preview-path", kind: "shape" as const, shape: "line", x: 800, y: 150, width: 120, height: 90, points: [{ x: 0, y: 0 }, { x: 55, y: 62 }, { x: 120, y: 8 }] },
+  { id: "preview-nested-a", kind: "shape" as const, shape: "rect", x: 500, y: 435, width: 70, height: 46 },
+  { id: "preview-nested-b", kind: "shape" as const, shape: "rect", x: 600, y: 435, width: 70, height: 46 },
+  { id: "preview-nested-c", kind: "shape" as const, shape: "rect", x: 700, y: 435, width: 70, height: 46 },
+  { id: "preview-multi-a", kind: "shape" as const, shape: "ellipse", x: 500, y: 525, width: 54, height: 54 },
+  { id: "preview-multi-b", kind: "shape" as const, shape: "ellipse", x: 590, y: 535, width: 54, height: 54 },
+]
 
 const initialScene: DiagramSceneInput = {
-  nodes: generatedNodes,
   ports: generatedPorts,
   edges: generatedEdges,
+  nodes: [...generatedNodes, ...previewFixtureNodes],
   texts: generatedTexts,
   shapes: generatedShapes,
+  groups: [
+    { id: "preview-nested-inner", kind: "group", childIds: ["preview-nested-a", "preview-nested-b"] },
+    { id: "preview-nested-outer", kind: "group", childIds: ["preview-nested-inner", "preview-nested-c"], rotation: 0 },
+  ],
   viewport: { x: 0, y: 0, width: 980, height: 420, zoom: 1 },
 }
 
 const diagram = useDiagramEngine(initialScene)
 const selection = useDiagramSelection(diagram)
-const visible = useDiagramVisibleEntities(diagram, { overscan: 80 })
 const viewport = useDiagramViewport(diagram, { element: stageRef })
-const pointer = useDiagramPointerController(diagram, { toWorldPoint })
+const pointer = useDiagramPointerController(diagram, {
+  snap: { endpointMode: "reattach", ortho: false },
+  toWorldPoint,
+  setPointerCapture: (event) => (event.currentTarget as Element | null)?.setPointerCapture?.(event.pointerId),
+  releasePointerCapture: (event) => (event.currentTarget as Element | null)?.releasePointerCapture?.(event.pointerId),
+})
+const visible = useDiagramVisibleEntities(diagram, { overscan: 80, pointer, interactionPreviewMode })
 const corePointerProps = pointer.getSvgPointerProps()
+const canvasGestures = useDiagramCanvasGestures(stageRef, viewport, () => pointer.cancel())
 const pointerProps = {
-  onPointerdown: handleStagePointerDown,
-  onPointermove: handleStagePointerMove,
-  onPointerup: handleStagePointerUp,
-  onPointercancel: handleStagePointerCancel,
+  onPointerdown: (event: PointerEvent) => { if (!canvasGestures.pointerDown(event)) handleStagePointerDown(event) },
+  onPointermove: (event: PointerEvent) => { if (!canvasGestures.pointerMove(event)) handleStagePointerMove(event) },
+  onPointerup: (event: PointerEvent) => { if (!canvasGestures.pointerUp(event)) handleStagePointerUp(event) },
+  onPointercancel: (event: PointerEvent) => { if (!canvasGestures.pointerCancel(event)) handleStagePointerCancel() },
+  onLostpointercapture: (event: PointerEvent) => { if (!canvasGestures.pointerCancel(event)) handleStagePointerCancel() },
 }
 
 onMounted(() => window.addEventListener("keyup", handleStageKeyup))
@@ -139,6 +169,7 @@ const minimapViewport = computed(() => ({
   height: displayViewport.value.height,
 }))
 const marqueeRect = computed(() => (pointer.state.value.tool === "marquee" ? pointer.state.value.marquee : null))
+const connectorGhost = computed(() => pointer.state.value.edgeCreationPreview)
 const showSelectionOverlays = computed(() => pointer.state.value.tool !== "drag-selection")
 const minimapNodes = computed(() => {
   const scene = diagram.scene.value
@@ -151,7 +182,7 @@ const minimapNodes = computed(() => {
 const renderEntities = computed(() => {
   const projection = visible.projection.value
   const byId = new Map<string, DiagramRenderEntity>()
-  for (const entity of [...projection.edges, ...projection.shapes, ...projection.nodes, ...projection.ports, ...projection.texts]) {
+  for (const entity of [...projection.edges, ...projection.shapes, ...projection.nodes, ...projection.ports, ...projection.texts, ...projection.tables]) {
     byId.set(entity.id, entity)
   }
   return projection.ids.map((id) => byId.get(id)).filter((entity): entity is DiagramRenderEntity => entity !== undefined)
@@ -227,6 +258,10 @@ function startGeometryMode(mode: typeof geometryMode.value): void {
 }
 
 function handleStagePointerDown(event: PointerEvent): void {
+  if (pointer.state.value.tool === "connect-edge" && !pointer.state.value.edgeCreationPreview) {
+    pointer.beginEdgeCreation(`connector-${nextGeometryId++}`, event, { strategy: "simple" })
+    return
+  }
   if (pointer.state.value.tool === "draw-bezier") {
     if (!pointer.state.value.bezierCreationPreview) pointer.beginBezierCreation(`bezier-${nextGeometryId++}`, event)
     else corePointerProps.onPointerdown(event)
@@ -406,8 +441,7 @@ function confirmGeometryOperation(): void {
 function pathData(contours: ReadonlyArray<DiagramPathContour>): string { return contours.map(pathContourSvg).join(" ") }
 
 function shapePreviewContours(entity: DiagramRenderEntity): ReadonlyArray<DiagramPathContour> {
-  const geometry = pointer.interaction.getPreviewGeometry(entity.id)
-  return geometry?.pathContours ?? entity.geometry.pathContours ?? []
+  return entity.geometry.pathContours ?? []
 }
 
 function addSampleShape(shape: "circle" | "rect" | "lines"): void {
@@ -445,7 +479,7 @@ function resizePreviewFor(id: string) {
 
 function rectPreviewProps(entity: DiagramRenderEntity): Readonly<Record<string, string | number | boolean | undefined>> {
   const props = { ...getSvgEntityProps(entity) }
-  const preview = resizePreviewFor(entity.id)
+  const preview = interactionPreviewMode.value === "live" ? resizePreviewFor(entity.id) : null
   return preview ? { ...props, ...preview } : props
 }
 
@@ -460,17 +494,8 @@ function beginResizeHandle(handleId: string, ownerId: string, event: PointerEven
 }
 
 function entityTransform(entity: DiagramRenderEntity): string | undefined {
-  const transforms: string[] = []
-  const delta = previewDelta.value
-  if (delta && entity.selected && pointer.state.value.tool !== "pan") {
-    transforms.push(`translate(${delta.x} ${delta.y})`)
-  }
-  const rotation = entityRotation(entity.id)
-  if (rotation) {
-    const bounds = entity.geometry.bounds
-    transforms.push(`rotate(${rotation} ${bounds.x + bounds.width / 2} ${bounds.y + bounds.height / 2})`)
-  }
-  return transforms.length ? transforms.join(" ") : undefined
+  const transform = getSvgEntityProps(entity).transform
+  return typeof transform === "string" ? transform : undefined
 }
 
 function entityRotation(id: string): number {
@@ -479,17 +504,80 @@ function entityRotation(id: string): number {
 }
 
 function portPreviewProps(entity: DiagramRenderEntity): Readonly<Record<string, string | number | boolean | undefined>> {
-  const geometry = pointer.interaction.getPreviewGeometry(entity.id)
+  const geometry = interactionPreviewMode.value === "live" ? pointer.interaction.getPreviewGeometry(entity.id) : null
   return getSvgEntityProps(geometry ? { ...entity, geometry } : entity)
 }
 
 function edgePreviewProps(entity: DiagramRenderEntity): Readonly<Record<string, string | number | boolean | undefined>> {
-  const geometry = pointer.interaction.getPreviewGeometry(entity.id)
+  const geometry = interactionPreviewMode.value === "live" ? pointer.interaction.getPreviewGeometry(entity.id) : null
   return getSvgEntityProps(geometry ? { ...entity, geometry } : entity)
+}
+
+function interactionPreviewProps(entity: DiagramRenderEntity): Readonly<Record<string, string | number | boolean | undefined>> {
+  const { "data-diagram-id": _id, "data-diagram-kind": _kind, "data-selected": _selected, ...props } = getSvgEntityProps(entity)
+  void _id
+  void _kind
+  void _selected
+  return { ...props, "data-interaction-preview": interactionPreviewMode.value, "data-drag-preview": interactionPreviewMode.value, "pointer-events": "none", "aria-hidden": true }
+}
+
+function isEllipse(entity: DiagramRenderEntity): boolean {
+  return diagram.scene.value.entities.shapesById.get(entity.id)?.shape === "ellipse"
+}
+
+function previewPoints(entity: DiagramRenderEntity): string {
+  return (entity.geometry.path ?? []).map((point) => `${point.x},${point.y}`).join(" ")
+}
+
+function isClosedPreviewPath(entity: DiagramRenderEntity): boolean {
+  return Boolean(entity.geometry.pathContours?.some((contour) => contour.closed))
+}
+
+function previewBounds(entity: DiagramRenderEntity) {
+  return entity.geometry.unrotatedBounds ?? entity.geometry.bounds
 }
 
 function focusEntity(id: string): void {
   selection.setSelection([id], id)
+}
+
+function selectDragPreviewFixture(fixture: "simple" | "connected" | "nested" | "multi" | "path"): void {
+  const selectionByFixture = {
+    simple: ["preview-simple"],
+    connected: ["preview-connected-a"],
+    nested: ["preview-nested-outer"],
+    multi: ["preview-multi-a", "preview-multi-b"],
+    path: ["preview-path"],
+  } as const
+  selection.setSelection([...selectionByFixture[fixture]], selectionByFixture[fixture][0]!)
+}
+
+function resetDragPreviewFixture(): void {
+  const original: Record<string, DiagramPoint> = {
+    "preview-simple": { x: 500, y: 95 },
+    "preview-connected-a": { x: 500, y: 250 },
+    "preview-connected-b": { x: 700, y: 335 },
+    "preview-nested-a": { x: 500, y: 435 },
+    "preview-nested-b": { x: 600, y: 435 },
+    "preview-nested-c": { x: 700, y: 435 },
+    "preview-multi-a": { x: 500, y: 525 },
+    "preview-multi-b": { x: 590, y: 535 },
+  }
+  const commands = Object.entries(original).flatMap(([id, point]) => {
+    const geometry = diagram.engine.getGeometrySnapshot(id)
+    if (!geometry) return []
+    const dx = point.x - geometry.bounds.x
+    const dy = point.y - geometry.bounds.y
+    return dx || dy ? [{ type: "moveEntities" as const, ids: [id], delta: { x: dx, y: dy } }] : []
+  })
+  if (commands.length) diagram.engine.dispatchBatch(commands)
+  selection.setSelection(["preview-simple"], "preview-simple")
+}
+
+function resetSelectedConnectorRoute(): void {
+  const id = selection.selection.value.primaryId
+  if (!id || !diagram.scene.value.entities.edgesById.has(id)) return
+  diagram.dispatch({ type: "updateEdgeRouting", id, routing: { mode: "auto", strategy: "simple", terminalLead: 0 } })
 }
 
 function nudgeSelected(delta: DiagramPoint): void {
@@ -559,6 +647,17 @@ function resizeSelected(): void {
 }
 
 function handleStageKeydown(event: KeyboardEvent): void {
+  if (event.key === "Escape" && pointer.state.value.active) {
+    event.preventDefault()
+    pointer.cancel()
+    return
+  }
+  if (pointer.state.value.tool === "connect-edge" && event.key === "Escape") {
+    event.preventDefault(); pointer.cancel(); return
+  }
+  if (pointer.state.value.tool === "connect-edge" && event.key === "Enter") {
+    event.preventDefault(); pointer.finishEdgePathCreation(); return
+  }
   if (pointer.state.value.tool === "draw-bezier" && event.key === "Escape") {
     event.preventDefault(); pointer.cancel(); return
   }
@@ -650,30 +749,6 @@ function zoomViewport(multiplier: number, anchor?: DiagramPoint): void {
   })
 }
 
-let wheelFrame: number | null = null
-let pendingWheelPan: DiagramPoint = { x: 0, y: 0 }
-
-function handleWheel(event: WheelEvent): void {
-  event.preventDefault()
-  if (event.ctrlKey || event.metaKey) {
-    zoomViewport(event.deltaY < 0 ? 1.08 : 0.92, toWorldPoint(event as unknown as PointerEvent))
-    return
-  }
-  pendingWheelPan = {
-    x: pendingWheelPan.x + event.deltaX / viewport.viewport.value.zoom,
-    y: pendingWheelPan.y + event.deltaY / viewport.viewport.value.zoom,
-  }
-  if (wheelFrame !== null) {
-    return
-  }
-  wheelFrame = requestAnimationFrame(() => {
-    wheelFrame = null
-    const delta = pendingWheelPan
-    pendingWheelPan = { x: 0, y: 0 }
-    panViewport(delta)
-  })
-}
-
 function centerViewport(point: DiagramPoint): void {
   const current = viewport.viewport.value
   viewport.setViewport({ x: point.x - current.width / 2, y: point.y - current.height / 2 })
@@ -705,13 +780,35 @@ function clamp(value: number, min: number, max: number): number {
       </header>
 
       <TextOrientationPoliciesDemo />
+      <TransformOriginDemo />
 
       <div class="diagram-toolbar" role="toolbar" aria-label="Diagram tools">
+        <RouterLink class="wide" to="/diagram/table">Table constructor</RouterLink>
+        <RouterLink class="wide" to="/diagram/connectors">Ports + Connector Workbench</RouterLink>
+        <RouterLink class="wide" to="/diagram/grid">Grid movement + step</RouterLink>
+        <RouterLink class="wide" to="/diagram/canvas">Free editing canvas</RouterLink>
         <button :class="{ active: tool === 'select' }" type="button" @click="pointer.setTool('select')">Select</button>
         <button :class="{ active: tool === 'pan' }" type="button" @click="pointer.setTool('pan')">Pan</button>
+        <button :class="{ active: tool === 'connect-edge' }" type="button" @click="pointer.setTool('connect-edge')">Connector</button>
+        <button v-if="tool === 'connect-edge' && connectorGhost" type="button" @click="pointer.finishEdgePathCreation()">Finish route</button>
+        <button v-if="tool === 'connect-edge' && connectorGhost" type="button" @click="pointer.cancel()">Cancel route</button>
         <button :class="{ active: tool === 'draw-bezier' }" type="button" @click="pointer.setTool('draw-bezier')">Pen</button>
         <button type="button" @click="diagram.dispatch({ type: 'undo' })">Undo</button>
         <button type="button" @click="diagram.dispatch({ type: 'redo' })">Redo</button>
+        <label class="wide diagram-preview-mode">Interaction preview
+          <select v-model="interactionPreviewMode" aria-label="Interaction preview mode" data-testid="drag-preview-mode">
+            <option value="live">Live</option>
+            <option value="ghost">Ghost</option>
+            <option value="outline">Outline</option>
+          </select>
+        </label>
+        <p class="wide geometry-help">Live renders candidate geometry in place. Ghost preserves committed objects and overlays Core candidates. Outline uses actual line, path, and connector geometry with simplified bounds for complex objects.</p>
+        <button type="button" data-testid="drag-fixture-simple" @click="selectDragPreviewFixture('simple')">Simple shape fixture</button>
+        <button type="button" data-testid="drag-fixture-connected" @click="selectDragPreviewFixture('connected')">Connected object fixture</button>
+        <button type="button" data-testid="drag-fixture-nested" @click="selectDragPreviewFixture('nested')">Nested group fixture</button>
+        <button type="button" data-testid="drag-fixture-multi" @click="selectDragPreviewFixture('multi')">Multi-selection fixture</button>
+        <button type="button" data-testid="drag-fixture-path" @click="selectDragPreviewFixture('path')">Path editing fixture</button>
+        <button class="wide" type="button" data-testid="drag-fixture-reset" @click="resetDragPreviewFixture">Reset drag fixtures</button>
         <button type="button" @click="deleteSelected">Delete</button>
         <button type="button" @click="duplicateSelected">Duplicate</button>
         <button type="button" @click="copySelection">Copy</button>
@@ -756,6 +853,7 @@ function clamp(value: number, min: number, max: number): number {
         <button type="button" @click="nudgeSelected({ x: 12, y: 0 })">→</button>
         <button class="wide" type="button" @click="snapSelectedToGrid">Snap grid</button>
         <button class="wide" type="button" @click="resizeSelected">Resize</button>
+        <button class="wide" type="button" @click="resetSelectedConnectorRoute">Reset connector route</button>
         <button class="wide" type="button" @click="rotateSelected(15)">Rotate 15</button>
         <button class="wide" type="button" @click="alignSelected('left')">Align left</button>
         <button class="wide" type="button" @click="alignSelected('top')">Align top</button>
@@ -792,7 +890,7 @@ function clamp(value: number, min: number, max: number): number {
 
     <div class="diagram-shell">
       <div ref="stageRef" class="diagram-stage">
-        <svg class="diagram-svg" :viewBox="viewBox" tabindex="0" v-bind="pointerProps" @keydown="handleStageKeydown" @wheel="handleWheel">
+        <svg class="diagram-svg" :viewBox="viewBox" tabindex="0" v-bind="pointerProps" @keydown="handleStageKeydown" @wheel="canvasGestures.wheel">
           <defs>
             <pattern id="diagram-grid" width="24" height="24" patternUnits="userSpaceOnUse">
               <path d="M 24 0 L 0 0 0 24" class="diagram-grid-line" />
@@ -810,6 +908,17 @@ function clamp(value: number, min: number, max: number): number {
               {{ diagram.scene.value.entities.textsById.get(entity.id)?.text }}
             </text>
           </template>
+          <g v-for="entity in visible.projection.value.interactionPreview" :key="'interaction-preview-' + entity.id" class="diagram-interaction-preview" :class="['diagram-interaction-preview--' + interactionPreviewMode, 'diagram-drag-preview', 'diagram-drag-preview--' + interactionPreviewMode]" aria-hidden="true" pointer-events="none">
+            <path v-if="entity.kind === 'shape' && entity.geometry.pathContours?.length" :class="['diagram-interaction-preview-shape', 'diagram-drag-preview-shape', ...(interactionPreviewMode === 'outline' ? ['diagram-interaction-preview-outline', 'diagram-drag-preview-outline'] : [])]" v-bind="interactionPreviewProps(entity)" :d="pathData(entity.geometry.pathContours)" :fill-rule="isClosedPreviewPath(entity) ? 'evenodd' : 'nonzero'" />
+            <polyline v-else-if="entity.kind === 'shape' && entity.geometry.path" :class="['diagram-interaction-preview-line', 'diagram-interaction-preview-edge', 'diagram-drag-preview-edge', ...(interactionPreviewMode === 'outline' ? ['diagram-interaction-preview-outline', 'diagram-drag-preview-outline'] : [])]" v-bind="interactionPreviewProps(entity)" :points="previewPoints(entity)" :transform="entityTransform(entity)" />
+            <ellipse v-else-if="entity.kind === 'shape' && isEllipse(entity)" :class="interactionPreviewMode === 'outline' ? 'diagram-interaction-preview-outline diagram-drag-preview-outline' : 'diagram-interaction-preview-shape diagram-drag-preview-shape'" v-bind="interactionPreviewProps(entity)" :cx="previewBounds(entity).x + previewBounds(entity).width / 2" :cy="previewBounds(entity).y + previewBounds(entity).height / 2" :rx="previewBounds(entity).width / 2" :ry="previewBounds(entity).height / 2" :transform="entityTransform(entity)" />
+            <rect v-else-if="entity.kind === 'shape' || entity.kind === 'node' || entity.kind === 'group' || entity.kind === 'table'" :class="interactionPreviewMode === 'outline' ? 'diagram-interaction-preview-outline diagram-drag-preview-outline' : 'diagram-interaction-preview-shape diagram-drag-preview-shape'" v-bind="interactionPreviewProps(entity)" :x="(entity.geometry.unrotatedBounds ?? entity.geometry.bounds).x" :y="(entity.geometry.unrotatedBounds ?? entity.geometry.bounds).y" :width="(entity.geometry.unrotatedBounds ?? entity.geometry.bounds).width" :height="(entity.geometry.unrotatedBounds ?? entity.geometry.bounds).height" :transform="entityTransform(entity)" />
+            <polyline v-else-if="entity.kind === 'edge'" :class="['diagram-interaction-preview-edge', 'diagram-drag-preview-edge', ...(interactionPreviewMode === 'outline' ? ['diagram-interaction-preview-outline', 'diagram-drag-preview-outline'] : [])]" v-bind="interactionPreviewProps(entity)" :points="previewPoints(entity)" />
+            <circle v-else-if="entity.kind === 'port' || entity.kind === 'junction'" :class="interactionPreviewMode === 'outline' ? 'diagram-interaction-preview-outline diagram-drag-preview-outline' : 'diagram-interaction-preview-shape diagram-drag-preview-shape'" v-bind="interactionPreviewProps(entity)" />
+            <rect v-else-if="entity.kind === 'text' && interactionPreviewMode === 'outline'" class="diagram-interaction-preview-outline diagram-drag-preview-outline" v-bind="interactionPreviewProps(entity)" :x="previewBounds(entity).x" :y="previewBounds(entity).y" :width="previewBounds(entity).width" :height="previewBounds(entity).height" :transform="entityTransform(entity)" />
+            <text v-else-if="entity.kind === 'text'" class="diagram-interaction-preview-shape diagram-drag-preview-shape" v-bind="interactionPreviewProps(entity)" :x="entity.geometry.bounds.x" :y="entity.geometry.bounds.y + 14" :transform="entityTransform(entity)">{{ diagram.scene.value.entities.textsById.get(entity.id)?.text }}</text>
+          </g>
+          <polyline v-if="connectorGhost" class="diagram-connector-ghost" :class="{ 'is-invalid': connectorGhost.diagnostics?.some((diagnostic) => diagnostic.code !== 'terminal-leads-overlap') }" :points="connectorGhost.path.map((point) => `${point.x},${point.y}`).join(' ')" aria-label="Connector route preview" />
           <path v-for="(contour, index) in geometryPreview" :key="`operation-preview-${index}`" class="diagram-operation-preview" :class="{ 'is-filled': geometryMode === 'subtract' }" :d="pathContourSvg(contour)" fill-rule="evenodd" />
           <path v-for="(contour, index) in trimStrokePreview" :key="`trim-stroke-preview-${index}`" class="diagram-operation-preview is-trim-removal" :d="pathContourSvg(contour)" />
           <DiagramBezierOverlay :pointer="pointer" :handles="visible.projection.value.activeHandles" :zoom="viewport.viewport.value.zoom" />
@@ -880,6 +989,15 @@ function clamp(value: number, min: number, max: number): number {
 
 .diagram-toolbar {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.diagram-preview-mode {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  color: #52645e;
+  font-size: 0.84rem;
 }
 
 .diagram-actions {
@@ -1032,6 +1150,36 @@ button.active {
   stroke-width: 3;
 }
 
+.diagram-drag-preview {
+  pointer-events: none;
+}
+
+.diagram-drag-preview--ghost {
+  opacity: 0.55;
+}
+
+.diagram-drag-preview--ghost .diagram-drag-preview-shape {
+  fill: #d4eee4;
+  stroke: #087b63;
+  stroke-width: 2;
+  stroke-dasharray: 7 4;
+}
+
+.diagram-drag-preview--ghost .diagram-drag-preview-edge {
+  fill: none;
+  stroke: #087b63;
+  stroke-width: 3;
+  stroke-dasharray: 8 5;
+}
+
+.diagram-drag-preview--outline .diagram-drag-preview-outline {
+  fill: rgba(8, 123, 99, 0.04);
+  stroke: #087b63;
+  stroke-width: 2;
+  stroke-dasharray: 6 4;
+  vector-effect: non-scaling-stroke;
+}
+
 .diagram-bus {
   fill: #c85d3c;
   stroke: #8d321e;
@@ -1072,6 +1220,20 @@ button.active {
   stroke-width: 3;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+.diagram-connector-ghost {
+  fill: none;
+  stroke: #10a37f;
+  stroke-width: 3;
+  stroke-dasharray: 8 5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+
+.diagram-connector-ghost.is-invalid {
+  stroke: #dc2626;
 }
 
 .diagram-edge.selected {

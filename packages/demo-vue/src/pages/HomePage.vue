@@ -24,9 +24,33 @@ const advancedFlows = [
   },
   {
     title: "Diagram",
-    description: "Headless scene state, viewport projection, pointer bridge, and SVG/DOM rendering.",
+    description: "A large generated scene, with focused routes for table editing, ports, grid movement, and free editing.",
     to: "/diagram",
-    label: "Diagram workspace",
+    label: "Diagram · full generation",
+  },
+  {
+    title: "Diagram table",
+    description: "Edit table cells, rows, columns, merges, alignment, and grid styling beside the canvas.",
+    to: "/diagram/table",
+    label: "Diagram · table constructor",
+  },
+  {
+    title: "Diagram connectors",
+    description: "Inspect host ports, route previews, endpoint edits, and connector cases.",
+    to: "/diagram/connectors",
+    label: "Diagram · ports",
+  },
+  {
+    title: "Diagram grid",
+    description: "Change grid spacing and test snapping while moving diagram objects.",
+    to: "/diagram/grid",
+    label: "Diagram · grid",
+  },
+  {
+    title: "Diagram canvas",
+    description: "Add and transform free objects, connect ports, group selections, and undo edits.",
+    to: "/diagram/canvas",
+    label: "Diagram · free canvas",
   },
   {
     title: "Menus",
