@@ -1,11 +1,11 @@
 import { createEntityGeometry, resolveDiagramTableLayout } from "../geometry.js"
 import type { DiagramGeometryResolutionCache, DiagramTableLayout } from "../geometry.js"
-import type { DiagramEntities, DiagramGeometry, DiagramId, DiagramTable, DiagramTextMeasurementProvider } from "../types.js"
+import type { DiagramContentOverrides, DiagramEntities, DiagramGeometry, DiagramId, DiagramTable, DiagramTextMeasurementProvider } from "../types.js"
 import type { GeometryCacheEntry } from "./model.js"
 
 export class DiagramGeometryService {
   private cache = new Map<DiagramId, GeometryCacheEntry>()
-  private tableLayoutCache = new Map<DiagramId, { table: DiagramTable; providers: Map<DiagramTextMeasurementProvider | null, { revision: string | number; layout: DiagramTableLayout }> }>()
+  private tableLayoutCache = new Map<DiagramId, { table: DiagramTable; providers: Map<DiagramTextMeasurementProvider | null, { revision: string | number; overrideKey: string; layout: DiagramTableLayout }> }>()
   private readCount = 0
   private tableLayoutReadCount = 0
 
@@ -15,9 +15,11 @@ export class DiagramGeometryService {
 
   getTableLayoutReadCount(): number { return this.tableLayoutReadCount }
 
-  getTableLayout(table: DiagramTable, provider?: DiagramTextMeasurementProvider): DiagramTableLayout {
+  getTableLayout(table: DiagramTable, provider?: DiagramTextMeasurementProvider, contentOverrides?: DiagramContentOverrides): DiagramTableLayout {
     const key = provider ?? null
     const revision = provider?.revision ?? 0
+    const tableOverrides = contentOverrides?.textByTableCellId?.get(table.id)
+    const overrideKey = JSON.stringify(table.cells?.flat().filter((cell) => cell.id && tableOverrides?.has(cell.id)).map((cell) => [cell.id, tableOverrides!.get(cell.id!)]))
     let entry = this.tableLayoutCache.get(table.id)
     if (entry && entry.table !== table && sameTableLayoutInputs(entry.table, table)) entry.table = table
     else if (!entry || entry.table !== table) {
@@ -26,13 +28,13 @@ export class DiagramGeometryService {
     }
     const providerLayouts = entry.providers
     const cached = providerLayouts?.get(key)
-    if (cached?.revision === revision) return cached.layout
-    const layout = freezeResolvedLayout(resolveDiagramTableLayout(table, { textMeasurementProvider: provider }))
+    if (cached?.revision === revision && cached.overrideKey === overrideKey) return cached.layout
+    const layout = freezeResolvedLayout(resolveDiagramTableLayout(table, { textMeasurementProvider: provider, contentOverrides }))
     if (!providerLayouts.has(key) && providerLayouts.size >= 4) {
       const oldest = providerLayouts.keys().next().value as DiagramTextMeasurementProvider | null | undefined
       if (oldest !== undefined) providerLayouts.delete(oldest)
     }
-    providerLayouts.set(key, { revision, layout })
+    providerLayouts.set(key, { revision, overrideKey, layout })
     this.tableLayoutReadCount += 1
     return layout
   }

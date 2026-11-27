@@ -1,7 +1,12 @@
-import type { DiagramAffineTransform, DiagramCardinalDirection, DiagramEdge, DiagramEdgeEndpoint, DiagramEntities, DiagramGeometry, DiagramGroup, DiagramId, DiagramMetadata, DiagramOrthogonalRouteOptions, DiagramOrthogonalRouteResult, DiagramPoint, DiagramPort, DiagramPortAnchor, DiagramRect, DiagramTable, DiagramTableCellPadding, DiagramTableCellPosition, DiagramTableCellStyle, DiagramText, DiagramTextMeasurementProvider, DiagramVisualStyle, TransformOrigin } from "./types.js"
+import type { DiagramAffineTransform, DiagramCardinalDirection, DiagramContentOverrides, DiagramEdge, DiagramEdgeEndpoint, DiagramEntities, DiagramGeometry, DiagramGroup, DiagramId, DiagramMetadata, DiagramOrthogonalRouteOptions, DiagramOrthogonalRouteResult, DiagramPoint, DiagramPort, DiagramPortAnchor, DiagramRect, DiagramTable, DiagramTableCellPadding, DiagramTableCellPosition, DiagramTableCellStyle, DiagramText, DiagramTextMeasurementProvider, DiagramVisualStyle, TransformOrigin } from "./types.js"
 import { flattenPathContour, pathContourBoundsPoints, transformPathContour, translatePathContour } from "./pathOperations.js"
 import { resolveDiagramStyle } from "./renderStyle.js"
 import { cloneDiagramMetadata } from "./metadata.js"
+
+/** Returns an explicit override (including an empty string), or the authoritative value when absent. */
+export function resolveDiagramTextContent(overrides: DiagramContentOverrides | undefined, entityId: DiagramId, authoritativeText: string): string {
+  return overrides?.textByEntityId?.has(entityId) ? overrides.textByEntityId.get(entityId)! : authoritativeText
+}
 
 export function rectIntersects(a: DiagramRect, b: DiagramRect): boolean {
   return a.x <= b.x + b.width && a.x + a.width >= b.x && a.y <= b.y + b.height && a.y + a.height >= b.y
@@ -65,7 +70,7 @@ export type DiagramTableLayout = Readonly<{
 }>
 
 /** Resolve all table track, cell, and content bounds in document units. Padding is clamped to avoid negative content geometry. */
-export type DiagramTableLayoutOptions = Readonly<{ textMeasurementProvider?: DiagramTextMeasurementProvider }>
+export type DiagramTableLayoutOptions = Readonly<{ textMeasurementProvider?: DiagramTextMeasurementProvider; contentOverrides?: DiagramContentOverrides }>
 
 export function resolveDiagramTableLayout(table: DiagramTable, options: DiagramTableLayoutOptions = {}): DiagramTableLayout {
   const columns = table.columnWidths ?? Array(table.columnCount).fill(table.width / table.columnCount) as number[]
@@ -112,7 +117,9 @@ export function resolveDiagramTableLayout(table: DiagramTable, options: DiagramT
     }
     const metadata = cellIds[row]?.[column]?.metadata
     const cell = cellIds[row]?.[column]
-    const text = cell?.text ?? table.defaultCell?.text ?? ""
+    const authoritativeText = cell?.text ?? table.defaultCell?.text ?? ""
+    const tableOverrides = options.contentOverrides?.textByTableCellId?.get(table.id)
+    const text = cell?.id && tableOverrides?.has(cell.id) ? tableOverrides.get(cell.id)! : authoritativeText
     const horizontalAlign = cell?.horizontalAlign ?? table.defaultCell?.horizontalAlign ?? "left"
     const verticalAlign = cell?.verticalAlign ?? table.defaultCell?.verticalAlign ?? "middle"
     const textLayout = layoutTableCellText(text, cellContentBounds[row]![column]!, cellStyles[row]![column]!, horizontalAlign, verticalAlign, options.textMeasurementProvider)
@@ -681,8 +688,8 @@ function findTrackIndex(coordinate: number, edges: ReadonlyArray<number>): numbe
   return Math.min(edges.length - 2, Math.max(0, low))
 }
 
-export function createEntityGeometry(id: DiagramId, entities: DiagramEntities, cache?: DiagramGeometryResolutionCache): DiagramGeometry | null {
-  const localGeometry = createEntityGeometryRaw(id, entities, cache)
+export function createEntityGeometry(id: DiagramId, entities: DiagramEntities, cache?: DiagramGeometryResolutionCache, contentOverrides?: DiagramContentOverrides): DiagramGeometry | null {
+  const localGeometry = createEntityGeometryRaw(id, entities, cache, contentOverrides)
   const parentTransform = resolveEntityParentTransform(id, entities, cache)
   const text = entities.textsById.get(id)
   const geometry = localGeometry && text && text.orientationPolicy && text.orientationPolicy !== "inherit"
@@ -882,7 +889,7 @@ function transformGeometryByMatrix(geometry: DiagramGeometry, matrix: DiagramAff
   }
 }
 
-function createEntityGeometryRaw(id: DiagramId, entities: DiagramEntities, cache?: DiagramGeometryResolutionCache): DiagramGeometry | null {
+function createEntityGeometryRaw(id: DiagramId, entities: DiagramEntities, cache?: DiagramGeometryResolutionCache, contentOverrides?: DiagramContentOverrides): DiagramGeometry | null {
   const node = entities.nodesById.get(id)
   if (node) {
     const bounds = { x: node.x, y: node.y, width: node.width, height: node.height }
@@ -914,7 +921,8 @@ function createEntityGeometryRaw(id: DiagramId, entities: DiagramEntities, cache
   }
   const text = entities.textsById.get(id)
   if (text) {
-    const width = text.width ?? Math.max(1, text.text.length) * (text.fontSize ?? 12) * 0.6
+    const displayedText = resolveDiagramTextContent(contentOverrides, id, text.text)
+    const width = text.width ?? Math.max(1, displayedText.length) * (text.fontSize ?? 12) * 0.6
     const height = text.height ?? (text.fontSize ?? 12) * 1.2
     const orientation = resolveTextGlyphOrientation(text.rotation ?? 0, text.flipX === true, text.flipY === true, text.orientationPolicy ?? "inherit")
     const bounds = { x: text.x, y: text.y, width, height }

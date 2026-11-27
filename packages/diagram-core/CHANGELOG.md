@@ -1,5 +1,12 @@
 # @affino/diagram-core
 
+## 0.36.0
+
+### Minor Changes
+
+- Added read-only Text and table Cell content presentation overrides, presented Text geometry, and cached headless Table layouts keyed by resolved content and measurement provider revision.
+- Added `DiagramContentOverrides`, `resolveDiagramTextContent()`, `getPresentedGeometrySnapshot()`, and `getPresentedTableLayout()`; overrides do not enter document state or history.
+
 ## 0.35.0
 
 ### Minor Changes

@@ -168,8 +168,19 @@ export class DiagramEngine {
     return table ? this.geometryService.getTableLayout(table, textMeasurementProvider) : null
   }
 
+  /** Resolve a table layout for a read-only presentation context. Override content never enters scene state or history. */
+  getPresentedTableLayout(id: DiagramId, options: import("./geometry.js").DiagramTableLayoutOptions = {}) {
+    const table = this.state.entities.tablesById.get(id)
+    return table ? this.geometryService.getTableLayout(table, options.textMeasurementProvider, options.contentOverrides) : null
+  }
+
   getGeometrySnapshot(id: DiagramId): DiagramGeometry | null {
     return this.getGeometry(id)
+  }
+
+  /** Resolve renderer geometry using alternative displayed Text content without changing authoritative geometry or caches. */
+  getPresentedGeometrySnapshot(id: DiagramId, contentOverrides: import("./types.js").DiagramContentOverrides): DiagramGeometry | null {
+    return createEntityGeometry(id, this.state.entities, undefined, contentOverrides)
   }
 
   getParentGroupId(id: DiagramId): DiagramId | null {

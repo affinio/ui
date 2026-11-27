@@ -24,6 +24,50 @@ const scene: DiagramSceneInput = {
 }
 
 describe("DiagramEngine", () => {
+  it("resolves independent content presentations without changing authoritative document state", () => {
+    const engine = createDiagramEngine({
+      texts: [{ id: "label", kind: "text", x: 0, y: 0, text: "Base" }],
+      tables: [{ id: "grid", kind: "table", x: 0, y: 0, width: 120, height: 30, rowCount: 1, columnCount: 2, columnWidths: [60, 60], rowHeights: [30], cells: [[{ id: "anchor", text: "Cell" }, { id: "covered", text: "Covered" }]], merges: [{ anchorCellId: "anchor", rowSpan: 1, columnSpan: 2 }] }],
+    })
+    engine.dispatch({ type: "editText", id: "label", text: "Edited then undone" })
+    engine.undo()
+    const serialized = JSON.stringify(engine.serialize())
+    const documentRevision = engine.getDocumentRevision()
+    const undoAvailable = engine.canUndo()
+    const redoAvailable = engine.canRedo()
+    let notifications = 0
+    const subscription = engine.subscribe(() => { notifications += 1 })
+    notifications = 0
+    const previewA = { textByEntityId: new Map([["label", "Alternative with a much longer label"]]), textByTableCellId: new Map([["grid", new Map([["anchor", "Preview cell content that wraps"]])]]) }
+    const previewB = { textByEntityId: new Map([["label", ""]]), textByTableCellId: new Map([["grid", new Map([["covered", "Ignored covered content"]])]]) }
+    expect(engine.getPresentedGeometrySnapshot("label", previewA)?.bounds.width).toBeGreaterThan(engine.getGeometrySnapshot("label")!.bounds.width)
+    const layoutA = engine.getPresentedTableLayout("grid", { contentOverrides: previewA })!
+    expect(layoutA.visibleCells).toHaveLength(1)
+    expect(layoutA.visibleCells[0]?.text).toBe("Preview cell content that wraps")
+    expect(layoutA.visibleCells[0]?.coveredCellIds).toContain("covered")
+    expect(layoutA.bounds).toEqual(engine.getTableLayout("grid")?.bounds)
+    expect(layoutA.visibleCells[0]?.style).toEqual(engine.getTableLayout("grid")?.visibleCells[0]?.style)
+    const mutableOverrides = new Map([["anchor", "first"]])
+    const cachedFirst = engine.getPresentedTableLayout("grid", { contentOverrides: { textByTableCellId: new Map([["grid", mutableOverrides]]) } })
+    mutableOverrides.set("anchor", "second")
+    const cachedSecond = engine.getPresentedTableLayout("grid", { contentOverrides: { textByTableCellId: new Map([["grid", mutableOverrides]]) } })
+    expect(cachedSecond).not.toBe(cachedFirst)
+    expect(cachedSecond?.visibleCells[0]?.text).toBe("second")
+    expect(engine.getPresentedTableLayout("grid", { contentOverrides: previewB })?.visibleCells[0]?.text).toBe("Cell")
+    expect(engine.getPresentedGeometrySnapshot("label", previewB)?.bounds.width).toBeGreaterThan(0)
+    expect(engine.getPresentedGeometrySnapshot("label", { textByEntityId: new Map([["unknown", "ignored"]]) })?.bounds).toEqual(engine.getGeometrySnapshot("label")?.bounds)
+    expect(engine.getPresentedTableLayout("grid", { contentOverrides: { textByTableCellId: new Map([["grid", new Map([["missing", "ignored"]])]]) } })?.visibleCells[0]?.text).toBe("Cell")
+    expect(JSON.stringify(engine.serialize())).toBe(serialized)
+    expect(engine.getDocumentRevision()).toBe(documentRevision)
+    expect(engine.canRedo()).toBe(redoAvailable)
+    expect(engine.canUndo()).toBe(undoAvailable)
+    expect(notifications).toBe(0)
+    subscription.unsubscribe()
+    const unmerged = createDiagramEngine({ tables: [{ id: "logical", kind: "table", x: 0, y: 0, width: 20, height: 10, rowCount: 1, columnCount: 2, cells: [[{ id: "first", text: "A" }, { id: "second", text: "B" }]], merges: [{ anchorCellId: "first", rowSpan: 1, columnSpan: 2 }] }] })
+    unmerged.dispatch({ type: "unmergeTableCell", id: "logical", row: 0, column: 0 })
+    expect(unmerged.getPresentedTableLayout("logical", { contentOverrides: { textByTableCellId: new Map([["logical", new Map([["second", "Now active"]])]]) } })?.visibleCells[1]?.text).toBe("Now active")
+  })
+
   it("resolves transform origins and preserves geometry when changing a rotated object's pivot", () => {
     const bounds = { x: -20, y: 10, width: 40, height: 20 }
     expect(resolveTransformOrigin(bounds, { mode: "relative", x: 0, y: 0 })).toEqual({ x: -20, y: 10 })

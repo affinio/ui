@@ -1,6 +1,6 @@
 import { getCurrentScope, onScopeDispose, shallowRef, watch } from "vue"
 import type { ShallowRef } from "vue"
-import { createEntityGeometry, type DiagramId, type DiagramRect, type DiagramViewport } from "@affino/diagram-core"
+import { createEntityGeometry, type DiagramContentOverrides, type DiagramId, type DiagramRect, type DiagramViewport } from "@affino/diagram-core"
 import type { DiagramEngineController } from "./useDiagramEngine.js"
 
 export type DiagramTextEditorOverlay = Readonly<{
@@ -21,6 +21,8 @@ export type DiagramTextEditorController = Readonly<{
 
 export type DiagramTextEditorOptions = Readonly<{
   viewport?: Readonly<{ value: DiagramViewport }>
+  /** Overrides are read-only; an overridden entity cannot be opened in the authoritative inline editor. */
+  contentOverrides?: Readonly<{ value: DiagramContentOverrides | undefined }>
 }>
 
 export function useDiagramTextEditor(controller: DiagramEngineController, options: DiagramTextEditorOptions = {}): DiagramTextEditorController {
@@ -57,6 +59,7 @@ export function useDiagramTextEditor(controller: DiagramEngineController, option
   const stopViewportWatch = options.viewport ? watch(() => options.viewport?.value, refreshActive) : null
 
   const beginTextEdit = (id: DiagramId): boolean => {
+    if (options.contentOverrides?.value?.textByEntityId?.has(id)) return false
     const overlay = buildOverlay(id)
     if (!overlay) {
       return false

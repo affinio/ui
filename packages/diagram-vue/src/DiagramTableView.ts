@@ -1,6 +1,6 @@
 import { computed, defineComponent, h, nextTick, onBeforeUnmount, ref, watch } from "vue"
 import type { PropType, VNodeChild } from "vue"
-import type { DiagramTable, DiagramTableCell, DiagramTableCellPosition, DiagramTableHorizontalAlignment, DiagramTableStyle, DiagramTableVerticalAlignment, DiagramTextMeasurementProvider } from "@affino/diagram-core"
+import type { DiagramContentOverrides, DiagramTable, DiagramTableCell, DiagramTableCellPosition, DiagramTableHorizontalAlignment, DiagramTableStyle, DiagramTableVerticalAlignment, DiagramTextMeasurementProvider } from "@affino/diagram-core"
 import { resolveDiagramTableLayout, resolveTransformOrigin } from "@affino/diagram-core"
 import type { DiagramEngineController } from "./useDiagramEngine.js"
 import type { DiagramPointerController } from "./useDiagramPointerController.js"
@@ -28,6 +28,8 @@ export const DiagramTableView = defineComponent({
     rangeSelection: { type: Object as PropType<Readonly<{ anchor: DiagramTableCellPosition; active: DiagramTableCellPosition }> | null>, default: undefined },
     /** Optional text metrics. Browser Canvas metrics are used when available. */
     textMeasurementProvider: { type: Object as PropType<DiagramTextMeasurementProvider>, default: undefined },
+    /** Read-only displayed cell content. Cells with an active override cannot be edited until the override is removed. */
+    contentOverrides: { type: Object as PropType<DiagramContentOverrides>, default: undefined },
     id: { type: String, required: true },
   },
   emits: { "update:activeCell": (_cell: DiagramTableCellPosition) => true, "update:rangeSelection": (_range: Readonly<{ anchor: DiagramTableCellPosition; active: DiagramTableCellPosition }>) => true },
@@ -44,8 +46,8 @@ export const DiagramTableView = defineComponent({
     const layoutFor = (table: DiagramTable) => {
       textProviderRevision.value
       return props.controller.scene.value.entities.tablesById.get(table.id) === table
-        ? props.controller.engine.getTableLayout(table.id, textProvider) ?? resolveDiagramTableLayout(table, { textMeasurementProvider: textProvider })
-        : resolveDiagramTableLayout(table, { textMeasurementProvider: textProvider })
+        ? props.controller.engine.getPresentedTableLayout(table.id, { textMeasurementProvider: textProvider, contentOverrides: props.contentOverrides }) ?? resolveDiagramTableLayout(table, { textMeasurementProvider: textProvider, contentOverrides: props.contentOverrides })
+        : resolveDiagramTableLayout(table, { textMeasurementProvider: textProvider, contentOverrides: props.contentOverrides })
     }
     const selected = computed(() => props.controller.scene.value.selection.ids.includes(props.id))
     const parentTransform = computed(() => {
@@ -169,6 +171,8 @@ export const DiagramTableView = defineComponent({
     const cancelEdit = () => { const edit = editing.value; editing.value = null; if (edit) focusCell(edit.row, edit.column) }
     const beginEdit = (table: DiagramTable, row: number, column: number, initialText?: string) => {
       const target = layoutFor(table).cellAnchors[row]![column]!
+      const anchorCellId = table.cells?.[target.row]?.[target.column]?.id
+      if (anchorCellId && props.contentOverrides?.textByTableCellId?.get(table.id)?.has(anchorCellId)) return
       setActiveCell(target, table)
       editing.value = { ...target, text: initialText ?? currentCell(table, target.row, target.column).text }
     }

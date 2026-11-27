@@ -1,10 +1,24 @@
 # @affino/diagram-vue
 
-Nested retained groups are rendered from Core's `DiagramGeometry.parentTransform`. Flat renderers should apply the provided matrix once; do not reconstruct group transforms from the serialized group list.
+## Read-only content presentation
+
+Use `contentOverrides` on `useDiagramVisibleEntities()` and `DiagramTableView` to render strings while retaining one authoritative Diagram document:
+
+```ts
+const overrides = computed(() => preview.value ? {
+  textByEntityId: new Map([["label", "Preview label"]]),
+  textByTableCellId: new Map([["schedule", new Map([["schedule:cell:0:0", "Preview cell"]])]]),
+} : undefined)
+const visible = useDiagramVisibleEntities(diagram, { contentOverrides: overrides })
+// SVG Text renderers consume entity.displayText; geometry is Core-resolved.
+// Pass the same overrides to DiagramTableView for measured, wrapped Cell content.
+```
+
+`displayText` is presentation data. Text editor composables can receive `contentOverrides` and refuse inline editing of overridden values; `DiagramTableView` likewise disables inline editing for an overridden active logical Cell. Remove the override before editing authoritative content. Text rendering remains consumer-owned (SVG/DOM); table layout and wrapping remain Core-owned. See the Core README for stable Cell ID, merged-cell, cache and typography details.
+
+Nested retained groups are rendered from Core's `DiagramGeometry.parentTransform`. Flat renderers should apply the provided matrix once; do not reconstruct group transforms from the serialized group list. Transformable Core geometry exposes its resolved `transformOrigin` in document coordinates; `getSvgEntityProps`, `getDomEntityStyle`, `svgTransform`, and the native table renderer consume that pivot.
 
 Vue adapter for `@affino/diagram-core`. The package owns Vue refs, lifecycle cleanup, DOM pointer bridging, viewport resize bridging, and render projections. Diagram rules stay in core.
-
-Transformable Core geometry exposes its resolved `transformOrigin` in document coordinates. `getSvgEntityProps`, `getDomEntityStyle`, `svgTransform`, and the native table renderer consume that pivot; adapters should use the Core geometry instead of deriving an origin from the transformed bounding box. Core currently has no nested group transform matrices, so nested group pivots are not supported.
 
 ## Install
 

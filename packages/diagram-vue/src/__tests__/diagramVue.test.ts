@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 import { computed, createApp, effectScope, h, nextTick, shallowRef } from "vue"
-import { createCircularArc, createDiagramEngine, resolveDiagramTableLayout, type DiagramSceneInput } from "@affino/diagram-core"
+import { createCircularArc, createDiagramEngine, resolveDiagramTableLayout, type DiagramContentOverrides, type DiagramSceneInput } from "@affino/diagram-core"
 import { createDiagramInteractionController } from "@affino/diagram-core"
 import { DiagramBezierOverlay, DiagramTableView, getDomEntityStyle, getSvgConnectorRenderProps, getSvgEntityProps, getSvgJunctionRenderProps, getSvgPortCreationPreviewProps, svgTransform, useDiagramConnectorRendering, useDiagramEngine, useDiagramPointerController, useDiagramSelection, useDiagramTable, useDiagramTextEditor, useDiagramViewport, useDiagramVisibleEntities } from ".."
 import { beginDiagramHandleInteraction } from "../../../demo-vue/src/pages/diagramHandleInteractions"
@@ -27,6 +27,30 @@ const scene: DiagramSceneInput = {
 }
 
 describe("diagram-vue", () => {
+  it("projects reactive display-only Text overrides and prevents authoritative inline editing", async () => {
+    const controller = useDiagramEngine({ texts: [{ id: "presented", kind: "text", x: 0, y: 0, text: "Authoritative" }] })
+    const overrides = shallowRef<DiagramContentOverrides | undefined>({ textByEntityId: new Map([["presented", "Preview"]]) })
+    const visible = useDiagramVisibleEntities(controller, { contentOverrides: overrides })
+    const alternate = useDiagramVisibleEntities(controller, { contentOverrides: { textByEntityId: new Map([["presented", "Another context"]]) } })
+    alternate.refreshVisible()
+    expect(visible.projection.value.texts[0]?.displayText).toBe("Preview")
+    expect(alternate.projection.value.texts[0]?.displayText).toBe("Another context")
+    const editor = useDiagramTextEditor(controller, { contentOverrides: overrides })
+    expect(editor.beginTextEdit("presented")).toBe(false)
+    overrides.value = { textByEntityId: new Map([["presented", ""]]) }
+    await nextTick()
+    expect(visible.projection.value.texts[0]?.displayText).toBe("")
+    expect(alternate.projection.value.texts[0]?.displayText).toBe("Another context")
+    overrides.value = undefined
+    await nextTick()
+    expect(visible.projection.value.texts[0]?.displayText).toBe("Authoritative")
+    expect(controller.scene.value.entities.textsById.get("presented")?.text).toBe("Authoritative")
+    editor.dispose()
+    alternate.dispose()
+    visible.dispose()
+    controller.dispose()
+  })
+
   it("uses the Core-resolved transform origin for SVG and DOM rendering", () => {
     const controller = useDiagramEngine({ shapes: [{ id: "pivot", kind: "shape", shape: "rect", x: 10, y: 20, width: 20, height: 10, rotation: 90, transformOrigin: { mode: "relative", x: 0, y: 0.5 } }] })
     const geometry = controller.engine.getGeometrySnapshot("pivot")!

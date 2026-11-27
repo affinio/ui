@@ -1,4 +1,4 @@
-import type { DiagramConnectorBridge, DiagramEntityKind, DiagramGeometry, DiagramId, DiagramJunctionRenderGeometry, DiagramPoint, DiagramRect, DiagramResizeHandle, DiagramResolvedStyle } from "@affino/diagram-core"
+import type { DiagramConnectorBridge, DiagramContentOverrides, DiagramEntityKind, DiagramGeometry, DiagramId, DiagramJunctionRenderGeometry, DiagramPoint, DiagramRect, DiagramResizeHandle, DiagramResolvedStyle } from "@affino/diagram-core"
 
 export type DiagramRenderLayer = "svg" | "dom"
 export type InteractionPreviewMode = "live" | "ghost" | "outline"
@@ -13,6 +13,8 @@ export type DiagramRenderEntity = Readonly<{
   geometry: DiagramGeometry
   selected: boolean
   style?: DiagramResolvedStyle
+  /** Display-only text resolved for this presentation; editing still targets authoritative scene text. */
+  displayText?: string
 }>
 
 export type DiagramHandle = Readonly<{

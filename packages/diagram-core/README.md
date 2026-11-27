@@ -43,6 +43,25 @@ engine.dispatch({ type: "updateEntities", updates: [{ id: "t1", orientationPolic
 
 `inherit` preserves rotation and both reflections. `keep-readable` removes glyph reflection, follows the transformed local baseline, then normalizes it into `(-90°, 90°]`; exact `-90°` maps to `+90°`. `keep-horizontal` removes glyph rotation and reflection in document coordinates. The policy is applied centrally in Core geometry, so bounds, hit testing, selection, and Vue rendering share the resolved orientation. The current engine stores object transforms as rotation and axis flips (group operations update child geometry); it does not represent non-uniform glyph scaling or shear. No PDF export adapter exists in this repository.
 
+### Non-mutating content presentation
+
+Pass generic display strings to headless resolvers without dispatching commands:
+
+```ts
+const contentOverrides = {
+  textByEntityId: new Map([["label", "Example data"]]),
+  textByTableCellId: new Map([["schedule", new Map([["schedule:cell:0:0", "Resolved cell"]])]]),
+}
+const textGeometry = engine.getPresentedGeometrySnapshot("label", contentOverrides)
+const tableLayout = engine.getPresentedTableLayout("schedule", { contentOverrides })
+```
+
+`DiagramContentOverrides` is presentation input only. A present map entry overrides even when its value is `""`; missing entries use authoritative content. Cell IDs are scoped within a table by the outer map. Layout enumerates only active logical cells, so covered-cell overrides are inactive while merged and become eligible only if that stable ID later becomes an active anchor; Core never transfers an override between identities. Unknown, deleted, or covered IDs are ignored. Tables without explicit/stored stable Cell IDs cannot be addressed by an override.
+
+The normal `getGeometrySnapshot()` and table layout remain authoritative. Presented Text geometry uses the alternative string for fallback width calculation; explicit width/height and all transforms/orientation remain authoritative. `getPresentedGeometrySnapshot()` is the derived presentation geometry. Table presentation uses the same `resolveDiagramTableLayout()` pipeline and text measurement provider as normal layout; tracks, topology, borders, and dimensions do not change. Text override changes do not update document revision, serialization, history, or subscribers. Table layout cache keys include the current resolved override values for that table plus provider identity/revision; Map mutation is detected by value fingerprinting on the next read. The cache is bounded by the existing provider limit. Equal resolved strings can share a cached immutable layout.
+
+Core does not currently define line wrapping or clipping for graphical Text entities; its existing Text model has fixed/estimated bounds and renderers choose glyph layout. Presented Text uses that same geometry path. Table Cell wrapping, clipping, multiline layout, alignment, and measurement are resolved headlessly. Consumers should not assume browser/PDF typography equivalence without supplying equivalent metrics and verifying the target renderer.
+
 ### Transform origins
 
 Nodes, shapes, text, tables, and groups accept an optional `transformOrigin`. Omission keeps the existing center pivot. `relative` resolves against the untransformed object bounds; `absolute` is an offset in the object's local coordinate plane from its local bounds origin. Both accept finite coordinates outside the bounds. Read the configured origin with `getTransformOrigin(id)`, the local offset with `resolveLocalTransformOrigin(id)`, and its document-space pivot with `resolveWorldTransformOrigin(id)`. The returned geometry also includes `transformOrigin` when a non-default pivot is needed by a renderer.

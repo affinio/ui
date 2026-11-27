@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, ref } from "vue"
-import { deserializeDiagramDocument, type DiagramDocument, type DiagramPoint, type DiagramSceneInput, type DiagramTable, type DiagramTableBorderPreset } from "@affino/diagram-core"
-import { DiagramTableView, useDiagramEngine, useDiagramPointerController, useDiagramTable, useDiagramViewport, type DiagramInteractionPreviewMode } from "@affino/diagram-vue"
+import { deserializeDiagramDocument, type DiagramContentOverrides, type DiagramDocument, type DiagramPoint, type DiagramSceneInput, type DiagramTable, type DiagramTableBorderPreset } from "@affino/diagram-core"
+import { DiagramTableView, useDiagramEngine, useDiagramPointerController, useDiagramTable, useDiagramViewport, useDiagramVisibleEntities, type DiagramInteractionPreviewMode } from "@affino/diagram-vue"
+import { svgTransform } from "@affino/diagram-vue"
 import { useDiagramCanvasGestures } from "./useDiagramCanvasGestures"
 
 const tableId = "table-editor-fixture"
@@ -10,6 +11,7 @@ const activeCell = ref({ row: 0, column: 0 })
 const rangeSelection = ref({ anchor: { row: 0, column: 0 }, active: { row: 0, column: 0 } })
 const resizePolicy = ref<"fixed" | "flexible">("flexible")
 const interactionPreviewMode = ref<DiagramInteractionPreviewMode>("live")
+const presentationMode = ref<"design" | "preview">("design")
 const status = ref("Select a cell to edit its content or change the table structure.")
 const savedDocument = ref<DiagramDocument | null>(null)
 const initialScene: DiagramSceneInput = {
@@ -19,7 +21,7 @@ const initialScene: DiagramSceneInput = {
     id: tableId, kind: "table", x: 170, y: 160, width: 620, height: 266, rowCount: 5, columnCount: 4,
     header: { text: "Workspace inventory", height: 44, horizontalAlign: "left", verticalAlign: "middle" },
     rowHeights: [48, 52, 62, 48, 56], columnWidths: [140, 210, 140, 130],
-    style: { grid: { visible: true, stroke: { color: "#82928a", width: 1, style: "solid" } }, border: { visible: true, stroke: { color: "#43584f", width: 1.5, style: "solid" }, radius: 6 }, cellPadding: 10 },
+    style: { grid: { visible: true, stroke: { color: "#82928a", width: 1, style: "solid" } }, border: { visible: true, stroke: { color: "#43584f", width: 1.5, style: "solid" }, radius: 6 }, cellPadding: 10, overflow: "wrap" },
     cells: [
       [{ text: "ID", horizontalAlign: "left", style: { borders: { right: { visible: true, stroke: { color: "#b42318", width: 4, style: "solid" } } } } }, { text: "Name", horizontalAlign: "left", style: { borders: { left: { visible: true, stroke: { color: "#2563eb", width: 2, style: "dashed" } } } } }, { text: "Owner", horizontalAlign: "left" }, { text: "Status", horizontalAlign: "left" }],
       [{ text: "WS-101" }, { text: "North campus" }, { text: "Facilities" }, { text: "Active" }],
@@ -28,6 +30,7 @@ const initialScene: DiagramSceneInput = {
       [{ text: "WS-104" }, { text: "Archive building" }, { text: "Records" }, { text: "Planned" }],
     ],
   }],
+  texts: [{ id: "presentation-label", kind: "text", x: 190, y: 115, text: "Design label", width: 220, height: 24, fontSize: 16, orientationPolicy: "keep-readable" }],
 }
 const selectedFixture = ref<"basic" | "title-block" | "revision" | "transformed" | "stress">("basic")
 
@@ -78,10 +81,11 @@ function fixtureScene(name: typeof selectedFixture.value): DiagramSceneInput {
     return {
       viewport: initialScene.viewport,
       tables: [table],
+      texts: [{ id: "presentation-label", kind: "text", x: 610, y: 285, text: "Design label", width: 240, height: 26, fontSize: 16, orientationPolicy: "keep-readable" }],
       shapes: [{ id: "fixture-marker", kind: "shape", shape: "rect", x: 680, y: 220, width: 60, height: 34 }],
       groups: [
         { id: "fixture-parent", kind: "group", childIds: ["fixture-nested"], x: 0, y: 0, rotation: -8 },
-        { id: "fixture-nested", kind: "group", childIds: [tableId, "fixture-marker"], x: 0, y: 0, rotation: 18, flipX: true },
+        { id: "fixture-nested", kind: "group", childIds: [tableId, "fixture-marker", "presentation-label"], x: 0, y: 0, rotation: 18, flipX: true },
       ],
       selection: { ids: [tableId], primaryId: tableId },
     }
@@ -94,6 +98,22 @@ function fixtureScene(name: typeof selectedFixture.value): DiagramSceneInput {
 }
 
 const diagram = useDiagramEngine(initialScene)
+const presentationOverrides = computed<DiagramContentOverrides | undefined>(() => {
+  if (presentationMode.value !== "preview") return undefined
+  const currentTable = table.table.value
+  const activeCellId = currentTable?.cells?.[0]?.[0]?.id
+  return {
+    textByEntityId: new Map([["presentation-label", "Preview label — read only"]]),
+    ...(activeCellId ? { textByTableCellId: new Map([[tableId, new Map([[activeCellId, "Preview content with a longer value to demonstrate wrapping and clipping behavior"]])]]) } : {}),
+  }
+})
+const visible = useDiagramVisibleEntities(diagram, { contentOverrides: presentationOverrides })
+visible.refreshVisible()
+const presentationLabel = computed(() => visible.projection.value.texts.find((entity) => entity.id === "presentation-label"))
+const alternatePresentationOverrides: DiagramContentOverrides = { textByEntityId: new Map([["presentation-label", "Independent context B"]]) }
+const alternateVisible = useDiagramVisibleEntities(diagram, { contentOverrides: alternatePresentationOverrides })
+alternateVisible.refreshVisible()
+const alternateLabel = computed(() => alternateVisible.projection.value.texts.find((entity) => entity.id === "presentation-label"))
 const table = useDiagramTable(diagram, tableId)
 const viewport = useDiagramViewport(diagram, { element: stage })
 const pointer = useDiagramPointerController(diagram, { toWorldPoint })
@@ -211,13 +231,16 @@ function onPointercancel(event: PointerEvent): void { if (!handledGestureEvents.
           <button type="button" @click="pointer.setTool('select')">Select / move table</button><button type="button" @click="pointer.setTool('pan')">Pan canvas</button>
           <button type="button" @click="diagram.dispatch({ type: 'undo' })">Undo</button><button type="button" @click="diagram.dispatch({ type: 'redo' })">Redo</button>
           <button type="button" @click="saveDocument">Save document</button><button type="button" :disabled="!savedDocument" @click="restoreDocument">Restore document</button>
+          <button type="button" :aria-pressed="presentationMode === 'design'" @click="presentationMode = 'design'">Design</button><button type="button" :aria-pressed="presentationMode === 'preview'" @click="presentationMode = 'preview'">Preview</button>
           <button type="button" @click="rotateTable">Rotate table 90°</button><button type="button" @click="reflectTable">Reflect table</button><button type="button" @click="setCustomTablePivot">Custom pivot</button>
           <button type="button" @click="resetView">Reset view</button><output>{{ zoomLabel }}</output>
         </div>
         <div ref="stage" class="table-editor__stage">
           <svg :viewBox="viewBox" tabindex="0" aria-label="Editable table canvas" @pointerdown.capture="capturePointerdown" @pointermove.capture="capturePointermove" @pointerup.capture="capturePointerup" @pointercancel.capture="capturePointercancel" @pointerdown="onPointerdown" @pointermove="onPointermove" @pointerup="onPointerup" @pointercancel="onPointercancel" @lostpointercapture="onPointercancel" @wheel="gestures.wheel">
             <rect x="-2000" y="-2000" width="5000" height="5000" fill="#f6f7f4" pointer-events="none" />
-            <DiagramTableView :id="tableId" :controller="diagram" :pointer="pointer" :show-toolbar="false" :resize-policy="resizePolicy" :interaction-preview-mode="interactionPreviewMode" v-model:active-cell="activeCell" v-model:range-selection="rangeSelection" />
+            <text v-if="presentationLabel" data-presentation-label="true" :x="presentationLabel.geometry.unrotatedBounds?.x" :y="(presentationLabel.geometry.unrotatedBounds?.y ?? 0) + 18" :transform="svgTransform(presentationLabel.geometry.rotation ?? 0, presentationLabel.geometry.flipX === true, presentationLabel.geometry.flipY === true, presentationLabel.geometry.unrotatedBounds ?? presentationLabel.geometry.bounds, presentationLabel.geometry.localTransformOrigin ?? presentationLabel.geometry.transformOrigin, presentationLabel.geometry.parentTransform)" font-size="16">{{ presentationLabel.displayText }}</text>
+            <text v-if="presentationMode === 'preview' && alternateLabel" data-presentation-context="alternate" :x="alternateLabel.geometry.unrotatedBounds?.x" :y="(alternateLabel.geometry.unrotatedBounds?.y ?? 0) + 38" :transform="svgTransform(alternateLabel.geometry.rotation ?? 0, alternateLabel.geometry.flipX === true, alternateLabel.geometry.flipY === true, alternateLabel.geometry.unrotatedBounds ?? alternateLabel.geometry.bounds, alternateLabel.geometry.localTransformOrigin ?? alternateLabel.geometry.transformOrigin, alternateLabel.geometry.parentTransform)" font-size="13" fill="#52675d">{{ alternateLabel.displayText }}</text>
+            <DiagramTableView :id="tableId" :controller="diagram" :pointer="pointer" :show-toolbar="false" :resize-policy="resizePolicy" :interaction-preview-mode="interactionPreviewMode" :content-overrides="presentationOverrides" v-model:active-cell="activeCell" v-model:range-selection="rangeSelection" />
           </svg>
         </div>
       </section>
@@ -226,7 +249,7 @@ function onPointercancel(event: PointerEvent): void { if (!handledGestureEvents.
         <label>Table fixture <select aria-label="Table fixture" v-model="selectedFixture" @change="loadFixture(($event.target as HTMLSelectElement).value as typeof selectedFixture)"><option value="basic">Basic Table</option><option value="title-block">Engineering title block</option><option value="revision">Revision Table</option><option value="transformed">Nested transformed Table</option><option value="stress">Stress Table (25 × 12)</option></select></label>
         <button type="button" @click="loadFixture(selectedFixture)">Reset fixture</button>
         <label>Title <input :value="table.table.value?.header?.text" @change="setHeader(($event.target as HTMLInputElement).value)" /></label>
-        <label>Cell text <textarea :value="selectedCell" :aria-label="`Edit row ${activeCell.row + 1}, column ${activeCell.column + 1}`" @change="setCellText(($event.target as HTMLTextAreaElement).value)" /></label>
+        <label>Cell text <textarea :value="selectedCell" :disabled="presentationMode === 'preview'" :aria-label="`Edit row ${activeCell.row + 1}, column ${activeCell.column + 1}`" @change="setCellText(($event.target as HTMLTextAreaElement).value)" /></label>
         <div class="table-editor__actions"><button type="button" @click="selectActiveRow">Select active row</button><button type="button" @click="selectActiveColumn">Select active column</button><button type="button" @click="addRow">Add row</button><button type="button" @click="removeRow">Remove selected row</button><button type="button" @click="addColumn">Add column</button><button type="button" @click="removeColumn">Remove selected column</button><button type="button" @click="mergeSelection">Merge selected (keep anchor)</button><button type="button" @click="mergeRight">Merge right (reject conflicts)</button><button type="button" @click="unmerge">Unmerge selected</button><button type="button" @click="diagram.dispatch({ type: 'updateTableCellRange', id: tableId, startRow: rangeSelection.anchor.row, endRow: rangeSelection.active.row, startColumn: rangeSelection.anchor.column, endColumn: rangeSelection.active.column, cell: { style: undefined } })">Reset range appearance</button></div>
         <label>Track resize policy <select v-model="resizePolicy"><option value="flexible">Flexible total size</option><option value="fixed">Fixed total size</option></select></label>
         <label>Interaction preview <select v-model="interactionPreviewMode" aria-label="Table interaction preview mode"><option value="live">Live</option><option value="ghost">Ghost</option><option value="outline">Outline</option></select></label>

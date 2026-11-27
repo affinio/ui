@@ -43,6 +43,12 @@ export type DiagramTextMeasurementProvider = Readonly<{
   subscribe?: (listener: () => void) => (() => void)
 }>
 
+/** Read-only displayed text. Table cell IDs are scoped by table ID; only active logical anchors are resolved. */
+export type DiagramContentOverrides = Readonly<{
+  textByEntityId?: ReadonlyMap<DiagramId, string>
+  textByTableCellId?: ReadonlyMap<DiagramId, ReadonlyMap<DiagramId, string>>
+}>
+
 export type DiagramPathSegment = Readonly<{ kind: "line"; start: DiagramPoint; end: DiagramPoint }>
   | Readonly<{ kind: "arc"; center: DiagramPoint; radius: number; startAngle: number; sweepAngle: number }>
   | Readonly<{ kind: "cubic"; start: DiagramPoint; control1: DiagramPoint; control2: DiagramPoint; end: DiagramPoint }>

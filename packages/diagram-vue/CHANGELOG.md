@@ -1,5 +1,12 @@
 # @affino/diagram-vue
 
+## 0.33.0
+
+### Minor Changes
+
+- Added reactive `contentOverrides` to visible Text projections and `DiagramTableView`; Text renderers receive `displayText`, while overridden Text and Cell values cannot be edited as authoritative content.
+- Extended the Diagram Table Workbench with a Design / Preview presentation example.
+
 ## 0.32.0
 
 ### Minor Changes
