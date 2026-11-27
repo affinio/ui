@@ -2,28 +2,18 @@
 import { spawnSync } from "node:child_process"
 
 const steps = [
+  { label: "workspace-script-references", command: "pnpm", args: ["run", "quality:workspace:references"] },
+  { label: "workspace-internal-dependencies", command: "pnpm", args: ["run", "quality:deps:workspace-internal"] },
+  { label: "package-metadata", command: "pnpm", args: ["run", "quality:metadata:packages"] },
   { label: "lint", command: "pnpm", args: ["run", "lint"] },
   { label: "type-check", command: "pnpm", args: ["run", "type-check"] },
-  { label: "datagrid-core-build", command: "pnpm", args: ["--filter", "@affino/datagrid-core", "build"] },
-  { label: "datagrid-architecture", command: "pnpm", args: ["run", "quality:architecture:datagrid"] },
-  { label: "datagrid-perf-contracts", command: "pnpm", args: ["run", "quality:perf:datagrid"] },
-  { label: "datagrid-strict-contracts", command: "pnpm", args: ["run", "test:datagrid:strict-contracts"] },
-  { label: "datagrid-unit", command: "pnpm", args: ["run", "test:matrix:unit"] },
-  { label: "datagrid-integration", command: "pnpm", args: ["run", "test:matrix:integration"] },
-  { label: "vue-matrix", command: "pnpm", args: ["run", "test:vue-matrix"] },
+  { label: "build", command: "pnpm", args: ["run", "build"] },
+  { label: "unit", command: "pnpm", args: ["run", "test:unit"] },
+  { label: "public-esm-artifacts", command: "pnpm", args: ["run", "quality:components:esm"] },
+  { label: "visual-browser", command: "pnpm", args: ["run", "test:matrix:visual"] },
+  { label: "interaction-browser", command: "pnpm", args: ["run", "test:matrix:interaction"] },
+  { label: "benchmark-evidence", command: "pnpm", args: ["run", "bench:components:ci"] },
 ]
-
-const shouldSkipE2E = process.env.QUALITY_MAX_SKIP_E2E === "true"
-const shouldSkipBench = process.env.QUALITY_MAX_SKIP_BENCH === "true"
-
-if (!shouldSkipE2E) {
-  steps.push({ label: "e2e", command: "pnpm", args: ["run", "test:matrix:interaction"] })
-  steps.push({ label: "visual", command: "pnpm", args: ["run", "test:matrix:visual"] })
-}
-
-if (!shouldSkipBench) {
-  steps.push({ label: "bench-datagrid-regression", command: "pnpm", args: ["run", "bench:regression"] })
-}
 
 const results = []
 let failed = false
@@ -34,10 +24,7 @@ for (const step of steps) {
   const duration = Date.now() - start
   const ok = proc.status === 0
   results.push({ label: step.label, ok, duration })
-  if (!ok) {
-    failed = true
-    break
-  }
+  if (!ok) failed = true
 }
 
 const summary = results

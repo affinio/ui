@@ -1,5 +1,7 @@
 # Monorepo Audit (12 Dimensions)
 
+> Historical snapshot from 2026-02-07. CI jobs, package inventory, and quality scripts have since changed; use [the current workspace quality runbook](monorepo-scripts-runbook.md) for active validation commands.
+
 Date: `2026-02-07`  
 Repository: `affinio`  
 Scope: static repository audit (architecture, tooling, CI/CD, security, DX, process).  

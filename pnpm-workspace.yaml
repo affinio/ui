@@ -2,7 +2,6 @@ packages:
   - packages/*
   - demo-vue
   - demo-laravel
-  - docs-site
 
 overrides:
   vue: 3.4.38

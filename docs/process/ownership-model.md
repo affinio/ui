@@ -11,7 +11,7 @@ Ownership is enforced by `/.github/CODEOWNERS`.
 - Core packages: `packages/*-core`, `overlay-kernel`, `overlay-host`, utility packages.
 - Adapter packages: `packages/*-vue`, `packages/*-laravel`, `menu-react`, adapter facades.
 - Platform/process: `.github`, `scripts`, release and CI workflows.
-- Docs and demos: `docs`, `docs-site`, `demo-vue`, `demo-laravel`.
+- Docs and demos: `docs`, `demo-vue`, `demo-laravel`.
 
 ## Owner responsibilities
 

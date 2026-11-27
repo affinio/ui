@@ -15,11 +15,11 @@ A change is considered done only if all applicable criteria are met.
 - Unit/integration tests updated for changed behavior.
 - `pnpm run check` passes.
 - `pnpm run build` passes.
-- E2E/perf checks run when change affects user flows or hot paths.
+- Applicable browser/interaction and performance checks run when a change affects user flows or hot paths; see the current workspace runbook for active suites.
 
 ## Documentation
 
-- README/docs-site updated for API/behavior changes.
+- `docs/` and affected package READMEs updated for API/behavior changes.
 - Changelog/release notes updated for releasable packages.
 - Migration notes added for breaking/behavioral shifts.
 

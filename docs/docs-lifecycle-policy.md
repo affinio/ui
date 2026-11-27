@@ -54,7 +54,7 @@ A checklist or pipeline is a good archive candidate when at least one is true:
 
 When moving docs:
 
-1. update references in `docs/` and `docs-site/`
+1. update references in `docs/` and package READMEs
 2. avoid leaving duplicate copies in root `docs/`
 3. preserve historical content verbatim unless fixing links/formatting
 

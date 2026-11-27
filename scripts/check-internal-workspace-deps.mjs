@@ -51,6 +51,15 @@ function isWorkspaceSpec(spec) {
 }
 
 const packageJsonFiles = listPackageJsonFiles(ROOT)
+const workspacePackageNames = new Set()
+for (const filePath of packageJsonFiles) {
+  try {
+    const packageName = readJson(filePath)?.name
+    if (typeof packageName === "string") workspacePackageNames.add(packageName)
+  } catch {
+    // The main validation loop reports malformed manifests with their exact path.
+  }
+}
 
 const mismatches = []
 const peerInfo = []
@@ -80,6 +89,11 @@ for (const filePath of packageJsonFiles) {
     }
     for (const [depName, specifier] of Object.entries(deps)) {
       if (!isInternalPackage(depName)) {
+        continue
+      }
+      // Scoped @affino packages can also be published external dependencies;
+      // only packages present in this workspace require a workspace protocol.
+      if (!workspacePackageNames.has(depName)) {
         continue
       }
       if (isWorkspaceSpec(specifier)) {

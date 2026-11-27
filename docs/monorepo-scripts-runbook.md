@@ -1,289 +1,93 @@
-# Monorepo Scripts Runbook
+# Workspace Quality and Release Runbook
 
-This file is the operational index for root `package.json` scripts in the Affino monorepo.
+This document describes the scripts that exist in the current workspace. `package.json`, package manifests, and `.github/workflows/ci.yml` are the executable sources of truth.
 
-Goals:
+## CI jobs
 
-- show what scripts do
-- show which scripts are used in CI
-- show what to run locally before PR / release
-- reduce tribal knowledge and manual script hunting
+### `verify`
 
-Sources of truth:
+CI validates root script references and shared package policies, then runs lint, recursive type checks and builds, ESM artifact checks, and component benchmark evidence.
 
-- root scripts: `/Users/anton/Projects/affinio/package.json`
-- CI usage: `/Users/anton/Projects/affinio/.github/workflows/ci.yml`
+### `test-matrix`
 
-## Conventions
+- `unit`: recursive package tests (`pnpm run test:unit`).
+- `visual`: Storybook visual tests and the Treeview browser smoke.
+- `interaction`: component, Treeview, and Diagram browser acceptance (`pnpm run test:matrix:interaction`).
 
-- `test:*` = tests and test bundles
-- `quality:*` = deterministic gates / policy checks
-- `bench:*` = benchmarks (some are gating, some are exploratory)
-- `fix:*` = safe policy auto-fixers
-- `changeset*` = release metadata workflow
+The interaction suite uses real Chromium interactions from `scripts/smoke-components-demo.mjs`, `scripts/smoke-treeview-demo.mjs`, `scripts/smoke-diagram-connectors.mjs`, and `scripts/accept-diagram-table.mjs`. The `quality:workspace:references` check ensures declared root scripts do not point at missing local files, tests, root scripts, or workspace packages.
 
-## CI Map (Current)
+There is no DataGrid workspace package or DataGrid release workflow in this repository. DataGrid-only scripts were intentionally removed in commit `d425a0e` when that tooling left this UI workspace. Root references that survived that removal were stale and have been removed; they are not replaced by no-op checks.
 
-### `verify` job
+## Root commands
 
-- `pnpm install --frozen-lockfile`
-- `pnpm run lint`
-- package type-checks (custom filtered recursive command in CI job)
-- package builds (custom filtered recursive command in CI job)
+- `pnpm run lint`, `type-check`, `build`, `test`: recursive workspace operations.
+- `pnpm run check`: lint, type-check, and tests.
+- `pnpm run test:matrix:unit`: alias for all package tests.
+- `pnpm run test:matrix:visual`: Storybook visual suite.
+- `pnpm run test:matrix:interaction`: actual browser smoke and acceptance checks described above.
+- `pnpm run test:diagram:browser`: connector/hierarchy and Table browser acceptance.
+- `pnpm run quality:workspace:references`: verifies root script references.
+- `pnpm run quality:deps:workspace-internal`: checks workspace dependency protocol usage.
+- `pnpm run quality:metadata:packages`: checks package metadata.
+- `pnpm run quality:components:esm`: checks built component ESM specifiers.
+- `pnpm run bench:components:ci`: runs Treeview, Dialog, and Diagram benchmark evidence.
+- `pnpm run quality:max`: comprehensive workspace gate: script references, shared policies, lint, type-check, build, tests, ESM validation, visual tests, browser interactions, benchmark evidence, and docs build.
 
-Notes:
+## Script inventory and disposition
 
-- CI intentionally excludes `@affino/datagrid-core` and `@affino/datagrid-vue` from generic recursive type-check/build in this job because they are covered by stricter datagrid-specific jobs/gates.
+| Script family | Intended responsibility | Current implementation and references | Status | Action |
+| --- | --- | --- | --- | --- |
+| `lint`, `type-check`, `build`, `test` | Workspace checks | Recursive pnpm commands; used by CI and `quality:max` | ACTIVE | Retain |
+| `quality:workspace:references` | Prevent stale root commands | `scripts/check-workspace-quality-references.mjs`; used by CI and `quality:max` | ACTIVE | Retain and extend with root-script changes |
+| `quality:deps:workspace-internal`, `quality:metadata:packages` | Shared manifest policies | Existing checkers; used by CI, package release gate, and `quality:max` | ACTIVE | Retain |
+| `quality:components:esm` | Validate built ESM import specifiers | `scripts/check-components-esm-specifiers.mjs`; used by CI and `quality:max` | ACTIVE | Retain |
+| `test:matrix:visual` | Storybook browser/component checks | `@affino/visual-workbench`; used by CI and `quality:max` | ACTIVE | Retain |
+| `test:matrix:interaction` | Production UI interaction acceptance | Existing browser smoke scripts; used by CI and `quality:max` | ACTIVE | Retain; do not route through empty root Playwright test discovery |
+| `bench:components:ci` | Component performance evidence | Existing Treeview, Dialog, and Diagram benchmarks; used by CI and `quality:max` | ACTIVE | Retain |
+| `quality:max` | Comprehensive workspace validation | `scripts/quality-max-pipeline.mjs`; local/release readiness command | ACTIVE | Now runs current workspace gates and reports all failures |
+| `test:e2e`, `test:e2e:critical`, `test:e2e:datagrid:*`, `test:matrix:interaction`'s former Playwright/flakiness chain | Root Playwright test suite | Referenced `tests/e2e/*.spec.*`, but no root `tests/e2e` directory/configuration existed | OBSOLETE / MISCONFIGURED | Removed stale entry points; the old flake checker had no remaining consumer and was removed |
+| `test:datagrid:*`, `quality:*:datagrid`, `release:commercial:*`, `bench:datagrid:*`, `codemod:datagrid:*` | DataGrid architecture, performance, browser, and commercial release gates | Their implementations were deliberately deleted in `d425a0e`; referenced packages are absent from `pnpm-workspace.yaml` resolution | OBSOLETE | Removed root aliases and documentation references; no placeholders restored |
+| `quality:lock:datagrid*`, `bench:regression` | Aggregate DataGrid release locks | Depended on deleted gate scripts and benchmark harness | OBSOLETE | Removed; not used by current CI |
+| `release:check:package` | Validate one independently publishable package | `scripts/check-package-release.mjs`; package tests/build, export targets, tarball contents, shared policies, optional required UI browser check | ACTIVE | Use for package-targeted publication readiness |
 
-### `test-matrix` job
+### Status meanings
 
-`unit` suite:
+- **ACTIVE**: implementation exists and has a current CI, workspace, or release consumer.
+- **BROKEN**: an active consumer references missing or failing implementation.
+- **OBSOLETE**: the owning package/system is no longer part of this workspace and there is no compatibility obligation.
+- **DUPLICATED**: overlapping checks without a distinct contract.
+- **MISCONFIGURED**: intended check exists but discovery or wiring is wrong.
+- **MISSING IMPLEMENTATION**: active requirement has no implementation.
 
-- package tests via custom filtered recursive `test:unit`
+## Package release validation
 
-`integration` suite:
+Packages have independent manifests and can be packed or published individually. There is no automated publish workflow in this repository; publication is a maintainer action. Before publishing a public package, run its focused release gate:
 
-- package integration tests via custom filtered recursive `test:integration`
+```sh
+pnpm run release:check:package -- @affino/diagram-core
+pnpm run release:check:package -- @affino/diagram-vue --browser-script test:diagram:browser
+```
 
-`interaction` suite:
+The gate runs shared dependency and metadata policies, the selected package's declared tests and build, verifies exported files and declarations exist and are included in `npm pack --dry-run`, and runs the supplied focused browser gate for UI packages. UI packages require an explicit browser script so a package release does not implicitly run unrelated acceptance suites. A headless package does not require browser acceptance.
 
-- `pnpm run test:matrix:interaction`
-  - runs full Playwright suite (`test:e2e`)
-  - runs flake checker (`scripts/check-playwright-flakes.mjs`)
+This package-targeted gate is separate from workspace health. `quality:max` intentionally runs broad workspace coverage; a package release should use the package gate plus any additional relevant integration acceptance explicitly called out by that package.
 
-`visual` suite:
+## Local and release workflows
 
-- `pnpm run test:matrix:visual`
+Before a PR:
 
-### `quality-gates` job (datagrid parity lock)
+```sh
+pnpm run quality:workspace:references
+pnpm run quality:deps:workspace-internal
+pnpm run quality:metadata:packages
+pnpm run check
+```
 
-- `pnpm run quality:lock:datagrid:parity`
+Before a package publication:
 
-This is the heavy datagrid gate and includes:
+1. Run `pnpm install --frozen-lockfile`.
+2. Run `pnpm run release:check:package -- <workspace-package>`; supply `--browser-script <root-script>` for UI packages.
+3. Review the package changelog, version, dependencies, and dry-run tarball.
+4. Publish only through the maintainer-approved release process.
 
-- architecture acceptance
-- docs framework-track checks
-- perf contract checks
-- strict contracts
-- critical e2e
-- tree gates
-- benchmark regression harness
-- datagrid parity e2e
-
-### `docs` job
-
-- `pnpm run docs:build`
-- `pnpm --filter @affino/visual-workbench build`
-
-### `changeset` job
-
-- `pnpm run changeset:status`
-
-## Root Script Catalog (What To Run)
-
-## 1. Base Workspace Ops
-
-- `pnpm run bootstrap`
-  - Repository bootstrap helper (`scripts/bootstrap.mjs`)
-- `pnpm run build`
-  - Recursive build for all workspaces with `build` script
-- `pnpm run type-check`
-  - Recursive type-check for all workspaces with `type-check`
-- `pnpm run lint`
-  - Recursive lint for all workspaces with `lint`
-- `pnpm run format`
-  - Recursive formatting for all workspaces with `format`
-- `pnpm run test`
-  - Recursive tests for all workspaces with `test`
-- `pnpm run check`
-  - Local “basic confidence” chain: `lint + type-check + test`
-
-## 2. Test Bundles (Root)
-
-- `pnpm run test:unit`
-  - Recursive package-level unit tests
-- `pnpm run test:vue-matrix`
-  - Selected Vue adapter package tests
-- `pnpm run test:e2e`
-  - Full Playwright suite
-- `pnpm run test:e2e:critical`
-  - Critical Playwright subset used in datagrid quality gates
-- `pnpm run test:matrix:interaction`
-  - Full e2e + flake gate wrapper (used in CI interaction suite)
-- `pnpm run test:matrix:visual`
-  - Visual regression suite (storybook runner)
-
-## 3. Datagrid-Specific Tests
-
-- `pnpm run test:datagrid:unit`
-  - Includes `@affino/datagrid-worker` parity/unit transport checks
-- `pnpm run test:datagrid:integration`
-- `pnpm run test:datagrid:contracts`
-- `pnpm run test:datagrid:sugar:contracts`
-- `pnpm run test:datagrid:strict-contracts`
-- `pnpm run test:datagrid:coverage`
-- `pnpm run test:datagrid:regressions`
-- `pnpm run test:datagrid:tree:contracts`
-- `pnpm run test:e2e:datagrid:parity`
-- `pnpm run test:e2e:datagrid:sugar`
-- `pnpm run test:e2e:datagrid:tree`
-
-Use these when changing datagrid core/adapters/runtime contracts.
-
-## 4. Datagrid Quality Gates (Deterministic)
-
-- `pnpm run quality:architecture:datagrid`
-  - Architecture acceptance + docs framework-track policy checks
-- `pnpm run quality:api:datagrid:flat`
-  - Flat GridApi usage anti-regression gate (baseline lock for adapters/demos)
-- `pnpm run quality:perf:datagrid`
-  - Datagrid perf contracts checker
-- `pnpm run quality:gates:datagrid`
-  - Coverage + critical e2e + flake check
-- `pnpm run quality:gates:datagrid:tree`
-  - Tree contracts + tree e2e + tree perf gates
-- `pnpm run quality:gates:datagrid:sugar`
-  - Sugar contracts + sugar e2e
-- `pnpm run quality:lock:datagrid`
-  - Main datagrid quality lock (architecture + perf + contracts + gates)
-- `pnpm run quality:lock:datagrid:parity`
-  - Full parity lock (`quality:lock:datagrid` + bench regression + parity e2e)
-
-## 5. Benchmarks
-
-### Non-gating / exploratory
-
-- `pnpm run bench:laravel-morph`
-- `pnpm run bench:vue-adapters`
-- `pnpm run bench:datagrid:interactions`
-- `pnpm run bench:datagrid:rowmodels`
-- `pnpm run bench:datagrid:datasource-churn`
-- `pnpm run bench:datagrid:derived-cache`
-- `pnpm run bench:datagrid:pivot`
-- `pnpm run bench:datagrid:dependency-graph`
-- `pnpm run bench:datagrid:hardcore`
-- `pnpm run bench:datagrid:soak`
-- `pnpm run bench:datagrid:group-depth`
-- `pnpm run bench:datagrid:pivot:server-interop`
-- `pnpm run bench:datagrid:worker:protocol`
-- `pnpm run bench:datagrid:worker:frames`
-- `pnpm run bench:datagrid:worker:pressure`
-- `pnpm run bench:datagrid:browser-frames`
-- `pnpm run bench:datagrid:tree`
-- `pnpm run bench:datagrid:tree:ci-light`
-- `pnpm run bench:datagrid:tree:stress`
-- `pnpm run bench:datagrid:tree:matrix`
-- `pnpm run bench:datagrid:harness`
-- `pnpm run bench:datagrid:harness:ci`
-
-### Gating variants (`:assert`)
-
-- `pnpm run bench:laravel-morph:assert`
-- `pnpm run bench:vue-adapters:assert`
-- `pnpm run bench:datagrid:interactions:assert`
-- `pnpm run bench:datagrid:rowmodels:assert`
-- `pnpm run bench:datagrid:datasource-churn:assert`
-- `pnpm run bench:datagrid:derived-cache:assert`
-- `pnpm run bench:datagrid:pivot:assert`
-- `pnpm run bench:datagrid:dependency-graph:assert`
-- `pnpm run bench:datagrid:hardcore:assert`
-- `pnpm run bench:datagrid:soak:assert`
-- `pnpm run bench:datagrid:group-depth:assert`
-- `pnpm run bench:datagrid:pivot:server-interop:assert`
-- `pnpm run bench:datagrid:worker:protocol:assert`
-- `pnpm run bench:datagrid:worker:frames:assert`
-- `pnpm run bench:datagrid:worker:pressure:assert`
-- `pnpm run bench:datagrid:browser-frames:assert`
-- `pnpm run bench:datagrid:tree:assert`
-- `pnpm run bench:datagrid:tree:matrix:assert:ci`
-- `pnpm run bench:datagrid:tree:matrix:assert:nightly`
-- `pnpm run bench:datagrid:tree:matrix:assert`
-- `pnpm run bench:datagrid:harness:ci:gate`
-- `pnpm run bench:regression`
-
-Rule of thumb:
-
-- use non-assert variants while tuning
-- use assert variants before merging/perf lock updates
-- `bench:datagrid:hardcore*` is a deep stress suite (cold start, sort/filter pressure, patch storm, determinism) and is intentionally kept outside CI blocking gates unless explicitly enabled.
-- `bench:datagrid:soak*` targets long-session leak/churn behavior.
-- `bench:datagrid:group-depth*` targets deep group-by expand/collapse pressure.
-- `bench:datagrid:pivot:server-interop*` targets server-backed pivot pull + interop/export/drilldown path.
-- `bench:datagrid:worker:protocol*` targets worker row-model protocol correctness/race behavior (`loading`, stale update dropping, message churn, roundtrip).
-- `bench:datagrid:worker:frames*` targets browser scroll frame pacing on `/datagrid/worker` for `main-thread` vs `worker-owned` runtime mode.
-- `bench:datagrid:worker:pressure*` targets heavy workload frame behavior on `/datagrid/worker` (100k rows, multi-sort, grouping, aggregation, patch storm, formatter+clone pressure) to expose real worker benefit under main-thread contention.
-- `bench:datagrid:browser-frames*` targets real browser frame pacing and dropped-frame behavior (requires running demo web server).
-
-## 6. Policy / Metadata / Repo Hygiene
-
-- `pnpm run quality:deps:workspace-internal`
-  - Verifies internal `@affino/*` deps use `workspace:` protocol in `dependencies`/`devDependencies`/`optionalDependencies`
-- `pnpm run fix:deps:workspace-internal`
-  - Auto-fixes those internal dependency specifiers to `workspace:^`
-- `pnpm run quality:metadata:packages`
-  - Verifies package npm metadata policy for `packages/*/package.json` (`description`, `repository`, `homepage`, `bugs`)
-- `pnpm run fix:metadata:packages`
-  - Auto-fixes package metadata links (`repository/homepage/bugs`)
-- `pnpm run quality:docs:datagrid:framework-track`
-  - Prevents datagrid Vue/Laravel docs from importing internal core/orchestration directly
-- `pnpm run quality:facade:datagrid`
-  - Datagrid facade coverage check (exports / demo usage / forbidden imports)
-- `pnpm run quality:facade:datagrid:report`
-  - Same as above, report mode
-
-## 7. Release / Scaffolding / Migration Utilities
-
-- `pnpm run changeset`
-  - Create changeset entry for release notes/versioning
-- `pnpm run changeset:status`
-  - CI/PR check for changeset state
-- `pnpm run scaffold:adapter-triad`
-  - Scaffolds a core + framework adapter package triad
-- `pnpm run codemod:datagrid:public-protocol`
-  - Datagrid codemod utility for protocol migration
-- `pnpm run quality:max`
-  - Extended quality pipeline (heavy)
-
-## Recommended Local Pipelines
-
-## Before opening a PR (general changes)
-
-1. `pnpm run quality:deps:workspace-internal`
-2. `pnpm run quality:metadata:packages`
-3. `pnpm run check`
-
-If you changed docs-site / docs packaging:
-
-4. `pnpm run docs:build`
-
-## Before merging datagrid changes
-
-1. `pnpm run quality:architecture:datagrid`
-2. `pnpm run test:datagrid:strict-contracts`
-3. `pnpm run quality:gates:datagrid`
-4. `pnpm run quality:gates:datagrid:tree`
-5. `pnpm run bench:regression` (or at least targeted `bench:*:assert`)
-
-## Before publishing packages
-
-1. `pnpm run quality:deps:workspace-internal`
-2. `pnpm run quality:metadata:packages`
-3. `pnpm install` (ensure lockfile is synced if dependency graph changed)
-4. `pnpm run test:unit` (or package-targeted tests)
-5. `pnpm --filter <package> build`
-6. `pnpm --filter <package> pack` (verify published files, especially `dist/*.d.ts`)
-
-## Before docs / visual deploy validation
-
-1. `pnpm run docs:build`
-2. `pnpm --filter @affino/visual-workbench build`
-3. `pnpm run test:matrix:visual` (if visual diffs matter for the change)
-
-## Maintenance Notes
-
-- Prefer adding new policy checks under `quality:*` and auto-fixers under `fix:*`.
-- If a script becomes part of CI, update this file in the same PR.
-- If a root script is renamed, update:
-  - `/Users/anton/Projects/affinio/package.json`
-  - `/Users/anton/Projects/affinio/.github/workflows/ci.yml`
-  - this file
+Documentation is maintained in `docs/` and package READMEs; this checkout has no generated `docs-site` workspace. Before a visual change, run `pnpm --filter @affino/visual-workbench build` and `pnpm run test:matrix:visual` as applicable.

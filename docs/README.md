@@ -15,6 +15,7 @@ Start with:
 - [Archive index](./archive/README.md)
 - [Architecture reference](./reference/architecture.md)
 - [Diagram packages](./reference/diagram-packages.md)
+- [Diagram hierarchy deprecation inventory](./diagram-hierarchy-deprecations.md)
 - [Process and governance](./process/README.md)
 - [Operations runbooks](./ops/slo-sla.md)
 - [ADR index](./adr/README.md)

@@ -30,6 +30,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Check workspace script references
+        run: pnpm run quality:workspace:references
+      - name: Check workspace package policies
+        run: pnpm run quality:deps:workspace-internal && pnpm run quality:metadata:packages
+
       - name: Lint / type-check
         run: pnpm run lint && pnpm -r --if-present type-check
 
@@ -50,6 +55,7 @@ jobs:
         suite:
           - unit
           - visual
+          - interaction
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -67,7 +73,7 @@ jobs:
         run: pnpm -r --if-present build
 
       - name: Install Playwright browsers
-        if: matrix.suite == 'visual'
+        if: matrix.suite == 'visual' || matrix.suite == 'interaction'
         run: pnpm exec playwright install --with-deps chromium
 
       - name: Run unit matrix suite
@@ -77,9 +83,12 @@ jobs:
         if: matrix.suite == 'visual'
         run: pnpm run test:matrix:visual
       - name: Build component demo
-        if: matrix.suite == 'visual'
+        if: matrix.suite == 'visual' || matrix.suite == 'interaction'
         run: pnpm --filter demo-vue build
       - name: Run component browser smoke
+        if: matrix.suite == 'interaction'
+        run: pnpm run test:matrix:interaction
+      - name: Run treeview visual smoke
         if: matrix.suite == 'visual'
         env:
           TREEVIEW_SMOKE_SCREENSHOTS: "0"
