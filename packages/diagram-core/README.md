@@ -74,6 +74,21 @@ The normal `getGeometrySnapshot()` and table layout remain authoritative. Presen
 
 Core does not currently define line wrapping or clipping for graphical Text entities; its existing Text model has fixed/estimated bounds and renderers choose glyph layout. Presented Text uses that same geometry path. Table Cell wrapping, clipping, multiline layout, alignment, and measurement are resolved headlessly. Consumers should not assume browser/PDF typography equivalence without supplying equivalent metrics and verifying the target renderer.
 
+### Read-only presentation sources
+
+Use `createDiagramDocumentPresentationSource()` to expose an immutable scene through Core's read-only geometry and Table layout pipeline. The source accepts a `DiagramSceneInput`, serialized scene, or versioned `DiagramDocument`; Core validates and copies the input into a private computation engine. It exposes no command, history, or document mutation methods. The caller owns the input and may replace a presentation by disposing the old source and creating another. Disposing a source closes its subscriptions and future reads; an engine-backed source never disposes the caller's engine.
+
+```ts
+import { createDiagramDocumentPresentationSource } from "@affino/diagram-core"
+
+const template = createDiagramDocumentPresentationSource(immutableDocument)
+const geometry = template.getPresentedGeometrySnapshot("title", overrides)
+const table = template.getPresentedTableLayout("schedule", { contentOverrides: overrides })
+// template.dispose() when this presentation context is replaced or released.
+```
+
+`DiagramPresentationSource` is the common read contract for immutable documents and editable engines wrapped with `createDiagramEnginePresentationSource()`. Each source instance owns its geometry and table layout caches. Equal entity IDs in different sources remain separate data; Vue projections expose a separate `renderScopeId` per rendering context for safe keys. Content override Maps remain caller-owned inputs and are resolved by the existing Core geometry/layout paths. Source creation is the replacement boundary; there is no global presentation registry.
+
 ### Transform origins
 
 Nodes, shapes, text, tables, and groups accept an optional `transformOrigin`. Omission keeps the existing center pivot. `relative` resolves against the untransformed object bounds; `absolute` is an offset in the object's local coordinate plane from its local bounds origin. Both accept finite coordinates outside the bounds. Read the configured origin with `getTransformOrigin(id)`, the local offset with `resolveLocalTransformOrigin(id)`, and its document-space pivot with `resolveWorldTransformOrigin(id)`. The returned geometry also includes `transformOrigin` when a non-default pivot is needed by a renderer.
@@ -92,6 +107,12 @@ Ports, junctions, and connection endpoints do not have independent transform ori
 `DiagramPort.direction` is an optional host-local outward direction: `north`, `east`, `south`, `west`, `auto`, or `any`. Omitted values preserve legacy unrestricted routing. `auto` infers a direction only when a local rectangular boundary anchor identifies exactly one side; corners, interior anchors, vertex anchors, and route anchors are unrestricted. `resolvePortWorldDirection(port, entities)` applies the host and retained parent linear transforms. If an explicitly directional port resolves to a non-cardinal world vector, it returns `null`; orthogonal automatic edge resolution reports no geometry rather than quantizing that vector.
 
 Automatic routes combine connector-level direction options (which take precedence) with resolved port directions. Port directions point outward from their hosts. The existing connector `sourceDirection` is also an outward direction; `targetDirection` retains its established meaning as the final travel direction, so Core converts a target port's outward direction to the opposite travel direction before routing. Directional routes use a minimum 12 document-unit terminal lead; a larger configured lead is preserved. Direction editing is undoable through `setPortDirection`; omit `direction` to restore legacy unrestricted behavior or set `auto` to enable boundary inference. Direction is stored independently of metadata and survives scene/document serialization and clipboard duplication.
+
+`setPortAnchor` updates an existing Port in place. It accepts the Port's existing `local`, `vertex`, or `route` anchor form, validates it against the existing host, and preserves ID, ownership, direction, metadata, and connector endpoint references. Legacy `nodeId` ports accept only local anchors and retain their serialized `nodeId`/`x`/`y` shape. The command participates in atomic batches and normal Undo/Redo history.
+
+```ts
+engine.dispatch({ type: "setPortAnchor", id: "contact", anchor: { kind: "local", x: 100, y: 24 } })
+```
 
 ### Rectangle corner radius
 
@@ -375,6 +396,8 @@ Interactive port placement uses the same controller and hit-testing order as oth
 interaction.beginPortCreation("terminal-2", { id: 1, point: cursorWorldPoint }, { hostId: "symbol-1", vertexTolerancePx: 8 })
 // On pointer down/up, the active create-port gesture commits one port.
 ```
+
+For repositioning, `beginPortAnchorEdit(portId, pointer)` starts a separate `drag-port-anchor` gesture. Read `getSnapshot().portAnchorEditPreview` for the proposed anchor, resolved world marker, and `valid` feedback; pointerup dispatches one `setPortAnchor`, while Escape/cancel/pointercancel discards the draft.
 
 ### Curved paths and boolean helpers
 

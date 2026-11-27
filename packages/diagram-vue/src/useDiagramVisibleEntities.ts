@@ -2,6 +2,8 @@ import { getCurrentScope, onScopeDispose, shallowRef, unref, watch } from "vue"
 import type { MaybeRef, ShallowRef } from "vue"
 import { createEntityGeometry, resolveDiagramTextContent, rotatePoint, type DiagramContentOverrides, type DiagramGeometry, type DiagramId, type DiagramPoint, type DiagramRect, type DiagramResizeHandle } from "@affino/diagram-core"
 import type { DiagramEngineController } from "./useDiagramEngine.js"
+import { createDiagramEnginePresentationSource } from "@affino/diagram-core"
+import type { DiagramPresentationSource } from "@affino/diagram-core"
 import type { DiagramPointerController } from "./useDiagramPointerController.js"
 import type { DiagramDragPreviewMode, DiagramHandle, DiagramInteractionPreviewMode, DiagramOverlayAnchor, DiagramRenderEntity, DiagramVisibleProjection } from "./types.js"
 
@@ -25,6 +27,8 @@ export type DiagramVisibleEntitiesController = Readonly<{
 }>
 
 const EMPTY_PROJECTION: DiagramVisibleProjection = Object.freeze({
+  sourceId: "",
+  renderScopeId: "",
   interactionPreviewMode: "live",
   interactionPreview: Object.freeze([]),
   dragPreviewMode: "live",
@@ -41,27 +45,35 @@ const EMPTY_PROJECTION: DiagramVisibleProjection = Object.freeze({
   overlayAnchors: Object.freeze([]),
 })
 
-export function useDiagramVisibleEntities(controller: DiagramEngineController, options: DiagramVisibleEntitiesOptions = {}): DiagramVisibleEntitiesController {
+let nextProjectionId = 1
+
+export function useDiagramVisibleEntities(input: DiagramEngineController | DiagramPresentationSource, options: DiagramVisibleEntitiesOptions = {}): DiagramVisibleEntitiesController {
+  const editable = "dispatch" in input
+  const source = editable ? createDiagramEnginePresentationSource(input.engine) : input
+  const renderScopeId = `diagram-projection-${nextProjectionId++}`
+  const getScene = () => editable ? input.scene.value : source.getScene()
   const projection = shallowRef<DiagramVisibleProjection>(EMPTY_PROJECTION)
   const entityCache = new Map<DiagramId, { geometry: DiagramGeometry; selected: boolean; displayText?: string; entity: DiagramRenderEntity }>()
-  const getPointer = () => options.pointer ? unref(options.pointer) : undefined
+  const getPointer = () => editable && options.pointer ? unref(options.pointer) : undefined
   const getInteractionPreviewMode = () => options.interactionPreviewMode
     ? unref(options.interactionPreviewMode)
     : options.dragPreviewMode ? unref(options.dragPreviewMode) : "live"
   const getContentOverrides = () => options.contentOverrides ? unref(options.contentOverrides) : undefined
   const refreshVisible = (bounds?: DiagramRect) => {
-    const viewportBounds: DiagramRect = bounds ?? controller.scene.value.viewport
+    const viewportBounds: DiagramRect = bounds ?? getScene().viewport
     projection.value = buildProjection(
-      controller,
+      source,
+      renderScopeId,
+      getScene(),
       inflate(viewportBounds, options.overscan ?? 0),
-      options.includeSelection ?? true,
+      editable && (options.includeSelection ?? true),
       entityCache,
       getPointer(),
       getInteractionPreviewMode(),
       getContentOverrides(),
     )
   }
-  const subscription = controller.engine.subscribe(() => refreshVisible())
+  const subscription = source.subscribe(() => refreshVisible())
   const stopPointerWatch = options.pointer || options.interactionPreviewMode || options.dragPreviewMode || options.contentOverrides ? watch(
     () => [getPointer()?.state.value, getInteractionPreviewMode(), getContentOverrides()] as const,
     () => refreshVisible(),
@@ -75,6 +87,7 @@ export function useDiagramVisibleEntities(controller: DiagramEngineController, o
     disposed = true
     subscription.unsubscribe()
     stopPointerWatch?.()
+    if (editable) source.dispose()
   }
   if (getCurrentScope()) {
     onScopeDispose(dispose)
@@ -83,7 +96,9 @@ export function useDiagramVisibleEntities(controller: DiagramEngineController, o
 }
 
 function buildProjection(
-  controller: DiagramEngineController,
+  source: DiagramPresentationSource,
+  renderScopeId: string,
+  scene: import("@affino/diagram-core").DiagramScene,
   bounds: DiagramRect,
   includeSelection: boolean,
   entityCache: Map<DiagramId, { geometry: DiagramGeometry; selected: boolean; displayText?: string; entity: DiagramRenderEntity }>,
@@ -91,24 +106,23 @@ function buildProjection(
   interactionPreviewMode: DiagramInteractionPreviewMode = "live",
   contentOverrides?: DiagramContentOverrides,
 ): DiagramVisibleProjection {
-  const scene = controller.scene.value
   const pointerState = pointer?.state.value
   const previewActive = pointerState?.active === true
   const preserveCommittedPresentation = pointerState?.active === true && interactionPreviewMode !== "live"
-  const ids = new Set(controller.engine.queryVisible(bounds))
+  const ids = new Set(source.queryVisible(bounds))
   if (includeSelection) {
     for (const id of scene.selection.ids) {
       ids.add(id)
     }
   }
-  const selected = new Set(scene.selection.ids)
+  const selected = new Set(includeSelection ? scene.selection.ids : [])
   const entities: DiagramRenderEntity[] = []
   const interactionPreview: DiagramRenderEntity[] = []
   for (const id of ids) {
     const previewGeometry = previewActive ? pointer?.getPreviewGeometry(id) : null
     const committedGeometry = contentOverrides?.textByEntityId?.has(id)
-      ? controller.engine.getPresentedGeometrySnapshot(id, contentOverrides)
-      : controller.engine.getGeometrySnapshot(id)
+      ? source.getPresentedGeometrySnapshot(id, contentOverrides)
+      : source.getGeometrySnapshot(id)
     if (preserveCommittedPresentation && previewGeometry && committedGeometry && previewGeometry !== committedGeometry) {
       interactionPreview.push(Object.freeze({ id, kind: previewGeometry.kind, layer: "svg" as const, geometry: previewGeometry, selected: false, ...(previewGeometry.style ? { style: previewGeometry.style } : {}) }))
     }
@@ -128,7 +142,7 @@ function buildProjection(
     entityCache.set(id, { geometry, selected: isSelected, displayText, entity })
     entities.push(entity)
   }
-  const renderRank = new Map(controller.engine.getRenderOrder({ includePorts: true }).map((id, index) => [id, index]))
+  const renderRank = new Map(source.getRenderOrder({ includePorts: true }).map((id, index) => [id, index]))
   entities.sort((a, b) => (renderRank.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (renderRank.get(b.id) ?? Number.MAX_SAFE_INTEGER))
   for (const id of entityCache.keys()) {
     if (!ids.has(id)) entityCache.delete(id)
@@ -142,6 +156,8 @@ function buildProjection(
     ...activeGeometries.filter((geometry) => geometry.kind === "edge").flatMap((geometry) => createEdgeSegmentHandles(geometry, scene.entities.edgesById.get(geometry.id))),
   ]
   return Object.freeze({
+    sourceId: source.sourceId,
+    renderScopeId,
     interactionPreviewMode,
     interactionPreview: Object.freeze(interactionPreview),
     dragPreviewMode: interactionPreviewMode,

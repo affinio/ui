@@ -38,6 +38,10 @@ export type DiagramOverlayAnchor = Readonly<{
 }>
 
 export type DiagramVisibleProjection = Readonly<{
+  /** Identity of the scene source; combine with entity IDs when rendering multiple projections together. */
+  sourceId: string
+  /** Unique to this projection, including independent override contexts over one source. Use this for render keys. */
+  renderScopeId: string
   /** Presentation used for any active interaction candidate geometry. */
   interactionPreviewMode: DiagramInteractionPreviewMode
   /** Core-resolved transient candidate geometry for any active edit; never scene entities or hit-test targets. */

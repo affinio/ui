@@ -20,6 +20,7 @@ export type DiagramPointerController = Readonly<{
   finishBezierCreation: (closed?: boolean) => boolean
   beginBezierHandle: (id: DiagramId, contourIndex: number, segmentIndex: number, handle: DiagramBezierHandleKind, event: PointerEvent, anchorSide?: "start" | "end") => boolean
   beginPortCreation: (id: DiagramId, event: PointerEvent, options?: DiagramPortCreationOptions) => boolean
+  beginPortAnchorEdit: (id: DiagramId, event: PointerEvent) => boolean
   beginPathVertexHandle: (id: string, index: number, event: PointerEvent) => boolean
   beginEdgeEndpointHandle: (id: string, endpoint: "source" | "target", event: PointerEvent) => boolean
   beginEdgeWaypointHandle: (id: string, index: number, event: PointerEvent) => boolean
@@ -130,6 +131,12 @@ export function useDiagramPointerController(controller: DiagramEngineController,
       refresh()
       return accepted
     },
+    beginPortAnchorEdit: (id, event) => {
+      options.setPointerCapture?.(event)
+      const accepted = interaction.beginPortAnchorEdit(id, toEvent(event))
+      refresh()
+      return accepted
+    },
     beginPathVertexHandle: (id, index, event) => { const accepted = interaction.beginPathVertexHandle(id, index, toEvent(event)); refresh(); return accepted },
     beginEdgeEndpointHandle: (id, endpoint, event) => {
       options.setPointerCapture?.(event)
@@ -226,6 +233,7 @@ function sameSnapshot(previous: DiagramInteractionSnapshot, next: DiagramInterac
     && previous.bezierCreationPreview === next.bezierCreationPreview
     && previous.bezierHandlePreview === next.bezierHandlePreview
     && previous.portCreationPreview === next.portCreationPreview
+    && previous.portAnchorEditPreview === next.portAnchorEditPreview
     && previous.edgeWaypointPreview === next.edgeWaypointPreview
     && previous.pathVertexPreview === next.pathVertexPreview
     && previous.shapeCreationPreview === next.shapeCreationPreview

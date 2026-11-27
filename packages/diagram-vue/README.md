@@ -37,6 +37,25 @@ const visible = useDiagramVisibleEntities(diagram, { contentOverrides: overrides
 
 `displayText` is presentation data. Text editor composables can receive `contentOverrides` and refuse inline editing of overridden values; `DiagramTableView` likewise disables inline editing for an overridden active logical Cell. Remove the override before editing authoritative content. Text rendering remains consumer-owned (SVG/DOM); table layout and wrapping remain Core-owned. See the Core README for stable Cell ID, merged-cell, cache and typography details.
 
+### Shared editable and immutable scenes
+
+`useDiagramVisibleEntities()` accepts either the existing editable controller or a Core `DiagramPresentationSource`. The source path resolves ordinary entity geometry and Text overrides through the same Core pipeline, but emits no selection, handles, or pointer previews. `useDiagramConnectorRendering()` accepts the same source contract. When rendering multiple projections in one SVG, key entities by `renderScopeId` and entity ID; IDs are only unique within a document.
+
+```ts
+import { createDiagramDocumentPresentationSource } from "@affino/diagram-core"
+import { useDiagramEngine, useDiagramVisibleEntities } from "@affino/diagram-vue"
+
+const editable = useDiagramEngine({ initialScene: drawing })
+const template = createDiagramDocumentPresentationSource(immutableTemplate)
+const drawingProjection = useDiagramVisibleEntities(editable)
+const templateProjection = useDiagramVisibleEntities(template, { contentOverrides: previewOverrides })
+// Render both ordered projections into groups under one SVG/viewBox.
+// Use :key="`${projection.renderScopeId}:${entity.id}`" and set pointer-events="none"
+// on the immutable scene group so editor gestures continue to the editable scene.
+```
+
+`DiagramTableView` remains backward compatible with `controller` and additionally accepts `presentationSource`. Source-only tables use the same cached Core layout, measurement, merged-cell and content override behavior. They render as pointer-transparent read-only content: no selection handles, resize affordances, inline editing, toolbar, or command dispatch. A presentation source is immutable after construction; replace it explicitly when its document changes and dispose the previous source. Independent sources have independent Core caches; independent `useDiagramVisibleEntities()` calls also receive distinct `renderScopeId` values, even when they share one source with different overrides.
+
 Nested retained groups are rendered from Core's `DiagramGeometry.parentTransform`. Flat renderers should apply the provided matrix once; do not reconstruct group transforms from the serialized group list. Transformable Core geometry exposes its resolved `transformOrigin` in document coordinates; `getSvgEntityProps`, `getDomEntityStyle`, `svgTransform`, and the native table renderer consume that pivot.
 
 Vue adapter for `@affino/diagram-core`. The package owns Vue refs, lifecycle cleanup, DOM pointer bridging, viewport resize bridging, and render projections. Diagram rules stay in core.
@@ -76,6 +95,8 @@ Core `flipEntities` commands are reflected by `getSvgEntityProps()` and `getDomE
 Ports render and hit-test from the same Core geometry snapshot as other entities. `getSvgEntityProps()` exposes `data-port-host-id`, `data-port-anchor-kind`, and the anchor's local coordinates or vertex index for consumers that need to label or inspect terminals. Core owns transformed positions, preview, snapping, and endpoint attachment; the Vue adapter does not keep a duplicate anchor model. Existing node-relative ports continue to render unchanged.
 
 For interactive placement, call `pointer.beginPortCreation(id, pointerEvent, options)` when arming a new caller-generated ID. The call publishes an initial hover preview; ordinary SVG pointer moves keep it reactive, and the next pointer down/up commits it. The `create-port` tool remains active after a commit; call `beginPortCreation()` again with a fresh ID to place another port. Escape can call `pointer.cancel()`, while native pointercancel already clears the preview.
+
+To reposition an existing Port, call `pointer.beginPortAnchorEdit(portId, pointerEvent)`. This uses the `drag-port-anchor` interaction and exposes `state.value.portAnchorEditPreview` with a resolved marker and `valid` feedback. Render it with `getSvgPortAnchorEditPreviewProps()`; pointerup commits one `setPortAnchor` operation, and Escape/pointercancel discards the preview.
 
 Render the marker inside the same SVG/world coordinate system as diagram entities. `getSvgPortCreationPreviewProps()` returns renderer-ready circle attributes, including the resolved position and host/anchor data:
 

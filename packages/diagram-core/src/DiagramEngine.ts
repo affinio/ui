@@ -1301,6 +1301,8 @@ export class DiagramEngine {
         return createReparentEntityPatch(this.state, command.id, command.parentId)
       case "createPort":
         return createCreatePortPatch(this.state, command.port)
+      case "setPortAnchor":
+        return createSetPortAnchorPatch(this.state, command.id, command.anchor)
       case "setPortDirection":
         return createSetPortDirectionPatch(this.state, command.id, command.direction)
       case "createJunction":
@@ -2204,7 +2206,7 @@ function applyMoveDeltas(state: InternalState, ids: ReadonlyArray<DiagramId>, de
 function portAtGridPoint(port: DiagramPort, entities: MutableEntities, gridSize: number): DiagramPort | null {
   const world = resolvePortPoint(port, entities)
   const point = { x: Math.round(world.x / gridSize) * gridSize, y: Math.round(world.y / gridSize) * gridSize }
-  if ("nodeId" in port && port.nodeId) {
+  if (port.nodeId !== undefined) {
     const node = entities.nodesById.get(port.nodeId)
     if (!node) return null
     const bounds = { x: node.x, y: node.y, width: node.width, height: node.height }
@@ -4181,6 +4183,24 @@ function createSetPortDirectionPatch(state: InternalState, id: DiagramId, direct
   if (!port || isEntityLockedOrReadOnly(state, id)) return null
   if (port.direction === direction) return null
   const next = { ...port, ...(direction === undefined ? { direction: undefined } : { direction }) }
+  return createEntitySnapshotPatch([id], new Map([[id, port]]), new Map([[id, next]]), (draft, portId, value) => draft.entities.portsById.set(portId, value))
+}
+
+function createSetPortAnchorPatch(state: InternalState, id: DiagramId, anchor: import("./types.js").DiagramPortAnchor): Patch | null {
+  const port = state.entities.portsById.get(id)
+  if (!port || isEntityLockedOrReadOnly(state, id)) return null
+  const hostId = diagramPortHostId(port)
+  if (!hostId || !hasEntity(state, hostId) || isEntityLockedOrReadOnly(state, hostId)) return null
+  let next: DiagramPort
+  if ("nodeId" in port && port.nodeId) {
+    // Legacy node ports only have a local x/y representation. Keep that public shape intact.
+    if (anchor.kind !== "local" || !isValidDiagramPortAnchor(hostId, anchor, state.entities)) return null
+    next = { ...port, x: anchor.x, y: anchor.y }
+  } else {
+    if (!isValidDiagramPortAnchor(hostId, anchor, state.entities)) return null
+    next = { ...port, anchor: Object.freeze({ ...anchor }) } as DiagramPort
+  }
+  if (JSON.stringify(port) === JSON.stringify(next)) return null
   return createEntitySnapshotPatch([id], new Map([[id, port]]), new Map([[id, next]]), (draft, portId, value) => draft.entities.portsById.set(portId, value))
 }
 

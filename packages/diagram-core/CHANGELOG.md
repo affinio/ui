@@ -1,5 +1,13 @@
 # @affino/diagram-core
 
+## 0.38.0
+
+### Minor Changes
+
+- Added read-only `DiagramPresentationSource` adapters for editable engines and immutable scenes/documents, with source-scoped geometry, content presentation, Table layout, visibility, and connector reads.
+- Added the atomic `setPortAnchor` command for existing Ports; legacy node-local anchors, existing host ownership, Port identity, metadata, directions, and connector references are preserved through validation, batches, and Undo/Redo.
+- Added `beginPortAnchorEdit()` and `portAnchorEditPreview` to the interaction controller for valid/invalid transient reposition previews and one-command pointer-up commits.
+
 ## 0.37.0
 
 ### Minor Changes

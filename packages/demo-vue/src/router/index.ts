@@ -73,6 +73,12 @@ const router = createRouter({
       meta: { layoutWidth: "full", fitViewport: true, lockMainScroll: true },
     },
     {
+      path: "/diagram/presentation",
+      name: "diagram-presentation-workbench",
+      component: () => import("@/pages/DiagramPresentationPage.vue"),
+      meta: { layoutWidth: "full", fitViewport: true, lockMainScroll: true },
+    },
+    {
       path: "/diagram/table",
       name: "diagram-table-workbench",
       component: () => import("@/pages/DiagramTablePage.vue"),

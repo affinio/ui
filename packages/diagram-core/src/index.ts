@@ -1,4 +1,6 @@
 export { DiagramEngine, createDiagramEngine, deserializeScene, deserializeDiagramDocument, serializeScene, validateDiagramScene } from "./DiagramEngine.js"
+export { createDiagramDocumentPresentationSource, createDiagramEnginePresentationSource } from "./presentation.js"
+export type { DiagramPresentationSource } from "./presentation.js"
 export { DiagramInteractionController, createDiagramInteractionController } from "./interaction.js"
 export { UniformGridIndex } from "./spatialIndex.js"
 export { createConnectorRenderGeometry } from "./connectorRendering.js"

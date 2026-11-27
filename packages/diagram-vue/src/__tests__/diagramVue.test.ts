@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest"
 import { computed, createApp, effectScope, h, nextTick, shallowRef } from "vue"
-import { createCircularArc, createDiagramEngine, resolveDiagramTableLayout, type DiagramContentOverrides, type DiagramSceneInput } from "@affino/diagram-core"
+import { createCircularArc, createDiagramDocumentPresentationSource, createDiagramEngine, resolveDiagramTableLayout, type DiagramContentOverrides, type DiagramSceneInput } from "@affino/diagram-core"
 import { createDiagramInteractionController } from "@affino/diagram-core"
-import { DiagramBezierOverlay, DiagramCursorIndicator, DiagramGuidePreview, DiagramGuidesOverlay, DiagramRuler, DiagramSelectionExtent, DiagramTableView, getDomEntityStyle, getSvgConnectorRenderProps, getSvgEntityProps, getSvgJunctionRenderProps, getSvgPortCreationPreviewProps, svgTransform, useDiagramConnectorRendering, useDiagramEngine, useDiagramPointerController, useDiagramSelection, useDiagramTable, useDiagramTextEditor, useDiagramViewport, useDiagramVisibleEntities } from ".."
+import { DiagramBezierOverlay, DiagramCursorIndicator, DiagramGuidePreview, DiagramGuidesOverlay, DiagramRuler, DiagramSelectionExtent, DiagramTableView, getDomEntityStyle, getSvgConnectorRenderProps, getSvgEntityProps, getSvgJunctionRenderProps, getSvgPortCreationPreviewProps, getSvgPortAnchorEditPreviewProps, svgTransform, useDiagramConnectorRendering, useDiagramEngine, useDiagramPointerController, useDiagramSelection, useDiagramTable, useDiagramTextEditor, useDiagramViewport, useDiagramVisibleEntities } from ".."
 import { beginDiagramHandleInteraction } from "../../../demo-vue/src/pages/diagramHandleInteractions"
 
 const scene: DiagramSceneInput = {
@@ -53,6 +53,70 @@ describe("diagram-vue", () => {
     alternate.dispose()
     visible.dispose()
     controller.dispose()
+  })
+
+  it("projects immutable documents with source-scoped identities and independent text contexts", () => {
+    const sourceA = createDiagramDocumentPresentationSource({ texts: [{ id: "collision", kind: "text", x: 0, y: 0, text: "Source A" }], selection: { ids: ["collision"], primaryId: "collision" }, viewport: { x: 0, y: 0, width: 100, height: 100, zoom: 1 } })
+    const sourceB = createDiagramDocumentPresentationSource({ texts: [{ id: "collision", kind: "text", x: 0, y: 0, text: "Source B" }], viewport: { x: 0, y: 0, width: 100, height: 100, zoom: 1 } })
+    const a = useDiagramVisibleEntities(sourceA, { contentOverrides: { textByEntityId: new Map([["collision", "Presented A"]]) } })
+    const aAlternate = useDiagramVisibleEntities(sourceA, { contentOverrides: { textByEntityId: new Map([["collision", "Alternate A"]]) } })
+    const b = useDiagramVisibleEntities(sourceB, { contentOverrides: { textByEntityId: new Map([["collision", "Presented B"]]) } })
+    expect(a.projection.value.texts[0]?.displayText).toBe("Presented A")
+    expect(a.projection.value.texts[0]?.selected).toBe(false)
+    expect(a.projection.value.activeHandles).toHaveLength(0)
+    expect(b.projection.value.texts[0]?.displayText).toBe("Presented B")
+    expect(a.projection.value.sourceId).not.toBe(b.projection.value.sourceId)
+    expect(a.projection.value.renderScopeId).not.toBe(aAlternate.projection.value.renderScopeId)
+    expect(sourceA.getScene().entities.textsById.get("collision")?.text).toBe("Source A")
+    a.dispose(); aAlternate.dispose(); b.dispose(); sourceA.dispose(); sourceB.dispose()
+  })
+
+  it("renders a read-only Table from a presentation source without editing controls", async () => {
+    const source = createDiagramDocumentPresentationSource({ tables: [{ id: "readonly-table", kind: "table", x: 0, y: 0, width: 80, height: 30, rowCount: 1, columnCount: 2, cells: [[{ id: "logical", text: "Original" }, { id: "covered", text: "Hidden" }]], merges: [{ anchorCellId: "logical", rowSpan: 1, columnSpan: 2 }] }] })
+    const container = document.createElement("div")
+    document.body.append(container)
+    const app = createApp({ render: () => h("svg", [h(DiagramTableView, { presentationSource: source, id: "readonly-table", contentOverrides: { textByTableCellId: new Map([["readonly-table", new Map([["logical", "Read only preview"], ["covered", "Duplicate"]])]]) } })]) })
+    app.mount(container)
+    await nextTick()
+    const root = container.querySelector('[data-diagram-id="readonly-table"]')
+    expect(root?.getAttribute("pointer-events")).toBe("none")
+    expect(container.querySelector('[data-table-cell-text="logical"]')?.textContent).toBe("Read only preview")
+    expect(container.querySelector('[data-table-cell-text="covered"]')).toBeNull()
+    expect(container.querySelector('[role="toolbar"]')).toBeNull()
+    expect("dispatch" in source).toBe(false)
+    app.unmount(); container.remove(); source.dispose()
+  })
+
+  it("replaces a read-only Table source reactively without recreating its renderer", async () => {
+    const first = createDiagramDocumentPresentationSource({ tables: [{ id: "switch-table", kind: "table", x: 0, y: 0, width: 80, height: 30, rowCount: 1, columnCount: 1, cells: [[{ id: "switch-cell", text: "First source" }]] }] })
+    const second = createDiagramDocumentPresentationSource({ tables: [{ id: "switch-table", kind: "table", x: 0, y: 0, width: 80, height: 30, rowCount: 1, columnCount: 1, cells: [[{ id: "switch-cell", text: "Second source" }]] }] })
+    const active = shallowRef(first)
+    const container = document.createElement("div")
+    document.body.append(container)
+    const app = createApp({ render: () => h("svg", [h(DiagramTableView, { presentationSource: active.value, id: "switch-table" })]) })
+    app.mount(container)
+    await nextTick()
+    expect(container.querySelector('[data-table-cell-text="switch-cell"]')?.textContent).toBe("First source")
+    active.value = second
+    await nextTick()
+    expect(container.querySelector('[data-table-cell-text="switch-cell"]')?.textContent).toBe("Second source")
+    app.unmount(); container.remove(); first.dispose(); second.dispose()
+  })
+
+  it("scopes Table clip IDs across immutable sources with colliding Table and Cell IDs", async () => {
+    const createSource = (text: string) => createDiagramDocumentPresentationSource({ tables: [{ id: "same-table", kind: "table", x: 0, y: 0, width: 30, height: 20, rowCount: 1, columnCount: 1, cells: [[{ id: "same-cell", text }]] }] })
+    const first = createSource("First")
+    const second = createSource("Second")
+    const container = document.createElement("div")
+    document.body.append(container)
+    const app = createApp({ render: () => h("svg", [h(DiagramTableView, { presentationSource: first, id: "same-table" }), h(DiagramTableView, { presentationSource: second, id: "same-table" })]) })
+    app.mount(container)
+    await nextTick()
+    const clips = Array.from(container.querySelectorAll("clipPath")).map((clip) => clip.id)
+    expect(clips).toHaveLength(2)
+    expect(new Set(clips).size).toBe(2)
+    expect(container.querySelectorAll('[data-diagram-id="same-table"]')).toHaveLength(2)
+    app.unmount(); container.remove(); first.dispose(); second.dispose()
   })
 
   it("uses the Core-resolved transform origin for SVG and DOM rendering", () => {
@@ -236,6 +300,22 @@ describe("diagram-vue", () => {
     pointer.dispose()
     controller.dispose()
     vi.unstubAllGlobals()
+  })
+
+  it("exposes valid Port reposition feedback and commits through one history entry", () => {
+    const controller = useDiagramEngine({ nodes: [{ id: "port-host", kind: "node", x: 10, y: 20, width: 100, height: 80 }], ports: [{ id: "moving-port", kind: "port", nodeId: "port-host", x: 100, y: 40, metadata: { label: "retain" }, direction: "east" }] })
+    const pointer = useDiagramPointerController(controller, { toWorldPoint: (event) => ({ x: event.clientX, y: event.clientY }) })
+    const event = (pointerId: number, x: number, y: number) => ({ pointerId, clientX: x, clientY: y, shiftKey: false }) as PointerEvent
+    expect(pointer.beginPortAnchorEdit("moving-port", event(9, 110, 60))).toBe(true)
+    pointer.getSvgPointerProps().onPointermove(event(9, 80, 50))
+    const preview = pointer.state.value.portAnchorEditPreview!
+    expect(preview).toMatchObject({ anchor: { kind: "local", x: 70, y: 30 }, point: { x: 80, y: 50 }, valid: true })
+    expect(getSvgPortAnchorEditPreviewProps(preview)).toMatchObject({ cx: 80, cy: 50, "data-port-edit-valid": true, "pointer-events": "none" })
+    pointer.getSvgPointerProps().onPointerup(event(9, 80, 50))
+    expect(controller.scene.value.entities.portsById.get("moving-port")).toMatchObject({ x: 70, y: 30, direction: "east", metadata: { label: "retain" } })
+    expect(controller.dispatch({ type: "undo" }).changed).toBe(true)
+    expect(controller.scene.value.entities.portsById.get("moving-port")?.x).toBe(100)
+    pointer.dispose(); controller.dispose()
   })
 
   it("forwards Shift through path vertex handle gestures and renders the constrained preview", async () => {

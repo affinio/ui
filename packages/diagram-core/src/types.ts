@@ -527,6 +527,7 @@ export type DiagramCommand =
   | Readonly<{ type: "ungroupEntities"; ids: ReadonlyArray<DiagramId>; portRemaps?: Readonly<Record<DiagramId, DiagramPortRemap>>; historyKey?: string }>
   | Readonly<{ type: "reparentEntity"; id: DiagramId; parentId: DiagramId | null; historyKey?: string }>
   | Readonly<{ type: "createPort"; port: DiagramPort; historyKey?: string }>
+  | Readonly<{ type: "setPortAnchor"; id: DiagramId; anchor: DiagramPortAnchor; historyKey?: string }>
   | Readonly<{ type: "setPortDirection"; id: DiagramId; direction: DiagramPortDirection | undefined; historyKey?: string }>
   | Readonly<{ type: "createJunction"; junction: DiagramJunction; historyKey?: string }>
   | Readonly<{ type: "updateJunction"; id: DiagramId; anchor: DiagramJunction["anchor"]; historyKey?: string }>
@@ -638,7 +639,7 @@ export type DiagramBatchOptions = Readonly<{ expectedRevision?: number; expected
 export type DiagramBatchPreviewResult = DiagramBatchResult & Readonly<{ scene?: SerializedDiagramScene }>
 export type DiagramValidationIssue = Readonly<{ code: string; severity: "error" | "warning"; entityIds: ReadonlyArray<DiagramId>; message: string }>
 
-export type DiagramInteractionTool = "pan" | "select" | "marquee" | "drag-selection" | "resize-selection" | "resize-table-axis" | "drag-edge-endpoint" | "drag-path-vertex" | "drag-edge-segment" | "connect-edge" | "draw-line" | "draw-path" | "draw-bezier" | "create-port" | "edit-text"
+export type DiagramInteractionTool = "pan" | "select" | "marquee" | "drag-selection" | "resize-selection" | "resize-table-axis" | "drag-edge-endpoint" | "drag-path-vertex" | "drag-edge-segment" | "connect-edge" | "draw-line" | "draw-path" | "draw-bezier" | "create-port" | "drag-port-anchor" | "edit-text"
 
 export type DiagramBezierAnchor = Readonly<{ point: DiagramPoint; incoming: DiagramPoint; outgoing: DiagramPoint }>
 export type DiagramBezierCreationOptions = Readonly<{ /** Screen-pixel radius for closing onto the first anchor. Defaults to snap tolerance (or 8px). */ closeTolerancePx?: number }>
@@ -675,6 +676,7 @@ export type DiagramPortCreationPreview = Readonly<{
   direction?: DiagramPortDirection
   snapResult?: DiagramSnapResult
 }>
+export type DiagramPortAnchorEditPreview = Readonly<{ id: DiagramId; hostId: DiagramId; anchor: DiagramPortAnchor; point: DiagramPoint; valid: boolean; snapResult?: DiagramSnapResult }>
 
 export type DiagramResizeHandle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w"
 
@@ -724,6 +726,7 @@ export type DiagramInteractionSnapshot = Readonly<{
   bezierCreationPreview: DiagramBezierCreationPreview | null
   bezierHandlePreview: DiagramBezierHandlePreview | null
   portCreationPreview: DiagramPortCreationPreview | null
+  portAnchorEditPreview: DiagramPortAnchorEditPreview | null
   edgeWaypointPreview: Readonly<{ id: DiagramId; points: ReadonlyArray<DiagramPoint> }> | null
   pathVertexPreview: Readonly<{ id: DiagramId; index: number; point: DiagramPoint }> | null
   marquee: DiagramRect | null

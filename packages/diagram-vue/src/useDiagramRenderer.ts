@@ -1,5 +1,5 @@
 import type { DiagramRenderEntity } from "./types.js"
-import type { DiagramPortCreationPreview, DiagramViewport } from "@affino/diagram-core"
+import type { DiagramPortAnchorEditPreview, DiagramPortCreationPreview, DiagramViewport } from "@affino/diagram-core"
 import { pathContourSvg } from "@affino/diagram-core"
 import type { DiagramConnectorPathCommand } from "@affino/diagram-core"
 import type { DiagramConnectorRenderEntity } from "./types.js"
@@ -54,6 +54,11 @@ export function getSvgPortCreationPreviewProps(preview: DiagramPortCreationPrevi
     "pointer-events": "none",
     "aria-hidden": true,
   }
+}
+
+/** SVG attributes for the valid or invalid transient marker shown during Port repositioning. */
+export function getSvgPortAnchorEditPreviewProps(preview: DiagramPortAnchorEditPreview, radius = 5): SvgEntityProps {
+  return { cx: preview.point.x, cy: preview.point.y, r: radius, fill: preview.valid ? "#16a34a" : "#dc2626", "data-port-edit-id": preview.id, "data-port-edit-valid": preview.valid, "data-port-host-id": preview.hostId, "data-port-anchor-kind": preview.anchor.kind, "pointer-events": "none", "aria-hidden": true }
 }
 
 export function getSvgEntityProps(entity: DiagramRenderEntity): SvgEntityProps {

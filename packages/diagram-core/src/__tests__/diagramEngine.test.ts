@@ -6331,6 +6331,96 @@ describe("DiagramEngine", () => {
     expect(restored.getScene().entities.portsById.get("east-port")?.direction).toBe("east")
   })
 
+  it("updates a Port anchor atomically without replacing its identity, ownership, or attachments", () => {
+    const engine = createDiagramEngine({
+      nodes: [{ id: "anchor-host", kind: "node", x: 10, y: 20, width: 100, height: 80 }],
+      ports: [{ id: "stable-port", kind: "port", nodeId: "anchor-host", x: 100, y: 40, direction: "east", metadata: { tag: "kept" } }],
+      edges: [{ id: "attached", kind: "edge", source: { kind: "port", portId: "stable-port" }, target: { kind: "point", point: { x: 180, y: 60 } } }],
+    })
+    const originalPort = engine.getScene().entities.portsById.get("stable-port")!
+    const originalEdge = engine.getScene().entities.edgesById.get("attached")!
+    expect(engine.dispatch({ type: "setPortAnchor", id: "stable-port", anchor: { kind: "local", x: 100, y: 10 } }).changed).toBe(true)
+    expect(engine.getScene().entities.portsById.get("stable-port")).toMatchObject({ id: "stable-port", nodeId: "anchor-host", x: 100, y: 10, direction: "east", metadata: { tag: "kept" } })
+    expect(engine.getScene().entities.edgesById.get("attached")?.source).toEqual(originalEdge.source)
+    expect(engine.dispatch({ type: "undo" }).changed).toBe(true)
+    expect(engine.getScene().entities.portsById.get("stable-port")).toEqual(originalPort)
+    expect(engine.dispatch({ type: "redo" }).changed).toBe(true)
+    expect(engine.getScene().entities.portsById.get("stable-port")?.y).toBe(10)
+    expect(createDiagramEngine(deserializeScene(engine.serialize())).getScene().entities.portsById.get("stable-port")?.y).toBe(10)
+  })
+
+  it("rejects invalid Port anchors without changing scene or history", () => {
+    const engine = createDiagramEngine({ nodes: [{ id: "anchor-host", kind: "node", x: 0, y: 0, width: 20, height: 20 }], ports: [{ id: "p", kind: "port", nodeId: "anchor-host", x: 10, y: 10 }] })
+    const before = engine.getScene()
+    const revision = before.revision
+    expect(engine.dispatch({ type: "setPortAnchor", id: "p", anchor: { kind: "route", fraction: 0.5 } }).changed).toBe(false)
+    expect(engine.getScene()).toBe(before)
+    expect(engine.getScene().revision).toBe(revision)
+    expect(engine.dispatch({ type: "undo" }).changed).toBe(false)
+  })
+
+  it("accepts local, vertex, and route anchors for their existing host kinds", () => {
+    const engine = createDiagramEngine({
+      nodes: [{ id: "local-host", kind: "node", x: 0, y: 0, width: 40, height: 40, rotation: 45, flipX: true, transformOrigin: { mode: "absolute", x: 4, y: 9 } }],
+      shapes: [{ id: "vertex-host", kind: "shape", shape: "line", x: 60, y: 0, width: 40, height: 40, points: [{ x: 0, y: 0 }, { x: 20, y: 10 }, { x: 40, y: 40 }] }],
+      edges: [{ id: "route-host", kind: "edge", source: { kind: "point", point: { x: 120, y: 0 } }, target: { kind: "point", point: { x: 220, y: 0 } } }],
+      ports: [
+        { id: "local-port", kind: "port", hostId: "local-host", anchor: { kind: "local", x: 10, y: 10 }, metadata: { key: "kept" } },
+        { id: "vertex-port", kind: "port", hostId: "vertex-host", anchor: { kind: "vertex", index: 0 } },
+        { id: "route-port", kind: "port", hostId: "route-host", anchor: { kind: "route", fraction: 0.25 } },
+      ],
+    })
+    expect(engine.dispatchBatch([
+      { type: "setPortAnchor", id: "local-port", anchor: { kind: "local", x: 30, y: 20 } },
+      { type: "setPortAnchor", id: "vertex-port", anchor: { kind: "vertex", index: 2 } },
+      { type: "setPortAnchor", id: "route-port", anchor: { kind: "route", fraction: 0.75 } },
+    ]).changed).toBe(true)
+    expect(engine.getScene().entities.portsById.get("local-port")).toMatchObject({ hostId: "local-host", anchor: { kind: "local", x: 30, y: 20 }, metadata: { key: "kept" } })
+    expect(engine.getScene().entities.portsById.get("vertex-port")?.anchor).toEqual({ kind: "vertex", index: 2 })
+    expect(engine.getScene().entities.portsById.get("route-port")?.anchor).toEqual({ kind: "route", fraction: 0.75 })
+    expect(engine.dispatch({ type: "undo" }).changed).toBe(true)
+    expect(engine.getScene().entities.portsById.get("route-port")?.anchor).toEqual({ kind: "route", fraction: 0.25 })
+  })
+
+  it("previews and commits a Port repositioning as one undoable gesture", () => {
+    const engine = createDiagramEngine({ nodes: [{ id: "host", kind: "node", x: 10, y: 20, width: 100, height: 80 }], ports: [{ id: "port", kind: "port", nodeId: "host", x: 100, y: 40 }] })
+    const interaction = createDiagramInteractionController(engine, { scheduleFrame: (callback) => callback() })
+    expect(interaction.beginPortAnchorEdit("port", { id: 3, point: { x: 110, y: 60 } })).toBe(true)
+    interaction.pointerMove({ id: 3, point: { x: 80, y: 50 } })
+    expect(interaction.getSnapshot().portAnchorEditPreview).toMatchObject({ id: "port", hostId: "host", anchor: { kind: "local", x: 70, y: 30 }, point: { x: 80, y: 50 }, valid: true })
+    interaction.pointerUp({ id: 3, point: { x: 80, y: 50 } })
+    expect(engine.getScene().entities.portsById.get("port")).toMatchObject({ x: 70, y: 30 })
+    expect(engine.dispatch({ type: "undo" }).changed).toBe(true)
+    expect(engine.getScene().entities.portsById.get("port")).toMatchObject({ x: 100, y: 40 })
+    interaction.dispose()
+  })
+
+  it("repositions a legacy Port through nested rotated and reflected host transforms", () => {
+    const initial: DiagramSceneInput = {
+      groups: [{ id: "outer", kind: "group", childIds: ["inner"], x: 30, y: 20, rotation: 25, flipX: true, transformOrigin: { mode: "absolute", x: 10, y: 15 } }, { id: "inner", kind: "group", childIds: ["host"], x: 5, y: 8, rotation: -15, flipY: true }],
+      nodes: [{ id: "host", kind: "node", x: 100, y: 60, width: 100, height: 70, rotation: 35, flipX: true, transformOrigin: { mode: "absolute", x: 20, y: 12 } }],
+      ports: [{ id: "nested-port", kind: "port", nodeId: "host", x: 10, y: 10 }],
+    }
+    const engine = createDiagramEngine(initial)
+    const expected = createDiagramEngine({ ...initial, ports: [{ id: "nested-port", kind: "port", nodeId: "host", x: 60, y: 35 }] })
+    const start = engine.getGeometrySnapshot("nested-port")!.point!
+    const target = expected.getGeometrySnapshot("nested-port")!.point!
+    const interaction = createDiagramInteractionController(engine, { snap: { enabled: false }, scheduleFrame: (callback) => callback() })
+    expect(interaction.beginPortAnchorEdit("nested-port", { id: 11, point: start })).toBe(true)
+    interaction.pointerMove({ id: 11, point: target })
+    const preview = interaction.getSnapshot().portAnchorEditPreview!
+    expect(preview.anchor).toMatchObject({ kind: "local" })
+    if (preview.anchor.kind !== "local") throw new Error("expected a local Port anchor")
+    expect(preview.anchor.x).toBeCloseTo(60, 9)
+    expect(preview.anchor.y).toBeCloseTo(35, 9)
+    expect(preview.point.x).toBeCloseTo(target.x, 9)
+    expect(preview.point.y).toBeCloseTo(target.y, 9)
+    expect(preview.valid).toBe(true)
+    interaction.pointerUp({ id: 11, point: target })
+    expect(engine.getGeometrySnapshot("nested-port")?.point).toEqual(preview.point)
+    interaction.dispose()
+  })
+
   it("infers only unambiguous auto boundary directions and keeps omitted legacy ports unrestricted", () => {
     const engine = createDiagramEngine({ nodes: [{ id: "n", kind: "node", x: 0, y: 0, width: 20, height: 20 }], ports: [
       { id: "west", kind: "port", nodeId: "n", x: 0, y: 10, direction: "auto" },

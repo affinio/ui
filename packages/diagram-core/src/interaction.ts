@@ -1,10 +1,10 @@
-import { createEntityGeometry, diagramPortHostId, inflateRect, normalizeOrthogonalRoute, pointAtRouteFraction, rectFromPoints as boundsFromPoints, rectIntersects, resolveEdgePath, resolveEndpoint, resolveManualOrthogonalPath, resolvePortWorldDirection, routeOrthogonalConnector } from "./geometry.js"
+import { createEntityGeometry, diagramPortHostId, inflateRect, invertDiagramAffine, isValidDiagramPortAnchor, normalizeOrthogonalRoute, pointAtRouteFraction, rectFromPoints as boundsFromPoints, rectIntersects, resolveEdgePath, resolveEndpoint, resolveManualOrthogonalPath, resolvePortPoint, resolvePortWorldDirection, resolveWorldEntityTransform, routeOrthogonalConnector, transformDiagramPoint } from "./geometry.js"
 import { pathContourBoundsPoints } from "./pathOperations.js"
 import { clampViewportToBounds } from "./viewport.js"
 import { cloneDiagramMetadata, isValidDiagramMetadata } from "./metadata.js"
 import { transformPathContour, translatePathContour } from "./pathOperations.js"
 import type { DiagramEngine } from "./DiagramEngine.js"
-import type { DiagramBezierAnchor, DiagramBezierHandleKind, DiagramBezierHandlePreview, DiagramBezierCreationOptions, DiagramBezierCreationPreview, DiagramPathCreationOptions, DiagramCommand, DiagramDynamicInputState, DiagramEdge, DiagramEdgeCreationPreview, DiagramEdgeEndpoint, DiagramEdgeSegmentPreview, DiagramEdgeSegmentCommitResult, DiagramEntities, DiagramId, DiagramGeometry, DiagramInteractionSnapOptions, DiagramInteractionSnapshot, DiagramInteractionTool, DiagramJunction, DiagramJunctionRenderGeometry, DiagramMarqueeMode, DiagramPointerEvent, DiagramPoint, DiagramPort, DiagramPortAnchor, DiagramPortCreationOptions, DiagramPortCreationPreview, DiagramRect, DiagramResizeEntry, DiagramResizeHandle, DiagramSnapCandidate, DiagramSnapGuide, DiagramSnapResult, DiagramViewportConstraints, DiagramOrthogonalRouteOptions, DiagramShape, DiagramTableResizeAxis, DiagramTableResizePreview, DiagramPathContour, DiagramPathSegment } from "./types.js"
+import type { DiagramBezierAnchor, DiagramBezierHandleKind, DiagramBezierHandlePreview, DiagramBezierCreationOptions, DiagramBezierCreationPreview, DiagramPathCreationOptions, DiagramCommand, DiagramDynamicInputState, DiagramEdge, DiagramEdgeCreationPreview, DiagramEdgeEndpoint, DiagramEdgeSegmentPreview, DiagramEdgeSegmentCommitResult, DiagramEntities, DiagramId, DiagramGeometry, DiagramInteractionSnapOptions, DiagramInteractionSnapshot, DiagramInteractionTool, DiagramJunction, DiagramJunctionRenderGeometry, DiagramMarqueeMode, DiagramPointerEvent, DiagramPoint, DiagramPort, DiagramPortAnchor, DiagramPortAnchorEditPreview, DiagramPortCreationOptions, DiagramPortCreationPreview, DiagramRect, DiagramResizeEntry, DiagramResizeHandle, DiagramSnapCandidate, DiagramSnapGuide, DiagramSnapResult, DiagramViewportConstraints, DiagramOrthogonalRouteOptions, DiagramShape, DiagramTableResizeAxis, DiagramTableResizePreview, DiagramPathContour, DiagramPathSegment } from "./types.js"
 
 type ScheduleFrame = (callback: () => void) => void
 const AXIS_LOCK_ACTIVATION_TOLERANCE_PX = 4
@@ -95,6 +95,8 @@ export class DiagramInteractionController {
   private portCreationId: DiagramId | null = null
   private portCreationOptions: DiagramPortCreationOptions = {}
   private portCreationPreview: DiagramPortCreationPreview | null = null
+  private portAnchorEditPreview: DiagramPortAnchorEditPreview | null = null
+  private portAnchorEditStart: Readonly<{ id: DiagramId; hostId: DiagramId; anchor: DiagramPortAnchor }> | null = null
   private vertexDragKind: "path" | "edge" | null = null
   private vertexDragStart: DiagramPoint | null = null
   private vertexConstraintOrigin: DiagramPoint | null = null
@@ -569,6 +571,25 @@ export class DiagramInteractionController {
     return true
   }
 
+  /** Starts an explicit repositioning gesture for an existing Port. Host ownership never changes. */
+  beginPortAnchorEdit(id: DiagramId, event: DiagramPointerEvent): boolean {
+    if (this.engine.isEditingLocked() || ![event.point.x, event.point.y].every(Number.isFinite)) return false
+    const port = this.engine.getScene().entities.portsById.get(id)
+    if (!port || port.metadata?.locked || port.metadata?.readOnly || port.metadata?.nonDeletable && port.metadata.locked) return false
+    const hostId = diagramPortHostId(port)
+    if (!hostId) return false
+    const anchor: DiagramPortAnchor | undefined = "nodeId" in port && port.nodeId ? { kind: "local", x: port.x, y: port.y } : "anchor" in port ? port.anchor : undefined
+    if (!anchor) return false
+    this.cancel()
+    this.tool = "drag-port-anchor"
+    this.activePointer = event
+    this.startPoint = event.point
+    this.latestPoint = event.point
+    this.portAnchorEditStart = { id, hostId, anchor }
+    this.updatePortAnchorEditPreview(event.point)
+    return true
+  }
+
   /** Commits the pending click as a vertex; pointer motion alone never adds vertices. */
   addPathVertex(point?: DiagramPoint, finish = false): boolean {
     if (this.engine.isEditingLocked()) { this.cancel(); return false }
@@ -638,6 +659,11 @@ export class DiagramInteractionController {
     if (this.tool === "create-port" && this.portCreationId && (!this.activePointer || this.activePointer.id === event.id)) {
       this.latestPoint = event.point
       this.scheduleCreationPreview()
+      return
+    }
+    if (this.tool === "drag-port-anchor" && this.portAnchorEditStart && this.activePointer?.id === event.id) {
+      this.latestPoint = event.point
+      this.updatePortAnchorEditPreview(event.point)
       return
     }
     if (this.tool === "connect-edge" && this.edgeClickPlacement) {
@@ -848,6 +874,14 @@ export class DiagramInteractionController {
       }
       this.clearGesture()
       this.tool = "create-port"
+      return
+    }
+    if (this.tool === "drag-port-anchor" && this.portAnchorEditStart) {
+      this.updatePortAnchorEditPreview(event.point)
+      const preview = this.portAnchorEditPreview
+      if (preview?.valid) this.engine.dispatch({ type: "setPortAnchor", id: preview.id, anchor: preview.anchor })
+      this.clearGesture()
+      this.tool = "select"
       return
     }
     this.latestAltKey = event.altKey === true
@@ -1184,7 +1218,7 @@ export class DiagramInteractionController {
   }
 
   getSnapshot(): DiagramInteractionSnapshot {
-    const hasPreview = this.previewDelta !== null || this.resizePreviewEntries.length > 0 || this.edgeEndpointPreview !== null || this.edgeSegmentPreview !== null || this.edgeCreationPreview !== null || this.lineCreationPreview !== null || this.pathCreationId !== null || this.bezierCreationId !== null || this.bezierHandlePreview !== null || this.pathVertexPreview !== null || this.portCreationPreview !== null
+    const hasPreview = this.previewDelta !== null || this.resizePreviewEntries.length > 0 || this.edgeEndpointPreview !== null || this.edgeSegmentPreview !== null || this.edgeCreationPreview !== null || this.lineCreationPreview !== null || this.pathCreationId !== null || this.bezierCreationId !== null || this.bezierHandlePreview !== null || this.pathVertexPreview !== null || this.portCreationPreview !== null || this.portAnchorEditPreview !== null
     const endpointOrigin = this.edgeEndpointOppositeStart ?? (this.tool === "connect-edge" || this.tool === "draw-line" ? this.startPoint : null)
     const endpointAngle = (this.tool === "drag-edge-endpoint" || this.tool === "connect-edge" || this.tool === "draw-line") && endpointOrigin && this.latestPoint
       ? (this.latestShiftKey ? this.edgeEndpointCardinalAngle : this.configuredAngle(this.latestPoint, endpointOrigin, isCreationTool(this.tool)))
@@ -1225,6 +1259,7 @@ export class DiagramInteractionController {
       bezierCreationPreview: this.bezierCreationId ? this.getBezierCreationPreview() : null,
       bezierHandlePreview: this.bezierHandlePreview,
       portCreationPreview: this.portCreationPreview,
+      portAnchorEditPreview: this.portAnchorEditPreview,
       edgeWaypointPreview: this.edgeEndpointId && this.edgeWaypointPreview ? { id: this.edgeEndpointId, points: this.edgeWaypointPreview } : null,
       pathVertexPreview: this.pathVertexPreview,
       marquee: this.marquee,
@@ -1514,6 +1549,71 @@ export class DiagramInteractionController {
       snapResult = { point: resolvedPoint, snapped: true, source: "grid" }
     }
     this.portCreationPreview = Object.freeze({ id, hostId, anchor: Object.freeze({ ...anchor }), point: Object.freeze({ ...resolvedPoint }), ...(this.portCreationOptions.metadata ? { metadata: this.portCreationOptions.metadata } : {}), ...(this.portCreationOptions.direction ? { direction: this.portCreationOptions.direction } : {}), ...(snapResult ? { snapResult: Object.freeze(snapResult) } : {}) })
+    this.snapResult = snapResult ?? null
+  }
+
+  private updatePortAnchorEditPreview(point: DiagramPoint): void {
+    const start = this.portAnchorEditStart
+    if (!start) { this.portAnchorEditPreview = null; return }
+    const scene = this.engine.getScene()
+    const port = scene.entities.portsById.get(start.id)
+    const host = this.engine.getGeometrySnapshot(start.hostId)
+    const bounds = host ? this.portHostLocalBounds(start.hostId, host) : null
+    if (!port || !host || !bounds) { this.portAnchorEditPreview = null; return }
+    let anchor: DiagramPortAnchor = start.anchor
+    let snapResult: DiagramSnapResult | undefined
+    if (anchor.kind === "route" && host.kind === "edge") {
+      const attachment = this.engine.nearestConnectorAttachment(point, (this.snapOptions.tolerancePx ?? 8) / Math.max(scene.viewport.zoom, 1e-9), new Set([...scene.entities.edgesById.keys()].filter((id) => id !== start.hostId)))
+      if (!attachment || attachment.edgeId !== start.hostId) {
+        this.portAnchorEditPreview = Object.freeze({ ...start, point, anchor, valid: false })
+        return
+      }
+      anchor = { kind: "route", fraction: attachment.fraction }
+      snapResult = { point: attachment.point, snapped: true, source: "connector", targetId: start.hostId }
+    } else if (anchor.kind === "vertex") {
+      const path = host.path ?? []
+      const tolerance = (this.snapOptions.tolerancePx ?? 8) / Math.max(scene.viewport.zoom, 1e-9)
+      let best: { index: number; point: DiagramPoint; distance: number } | null = null
+      for (let index = 0; index < path.length; index += 1) {
+        const candidate = path[index]!
+        const distance = Math.hypot(candidate.x - point.x, candidate.y - point.y)
+        if (distance <= tolerance && (!best || distance < best.distance || distance === best.distance && index < best.index)) best = { index, point: candidate, distance }
+      }
+      if (best) {
+        anchor = { kind: "vertex", index: best.index }
+        snapResult = { point: best.point, snapped: true, source: "endpoint", targetId: start.hostId }
+      } else {
+        this.portAnchorEditPreview = Object.freeze({ ...start, point, anchor, valid: false })
+        return
+      }
+    } else {
+      let anchorPoint = point
+      if (this.snapOptions.enabled !== false) {
+        const result = this.engine.snapPoint(point, {
+          tolerancePx: this.snapOptions.tolerancePx ?? 6,
+          gridSize: this.snapOptions.gridSize,
+          strictGrid: this.snapOptions.strictGrid,
+          kinds: this.snapOptions.kinds,
+          snapToAlignment: this.snapOptions.snapToAlignment,
+          snapToGuides: this.snapOptions.snapToGuides,
+          snapToEqualSpacing: this.snapOptions.snapToEqualSpacing,
+          excludeIds: new Set([start.id]),
+        })
+        if (result.snapped) { anchorPoint = result.point; snapResult = result }
+      }
+      this.snapResult = snapResult ?? null
+      const matrix = invertDiagramAffine(resolveWorldEntityTransform(start.hostId, scene.entities))
+      if (matrix) {
+        const local = transformDiagramPoint(matrix, anchorPoint)
+        anchor = { kind: "local", x: local.x - bounds.x, y: local.y - bounds.y }
+      }
+    }
+    const valid = isValidDiagramPortAnchor(start.hostId, anchor, scene.entities)
+    const candidatePort: DiagramPort = "nodeId" in port && port.nodeId
+      ? anchor.kind === "local" ? { ...(port as Extract<DiagramPort, { nodeId: DiagramId }>), x: anchor.x, y: anchor.y } : port
+      : { ...(port as Extract<DiagramPort, { hostId: DiagramId }>), anchor }
+    const resolvedPoint = valid ? resolvePortPoint(candidatePort, scene.entities) : point
+    this.portAnchorEditPreview = Object.freeze({ ...start, anchor: Object.freeze({ ...anchor }), point: Object.freeze({ ...resolvedPoint }), valid, ...(snapResult ? { snapResult: Object.freeze(snapResult) } : {}) })
     this.snapResult = snapResult ?? null
   }
 
@@ -2679,6 +2779,8 @@ export class DiagramInteractionController {
     this.portCreationId = null
     this.portCreationOptions = {}
     this.portCreationPreview = null
+    this.portAnchorEditPreview = null
+    this.portAnchorEditStart = null
     this.vertexDragKind = null
     this.vertexDragStart = null
     this.vertexConstraintOrigin = null

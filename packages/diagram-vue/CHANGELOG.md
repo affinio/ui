@@ -1,5 +1,13 @@
 # @affino/diagram-vue
 
+## 0.35.0
+
+### Minor Changes
+
+- Accepted read-only presentation sources in entity and connector projections and added pointer-transparent `DiagramTableView` rendering for immutable scenes.
+- Added source and render-scope identities for safely composing documents with colliding entity IDs or independent content contexts.
+- Added `beginPortAnchorEdit()` and `getSvgPortAnchorEditPreviewProps()` to expose valid/invalid Port reposition previews and commit through Core's one-operation history.
+
 ## 0.34.0
 
 ### Minor Changes

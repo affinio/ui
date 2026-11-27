@@ -35,6 +35,12 @@ const advancedFlows = [
     label: "Diagram · rulers and guides",
   },
   {
+    title: "Diagram presentation",
+    description: "Compose immutable template content and an editable scene in one viewport with independent content contexts.",
+    to: "/diagram/presentation",
+    label: "Diagram · shared presentation",
+  },
+  {
     title: "Diagram table",
     description: "Edit table cells, rows, columns, merges, alignment, and grid styling beside the canvas.",
     to: "/diagram/table",
