@@ -1,5 +1,12 @@
 # @affino/diagram-core
 
+## 0.37.0
+
+### Minor Changes
+
+- Added adaptive ruler tick resolution for physical units, configurable origins, negative coordinates, and viewport zoom.
+- Added persistent, serialized user guides with stable IDs, visibility, locking, undo/redo commands, and snapping through the existing Core alignment pipeline.
+
 ## 0.36.0
 
 ### Minor Changes

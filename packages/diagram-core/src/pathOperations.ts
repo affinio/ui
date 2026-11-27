@@ -246,7 +246,7 @@ export function trimAndJoinLines(first: ReadonlyArray<DiagramPoint>, second: Rea
  * For each sweep crossing the target is cut only as far as the nearest eligible geometry boundary in the
  * direction selected by the stroke. `tolerance` and boundary resolution use world units.
  */
-export function trimSelectionByStroke(scene: DiagramSceneInput, input: DiagramSweepTrimInput): DiagramSweepTrimResult {
+export function trimSelectionByStroke(scene: Omit<DiagramSceneInput, "guides">, input: DiagramSweepTrimInput): DiagramSweepTrimResult {
   const targets: DiagramSweepTrimTargetResult[] = []
   const updates: DiagramSweepTrimUpdate[] = []
   const findings: DiagramSweepTrimFinding[] = []

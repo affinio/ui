@@ -24,6 +24,46 @@ const scene: DiagramSceneInput = {
 }
 
 describe("DiagramEngine", () => {
+  it("resolves adaptive physical ruler ticks across negative coordinates and configured origins", async () => {
+    const { resolveDiagramRulerTicks } = await import("..")
+    const ticks = resolveDiagramRulerTicks({ start: -20, end: 20, zoom: 1, unit: "px", origin: 0, targetTickPx: 10 })
+    expect(ticks.some((tick) => tick.world < 0)).toBe(true)
+    expect(ticks).toContainEqual(expect.objectContaining({ world: 0, value: 0, major: true }))
+    const shifted = resolveDiagramRulerTicks({ start: -3, end: 17, zoom: 1, unit: "px", origin: 5, targetTickPx: 10 })
+    expect(shifted).toContainEqual(expect.objectContaining({ world: 5, value: 0, label: "0" }))
+    const inches = resolveDiagramRulerTicks({ start: -192, end: 192, zoom: 1, unit: "in", origin: 0, targetTickPx: 96 })
+    expect(inches).toContainEqual(expect.objectContaining({ world: -192, value: -2 }))
+  })
+
+  it("serializes user guides, tracks their history, and snaps movement to visible guides", () => {
+    const engine = createDiagramEngine({
+      viewport: { x: -100, y: -100, width: 500, height: 400, zoom: 1 },
+      shapes: [{ id: "guide-shape", kind: "shape", shape: "rect", x: 0, y: 0, width: 20, height: 20 }],
+      guides: [{ id: "guide-x", axis: "x", position: 30 }],
+    })
+    expect(engine.getGuides()).toEqual([expect.objectContaining({ id: "guide-x", axis: "x", position: 30 })])
+    engine.dispatch({ type: "setSelection", selection: { ids: ["guide-shape"], primaryId: "guide-shape" } })
+    const snapped = engine.snapTranslation(engine.getScene().selection, { x: 8, y: 0 }, { radius: 4 })
+    expect(snapped.point.x).toBe(10)
+    expect(snapped?.guides.some((guide) => guide.kind === "user-guide")).toBe(true)
+    engine.dispatch({ type: "createGuide", guide: { id: "guide-y", axis: "y", position: 25 } })
+    expect(engine.getGuides().map(({ id }) => id)).toContain("guide-y")
+    const serialized = engine.serialize()
+    expect(createDiagramEngine(deserializeScene(serialized)).serialize()).toEqual(serialized)
+    engine.dispatch({ type: "undo" })
+    expect(engine.getGuides().some(({ id }) => id === "guide-y")).toBe(false)
+    engine.dispatch({ type: "redo" })
+    expect(engine.getGuides().some(({ id }) => id === "guide-y")).toBe(true)
+    engine.dispatch({ type: "updateGuide", id: "guide-x", guide: { locked: true } })
+    engine.dispatch({ type: "updateGuide", id: "guide-x", guide: { position: 31 } })
+    expect(engine.getGuides().find(({ id }) => id === "guide-x")?.position).toBe(30)
+    engine.dispatch({ type: "updateGuide", id: "guide-x", guide: { visible: false } })
+    const hiddenGuideSnap = engine.snapTranslation(engine.getScene().selection, { x: 8, y: 0 }, { radius: 4, snapToAlignment: false })
+    expect(hiddenGuideSnap.snapped).toBe(false)
+    engine.dispatch({ type: "deleteGuide", id: "guide-x" })
+    expect(engine.getGuides().some(({ id }) => id === "guide-x")).toBe(true)
+  })
+
   it("resolves independent content presentations without changing authoritative document state", () => {
     const engine = createDiagramEngine({
       texts: [{ id: "label", kind: "text", x: 0, y: 0, text: "Base" }],
@@ -5653,7 +5693,7 @@ describe("DiagramEngine", () => {
 
   it("trims to the nearest boundaries on both sides of each sweep crossing", () => {
     const engine = createDiagramEngine({ shapes: [
-      { id: "target", kind: "shape", shape: "line", x: 0, y: 0, width: 100, height: 0, stroke: "red", metadata: { custom: 1 } },
+      { id: "target", kind: "shape", shape: "line", x: 0, y: 0, width: 100, height: 0, visualStyle: { stroke: "red" }, metadata: { custom: 1 } },
       { id: "left", kind: "shape", shape: "line", x: 20, y: -10, width: 0, height: 20 },
       { id: "right", kind: "shape", shape: "line", x: 80, y: -10, width: 0, height: 20 },
     ] })
@@ -5665,7 +5705,7 @@ describe("DiagramEngine", () => {
       { segments: [{ kind: "line", start: { x: 0, y: 0 }, end: { x: 20, y: 0 } }], closed: false },
       { segments: [{ kind: "line", start: { x: 80, y: 0 }, end: { x: 100, y: 0 } }], closed: false },
     ])
-    expect(result.targets[0]?.preview).toMatchObject({ id: "target", stroke: "red", metadata: { custom: 1 } })
+    expect(result.targets[0]?.preview).toMatchObject({ id: "target", visualStyle: { stroke: "red" }, metadata: { custom: 1 } })
     const reversed = trimSelectionByStroke(engine.serialize(), { targetIds: ["target"], stroke: [...stroke].reverse(), tolerance: 0.01, side: "both" })
     expect(reversed.targets[0]?.retained).toEqual(result.targets[0]?.retained)
     expect(engine.dispatchBatch(result.updates).ok).toBe(true)

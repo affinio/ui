@@ -46,6 +46,7 @@ import type {
   DiagramEntityKind,
   DiagramMetadata,
   DiagramGeometry,
+  DiagramGuide,
   DiagramHit,
   DiagramHitTestOptions,
   DiagramId,
@@ -125,6 +126,8 @@ export class DiagramEngine {
   getScene(): DiagramScene {
     return this.store.getSnapshot()
   }
+
+  getGuides(): ReadonlyArray<DiagramGuide> { return Object.freeze([...this.store.getSnapshot().guides.values()]) }
 
   getLastChange(): DiagramChange {
     return this.store.getLastChange()
@@ -587,6 +590,7 @@ export class DiagramEngine {
         tolerancePx: context.tolerancePx ?? (context.radius ?? 6) * zoom,
         gridSize: context.gridSize,
         kinds: context.kinds,
+        snapToGuides: context.snapToGuides,
         excludeIds: context.excludeIds,
         origin: context.origin,
         angleIncrement: context.angleIncrement ?? context.angleConstraint,
@@ -641,12 +645,17 @@ export class DiagramEngine {
     const tolerancePx = options.tolerancePx ?? 6
     if (!Number.isFinite(tolerancePx) || tolerancePx < 0) return Object.freeze([])
     const radius = tolerancePx / zoom
-    const enabled = new Set(options.kinds ?? ["port", "connector", "endpoint", "midpoint", "center", "intersection", "perpendicular", "nearest", "alignment", "equal-spacing", ...(options.gridSize ? ["grid" as const] : [])])
+    const enabled = new Set(options.kinds ?? ["port", "connector", "endpoint", "midpoint", "center", "intersection", "perpendicular", "nearest", "alignment", "equal-spacing", ...(options.snapToGuides === false ? [] : ["guide" as const]), ...(options.gridSize ? ["grid" as const] : [])])
+    if (options.snapToGuides === false) enabled.delete("guide")
     const excluded = options.excludeIds ?? new Set<DiagramId>()
     const found: DiagramSnapCandidate[] = []
     const add = (kind: DiagramSnapKind, candidatePoint: DiagramPoint, targetId?: DiagramId) => {
       const candidateDistance = distance(point, candidatePoint) * zoom
       if (candidateDistance <= tolerancePx) found.push({ kind, point: candidatePoint, ...(targetId ? { targetId } : {}), distancePx: candidateDistance })
+    }
+    if (enabled.has("guide")) for (const guide of this.state.guides.values()) {
+      if (guide.visible === false) continue
+      add("guide", guide.axis === "x" ? { x: guide.position, y: point.y } : { x: point.x, y: guide.position }, guide.id)
     }
     const searchBounds = { x: point.x - radius, y: point.y - radius, width: radius * 2, height: radius * 2 }
     this.ensureIndexes()
@@ -729,7 +738,7 @@ export class DiagramEngine {
       }
     }
     if (enabled.has("grid") && options.gridSize && Number.isFinite(options.gridSize) && options.gridSize > 0) add("grid", { x: Math.round(point.x / options.gridSize) * options.gridSize, y: Math.round(point.y / options.gridSize) * options.gridSize })
-    const priority: DiagramSnapKind[] = ["port", "connector", "endpoint", "intersection", "midpoint", "center", "perpendicular", "nearest", "alignment", "equal-spacing", "grid"]
+    const priority: DiagramSnapKind[] = ["port", "connector", "endpoint", "intersection", "midpoint", "center", "perpendicular", "nearest", "guide", "alignment", "equal-spacing", "grid"]
     found.sort((a, b) => (priority.indexOf(a.kind) - priority.indexOf(b.kind)) || a.distancePx - b.distancePx || (a.targetId ?? "").localeCompare(b.targetId ?? "") || a.point.x - b.point.x || a.point.y - b.point.y)
     this.snapCandidateCount += found.length
     return Object.freeze(found.map((candidate) => Object.freeze({ ...candidate, point: Object.freeze({ ...candidate.point }) })))
@@ -797,8 +806,31 @@ export class DiagramEngine {
       selectedCandidate ??= { kind: "alignment", point, distancePx: Math.hypot(aligned.dx, aligned.dy) * (this.state.viewport.zoom || 1) }
       }
     }
+    if (!prioritySnap && context.snapToGuides !== false && (!context.kinds || context.kinds.includes("guide")) && geometry) {
+      const moving = { ...geometry.bounds, x: point.x, y: point.y }
+      const usedAxes = new Set(guides.map((guide) => guide.axis))
+      for (const axis of ["x", "y"] as const) {
+        if (usedAxes.has(axis) || (context.axisConstraint === "x" && axis === "y") || (context.axisConstraint === "y" && axis === "x")) continue
+        const candidates = this.getGuides().filter((guide) => guide.visible !== false && guide.axis === axis).flatMap((guide) => {
+          const offsets = axis === "x" ? [0, moving.width / 2, moving.width] : [0, moving.height / 2, moving.height]
+          return offsets.map((offset) => ({ guide, delta: guide.position - ((axis === "x" ? moving.x : moving.y) + offset) }))
+        }).filter((candidate) => Math.abs(candidate.delta) * (this.state.viewport.zoom || 1) <= (context.tolerancePx ?? radius * (this.state.viewport.zoom || 1)))
+          .sort((a, b) => Math.abs(a.delta) - Math.abs(b.delta) || a.guide.id.localeCompare(b.guide.id))
+        const candidate = candidates[0]
+        if (!candidate) continue
+        if (axis === "x") point = { ...point, x: point.x + candidate.delta }
+        else point = { ...point, y: point.y + candidate.delta }
+        const coordinate = candidate.guide.position
+        guides.push(axis === "x"
+          ? { kind: "user-guide", axis, start: { x: coordinate, y: moving.y }, end: { x: coordinate, y: moving.y + moving.height } }
+          : { kind: "user-guide", axis, start: { x: moving.x, y: coordinate }, end: { x: moving.x + moving.width, y: coordinate } })
+        source ??= "guide"
+        selectedCandidate ??= { kind: "guide", point: { x: moving.x + (axis === "x" ? candidate.delta : 0), y: moving.y + (axis === "y" ? candidate.delta : 0) }, targetId: candidate.guide.id, distancePx: Math.abs(candidate.delta) * (this.state.viewport.zoom || 1) }
+        usedAxes.add(axis)
+      }
+    }
     if (!prioritySnap && context.snapToEqualSpacing && (!context.kinds || context.kinds.includes("equal-spacing")) && geometry) {
-      const alignedAxes = new Set(guides.filter((guide) => guide.kind === "alignment").map((guide) => guide.axis))
+      const alignedAxes = new Set(guides.filter((guide) => guide.kind === "alignment" || guide.kind === "user-guide").map((guide) => guide.axis))
       if (context.axisConstraint === "x") alignedAxes.add("y")
       if (context.axisConstraint === "y") alignedAxes.add("x")
       const spaced = this.findEqualSpacing(geometry.bounds, point, radius, excludeIds, alignedAxes)
@@ -964,7 +996,7 @@ export class DiagramEngine {
     return {
       format: "affino-diagram",
       version: 1,
-      content: { nodes: scene.nodes, edges: scene.edges, texts: scene.texts, shapes: scene.shapes, ports: scene.ports, ...(scene.junctions?.length ? { junctions: scene.junctions } : {}), groups: scene.groups ?? [], tables: scene.tables ?? [] },
+      content: { nodes: scene.nodes, edges: scene.edges, texts: scene.texts, shapes: scene.shapes, ports: scene.ports, ...(scene.junctions?.length ? { junctions: scene.junctions } : {}), groups: scene.groups ?? [], tables: scene.tables ?? [], ...(scene.guides?.length ? { guides: scene.guides } : {}) },
       ...(options.includeView === false ? {} : { view: { viewport: scene.viewport, selection: scene.selection } }),
     }
   }
@@ -1275,6 +1307,12 @@ export class DiagramEngine {
         return createCreateJunctionPatch(this.state, command.junction)
       case "updateJunction":
         return createUpdateJunctionPatch(this.state, command.id, command.anchor)
+      case "createGuide":
+        return createGuidePatch(this.state, command.guide)
+      case "updateGuide":
+        return updateGuidePatch(this.state, command.id, command.guide)
+      case "deleteGuide":
+        return deleteGuidePatch(this.state, command.id)
       case "deleteEntities":
         return createDeleteEntitiesCommandPatch(this.state, command.ids)
       case "reconnectEdgeEndpoint":
@@ -1696,6 +1734,7 @@ export function serializeScene(scene: DiagramScene): SerializedDiagramScene {
     groups: scene.order.groupIds.map((id) => scene.entities.groupsById.get(id)).filter(isDefined),
     tables: scene.order.tableIds.map((id) => scene.entities.tablesById.get(id)).filter(isDefined),
     ...(scene.entities.junctionsById.size ? { junctions: [...scene.entities.junctionsById.values()] } : {}),
+    ...(scene.guides.size ? { guides: [...scene.guides.values()] } : {}),
     selection: scene.selection,
     viewport: scene.viewport,
   }
@@ -1708,7 +1747,7 @@ export function deserializeScene(scene: SerializedDiagramScene): DiagramSceneInp
 export function deserializeDiagramDocument(input: DiagramDocument | SerializedDiagramScene): DiagramSceneInput {
   if (!input || typeof input !== "object") throw new TypeError("Invalid diagram document")
   if ("format" in input) {
-    if (input.format !== "affino-diagram" || input.version !== 1 || !input.content || ![input.content.nodes, input.content.edges, input.content.texts, input.content.shapes, input.content.ports].every(Array.isArray) || (input.content.junctions !== undefined && !Array.isArray(input.content.junctions)) || (input.content.groups !== undefined && !Array.isArray(input.content.groups)) || (input.content.tables !== undefined && !Array.isArray(input.content.tables))) {
+    if (input.format !== "affino-diagram" || input.version !== 1 || !input.content || ![input.content.nodes, input.content.edges, input.content.texts, input.content.shapes, input.content.ports].every(Array.isArray) || (input.content.junctions !== undefined && !Array.isArray(input.content.junctions)) || (input.content.groups !== undefined && !Array.isArray(input.content.groups)) || (input.content.tables !== undefined && !Array.isArray(input.content.tables)) || (input.content.guides !== undefined && !Array.isArray(input.content.guides))) {
       throw new TypeError("Unsupported or invalid diagram document")
     }
     const view = input.view ?? {}
@@ -1909,15 +1948,17 @@ function validateSceneInput(scene: DiagramSceneInput): DiagramSceneInput {
   const junctionsInput = scene.junctions ?? []
   const groupsInput = scene.groups ?? []
   const tablesInput = scene.tables ?? []
-  if (![nodesInput, edgesInput, textsInput, shapesInput, portsInput, junctionsInput, groupsInput, tablesInput].every(Array.isArray)) throw new TypeError("Invalid diagram scene collections")
+  const guidesInput = scene.guides ?? []
+  if (![nodesInput, edgesInput, textsInput, shapesInput, portsInput, junctionsInput, groupsInput, tablesInput, guidesInput].every(Array.isArray)) throw new TypeError("Invalid diagram scene collections")
   const ids = new Set<string>()
-  for (const entity of [...nodesInput, ...edgesInput, ...textsInput, ...shapesInput, ...portsInput, ...junctionsInput, ...groupsInput, ...tablesInput]) {
+  for (const entity of [...nodesInput, ...edgesInput, ...textsInput, ...shapesInput, ...portsInput, ...junctionsInput, ...groupsInput, ...tablesInput, ...guidesInput]) {
     if (!entity || typeof entity.id !== "string" || !entity.id || ids.has(entity.id)) throw new TypeError("Diagram entity IDs must be non-empty and globally unique")
-    if (!isValidVisualStyle(entity.visualStyle)) throw new TypeError(`Invalid visual style for entity ${entity.id}`)
+    if ("visualStyle" in entity && !isValidVisualStyle(entity.visualStyle)) throw new TypeError(`Invalid visual style for entity ${entity.id}`)
     if ("transformOrigin" in entity && !validTransformOrigin(entity)) throw new TypeError(`Invalid transform origin for entity ${entity.id}`)
     if ("parentOffset" in entity && entity.parentOffset !== undefined && (![entity.parentOffset.x, entity.parentOffset.y].every(Number.isFinite))) throw new TypeError(`Invalid parent offset for entity ${entity.id}`)
     ids.add(entity.id)
   }
+  for (const guide of guidesInput) if ((guide.axis !== "x" && guide.axis !== "y") || !Number.isFinite(guide.position) || (guide.visible !== undefined && typeof guide.visible !== "boolean") || (guide.locked !== undefined && typeof guide.locked !== "boolean")) throw new TypeError(`Invalid guide ${guide.id}`)
   const nodes = new Set(nodesInput.map((node) => node.id))
   const ports = new Map(portsInput.map((port) => [port.id, port]))
   const edges = new Map(edgesInput.map((edge) => [edge.id, edge]))
@@ -4143,6 +4184,36 @@ function createSetPortDirectionPatch(state: InternalState, id: DiagramId, direct
   return createEntitySnapshotPatch([id], new Map([[id, port]]), new Map([[id, next]]), (draft, portId, value) => draft.entities.portsById.set(portId, value))
 }
 
+function createGuidePatch(state: InternalState, guide: DiagramGuide): Patch | null {
+  if (!guide || typeof guide.id !== "string" || !guide.id || (guide.axis !== "x" && guide.axis !== "y") || !Number.isFinite(guide.position) || !isUniqueId(state, guide.id)) return null
+  return setGuidePatch(state, guide.id, Object.freeze({ ...guide, visible: guide.visible ?? true, locked: guide.locked ?? false }))
+}
+
+function updateGuidePatch(state: InternalState, id: DiagramId, update: Partial<Omit<DiagramGuide, "id">>): Patch | null {
+  const previous = state.guides.get(id)
+  if (!previous || (previous.locked && update.position !== undefined && update.position !== previous.position)) return null
+  const next = { ...previous, ...update, id }
+  if ((next.axis !== "x" && next.axis !== "y") || !Number.isFinite(next.position) || (next.visible !== undefined && typeof next.visible !== "boolean") || (next.locked !== undefined && typeof next.locked !== "boolean")) return null
+  return setGuidePatch(state, id, Object.freeze(next))
+}
+
+function deleteGuidePatch(state: InternalState, id: DiagramId): Patch | null {
+  const guide = state.guides.get(id)
+  if (!guide || guide.locked) return null
+  return setGuidePatch(state, id, null)
+}
+
+function setGuidePatch(state: InternalState, id: DiagramId, nextGuide: DiagramGuide | null): Patch | null {
+  const previous = state.guides.get(id) ?? null
+  if (previous && nextGuide && previous.axis === nextGuide.axis && previous.position === nextGuide.position && previous.visible === nextGuide.visible && previous.locked === nextGuide.locked) return null
+  const apply = (value: DiagramGuide | null): Patch["apply"] => (draft) => {
+    if (value) draft.guides.set(id, value)
+    else draft.guides.delete(id)
+    return new Set([id])
+  }
+  return { apply: apply(nextGuide), inverse: { apply: apply(previous), inverse: undefined as unknown as Patch } }
+}
+
 function createCreateJunctionPatch(state: InternalState, junction: DiagramJunction): Patch | null {
   if (junction.kind !== "junction" || !isUniqueId(state, junction.id) || !state.entities.edgesById.has(junction.hostEdgeId)
     || !isValidVisualStyle(junction.visualStyle) || !isValidJunctionAnchor(junction.anchor) || isEntityLockedOrReadOnly(state, junction.hostEdgeId)) return null
@@ -4484,6 +4555,7 @@ function createDeleteEntitiesPatch(ids: ReadonlyArray<DiagramId>): Patch {
           groupsById: pick(next.entities.groupsById, ids),
           tablesById: pick(next.entities.tablesById, ids),
         },
+        guides: pick(next.guides, ids),
         order: {
           nodeIds: next.order.nodeIds.filter((id) => ids.includes(id)),
           edgeIds: next.order.edgeIds.filter((id) => ids.includes(id)),
@@ -4619,6 +4691,7 @@ function createReplaceScenePatch(next: DiagramSceneInput, previous: SerializedDi
       state.order = replacement.order
       state.selection = replacement.selection
       state.viewport = replacement.viewport
+      state.guides = replacement.guides
       state.versions = replacement.versions
       return new Set([
         ...previousIds,
@@ -4630,6 +4703,7 @@ function createReplaceScenePatch(next: DiagramSceneInput, previous: SerializedDi
         ...replacement.entities.junctionsById.keys(),
         ...replacement.order.groupIds,
         ...replacement.order.tableIds,
+        ...replacement.guides.keys(),
       ])
     },
     inverse: {
@@ -4640,6 +4714,7 @@ function createReplaceScenePatch(next: DiagramSceneInput, previous: SerializedDi
         state.order = replacement.order
         state.selection = replacement.selection
         state.viewport = replacement.viewport
+        state.guides = replacement.guides
         state.versions = replacement.versions
         return new Set([
           ...previousIds,
@@ -4651,6 +4726,7 @@ function createReplaceScenePatch(next: DiagramSceneInput, previous: SerializedDi
           ...replacement.entities.junctionsById.keys(),
           ...replacement.order.groupIds,
           ...replacement.order.tableIds,
+          ...replacement.guides.keys(),
         ])
       },
       inverse: undefined as unknown as Patch,
@@ -4816,11 +4892,12 @@ function allEntityIds(state: InternalState): DiagramId[] {
     ...state.entities.junctionsById.keys(),
     ...state.entities.groupsById.keys(),
     ...state.entities.tablesById.keys(),
+    ...state.guides.keys(),
   ]
 }
 
 function hasEntity(state: InternalState, id: DiagramId): boolean {
-  return state.entities.nodesById.has(id) || state.entities.edgesById.has(id) || state.entities.textsById.has(id) || state.entities.shapesById.has(id) || state.entities.portsById.has(id) || state.entities.junctionsById.has(id) || state.entities.groupsById.has(id) || state.entities.tablesById.has(id)
+  return state.entities.nodesById.has(id) || state.entities.edgesById.has(id) || state.entities.textsById.has(id) || state.entities.shapesById.has(id) || state.entities.portsById.has(id) || state.entities.junctionsById.has(id) || state.entities.groupsById.has(id) || state.entities.tablesById.has(id) || state.guides.has(id)
 }
 
 function isEntityLockedOrReadOnly(state: InternalState, id: DiagramId): boolean {
@@ -4901,12 +4978,18 @@ function restoreSerialized(state: InternalState, scene: SerializedDiagramScene):
     state.versions.set(table.id, 0)
     changed.add(table.id)
   }
+  for (const guide of scene.guides ?? []) {
+    state.guides.set(guide.id, guide)
+    state.versions.set(guide.id, 0)
+    changed.add(guide.id)
+  }
   state.selection = scene.selection
   return changed
 }
 
 function deleteEntity(state: InternalState, id: DiagramId): boolean {
-  let deleted = state.entities.nodesById.delete(id)
+  let deleted = state.guides.delete(id)
+  deleted = state.entities.nodesById.delete(id) || deleted
   deleted = state.entities.edgesById.delete(id) || deleted
   deleted = state.entities.textsById.delete(id) || deleted
   deleted = state.entities.shapesById.delete(id) || deleted

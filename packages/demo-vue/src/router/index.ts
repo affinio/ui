@@ -62,6 +62,12 @@ const router = createRouter({
       component: () => import("@/pages/TreeviewPage.vue"),
     },
     {
+      path: "/diagram/rulers",
+      name: "diagram-ruler-workbench",
+      component: () => import("@/pages/DiagramRulersPage.vue"),
+      meta: { layoutWidth: "full", fitViewport: true, lockMainScroll: true },
+    },
+    {
       path: "/diagram/table",
       name: "diagram-table-workbench",
       component: () => import("@/pages/DiagramTablePage.vue"),

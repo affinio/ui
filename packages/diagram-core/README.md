@@ -2,6 +2,18 @@
 
 Framework-neutral diagram state, geometry, command, history, selection, viewport, and serialization engine. Vue, React, or canvas adapters should call core commands instead of reimplementing movement, hit testing, undo/redo, clipboard, or viewport math.
 
+### Rulers and persistent guides
+
+Core resolves adaptive ruler ticks from world extents and zoom, and owns persistent guide state. `resolveDiagramRulerTicks()` supports `px`, `mm`, `cm`, and `in` (96 CSS px per inch by default), negative coordinates, a configurable world origin, and custom world-units-per-unit. A guide has a stable ID, `axis: "x" | "y"`, world `position`, and optional `visible` and `locked` flags. `createGuide`, `updateGuide`, and `deleteGuide` are undoable commands; guides are included in scene/document serialization. Locked guides cannot move or be deleted. Guide snapping is available in the existing snapping pipeline and can be disabled per call with `snapToGuides: false`.
+
+```ts
+import { createDiagramEngine, resolveDiagramRulerTicks } from "@affino/diagram-core"
+
+const ticks = resolveDiagramRulerTicks({ start: -200, end: 800, zoom: 1.25, unit: "mm", origin: 0 })
+const engine = createDiagramEngine({ guides: [{ id: "guide-1", axis: "x", position: 120 }] })
+engine.dispatch({ type: "updateGuide", id: "guide-1", guide: { position: 140 } })
+```
+
 
 ## Internal Architecture
 

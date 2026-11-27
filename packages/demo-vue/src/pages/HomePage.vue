@@ -29,6 +29,12 @@ const advancedFlows = [
     label: "Diagram · full generation",
   },
   {
+    title: "Diagram rulers",
+    description: "Use adaptive measurement rulers, create persistent guides, and inspect snapping and selection bounds.",
+    to: "/diagram/rulers",
+    label: "Diagram · rulers and guides",
+  },
+  {
     title: "Diagram table",
     description: "Edit table cells, rows, columns, merges, alignment, and grid styling beside the canvas.",
     to: "/diagram/table",

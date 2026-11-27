@@ -17,6 +17,12 @@ export type DiagramPoint = Readonly<{
   y: number
 }>
 
+/** Persistent axis guide in world coordinates. `x` is vertical, `y` is horizontal. */
+export type DiagramGuide = Readonly<{ id: DiagramId; axis: "x" | "y"; position: number; visible?: boolean; locked?: boolean }>
+export type DiagramRulerUnit = "px" | "mm" | "cm" | "in"
+export type DiagramRulerTick = Readonly<{ world: number; value: number; label: string; major: boolean }>
+export type DiagramRulerTickOptions = Readonly<{ start: number; end: number; zoom: number; origin?: number; unit?: DiagramRulerUnit; worldUnitsPerUnit?: number; targetTickPx?: number }>
+
 /** Pivot coordinates in an object's untransformed local coordinate plane. */
 export type TransformOrigin = Readonly<{ mode: "relative"; x: number; y: number }> | Readonly<{ mode: "absolute"; x: number; y: number }>
 
@@ -300,6 +306,7 @@ export type DiagramScene = Readonly<{
   order: DiagramOrder
   selection: DiagramSelection
   viewport: DiagramViewport
+  guides: ReadonlyMap<DiagramId, DiagramGuide>
   revision: number
 }>
 
@@ -378,6 +385,7 @@ export type DiagramSceneInput = Readonly<{
   junctions?: ReadonlyArray<DiagramJunction>
   groups?: ReadonlyArray<DiagramGroup>
   tables?: ReadonlyArray<DiagramTable>
+  guides?: ReadonlyArray<DiagramGuide>
   selection?: Partial<DiagramSelection>
   viewport?: Partial<DiagramViewport>
 }>
@@ -400,6 +408,7 @@ export type SerializedDiagramScene = Readonly<{
   junctions?: ReadonlyArray<DiagramJunction>
   groups?: ReadonlyArray<DiagramGroup>
   tables?: ReadonlyArray<DiagramTable>
+  guides?: ReadonlyArray<DiagramGuide>
   selection: DiagramSelection
   viewport: DiagramViewport
 }>
@@ -521,6 +530,9 @@ export type DiagramCommand =
   | Readonly<{ type: "setPortDirection"; id: DiagramId; direction: DiagramPortDirection | undefined; historyKey?: string }>
   | Readonly<{ type: "createJunction"; junction: DiagramJunction; historyKey?: string }>
   | Readonly<{ type: "updateJunction"; id: DiagramId; anchor: DiagramJunction["anchor"]; historyKey?: string }>
+  | Readonly<{ type: "createGuide"; guide: DiagramGuide; historyKey?: string }>
+  | Readonly<{ type: "updateGuide"; id: DiagramId; guide: Partial<Omit<DiagramGuide, "id">>; historyKey?: string }>
+  | Readonly<{ type: "deleteGuide"; id: DiagramId; historyKey?: string }>
   | Readonly<{ type: "deleteEntities"; ids: ReadonlyArray<DiagramId>; historyKey?: string }>
   | Readonly<{ type: "reconnectEdgeEndpoint"; id: DiagramId; endpoint: "source" | "target"; connection: DiagramEdgeEndpoint; historyKey?: string }>
   | Readonly<{ type: "updateEntities"; updates: ReadonlyArray<DiagramEntityUpdate>; historyKey?: string }>
@@ -829,6 +841,7 @@ export type DiagramSnapContext = Readonly<{
   axisConstraint?: "x" | "y"
   snapToPorts?: boolean
   snapToAlignment?: boolean
+  snapToGuides?: boolean
   snapToEqualSpacing?: boolean
   excludeIds?: ReadonlySet<DiagramId>
   angleConstraint?: number
@@ -844,7 +857,7 @@ export type DiagramSnapResult = Readonly<{
   candidates?: ReadonlyArray<DiagramSnapCandidate>
 }>
 
-export type DiagramSnapKind = "grid" | "port" | "connector" | "endpoint" | "midpoint" | "center" | "intersection" | "perpendicular" | "nearest" | "alignment" | "equal-spacing"
+export type DiagramSnapKind = "grid" | "port" | "connector" | "endpoint" | "midpoint" | "center" | "intersection" | "perpendicular" | "nearest" | "alignment" | "equal-spacing" | "guide"
 
 export type DiagramSnapCandidate = Readonly<{
   kind: DiagramSnapKind
@@ -858,6 +871,7 @@ export type DiagramSnapOptions = Readonly<{
   tolerancePx?: number
   gridSize?: number
   kinds?: ReadonlyArray<DiagramSnapKind>
+  snapToGuides?: boolean
   excludeIds?: ReadonlySet<DiagramId>
   origin?: DiagramPoint
   angleIncrement?: number
@@ -870,7 +884,7 @@ export type DiagramTranslationSnapResult = DiagramSnapResult & Readonly<{
 }>
 
 export type DiagramSnapGuide = Readonly<{
-  kind: "alignment" | "equal-spacing"
+  kind: "alignment" | "equal-spacing" | "user-guide"
   axis: "x" | "y"
   start: DiagramPoint
   end: DiagramPoint
@@ -891,6 +905,7 @@ export type DiagramInteractionSnapOptions = Readonly<{
   snapToPorts?: boolean
   snapToConnectors?: boolean
   snapToAlignment?: boolean
+  snapToGuides?: boolean
   snapToEqualSpacing?: boolean
   kinds?: ReadonlyArray<DiagramSnapKind>
   angleIncrement?: number

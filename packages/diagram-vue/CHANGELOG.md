@@ -1,5 +1,13 @@
 # @affino/diagram-vue
 
+## 0.34.0
+
+### Minor Changes
+
+- Exported reusable `DiagramRuler`, `DiagramGuidesOverlay`, and `DiagramGuidePreview` components for adaptive rulers, ruler-to-guide creation, transient guide preview, and persistent guide editing.
+- Added `DiagramSelectionExtent` and `DiagramCursorIndicator` overlays for selection bounds and world-coordinate cursor indicators.
+- Preserved the existing `live`, `ghost`, and `outline` interaction preview modes.
+
 ## 0.33.0
 
 ### Minor Changes

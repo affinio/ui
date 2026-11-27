@@ -77,6 +77,7 @@ export class DiagramSceneStore {
         primaryId: this.state.selection.primaryId,
       },
       viewport: { ...this.state.viewport },
+      guides: this.createReadonlyMap(this.state.guides, this.snapshot?.guides, changedIds),
       revision: this.state.revision,
     })
   }
@@ -110,6 +111,7 @@ export function createInternalState(input: DiagramSceneInput): InternalState {
     ...entities.junctionsById.keys(),
     ...entities.groupsById.keys(),
     ...entities.tablesById.keys(),
+    ...(input.guides ?? []).map((guide) => guide.id),
   ]
   return {
     entities,
@@ -123,6 +125,7 @@ export function createInternalState(input: DiagramSceneInput): InternalState {
     },
     selection: normalizeSelection(input.selection),
     viewport: { ...DEFAULT_VIEWPORT, ...input.viewport },
+    guides: toMap(input.guides ?? []),
     revision: 0,
     documentRevision: 0,
     orderRevision: 0,

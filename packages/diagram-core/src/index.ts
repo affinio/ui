@@ -3,6 +3,7 @@ export { DiagramInteractionController, createDiagramInteractionController } from
 export { UniformGridIndex } from "./spatialIndex.js"
 export { createConnectorRenderGeometry } from "./connectorRendering.js"
 export { clampViewportToBounds, screenToWorld, worldToScreen, zoomViewportAt, zoomViewportCentered } from "./viewport.js"
+export { resolveDiagramRulerTicks } from "./rulers.js"
 export * from "./geometry.js"
 export * from "./pathOperations.js"
 export * from "./renderStyle.js"

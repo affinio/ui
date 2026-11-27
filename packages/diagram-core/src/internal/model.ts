@@ -1,4 +1,4 @@
-import type { DiagramChange, DiagramEdge, DiagramGeometry, DiagramGroup, DiagramId, DiagramJunction, DiagramNode, DiagramPort, DiagramSceneInput, DiagramSelection, DiagramShape, DiagramTable, DiagramText, DiagramViewport } from "../types.js"
+import type { DiagramChange, DiagramEdge, DiagramGeometry, DiagramGroup, DiagramGuide, DiagramId, DiagramJunction, DiagramNode, DiagramPort, DiagramSceneInput, DiagramSelection, DiagramShape, DiagramTable, DiagramText, DiagramViewport } from "../types.js"
 
 export type MutableEntities = {
   nodesById: Map<DiagramId, DiagramNode>
@@ -25,6 +25,7 @@ export type InternalState = {
   order: MutableOrder
   selection: DiagramSelection
   viewport: DiagramViewport
+  guides: Map<DiagramId, DiagramGuide>
   revision: number
   documentRevision: number
   orderRevision: number

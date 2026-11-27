@@ -1,5 +1,26 @@
 # @affino/diagram-vue
 
+### Rulers and persistent guides
+
+`DiagramRuler` renders Core adaptive ticks and emits `create-guide(axis, worldPosition)` when a user drags from it. Its `guide-preview(axis, worldPosition | null)` event lets the application render `DiagramGuidePreview` across the canvas during the gesture. Cancellation clears that transient preview without persisting a guide. `DiagramGuidesOverlay` renders `controller.scene.value.guides`, supports moving unlocked guides, and commits one `updateGuide` command on pointer up; pointer cancellation discards its transient position. Render these overlays within the same world-coordinate SVG as diagram geometry. `DiagramSelectionExtent` draws the Core world bounds of the current selection, while `DiagramCursorIndicator` draws crosshairs for an application-supplied world cursor position.
+
+```vue
+<DiagramRuler axis="x" :viewport="viewport" unit="mm" :origin="0" @create-guide="addGuide" />
+<svg :viewBox="viewBox">
+  <!-- regular Core-projected diagram geometry -->
+  <DiagramGuidesOverlay :controller="diagram" />
+  <DiagramGuidePreview :axis="guideDraft?.axis ?? null" :position="guideDraft?.position ?? null" :extent="viewport" />
+  <DiagramSelectionExtent :controller="diagram" />
+  <DiagramCursorIndicator :position="cursorWorldPoint" :extent="viewport" />
+</svg>
+```
+
+```ts
+import { DiagramCursorIndicator, DiagramGuidePreview, DiagramGuidesOverlay, DiagramRuler, DiagramSelectionExtent } from "@affino/diagram-vue"
+```
+
+Applications own ruler placement, unit, origin, visibility, and styling. Convert pointer coordinates through the authoritative SVG viewport transform before passing cursor positions. Guide drag coordinate conversion uses the owning SVG's screen CTM; guide snapping remains in Core's standard snapping pipeline. The existing `interactionPreviewMode` contract remains `"live" | "ghost" | "outline"` and is independent of ruler/guide rendering.
+
 ## Read-only content presentation
 
 Use `contentOverrides` on `useDiagramVisibleEntities()` and `DiagramTableView` to render strings while retaining one authoritative Diagram document:

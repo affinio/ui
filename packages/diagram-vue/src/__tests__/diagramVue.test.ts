@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 import { computed, createApp, effectScope, h, nextTick, shallowRef } from "vue"
 import { createCircularArc, createDiagramEngine, resolveDiagramTableLayout, type DiagramContentOverrides, type DiagramSceneInput } from "@affino/diagram-core"
 import { createDiagramInteractionController } from "@affino/diagram-core"
-import { DiagramBezierOverlay, DiagramTableView, getDomEntityStyle, getSvgConnectorRenderProps, getSvgEntityProps, getSvgJunctionRenderProps, getSvgPortCreationPreviewProps, svgTransform, useDiagramConnectorRendering, useDiagramEngine, useDiagramPointerController, useDiagramSelection, useDiagramTable, useDiagramTextEditor, useDiagramViewport, useDiagramVisibleEntities } from ".."
+import { DiagramBezierOverlay, DiagramCursorIndicator, DiagramGuidePreview, DiagramGuidesOverlay, DiagramRuler, DiagramSelectionExtent, DiagramTableView, getDomEntityStyle, getSvgConnectorRenderProps, getSvgEntityProps, getSvgJunctionRenderProps, getSvgPortCreationPreviewProps, svgTransform, useDiagramConnectorRendering, useDiagramEngine, useDiagramPointerController, useDiagramSelection, useDiagramTable, useDiagramTextEditor, useDiagramViewport, useDiagramVisibleEntities } from ".."
 import { beginDiagramHandleInteraction } from "../../../demo-vue/src/pages/diagramHandleInteractions"
 
 const scene: DiagramSceneInput = {
@@ -27,6 +27,10 @@ const scene: DiagramSceneInput = {
 }
 
 describe("diagram-vue", () => {
+  it("exports ruler, persistent guide, cursor, and selection extent Vue components", () => {
+    expect([DiagramRuler, DiagramGuidePreview, DiagramGuidesOverlay, DiagramCursorIndicator, DiagramSelectionExtent].every((component) => typeof component.setup === "function")).toBe(true)
+  })
+
   it("projects reactive display-only Text overrides and prevents authoritative inline editing", async () => {
     const controller = useDiagramEngine({ texts: [{ id: "presented", kind: "text", x: 0, y: 0, text: "Authoritative" }] })
     const overrides = shallowRef<DiagramContentOverrides | undefined>({ textByEntityId: new Map([["presented", "Preview"]]) })
