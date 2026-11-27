@@ -28,6 +28,7 @@
     "@affino/overlay-host": "workspace:*",
     "@affino/overlay-kernel": "workspace:*",
     "@affino/combobox-vue": "workspace:*",
+    "@affino/select-vue": "workspace:*",
     "@affino/listbox-vue": "workspace:*",
     "@affino/selection-vue": "workspace:*",
     "@affino/tooltip-vue": "workspace:*",

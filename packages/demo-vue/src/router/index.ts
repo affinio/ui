@@ -15,6 +15,11 @@ const router = createRouter({
       component: () => import("@/pages/combobox/ComboboxPage.vue"),
     },
     {
+      path: "/select",
+      name: "select-demo",
+      component: () => import("@/pages/SelectPage.vue"),
+    },
+    {
       path: "/dialogs",
       name: "dialog-demo",
       component: () => import("@/pages/DialogPage.vue"),

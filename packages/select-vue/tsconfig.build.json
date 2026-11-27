@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.json",
+  "include": ["src/index.ts", "src/AffinoSelect.vue", "src/types.ts", "src/shims-vue.d.ts"],
+  "compilerOptions": { "emitDeclarationOnly": true }
+}
